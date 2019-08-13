@@ -1,0 +1,68 @@
+{
+  "name": "@lenne.tech/cli",
+  "version": "0.0.1",
+  "description": "lenne.Tech CLI: lt",
+  "keywords": [
+    "lenne.Tech",
+    "cli",
+    "lt"
+  ],
+  "author": "Kai Haase",
+  "homepage": "http://lenne.tech",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lenneTech/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/lenneTech/cli/issues"
+  },
+  "bin": {
+    "lt": "bin/lt"
+  },
+  "scripts": {
+    "format": "prettier --write **/*.{js,ts,tsx,json}",
+    "lint": "tslint -p .",
+    "clean-build": "rimraf ./build",
+    "compile": "tsc -p .",
+    "copy-templates": "if [ -e ./src/templates ]; then cp -a ./src/templates ./build/; fi",
+    "build": "yarn format && yarn lint && yarn test && yarn clean-build && yarn compile && yarn copy-templates",
+    "test": "jest",
+    "watch": "jest --watch",
+    "snapupdate": "jest --updateSnapshot",
+    "coverage": "jest --coverage"
+  },
+  "files": [
+    "tsconfig.json",
+    "tslint.json",
+    "build",
+    "LICENSE",
+    "readme.md",
+    "docs",
+    "bin"
+  ],
+  "dependencies": {
+    "gluegun": "3.3.3",
+    "rimraf": "2.6.3",
+    "ts-node": "8.3.0",
+    "typescript": "3.5.3"
+  },
+  "devDependencies": {
+    "@types/jest": "24.0.17",
+    "@types/node": "12.7.1",
+    "jest": "24.8.0",
+    "prettier": "1.18.2",
+    "ts-jest": "24.0.2",
+    "tslint": "5.18.0",
+    "tslint-config-prettier": "1.18.0",
+    "tslint-config-standard": "8.0.1"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node"
+  },
+  "prettier": {
+    "semi": false,
+    "singleQuote": true
+  }
+}
