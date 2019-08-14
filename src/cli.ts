@@ -11,7 +11,7 @@ async function run(argv) {
     .plugins('./node_modules', { matching: 'lt-*', hidden: true })
     .help() // provides default for help, h, --help, -h
     .version() // provides default for version, v, --version, -v
-    // .checkForUpdates(100)
+    .checkForUpdates(100)
     .create()
 
   // and run it

@@ -11,7 +11,6 @@ const NewCommand: GluegunCommand = {
   description: 'Creates a new server',
   hidden: false,
   run: async (toolbox: GluegunToolbox) => {
-
     // Retrieve the tools we need
     const {
       filesystem,
@@ -27,10 +26,10 @@ const NewCommand: GluegunCommand = {
     } = toolbox
 
     // Start timer
-    const timer = system.startTimer();
+    const timer = system.startTimer()
 
     // Info
-    info('Create a new server');
+    info('Create a new server')
 
     // Git
     const git = !!system.which('git')
@@ -71,19 +70,31 @@ const NewCommand: GluegunCommand = {
 
       if (source && source.includes('via git')) {
         // Clone git repository
-        const cloneSpinner = spin('Clone https://github.com/lenneTech/nest-server-starter.git')
-        await system.run(`git clone https://github.com/lenneTech/nest-server-starter.git ${projectDir}`)
+        const cloneSpinner = spin(
+          'Clone https://github.com/lenneTech/nest-server-starter.git'
+        )
+        await system.run(
+          `git clone https://github.com/lenneTech/nest-server-starter.git ${projectDir}`
+        )
         if (filesystem.isDirectory(`./${projectDir}`)) {
           filesystem.remove(`./${projectDir}/.git`)
-          cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/nest-server-starter.git')
+          cloneSpinner.succeed(
+            'Repository cloned from https://github.com/lenneTech/nest-server-starter.git'
+          )
         }
       } else {
         // Copy templates
-        filesystem.copy(join(__dirname, '../../templates/nest-server-starter'), projectDir)
+        filesystem.copy(
+          join(__dirname, '../../templates/nest-server-starter'),
+          projectDir
+        )
       }
     } else {
       // Copy templates
-      filesystem.copy(join(__dirname, '../../templates/nest-server-starter'), projectDir)
+      filesystem.copy(
+        join(__dirname, '../../templates/nest-server-starter'),
+        projectDir
+      )
     }
 
     // Check directory
@@ -126,9 +137,9 @@ const NewCommand: GluegunCommand = {
         type: 'git',
         url: ''
       }
+      config.version = '0.0.1'
       return config
     })
-
 
     prepareSpinner.succeed('Files prepared')
 
@@ -138,13 +149,21 @@ const NewCommand: GluegunCommand = {
     installSpinner.succeed('NPM packages installed')
     if (git) {
       const initGitSpinner = spin('Initialize git')
-      await system.run(`cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`)
+      await system.run(
+        `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`
+      )
       initGitSpinner.succeed('Git initialized')
     }
 
     // We're done, so show what to do next
     info(``)
-    success(`Generated ${props.name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}.`)
+    success(
+      `Generated ${
+        props.name
+      } server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(
+        timer()
+      )}.`
+    )
     info(``)
     info(`Next:`)
     info(`  Start database server (e.g. MongoDB)`)

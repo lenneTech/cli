@@ -41,14 +41,14 @@
     "test:e2e-cov": "jest --detectOpenHandles --config jest-e2e.json --coverage",
     "test:watch": "jest --watch",
     "prepare": "npm run prestart:prod",
-    "prepublishOnly": "npm run lint && npm run test:e2e",
+    "prepublishOnly": "npm run format && npm run lint && npm run test:e2e",
     "preversion": "npm run lint"
   },
   "engines": {
     "node": ">= 12.4.0"
   },
   "dependencies": {
-    "@lenne.tech/nest-server": "0.0.13"
+    "@lenne.tech/nest-server": "0.0.14"
   },
   "jest": {
     "collectCoverage": true,
@@ -63,6 +63,12 @@
     "testRegex": ".spec.ts$",
     "transform": {
       ".+\\.(t|j)s$": "ts-jest"
+    }
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "pretty-quick --staged",
+      "pre-push": "npm run lint && npm run test:e2e"
     }
   },
   "main": "dist/main.js",
