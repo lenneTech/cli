@@ -27,7 +27,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json -c tslint.json",
     "prestart:prod": "rimraf dist && npm run build",
-    "reinit": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i",
+    "reinit": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i && npm run test:e2e",
     "start": "./node_modules/.bin/grunt",
     "stop": "./node_modules/.bin/pm2 delete nest",
     "start:prod": "./node_modules/.bin/grunt productive",
@@ -48,7 +48,7 @@
     "node": ">= 12.4.0"
   },
   "dependencies": {
-    "@lenne.tech/nest-server": "0.0.14"
+    "@lenne.tech/nest-server": "0.0.15"
   },
   "jest": {
     "collectCoverage": true,

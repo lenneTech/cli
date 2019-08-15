@@ -5,7 +5,6 @@ import { join } from 'path';
  * Configuration for the different environments
  */
 const config: { [env: string]: Partial<IServerOptions> } = {
-
   // ===========================================================================
   // Development environment
   // ===========================================================================
@@ -98,7 +97,8 @@ const config: { [env: string]: Partial<IServerOptions> } = {
  *
  * default: development
  */
-const envConfig = config[process.env.NODE_ENV || 'development'] || config.development;
+const envConfig =
+  config[process.env.NODE_ENV || 'development'] || config.development;
 
 /**
  * Export envConfig as default

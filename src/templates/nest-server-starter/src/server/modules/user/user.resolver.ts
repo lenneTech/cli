@@ -1,5 +1,18 @@
-import { FilterArgs, GraphQLUser, InputHelper, RoleEnum, Roles } from '@lenne.tech/nest-server';
-import { Args, Info, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
+import {
+  FilterArgs,
+  GraphQLUser,
+  InputHelper,
+  RoleEnum,
+  Roles,
+} from '@lenne.tech/nest-server';
+import {
+  Args,
+  Info,
+  Mutation,
+  Query,
+  Resolver,
+  Subscription,
+} from '@nestjs/graphql';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { UserCreateInput } from './inputs/user-create.input';
@@ -15,7 +28,6 @@ const pubSub = new PubSub();
  */
 @Resolver(of => User)
 export class UserResolver {
-
   /**
    * Import services
    */
@@ -29,7 +41,10 @@ export class UserResolver {
    * Get user via ID
    */
   @Query(returns => User, { description: 'Get user with specified ID' })
-  async getUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<User> {
+  async getUser(
+    @Args('id') id: string,
+    @Info() info: GraphQLResolveInfo,
+  ): Promise<User> {
     return await this.usersService.get(id, info);
   }
 
@@ -50,7 +65,11 @@ export class UserResolver {
    * Create new user
    */
   @Mutation(returns => User, { description: 'Create a new user' })
-  async createUser(@Args('input') input: UserCreateInput, @GraphQLUser() user: User, @Info() info: GraphQLResolveInfo): Promise<User> {
+  async createUser(
+    @Args('input') input: UserCreateInput,
+    @GraphQLUser() user: User,
+    @Info() info: GraphQLResolveInfo,
+  ): Promise<User> {
     return await this.usersService.create(input, user, info);
   }
 
@@ -65,7 +84,6 @@ export class UserResolver {
     @GraphQLUser() user: User,
     @Info() info: GraphQLResolveInfo,
   ): Promise<User> {
-
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
@@ -80,7 +98,10 @@ export class UserResolver {
    */
   @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Mutation(returns => User, { description: 'Delete existing user' })
-  async deleteUser(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<User> {
+  async deleteUser(
+    @Args('id') id: string,
+    @Info() info: GraphQLResolveInfo,
+  ): Promise<User> {
     return await this.usersService.delete(id, info);
   }
 

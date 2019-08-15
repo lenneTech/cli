@@ -6,7 +6,6 @@ import { Field, ObjectType } from 'type-graphql';
  */
 @ObjectType({ description: 'Editor' })
 export class Editor extends CoreEditorModel {
-
   /**
    * URL to avatar file of the user
    */

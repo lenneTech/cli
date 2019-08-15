@@ -11,16 +11,14 @@ import { FileController } from './server/modules/file/file.controller';
  * for the project API
  */
 @Module({
-
   // Include modules
   imports: [
-
     // Include CoreModule for standard processes
     CoreModule.forRoot(envConfig),
 
     // Include AuthModule for authorization handling,
     // which will also include UserModule
-    AuthModule.forRoot(envConfig),
+    AuthModule.forRoot(envConfig.jwt),
   ],
 
   // Include REST controllers
