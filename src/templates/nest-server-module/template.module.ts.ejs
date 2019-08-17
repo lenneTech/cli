@@ -1,0 +1,18 @@
+import { JSON } from '@lenne.tech/nest-server';
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { UserModule } from '../user/user.module';
+import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
+import { <%= props.namePascal %>Resolver } from './<%= props.nameKebab %>.resolver';
+import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
+
+/**
+ * <%= props.namePascal %> module
+ */
+@Module({
+  imports: [TypeOrmModule.forFeature([<%= props.namePascal %>]), UserModule],
+  controllers: [],
+  providers: [<%= props.namePascal %>Resolver, <%= props.namePascal %>Service, JSON],
+  exports: [TypeOrmModule, <%= props.namePascal %>Resolver, <%= props.namePascal %>Service],
+})
+export class <%= props.namePascal %>Module {}

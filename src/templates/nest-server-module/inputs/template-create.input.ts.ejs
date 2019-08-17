@@ -1,0 +1,20 @@
+import { IsOptional } from 'class-validator';
+import { Field, InputType } from 'type-graphql';
+
+/**
+ * <%= props.namePascal %> create input
+ */
+@InputType({ description: 'Description for <%= props.namePascal %>CreateInput' })
+export class <%= props.namePascal %>CreateInput {
+
+  // ===================================================================================================================
+  // Properties
+  // ===================================================================================================================
+
+  /**
+   * Description of the property
+   */
+  @Field({ description: 'Description of the property', nullable: true })
+  @IsOptional()
+  property?: string;
+}

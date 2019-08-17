@@ -1,0 +1,100 @@
+import { FilterArgs, GraphQLUser, InputHelper, RoleEnum, Roles } from '@lenne.tech/nest-server';
+import { Args, Info, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
+import { GraphQLResolveInfo } from 'graphql';
+import { PubSub } from 'graphql-subscriptions';
+import { User } from '../user/user.model';
+import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
+import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
+import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
+
+// Subscription
+const pubSub = new PubSub();
+
+/**
+ * Resolver to process with <%= props.namePascal %> data
+ */
+@Resolver(of => <%= props.namePascal %>)
+export class <%= props.namePascal %>Resolver {
+
+  /**
+   * Import services
+   */
+  constructor(private readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service) {}
+
+  // ===========================================================================
+  // Queries
+  // ===========================================================================
+
+  /**
+   * Get <%= props.namePascal %> via ID
+   */
+  @Query(returns => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
+  async get<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.get(id, info);
+  }
+
+  /**
+   * Get <%= props.namePascal %>s (via filter)
+   */
+  @Roles(RoleEnum.USER)
+  @Query(returns => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
+  async find<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+    return await this.<%= props.nameCamel %>Service.find(args, info);
+  }
+
+  // ===========================================================================
+  // Mutations
+  // ===========================================================================
+
+  /**
+   * Create new <%= props.namePascal %>
+   */
+  @Mutation(returns => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
+  async create<%= props.namePascal %>(@Args('input') input: <%= props.namePascal %>CreateInput, @GraphQLUser() user: User, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.create(input, user, info);
+  }
+
+  /**
+   * Update existing <%= props.namePascal %>
+   */
+  @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
+  @Mutation(returns => <%= props.namePascal %>, { description: 'Update existing <%= props.namePascal %>' })
+  async update<%= props.namePascal %>(
+    @Args('input') input: <%= props.namePascal %>Input,
+    @Args('id') id: string,
+    @GraphQLUser() user: User,
+    @Info() info: GraphQLResolveInfo,
+  ): Promise<<%= props.namePascal %>> {
+
+    // Check input
+    // Hint: necessary as long as global CheckInputPipe can't access context for current user
+    // (see https://github.com/nestjs/graphql/issues/325)
+    input = await InputHelper.check(input, user, <%= props.namePascal %>);
+
+    // Update <%= props.namePascal %>
+    return await this.<%= props.nameCamel %>Service.update(id, input, user, info);
+  }
+
+  /**
+   * Delete existing <%= props.namePascal %>
+   */
+  @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
+  @Mutation(returns => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
+  async delete<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.delete(id, info);
+  }
+
+  // ===========================================================================
+  // Subscriptions
+  // ===========================================================================
+
+  /**
+   * Subscription for create <%= props.namePascal %>
+   */
+  @Roles(RoleEnum.ADMIN)
+  @Subscription(returns => <%= props.namePascal %>)
+  <%= props.nameCamel %>Created() {
+    return pubSub.asyncIterator('<%= props.nameCamel %>Created');
+  }
+}

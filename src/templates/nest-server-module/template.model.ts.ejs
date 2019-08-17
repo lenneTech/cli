@@ -1,0 +1,23 @@
+import { Field, ObjectType } from 'type-graphql';
+import { Column, Entity } from 'typeorm';
+import { PersistenceModel } from '../../common/models/persistence.model';
+import { User } from '../user/user.model';
+
+/**
+ * <%= props.namePascal %> model
+ */
+@Entity()
+@ObjectType({ description: '<%= props.namePascal %>' })
+export class <%= props.namePascal %> extends PersistenceModel {
+
+  // ===================================================================================================================
+  // Properties
+  // ===================================================================================================================
+
+  /**
+   * Description of the property
+   */
+  @Field(type => User, { description: 'Description of the property', nullable: true })
+  @Column('varchar')
+  property: string | User;
+}
