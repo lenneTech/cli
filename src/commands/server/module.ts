@@ -6,7 +6,7 @@ import { join } from 'path'
  */
 const NewCommand: GluegunCommand = {
   name: 'module',
-  alias: ['csm'],
+  alias: ['m'],
   description: 'Creates a new server module',
   hidden: false,
   run: async (toolbox: GluegunToolbox) => {
@@ -36,10 +36,9 @@ const NewCommand: GluegunCommand = {
     }
 
     // Set up initial props (to pass into templates)
-    const nameCamel = camelCase(parameters.first);
-    const nameKebab = kebabCase(parameters.first);
-    const namePascal = pascalCase(parameters.first);
-
+    const nameCamel = camelCase(parameters.first)
+    const nameKebab = kebabCase(parameters.first)
+    const namePascal = pascalCase(parameters.first)
 
     // Check if directory
     const cwd = filesystem.cwd()
@@ -100,30 +99,39 @@ const NewCommand: GluegunCommand = {
       props: { nameCamel, nameKebab, namePascal }
     })
 
-    const prettier = join(path, 'node_modules', '.bin', 'prettier');
-    if (filesystem.exists(prettier)){
-      await system.run(prettier + ' ' + join(moduleDir, '**', '*.ts'));
+    const prettier = join(path, 'node_modules', '.bin', 'prettier')
+    if (filesystem.exists(prettier)) {
+      await system.run(prettier + ' ' + join(moduleDir, '**', '*.ts'))
     }
 
     generateSpinner.succeed('Files generated')
 
-    const serverModule = join(path, 'src', 'server.module.ts');
+    const serverModule = join(path, 'src', 'server.module.ts')
     if (filesystem.exists(serverModule)) {
       const includeSpinner = spin('Include module into server')
-      await patching.patch(join(path, 'src', 'server.module.ts'), {insert: `import { ${namePascal}Module } from './server/modules/${nameKebab}/${nameKebab}.module';\n`, before: 'import'});
-      await patching.patch(join(path, 'src', 'server.module.ts'), {insert: `    ${namePascal}Module,\n`, after: new RegExp('imports:[^\\]]*', 'm')});
-      if (filesystem.exists(prettier)){
-        await system.run(prettier + ' ' + serverModule);
+      await patching.patch(join(path, 'src', 'server.module.ts'), {
+        insert: `import { ${namePascal}Module } from './server/modules/${nameKebab}/${nameKebab}.module';\n`,
+        before: 'import'
+      })
+      await patching.patch(join(path, 'src', 'server.module.ts'), {
+        insert: `    ${namePascal}Module,\n`,
+        after: new RegExp('imports:[^\\]]*', 'm')
+      })
+      if (filesystem.exists(prettier)) {
+        await system.run(prettier + ' ' + serverModule)
       }
       includeSpinner.succeed('Module included')
     } else {
-      info('Don\'t forget to include the module into your main module.')
+      info("Don't forget to include the module into your main module.")
     }
-
 
     // We're done, so show what to do next
     info(``)
-    success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}.`)
+    success(
+      `Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(
+        timer()
+      )}.`
+    )
     info(``)
 
     // For tests

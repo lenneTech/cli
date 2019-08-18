@@ -6,8 +6,8 @@ import { join } from 'path'
  * Create a new server
  */
 const NewCommand: GluegunCommand = {
-  name: 'server',
-  alias: ['cs'],
+  name: 'create',
+  alias: ['c'],
   description: 'Creates a new server',
   hidden: false,
   run: async (toolbox: GluegunToolbox) => {
