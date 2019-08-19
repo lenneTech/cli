@@ -1,5 +1,6 @@
-import { GluegunCommand, GluegunToolbox } from 'gluegun'
+import { GluegunCommand } from 'gluegun'
 import { join } from 'path'
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
 
 /**
  * Reinitialize npm packages
@@ -9,7 +10,7 @@ const NewCommand: GluegunCommand = {
   alias: ['r'],
   description: 'Reinitialize npm packages',
   hidden: false,
-  run: async (toolbox: GluegunToolbox) => {
+  run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       helper,

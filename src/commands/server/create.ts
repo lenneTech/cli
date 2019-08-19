@@ -1,6 +1,7 @@
 import * as crypto from 'crypto'
-import { GluegunCommand, GluegunToolbox } from 'gluegun'
+import { GluegunCommand } from 'gluegun'
 import { join } from 'path'
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
 
 /**
  * Create a new server
@@ -10,7 +11,7 @@ const NewCommand: GluegunCommand = {
   alias: ['c'],
   description: 'Creates a new server',
   hidden: false,
-  run: async (toolbox: GluegunToolbox) => {
+  run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       filesystem,

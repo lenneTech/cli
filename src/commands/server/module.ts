@@ -1,5 +1,6 @@
-import { GluegunCommand, GluegunToolbox } from 'gluegun'
+import { GluegunCommand } from 'gluegun'
 import { join } from 'path'
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
 
 /**
  * Create a new server module
@@ -9,7 +10,7 @@ const NewCommand: GluegunCommand = {
   alias: ['m'],
   description: 'Creates a new server module',
   hidden: false,
-  run: async (toolbox: GluegunToolbox) => {
+  run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       filesystem,
