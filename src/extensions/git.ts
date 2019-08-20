@@ -1,4 +1,4 @@
-import { GluegunToolbox } from 'gluegun'
+import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox'
 
 /**
  * Git functions
@@ -7,7 +7,7 @@ export class Git {
   /**
    * Constructor for integration of toolbox
    */
-  constructor(protected toolbox: GluegunToolbox) {}
+  constructor(protected toolbox: ExtendedGluegunToolbox) {}
 
   /**
    * Ask for reset
@@ -39,6 +39,24 @@ export class Git {
   }
 
   /**
+   * Check if current branch has changes
+   */
+  public changes() {
+    // Toolbox features
+    const { system } = this.toolbox
+    return system.run('git status --porcelain')
+  }
+
+  /**
+   * Get current branch
+   */
+  public currentBranch() {
+    // Toolbox features
+    const { system } = this.toolbox
+    return system.run('git rev-parse --abbrev-ref HEAD')
+  }
+
+  /**
    * Get branches
    */
   public async getBranches() {
@@ -59,6 +77,31 @@ export class Git {
 
     // Return result
     return result
+  }
+
+  /**
+   * Get merge base
+   */
+  public getMergeBase(baseBranch: string = 'develop') {
+    return this.toolbox.system.run(`git merge-base HEAD ${baseBranch}`)
+  }
+
+  /**
+   * Get git user
+   */
+  public async getUser() {
+    // Toolbox features
+    const {
+      system: { run }
+    } = this.toolbox
+
+    // Get data
+    const user: { email: string; name: string } = {} as any
+    user.email = await run('git config user.email')
+    user.name = await run('git config user.name')
+
+    // Return user
+    return user
   }
 
   /**
@@ -169,6 +212,19 @@ export class Git {
   }
 
   /**
+   * Reset branch
+   */
+  public reset(mergeBase: string, soft: boolean = false) {
+    // Toolbox features
+    const {
+      system: { run }
+    } = this.toolbox
+    return run(
+      soft ? `git reset --soft ${mergeBase}` : `git reset ${mergeBase}`
+    )
+  }
+
+  /**
    * Select a branch
    */
   public async selectBranch(
@@ -217,11 +273,22 @@ export class Git {
     // Return selected branch
     return branch
   }
+
+  /**
+   * Get status
+   */
+  public status() {
+    // Toolbox features
+    const {
+      system: { run }
+    } = this.toolbox
+    return run('git status')
+  }
 }
 
 /**
  * Extend toolbox
  */
-export default (toolbox: GluegunToolbox) => {
+export default (toolbox: ExtendedGluegunToolbox) => {
   toolbox.git = new Git(toolbox)
 }

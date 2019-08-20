@@ -12,9 +12,9 @@ const NewCommand: GluegunCommand = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
-      filesystem,
       git,
       helper,
+      npm,
       parameters,
       print: { info, spin, success },
       prompt,
@@ -73,11 +73,7 @@ const NewCommand: GluegunCommand = {
     checkoutSpin.succeed()
 
     // Install npm packages
-    if (filesystem.exists('package.json')) {
-      const npmSpin = spin('Install npm packages')
-      await system.run('npm i')
-      npmSpin.succeed()
-    }
+    await npm.install()
 
     // Success info
     if (remoteBranch) {
@@ -97,7 +93,7 @@ const NewCommand: GluegunCommand = {
     info('')
 
     // For tests
-    return `new server ${toolbox.parameters.first}`
+    return `get branch ${branch}`
   }
 }
 

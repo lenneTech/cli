@@ -1,5 +1,5 @@
 import { GluegunCommand } from 'gluegun'
-import { join } from 'path'
+import { dirname } from 'path'
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
 
 /**
@@ -14,8 +14,8 @@ const NewCommand: GluegunCommand = {
     // Retrieve the tools we need
     const {
       helper,
-      filesystem,
-      print: { error, spin, success },
+      npm,
+      print: { spin, success },
       prompt,
       system
     } = toolbox
@@ -24,9 +24,8 @@ const NewCommand: GluegunCommand = {
     const timer = system.startTimer()
 
     // Check
-    const packagePath = join(filesystem.cwd(), 'package.json')
-    if (!filesystem.exists(packagePath)) {
-      error('No package.json in current directory')
+    const { path, data } = await npm.getPackageJson({ showError: true })
+    if (!path) {
       return
     }
 
@@ -35,36 +34,42 @@ const NewCommand: GluegunCommand = {
       'Update package.json before reinitialization?'
     )
     if (update) {
-      const updateSpin = spin('Update package.json')
       if (!system.which('ncu')) {
         const installSpin = spin('Install ncu')
         await system.run('npm i -g npm-check-updates')
         installSpin.succeed()
       }
-      await system.run('ncu -u --packageFile ' + packagePath)
+      const updateSpin = spin('Update package.json')
+      await system.run('ncu -u --packageFile ' + path)
       updateSpin.succeed()
     }
 
     // Reinitialize
-    const reinitSpin = spin('Reinitialize npm packages')
-    try {
-      await system.run('npm run reinit')
-      reinitSpin.succeed()
-    } catch (e) {
+
+    if (data.scripts && data.scripts.reinit) {
+      const ownReinitSpin = spin('Reinitialize npm packages')
+      await system.run(`cd ${dirname(path)} && npm run reinit`)
+      ownReinitSpin.succeed()
+    } else {
+      const reinitSpin = spin('Reinitialize npm packages')
       if (system.which('rimraf')) {
         await system.run('npm i -g rimraf')
       }
       await system.run(
-        'rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i'
+        `cd ${dirname(
+          path
+        )} && rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i`
       )
       reinitSpin.succeed()
-      const testSpin = spin('Run tests')
-      try {
-        await system.run('npm run test:e2e')
-      } catch (e) {
-        await system.run('npm run test')
+      if (data.scripts && data.scripts['test:e2e']) {
+        const testE2eSpin = spin('Run tests')
+        await system.run(`cd ${dirname(path)} && npm run test:e2e`)
+        testE2eSpin.succeed()
+      } else if (data.scripts && data.scripts && data.scripts.test) {
+        const testSpin = spin('Run tests')
+        await system.run(`cd ${dirname(path)} && npm run test`)
+        testSpin.succeed()
       }
-      testSpin.succeed()
     }
 
     // Success info
@@ -73,7 +78,7 @@ const NewCommand: GluegunCommand = {
     )
 
     // For tests
-    return `new server ${toolbox.parameters.first}`
+    return `reinit`
   }
 }
 
