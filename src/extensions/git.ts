@@ -167,6 +167,9 @@ export class Git {
       searchSpin = spin(opts.spinText)
     }
 
+    // Update infos
+    await system.run(`git fetch`)
+
     // Search branch
     if (opts.exact) {
       if (opts.remote) {
@@ -176,7 +179,7 @@ export class Git {
       }
     } else {
       branch = (await system.run(
-        `git fetch && git branch -a | grep ${branch} | cut -c 3- | head -1`
+        `git branch -a | grep ${branch} | cut -c 3- | head -1`
       ))
         .replace(/\r?\n|\r/g, '') // replace line breaks
         .replace(/^remotes\/origin\//, '') // replace remote path

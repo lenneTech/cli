@@ -6,7 +6,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   name: 'reset',
-  alias: ['r'],
+  alias: ['rs'],
   description: 'Reset current branch',
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {

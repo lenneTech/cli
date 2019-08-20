@@ -33,7 +33,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch()
 
     // Check branch
-    if (branch === 'master' || branch === 'develop') {
+    if (branch === 'master' || branch === 'release' || branch === 'develop') {
       error(`Squash of branch ${branch} is not allowed!`)
       return
     }
