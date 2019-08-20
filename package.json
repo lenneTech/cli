@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -30,7 +30,11 @@
     "test": "jest",
     "watch": "jest --watch",
     "snapupdate": "jest --updateSnapshot",
-    "coverage": "jest --coverage"
+    "coverage": "jest --coverage",
+    "prestart:prod": "rimraf build && npm run build",
+    "prepare": "npm run prestart:prod",
+    "prepublishOnly": "npm run format && npm run lint && npm run test",
+    "preversion": "npm run lint"
   },
   "files": [
     "tsconfig.json",

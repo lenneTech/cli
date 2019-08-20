@@ -44,7 +44,7 @@ const NewCommand: GluegunCommand = {
 
     // Check for changes
     if (await git.changes()) {
-      error('Please commit changes before squashing the branch.')
+      error('Please commit changes before renaming the branch.')
       return
     }
 

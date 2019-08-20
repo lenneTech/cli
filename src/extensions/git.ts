@@ -215,6 +215,18 @@ export class Git {
   }
 
   /**
+   * Get last commit from current branch
+   */
+  public lastCommitMessage() {
+    // Toolbox features
+    const {
+      system: { run }
+    } = this.toolbox
+
+    return run('git show-branch --no-name HEAD')
+  }
+
+  /**
    * Reset branch
    */
   public reset(mergeBase: string, soft: boolean = false) {
