@@ -29,9 +29,9 @@ $ lt
 $ lt
 
 // Create new server
-$ lt server create
+$ lt server create <ServerName>
 or
-$ lt server c
+$ lt server c <ServerName>
 
 // Create new module for server (in server project root dir)
 $ lt server module <ModuleName>
