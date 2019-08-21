@@ -27,7 +27,7 @@
     "compile": "tsc -p .",
     "copy-templates": "if [ -e ./src/templates ]; then cp -a ./src/templates ./build/; fi",
     "build": "yarn format && yarn lint && yarn test && yarn clean-build && yarn compile && yarn copy-templates",
-    "test": "jest --timeout=60000",
+    "test": "jest --testTimeout=60000",
     "watch": "jest --watch",
     "snapupdate": "jest --updateSnapshot",
     "coverage": "jest --coverage",
