@@ -29,13 +29,22 @@ const NewCommand: GluegunCommand = {
       return
     }
 
+    // Get branch
+    let branch = await helper.getInput(parameters.first, {
+      name: 'branch name',
+      showError: true
+    })
+    if (!branch) {
+      return
+    }
+
     // Check changes in current branch (reset necessary)
     if (!(await git.askForReset({ showError: true }))) {
       return
     }
 
     // Get branch
-    const branch = await git.existBranch(parameters.first, {
+    branch = await git.existBranch(parameters.first, {
       error: true,
       exact: false,
       remote: false,

@@ -29,7 +29,13 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch()
 
     // Get new name
-    const name = parameters.first
+    const name = await helper.getInput(parameters.first, {
+      name: 'new name',
+      showError: true
+    })
+    if (!branch) {
+      return
+    }
 
     // Check branch
     if (branch === 'master' || branch === 'release' || branch === 'develop') {

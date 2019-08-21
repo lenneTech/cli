@@ -11,6 +11,55 @@ export class Helper {
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
 
   /**
+   * Get input if not set
+   */
+  public async getInput(
+    input: string,
+    options?: {
+      initial?: string
+      name?: string
+      errorMessage?: string
+      showError?: boolean
+    }
+  ) {
+    // Process options
+    const opts = Object.assign(
+      {
+        initial: '',
+        name: 'name',
+        showError: false
+      },
+      options
+    )
+    if (!opts.errorMessage) {
+      opts.errorMessage = `You must provide a valid ${opts.name}!`
+    }
+
+    // Toolbox features
+    const {
+      print: { error },
+      prompt: { ask }
+    } = this.toolbox
+
+    // Get input
+    if (!input || !this.trim(input)) {
+      const answers = await ask({
+        initial: opts.initial,
+        type: 'input',
+        name: 'input',
+        message: `Enter ${opts.name}`
+      })
+      input = answers.input
+      if (!input && opts.showError) {
+        error(opts.errorMessage)
+      }
+
+      // Return input
+      return input
+    }
+  }
+
+  /**
    * String with minutes and seconds
    */
   public msToMinutesAndSeconds(ms: number) {

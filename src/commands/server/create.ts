@@ -20,7 +20,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       patching,
       print: { error, info, spin, success },
-      prompt,
+      prompt: { ask },
       strings: { kebabCase },
       system,
       template
@@ -35,23 +35,20 @@ const NewCommand: GluegunCommand = {
     // Git
     const git = !!system.which('git')
 
-    // Set up initial props (to pass into templates)
-    const props = {
-      name: parameters.first
-    }
-
-    // Check name
-    if (!props.name || props.name.length === 0) {
-      error('You must provide a valid server name.')
-      error('Example: lt server myNewServer')
-      return undefined
+    // Get name
+    const name = await helper.getInput(parameters.first, {
+      name: 'server name',
+      showError: true
+    })
+    if (!name) {
+      return
     }
 
     // Set project directory
-    const projectDir = kebabCase(props.name)
+    const projectDir = kebabCase(name)
 
     // Check if directory already exists
-    if (filesystem.exists(props.name)) {
+    if (filesystem.exists(name)) {
       info(``)
       error(`There's already a folder named "${projectDir}" here.`)
       return undefined
@@ -59,7 +56,7 @@ const NewCommand: GluegunCommand = {
 
     // Get source
     if (git) {
-      const { source } = await prompt.ask({
+      const { source } = await ask({
         type: 'select',
         name: 'source',
         message: 'Which source should be used to create the server?',
@@ -110,7 +107,7 @@ const NewCommand: GluegunCommand = {
     await template.generate({
       template: 'nest-server-starter-extra/README.md.ejs',
       target: `./${projectDir}/README.md`,
-      props: { name: props.name }
+      props: { name }
     })
 
     // Set configuration
@@ -131,7 +128,7 @@ const NewCommand: GluegunCommand = {
       config.bugs = {
         url: ''
       }
-      config.description = props.name
+      config.description = name
       config.homepage = ''
       config.name = projectDir
       config.repository = {
@@ -159,9 +156,7 @@ const NewCommand: GluegunCommand = {
     // We're done, so show what to do next
     info(``)
     success(
-      `Generated ${
-        props.name
-      } server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(
+      `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(
         timer()
       )}.`
     )

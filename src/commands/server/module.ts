@@ -29,11 +29,12 @@ const NewCommand: GluegunCommand = {
     // Info
     info('Create a new server module')
 
-    // Check name
-    if (!parameters.first) {
-      error('You must provide a valid server module name.')
-      error('Example: lt server module MyNewModule')
-      return undefined
+    // Get name
+    const name = await helper.getInput(parameters.first, {
+      name: 'module name'
+    })
+    if (!name) {
+      return
     }
 
     // Set up initial props (to pass into templates)

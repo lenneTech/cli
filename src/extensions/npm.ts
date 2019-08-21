@@ -1,4 +1,5 @@
 import * as find from 'find-file-up'
+import * as fs from 'fs'
 import { dirname } from 'path'
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox'
 
@@ -45,6 +46,39 @@ export class Npm {
 
     // Everything ok
     return { path: path, data: await helper.readFile(path) }
+  }
+
+  /**
+   * Set data for package.json
+   */
+  public async setPackageJson(
+    data: string | { [key: string]: any },
+    options: {
+      cwd?: string
+      errorMessage?: string
+      showError?: boolean
+    } = {}
+  ) {
+    if (typeof data === 'object') {
+      data = JSON.stringify(data, null, 2)
+    }
+
+    // Path to package.json
+    const { path } = await this.getPackageJson(options)
+    if (!path) {
+      return
+    }
+
+    // Write
+    try {
+      fs.unlinkSync(path)
+      fs.writeFileSync(path, data)
+    } catch (e) {
+      return ''
+    }
+
+    // Done
+    return path
   }
 
   /**

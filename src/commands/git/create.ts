@@ -28,8 +28,14 @@ const NewCommand: GluegunCommand = {
     // Check changes in current branch (reset optional)
     await git.askForReset()
 
-    // Set branch
-    const branch = parameters.first
+    // Get branch
+    const branch = await helper.getInput(parameters.first, {
+      name: 'branch name',
+      showError: true
+    })
+    if (!branch) {
+      return
+    }
 
     // Check if branch already exists
     if (await git.existBranch(branch)) {
