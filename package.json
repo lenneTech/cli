@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -27,13 +27,12 @@
     "compile": "tsc -p .",
     "copy-templates": "if [ -e ./src/templates ]; then cp -a ./src/templates ./build/; fi",
     "build": "yarn format && yarn lint && yarn test && yarn clean-build && yarn compile && yarn copy-templates",
-    "test": "jest",
+    "test": "jest --timeout=60000",
     "watch": "jest --watch",
     "snapupdate": "jest --updateSnapshot",
     "coverage": "jest --coverage",
     "prestart:prod": "rimraf build && npm run build",
-    "prepare": "npm run prestart:prod",
-    "prepublishOnly": "npm run format && npm run lint && npm run test",
+    "prepublishOnly": "npm run format && npm run lint && npm run test && npm run prestart:prod",
     "preversion": "npm run lint"
   },
   "files": [
@@ -60,7 +59,7 @@
     "prettier": "1.18.2",
     "pretty-quick": "1.11.1",
     "ts-jest": "24.0.2",
-    "tslint": "5.18.0",
+    "tslint": "5.19.0",
     "tslint-config-prettier": "1.18.0",
     "tslint-config-standard": "8.0.1"
   },

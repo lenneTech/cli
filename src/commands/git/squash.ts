@@ -24,11 +24,6 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Check changes in current branch
-    if (!(await git.askForReset())) {
-      return
-    }
-
     // Get current branch
     const branch = await git.currentBranch()
 
@@ -39,8 +34,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Check for changes
-    if (await git.changes()) {
-      error('Please commit changes before squashing the branch.')
+    if (await git.changes({ showError: true })) {
       return
     }
 

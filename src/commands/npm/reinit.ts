@@ -78,7 +78,7 @@ const NewCommand: GluegunCommand = {
     )
 
     // For tests
-    return `reinit`
+    return `npm reinit`
   }
 }
 

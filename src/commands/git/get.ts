@@ -29,8 +29,8 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Check changes in current branch
-    if (!(await git.askForReset())) {
+    // Check changes in current branch (reset necessary)
+    if (!(await git.askForReset({ showError: true }))) {
       return
     }
 

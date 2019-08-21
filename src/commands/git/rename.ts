@@ -25,11 +25,6 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Check changes in current branch
-    if (!(await git.askForReset())) {
-      return
-    }
-
     // Get current branch
     const branch = await git.currentBranch()
 
@@ -39,12 +34,6 @@ const NewCommand: GluegunCommand = {
     // Check branch
     if (branch === 'master' || branch === 'release' || branch === 'develop') {
       error(`Rename branch ${branch} is not allowed!`)
-      return
-    }
-
-    // Check for changes
-    if (await git.changes()) {
-      error('Please commit changes before renaming the branch.')
       return
     }
 

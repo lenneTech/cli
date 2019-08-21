@@ -24,11 +24,6 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Check changes in current branch
-    if (!(await git.askForReset())) {
-      return
-    }
-
     // Start timer
     const timer = startTimer()
 

@@ -24,11 +24,6 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Check changes in current branch
-    if (!(await git.askForReset())) {
-      return
-    }
-
     // Last commit message
     const lastCommitMessage = await git.lastCommitMessage()
 

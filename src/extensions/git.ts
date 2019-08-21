@@ -12,23 +12,34 @@ export class Git {
   /**
    * Ask for reset
    */
-  public async askForReset(options: { text?: string } = {}) {
+  public async askForReset(
+    options: { errorMessage?: string; showError?: boolean; text?: string } = {}
+  ) {
     // Process options
     const opts = Object.assign(
       {
+        errorMessage: 'Please commit or stash changes!',
+        showError: false,
         text: 'There are changes, reset?'
       },
       options
     )
 
     // Toolbox features
-    const { prompt, system } = this.toolbox
+    const {
+      print: { error },
+      prompt,
+      system
+    } = this.toolbox
 
     // Check changes in current branch
     const changes = await system.run('git status --porcelain')
     if (changes) {
       const reset = await prompt.confirm(opts.text)
       if (!reset) {
+        if (opts.showError) {
+          error(opts.errorMessage)
+        }
         return false
       }
       await system.run('git reset --hard && git clean -fd')
@@ -41,19 +52,40 @@ export class Git {
   /**
    * Check if current branch has changes
    */
-  public changes() {
+  public changes(options?: { errorMessage?: string; showError?: boolean }) {
+    // Process options
+    const opts = Object.assign(
+      {
+        showError: false,
+        errorMessage: 'Please commit or stash changes!'
+      },
+      options
+    )
+
     // Toolbox features
-    const { system } = this.toolbox
-    return system.run('git status --porcelain')
+    const {
+      print: { error },
+      system
+    } = this.toolbox
+
+    // Check changes
+    const changes = system.run('git status --porcelain')
+    if (changes && opts.showError) {
+      error(opts.errorMessage)
+    }
+    return changes
   }
 
   /**
    * Get current branch
    */
-  public currentBranch() {
+  public async currentBranch() {
     // Toolbox features
-    const { system } = this.toolbox
-    return system.run('git rev-parse --abbrev-ref HEAD')
+    const {
+      helper: { trim },
+      system
+    } = this.toolbox
+    return trim(await system.run('git rev-parse --abbrev-ref HEAD'))
   }
 
   /**
@@ -82,8 +114,14 @@ export class Git {
   /**
    * Get merge base
    */
-  public getMergeBase(baseBranch: string = 'develop') {
-    return this.toolbox.system.run(`git merge-base HEAD ${baseBranch}`)
+  public async getMergeBase(baseBranch: string = 'develop') {
+    // Toolbox features
+    const {
+      helper: { trim },
+      system: { run }
+    } = this.toolbox
+
+    return trim(await run(`git merge-base HEAD ${baseBranch}`))
   }
 
   /**
@@ -92,13 +130,14 @@ export class Git {
   public async getUser() {
     // Toolbox features
     const {
+      helper: { trim },
       system: { run }
     } = this.toolbox
 
     // Get data
     const user: { email: string; name: string } = {} as any
-    user.email = await run('git config user.email')
-    user.name = await run('git config user.name')
+    user.email = trim(await run('git config user.email'))
+    user.name = trim(await run('git config user.name'))
 
     // Return user
     return user
@@ -157,6 +196,7 @@ export class Git {
 
     // Toolbox features
     const {
+      helper: { trim },
       print: { error, spin },
       system
     } = this.toolbox
@@ -175,7 +215,11 @@ export class Git {
       if (opts.remote) {
         branch = await system.run(`git ls-remote --heads origin ${branch}`)
       } else {
-        branch = await system.run(`git rev-parse --verify ${branch}`)
+        try {
+          branch = await system.run(`git rev-parse --verify ${branch}`)
+        } catch (e) {
+          branch = null
+        }
       }
     } else {
       branch = (await system.run(
@@ -195,6 +239,9 @@ export class Git {
       return
     }
 
+    // Trim branch
+    branch = trim(branch)
+
     // End spinner
     if (opts.spin) {
       searchSpin.succeed()
@@ -202,8 +249,8 @@ export class Git {
 
     // Check remote, if not done before
     if (opts.remote && !opts.exact) {
-      const remoteBranch = await system.run(
-        `git ls-remote --heads origin ${branch}`
+      const remoteBranch = trim(
+        await system.run(`git ls-remote --heads origin ${branch}`)
       )
       if (!remoteBranch) {
         return
@@ -217,13 +264,14 @@ export class Git {
   /**
    * Get last commit from current branch
    */
-  public lastCommitMessage() {
+  public async lastCommitMessage() {
     // Toolbox features
     const {
+      helper: { trim },
       system: { run }
     } = this.toolbox
 
-    return run('git show-branch --no-name HEAD')
+    return trim(await run('git show-branch --no-name HEAD'))
   }
 
   /**

@@ -37,6 +37,19 @@ export class Helper {
       })
     })
   }
+
+  /**
+   * Trim and remove linebreaks from input
+   */
+  public trim(input: string) {
+    // Check input
+    if (!input) {
+      return input
+    }
+
+    // Trim input
+    return input.trim().replace(/(\r\n|\n|\r)/gm, '')
+  }
 }
 
 /**
