@@ -8,7 +8,7 @@ const NewCommand: GluegunCommand = {
   name: 'playground',
   alias: ['pg'],
   description: 'Creat a new typescript playground',
-  hidden: true,
+  hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {

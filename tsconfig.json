@@ -19,7 +19,7 @@
     "inlineSourceMap": true,
     "outDir": "build",
     "strict": false,
-    "target": "es5",
+    "target": "es6",
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],

@@ -99,6 +99,96 @@ export class Helper {
     // Trim input
     return input.trim().replace(/(\r\n|\n|\r)/gm, '')
   }
+
+  /**
+   * Command selector
+   * @param options
+   */
+  public async commandSelector(
+    toolbox: ExtendedGluegunToolbox,
+    options?: {
+      level?: number
+      parentCommand?: string
+      welcome?: string
+    }
+  ) {
+    // Toolbox feature
+    const {
+      print,
+      prompt,
+      runtime: { commands }
+    } = toolbox
+
+    // Process options
+    const { level, parentCommand, welcome } = Object.assign(
+      {
+        level: 1,
+        parentCommand: ''
+      },
+      options
+    )
+
+    // Welcome
+    if (welcome) {
+      print.info(print.colors.cyan(welcome))
+    }
+
+    // Get main commands
+    let mainCommands = commands
+      .filter(
+        c =>
+          c.commandPath.length === level + 1 &&
+          c.commandPath.join(' ').startsWith(parentCommand) &&
+          !['lt', 'help'].includes(c.commandPath[0])
+      )
+      .map(
+        c => c.commandPath[level] + (c.description ? ` (${c.description})` : '')
+      )
+      .sort()
+
+    // Additions commands
+    mainCommands = ['help'].concat(mainCommands)
+    mainCommands.push('cancel')
+
+    // Select command
+    const { commandName } = await prompt.ask({
+      type: 'select',
+      name: 'commandName',
+      message: 'Select command',
+      choices: mainCommands.slice(0)
+    })
+
+    // Check command
+    if (!commandName) {
+      print.error('No command selected!')
+      return
+    }
+
+    switch (commandName) {
+      case 'cancel': {
+        print.info('Take care :-)')
+        return
+      }
+      case 'help': {
+        ;(print.printCommands as any)(
+          toolbox,
+          level ? parentCommand.split(' ') : undefined
+        )
+        break
+      }
+      default: {
+        // Get command
+        const command = commands.filter(
+          c =>
+            c.commandPath.join(' ') ===
+            `${parentCommand} ${commandName}`.trim().replace(/\s\(.*\)$/, '')
+        )[0]
+
+        // Run command
+        command.run(toolbox)
+      }
+    }
+  }
 }
 
 /**
