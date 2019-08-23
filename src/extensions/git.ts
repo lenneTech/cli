@@ -329,7 +329,7 @@ export class Git {
     const { branch } = await ask({
       type: 'select',
       name: 'branch',
-      message: 'Select branch',
+      message: opts.text,
       choices: branches
     })
 
