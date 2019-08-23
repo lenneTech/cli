@@ -53,10 +53,10 @@ export class Helper {
       if (!input && opts.showError) {
         error(opts.errorMessage)
       }
-
-      // Return input
-      return input
     }
+
+    // Return input
+    return input
   }
 
   /**
