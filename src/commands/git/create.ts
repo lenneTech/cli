@@ -43,7 +43,10 @@ const NewCommand: GluegunCommand = {
     }
 
     // Select base branch
-    const baseBranch = await git.selectBranch({ text: 'Select base branch' })
+    let baseBranch = parameters.second
+    if (!baseBranch || !(await git.existBranch(baseBranch))) {
+      baseBranch = await git.selectBranch({ text: 'Select base branch' })
+    }
 
     // Start timer
     const timer = system.startTimer()

@@ -14,6 +14,7 @@ const NewCommand: GluegunCommand = {
     const {
       git,
       helper,
+      parameters,
       prompt: { confirm },
       print: { info, spin, success },
       system: { run, startTimer }
@@ -28,7 +29,10 @@ const NewCommand: GluegunCommand = {
     const lastCommitMessage = await git.lastCommitMessage()
 
     // Ask to squash the branch
-    if (!(await confirm(`Undo last commit "${lastCommitMessage}"?`))) {
+    if (
+      !parameters.options.noConfirm &&
+      !(await confirm(`Undo last commit "${lastCommitMessage}"?`))
+    ) {
       return
     }
 

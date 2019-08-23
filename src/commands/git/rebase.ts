@@ -14,6 +14,7 @@ const NewCommand: GluegunCommand = {
     const {
       git,
       helper,
+      parameters,
       print: { error, info, spin, success },
       prompt: { confirm },
       system: { run, startTimer }
@@ -34,12 +35,18 @@ const NewCommand: GluegunCommand = {
     }
 
     // Ask to Rebase the branch
-    if (!(await confirm(`Rebase branch ${branch}?`))) {
+    if (
+      !parameters.options.noConfirm &&
+      !(await confirm(`Rebase branch ${branch}?`))
+    ) {
       return
     }
 
     // Select base branch
-    const baseBranch = await git.selectBranch({ text: 'Select base branch' })
+    let baseBranch = parameters.first
+    if (!baseBranch || !(await git.existBranch(baseBranch))) {
+      baseBranch = await git.selectBranch({ text: 'Select base branch' })
+    }
 
     // Start timer
     const timer = startTimer()

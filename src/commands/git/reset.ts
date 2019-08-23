@@ -30,9 +30,9 @@ const NewCommand: GluegunCommand = {
     }
 
     // Current branch
-    let branch = await system.run('git rev-parse --abbrev-ref HEAD')
+    let branch = await git.currentBranch()
     if (!branch) {
-      error(`Branch ${parameters.first} not found!`)
+      error(`No current branch!`)
       return
     }
 
@@ -41,15 +41,15 @@ const NewCommand: GluegunCommand = {
       `git ls-remote --heads origin ${branch}`
     )
     if (!remoteBranch) {
-      error(`No remote branch ${parameters.first} found!`)
+      error(`No remote branch ${branch} found!`)
       return
     }
 
     // Ask for reset
-    const checkout = await prompt.confirm(
-      `Reset branch ${branch} to the remote state`
-    )
-    if (!checkout) {
+    if (
+      !parameters.options.noConfirm &&
+      !(await prompt.confirm(`Reset branch ${branch} to the remote state`))
+    ) {
       return
     }
 

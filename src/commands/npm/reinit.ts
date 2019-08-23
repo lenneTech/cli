@@ -15,6 +15,7 @@ const NewCommand: GluegunCommand = {
     const {
       helper,
       npm,
+      parameters,
       print: { spin, success },
       prompt,
       system
@@ -30,9 +31,12 @@ const NewCommand: GluegunCommand = {
     }
 
     // Update packages
-    const update = await prompt.confirm(
-      'Update package.json before reinitialization?'
-    )
+    let update = parameters.options.update || parameters.options.u
+    if (!update && !parameters.options.noConfirm) {
+      update = await prompt.confirm(
+        'Update package.json before reinitialization?'
+      )
+    }
     if (update) {
       if (!system.which('ncu')) {
         const installSpin = spin('Install ncu')

@@ -50,7 +50,10 @@ const NewCommand: GluegunCommand = {
     }
 
     // Ask to rename branch
-    if (!(await confirm(`Rename branch ${branch} into ${name}?`))) {
+    if (
+      !parameters.options.noConfirm &&
+      !(await confirm(`Rename branch ${branch} into ${name}?`))
+    ) {
       return
     }
 
@@ -66,7 +69,11 @@ const NewCommand: GluegunCommand = {
     let time = timer()
 
     // Ask to delete remote branch
-    if (await confirm(`Delete remote branch ${branch}?`)) {
+    if (
+      parameters.options.deleteRemote ||
+      (!parameters.options.noConfirm &&
+        (await confirm(`Delete remote branch ${branch}?`)))
+    ) {
       timer = startTimer()
       const deleteSpin = spin(`Delete remote branch ${branch}`)
       await run(`git push origin :${branch}`)

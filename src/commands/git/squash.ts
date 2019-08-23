@@ -14,6 +14,7 @@ const NewCommand: GluegunCommand = {
     const {
       git,
       helper,
+      parameters,
       print: { error, info, spin, success },
       prompt: { ask, confirm },
       system: { run, startTimer }
@@ -39,7 +40,10 @@ const NewCommand: GluegunCommand = {
     }
 
     // Ask to squash the branch
-    if (!(await confirm(`Squash branch ${branch}?`))) {
+    if (
+      !parameters.options.noConfirm &&
+      !(await confirm(`Squash branch ${branch}?`))
+    ) {
       return
     }
 
@@ -63,7 +67,7 @@ const NewCommand: GluegunCommand = {
     // Ask to go on
     info(`You are now on commit ${mergeBase}, with following changes:`)
     info(status)
-    if (!(await confirm('Continue?'))) {
+    if (!parameters.options.noConfirm && !(await confirm('Continue?'))) {
       return
     }
 
@@ -71,24 +75,30 @@ const NewCommand: GluegunCommand = {
     const user = await git.getUser()
 
     // Ask for author
-    const { author } = await ask({
-      type: 'input',
-      name: 'author',
-      initial: `${user.name} <${user.email}>`,
-      message: 'Author: '
-    })
+    let author = parameters.options.author
+    if (!author) {
+      author = (await ask({
+        type: 'input',
+        name: 'author',
+        initial: `${user.name} <${user.email}>`,
+        message: 'Author: '
+      })).author
+    }
 
     // Ask for message
-    const { message } = await ask({
-      type: 'input',
-      name: 'message',
-      message: 'Message: '
-    })
+    let message = parameters.options.message
+    if (!message) {
+      message = (await ask({
+        type: 'input',
+        name: 'message',
+        message: 'Message: '
+      })).message
+    }
 
     // Confirm inputs
     info(author)
     info(message)
-    if (!(await confirm('Continue?'))) {
+    if (!parameters.options.noConfirm && !(await confirm('Continue?'))) {
       return
     }
 

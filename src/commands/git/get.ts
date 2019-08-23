@@ -54,12 +54,16 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Ask for checkout branch?
+    // Set remote branch
     const remoteBranch = await git.existBranch(branch, { remote: true })
-    const checkout = await prompt.confirm(
-      'Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch
-    )
-    if (!checkout) {
+
+    // Ask for checkout branch?
+    if (
+      !parameters.options.noConfirm &&
+      !(await prompt.confirm(
+        'Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch
+      ))
+    ) {
       return
     }
 

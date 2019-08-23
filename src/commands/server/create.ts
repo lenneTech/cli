@@ -56,17 +56,20 @@ const NewCommand: GluegunCommand = {
 
     // Get source
     if (git) {
-      const { source } = await ask({
-        type: 'select',
-        name: 'source',
-        message: 'Which source should be used to create the server?',
-        choices: [
-          'Latest starter kit via git (recommended when online)',
-          'Templates from local CLI (recommended when offline)'
-        ]
-      })
+      let source = parameters.options.source
+      if (!source) {
+        source = (await ask({
+          type: 'select',
+          name: 'source',
+          message: 'Which source should be used to create the server?',
+          choices: [
+            'Latest starter kit via git (recommended when online)',
+            'Templates from local CLI (recommended when offline)'
+          ]
+        })).source
+      }
 
-      if (source && source.includes('via git')) {
+      if (source && source.includes('git')) {
         // Clone git repository
         const cloneSpinner = spin(
           'Clone https://github.com/lenneTech/nest-server-starter.git'
