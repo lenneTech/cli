@@ -38,13 +38,13 @@ const NewCommand: GluegunCommand = {
     }
 
     // Check if branch already exists
-    if (await git.existBranch(branch)) {
+    if (await git.getBranch(branch)) {
       error(`Branch ${branch} already exists!`)
     }
 
     // Select base branch
     let baseBranch = parameters.second
-    if (!baseBranch || !(await git.existBranch(baseBranch))) {
+    if (!baseBranch || !(await git.getBranch(baseBranch))) {
       baseBranch = await git.selectBranch({ text: 'Select base branch' })
     }
 

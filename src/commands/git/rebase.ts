@@ -44,7 +44,7 @@ const NewCommand: GluegunCommand = {
 
     // Select base branch
     let baseBranch = parameters.first
-    if (!baseBranch || !(await git.existBranch(baseBranch))) {
+    if (!baseBranch || !(await git.getBranch(baseBranch))) {
       baseBranch = await git.selectBranch({ text: 'Select base branch' })
     }
 

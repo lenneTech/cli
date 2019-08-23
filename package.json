@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -21,18 +21,18 @@
     "lt": "bin/lt"
   },
   "scripts": {
+    "start": "bin/lt",
     "format": "prettier --write **/*.{js,ts,tsx,json}",
     "lint": "tslint -p .",
     "clean-build": "rimraf ./build",
     "compile": "tsc -p .",
     "copy-templates": "if [ -e ./src/templates ]; then cp -a ./src/templates ./build/; fi",
-    "build": "yarn format && yarn lint && yarn test && yarn clean-build && yarn compile && yarn copy-templates",
+    "build": "npm run format && npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
     "test": "jest --testTimeout=60000",
     "watch": "jest --watch",
     "snapupdate": "jest --updateSnapshot",
     "coverage": "jest --coverage",
-    "prestart:prod": "rimraf build && npm run build",
-    "prepublishOnly": "npm run format && npm run lint && npm run test && npm run prestart:prod",
+    "prepublishOnly": "npm run build",
     "preversion": "npm run lint"
   },
   "files": [
@@ -70,7 +70,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "pretty-quick --staged",
+      "pre-commit": "ts-node extras/sync-version.ts && pretty-quick --staged",
       "pre-push": "npm run lint && npm run test"
     }
   },

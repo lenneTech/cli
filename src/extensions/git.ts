@@ -163,9 +163,9 @@ export class Git {
   }
 
   /**
-   * Check if branch exists
+   * Get name of a branch
    */
-  public async existBranch(
+  public async getBranch(
     branch: string,
     options: {
       error?: boolean // show error via print.error
@@ -257,7 +257,7 @@ export class Git {
       }
     }
 
-    // Return branch
+    // Return branch name
     return branch
   }
 

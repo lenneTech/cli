@@ -44,7 +44,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Check name
-    if (await git.existBranch(name, { exact: true })) {
+    if (await git.getBranch(name, { exact: true })) {
       error(`Rename branch ${branch} already exists`)
       return
     }

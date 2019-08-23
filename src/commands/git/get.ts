@@ -44,7 +44,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Get branch
-    branch = await git.existBranch(parameters.first, {
+    branch = await git.getBranch(parameters.first, {
       error: true,
       exact: false,
       remote: false,
@@ -55,7 +55,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Set remote branch
-    const remoteBranch = await git.existBranch(branch, { remote: true })
+    const remoteBranch = await git.getBranch(branch, { remote: true })
 
     // Ask for checkout branch?
     if (
@@ -71,7 +71,7 @@ const NewCommand: GluegunCommand = {
     await system.run('git checkout master')
     const checkoutSpin = spin('Checkout ' + branch)
     if (remoteBranch) {
-      const local = await system.run(`git rev-parse --verify ${branch}`)
+      const local = await git.getBranch(branch)
       if (branch !== 'master' && local) {
         await system.run(`git branch -D ${branch}`)
       }
