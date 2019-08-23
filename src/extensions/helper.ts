@@ -184,7 +184,7 @@ export class Helper {
         return
       }
       case '[ cancel ]': {
-        print.info('Take care :-)')
+        print.info('Take care 👋')
         return
       }
       case '[ help ]': {

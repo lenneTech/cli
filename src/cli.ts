@@ -12,7 +12,6 @@ async function run(argv) {
       .plugins('./node_modules', { matching: 'lt-*', hidden: true })
       .help() // provides default for help, h, --help, -h
       .version() // provides default for version, v, --version, -v
-      .checkForUpdates(100)
       .create()
 
     // Run cli
@@ -23,7 +22,7 @@ async function run(argv) {
   } catch (e) {
     // Abort via CTRL-C
     if (!e) {
-      console.log('Goodbye :-)')
+      console.log('Goodbye ✌️')
     } else {
       // Throw error
       throw e
