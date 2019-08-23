@@ -12,7 +12,6 @@ module.exports = {
       helper: { commandSelector }
     } = toolbox
     await commandSelector(toolbox, {
-      level: 1,
       parentCommand: 'ts',
       welcome: 'TypeScript commands'
     })

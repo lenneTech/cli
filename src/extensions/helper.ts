@@ -102,7 +102,9 @@ export class Helper {
 
   /**
    * Command selector
-   * @param options
+   *
+   * Hint: this doesn't exists in this context!
+   * If you want to use external functions, use toolbox instead (e.g. toolbox.helper.trim)
    */
   public async commandSelector(
     toolbox: ExtendedGluegunToolbox,
@@ -114,16 +116,23 @@ export class Helper {
   ) {
     // Toolbox feature
     const {
+      helper,
       print,
       prompt,
       runtime: { commands }
     } = toolbox
 
+    // Prepare parent command
+    const pC = options.parentCommand ? options.parentCommand.trim() : ''
+
     // Process options
     const { level, parentCommand, welcome } = Object.assign(
       {
-        level: 1,
-        parentCommand: ''
+        level: pC ? pC.split(' ').length : 0,
+        parentCommand: '',
+        welcome: pC
+          ? pC.charAt(0).toUpperCase() + pC.slice(1) + ' commands'
+          : ''
       },
       options
     )
@@ -147,8 +156,11 @@ export class Helper {
       .sort()
 
     // Additions commands
-    mainCommands = ['help'].concat(mainCommands)
-    mainCommands.push('cancel')
+    mainCommands = ['[ help ]'].concat(mainCommands)
+    if (level) {
+      mainCommands.push('[ back ]')
+    }
+    mainCommands.push('[ cancel ]')
 
     // Select command
     const { commandName } = await prompt.ask({
@@ -165,11 +177,17 @@ export class Helper {
     }
 
     switch (commandName) {
-      case 'cancel': {
+      case '[ back ]': {
+        await helper.commandSelector(toolbox, {
+          parentCommand: parentCommand.substr(0, parentCommand.lastIndexOf(' '))
+        })
+        return
+      }
+      case '[ cancel ]': {
         print.info('Take care :-)')
         return
       }
-      case 'help': {
+      case '[ help ]': {
         ;(print.printCommands as any)(
           toolbox,
           level ? parentCommand.split(' ') : undefined

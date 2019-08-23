@@ -11,11 +11,7 @@ module.exports = {
     const {
       helper: { commandSelector }
     } = toolbox
-    await commandSelector(toolbox, {
-      level: 1,
-      parentCommand: 'git',
-      welcome: 'Git commands'
-    })
+    await commandSelector(toolbox, { parentCommand: 'git' })
     return 'git'
   }
 }

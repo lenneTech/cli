@@ -11,11 +11,7 @@ module.exports = {
     const {
       helper: { commandSelector }
     } = toolbox
-    await commandSelector(toolbox, {
-      level: 1,
-      parentCommand: 'server',
-      welcome: 'Server commands'
-    })
+    await commandSelector(toolbox, { welcome: 'Server commands' })
     return 'server'
   }
 }
