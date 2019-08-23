@@ -11,6 +11,9 @@ $ npm install -g @lenne.tech/cli
 ## Usage
 
 ```
+Menu mode
+$ lt
+or command line mode
 $ lt <command> (<subcommand>) (<parameter>)
 ```
 
@@ -25,7 +28,7 @@ $ lt
 ## Examples
 
 ```
-// Get infos
+// Start
 $ lt
 
 // Create new server
@@ -49,6 +52,8 @@ $ lt npm u
 $ lt git get <branch-name or part-of-branch-name>
 or
 $ lt git g <branch-name or part-of-branch-name>
+
+...
 
 ```
 
