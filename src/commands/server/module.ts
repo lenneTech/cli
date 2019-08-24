@@ -132,7 +132,7 @@ const NewCommand: GluegunCommand = {
     success(
       `Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(
         timer()
-      )}.`
+      )}m.`
     )
     info(``)
 

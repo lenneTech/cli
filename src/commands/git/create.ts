@@ -68,7 +68,7 @@ const NewCommand: GluegunCommand = {
     success(
       `Branch ${branch} was created in ${helper.msToMinutesAndSeconds(
         timer()
-      )}.`
+      )}m.`
     )
     info('')
 

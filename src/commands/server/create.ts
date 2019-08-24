@@ -161,7 +161,7 @@ const NewCommand: GluegunCommand = {
     success(
       `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(
         timer()
-      )}.`
+      )}m.`
     )
     info(``)
     info(`Next:`)

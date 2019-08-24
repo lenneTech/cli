@@ -59,7 +59,7 @@ const NewCommand: GluegunCommand = {
     rebaseSpin.succeed()
 
     // Success
-    success(`Rebased ${branch} in ${helper.msToMinutesAndSeconds(timer())}.`)
+    success(`Rebased ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`)
     info('')
 
     // For tests

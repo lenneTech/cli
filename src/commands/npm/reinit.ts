@@ -78,7 +78,7 @@ const NewCommand: GluegunCommand = {
 
     // Success info
     success(
-      'Reinitialized npm packages in ' + helper.msToMinutesAndSeconds(timer())
+      `Reinitialized npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`
     )
 
     // For tests

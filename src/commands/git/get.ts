@@ -16,7 +16,7 @@ const NewCommand: GluegunCommand = {
       helper,
       npm,
       parameters,
-      print: { info, spin, success },
+      print: { error, info, spin, success },
       prompt,
       system
     } = toolbox
@@ -54,8 +54,9 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Set remote branch
+    // Get branches
     const remoteBranch = await git.getBranch(branch, { remote: true })
+    const local = await git.getBranch(branch)
 
     // Ask for checkout branch?
     if (
@@ -69,19 +70,53 @@ const NewCommand: GluegunCommand = {
 
     // Checkout branch
     await system.run('git checkout master')
-    const checkoutSpin = spin('Checkout ' + branch)
+    let checkoutSpin
+
+    // Handling for remote
     if (remoteBranch) {
-      const local = await git.getBranch(branch)
-      if (branch !== 'master' && local) {
-        await system.run(`git branch -D ${branch}`)
+      // Delete local
+      const checkSpin = spin('Check status')
+      if (branch !== 'master' && local && (await git.diffFiles(local)).length) {
+        checkSpin.succeed()
+        let mode = parameters.options.mode
+        if (!mode) {
+          if (await prompt.confirm(`Remove local commits of ${branch}`)) {
+            mode = 'hard'
+          }
+        }
+        if (mode === 'hard') {
+          const prepareSpin = spin('Refresh ' + branch)
+          await system.run(
+            `git branch -D ${branch} && git fetch && git checkout --track origin/${branch}`
+          )
+          prepareSpin.succeed()
+        }
+      } else {
+        checkSpin.succeed()
+      }
+
+      // Start spin
+      checkoutSpin = spin('Checkout ' + branch)
+
+      // Checkout
+      if (!local) {
+        await system.run(`git checkout --track origin/${branch}`)
       }
       await system.run(
         `git checkout ${branch} && git reset --hard && git clean -fd && git pull`
       )
-    } else {
+
+      // Handling for local only
+    } else if (local) {
+      checkoutSpin = spin('Checkout ' + branch)
       await system.run(
         `git checkout ${branch} && git reset --hard && git clean -fd`
       )
+
+      // No branch found
+    } else {
+      error(`Branch ${branch} not found!`)
+      return
     }
     checkoutSpin.succeed()
 
@@ -89,20 +124,13 @@ const NewCommand: GluegunCommand = {
     await npm.install()
 
     // Success info
-    if (remoteBranch) {
-      success(
-        `Remote branch ${branch} checked out in ${helper.msToMinutesAndSeconds(
-          timer()
-        )}.`
-      )
-    } else {
-      success(
-        `Local branch ${branch} checked out in ${helper.msToMinutesAndSeconds(
-          timer()
-        )}.`
-      )
-    }
-
+    success(
+      `${
+        remoteBranch ? 'Remote' : 'Local'
+      } branch ${branch} checked out in ${helper.msToMinutesAndSeconds(
+        timer()
+      )}m.`
+    )
     info('')
 
     // For tests

@@ -51,7 +51,7 @@ const NewCommand: GluegunCommand = {
     success(
       `Undo last commit of ${branch} in ${helper.msToMinutesAndSeconds(
         timer()
-      )}.`
+      )}m.`
     )
     info('')
 

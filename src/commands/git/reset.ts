@@ -78,7 +78,7 @@ const NewCommand: GluegunCommand = {
     success(
       `Branch ${branch} was reset in in ${helper.msToMinutesAndSeconds(
         timer()
-      )}.`
+      )}m.`
     )
     info('')
 

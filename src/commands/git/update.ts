@@ -39,7 +39,7 @@ const NewCommand: GluegunCommand = {
     await npm.install()
 
     // Success
-    success(`Updated ${branch} in ${helper.msToMinutesAndSeconds(timer())}.`)
+    success(`Updated ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`)
     info('')
 
     // For tests

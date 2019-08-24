@@ -111,7 +111,7 @@ const NewCommand: GluegunCommand = {
     )
 
     // Success
-    success(`Squashed ${branch} in ${helper.msToMinutesAndSeconds(timer())}.`)
+    success(`Squashed ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`)
     info('')
 
     // For tests

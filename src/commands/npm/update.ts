@@ -25,7 +25,9 @@ const NewCommand: GluegunCommand = {
     await npm.update({ showError: true, install: true })
 
     // Success info
-    success('Updated npm packages in ' + helper.msToMinutesAndSeconds(timer()))
+    success(
+      `Updated npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`
+    )
 
     // For tests
     return `npm update`

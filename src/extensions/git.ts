@@ -89,6 +89,27 @@ export class Git {
   }
 
   /**
+   * Get all relative files paths of files that differ between two branches
+   */
+  public async diffFiles(branch: string, otherBranch?: string) {
+    // Toolbox features
+    const { system } = this.toolbox
+
+    // Default other branch
+    if (!otherBranch) {
+      otherBranch = `origin/${branch}`
+    }
+
+    // Get diff
+    const diff = await system.run(
+      `git --no-pager diff --name-only ${branch} ${otherBranch}`
+    )
+
+    // Return relative file paths as array
+    return diff.split(/\r?\n/).filter(item => item)
+  }
+
+  /**
    * Get branches
    */
   public async getBranches() {
@@ -213,10 +234,12 @@ export class Git {
     // Search branch
     if (opts.exact) {
       if (opts.remote) {
-        branch = await system.run(`git ls-remote --heads origin ${branch}`)
+        if (!(await system.run(`git ls-remote --heads origin ${branch}`))) {
+          branch = null
+        }
       } else {
         try {
-          branch = await system.run(`git rev-parse --verify ${branch}`)
+          await system.run(`git rev-parse --verify ${branch}`)
         } catch (e) {
           branch = null
         }
@@ -226,7 +249,7 @@ export class Git {
         `git branch -a | grep ${branch} | cut -c 3- | head -1`
       ))
         .replace(/\r?\n|\r/g, '') // replace line breaks
-        .replace(/^remotes\/origin\//, '') // replace remote path
+        .replace(/^remotes\/.*\//, '') // replace remote path
         .trim()
     }
     if (!branch) {

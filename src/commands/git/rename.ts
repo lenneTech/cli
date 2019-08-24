@@ -83,7 +83,7 @@ const NewCommand: GluegunCommand = {
 
     // Success
     success(
-      `Renamed ${branch} to ${name} in ${helper.msToMinutesAndSeconds(time)}.`
+      `Renamed ${branch} to ${name} in ${helper.msToMinutesAndSeconds(time)}m.`
     )
     info('')
 
