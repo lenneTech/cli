@@ -54,9 +54,9 @@ const NewCommand: GluegunCommand = {
     // Checkout
     const createSpin = spin('Create ' + branch)
     await system.run(
-      `git checkout ${baseBranch} &&` +
+      `git fetch &&` +
+        `git checkout ${baseBranch} &&` +
         'git pull && ' +
-        'git fetch && ' +
         `git checkout -b ${branch}`
     )
     createSpin.succeed()
