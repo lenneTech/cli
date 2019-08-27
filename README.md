@@ -2,6 +2,16 @@
 
 A CLI for [lenne.Tech](https://github.com/lenneTech) libraries and frameworks.
 
+[![CircleCI](https://circleci.com/gh/lenneTech/cli/tree/master.svg?style=shield)](https://circleci.com/gh/lenneTech/cli/tree/master)
+
+[![Dependency Status](https://david-dm.org/lenneTech/cli.svg)](https://david-dm.org/lenneTech/cli) [![devDependency Status](https://david-dm.org/lenneTech/cli/dev-status.svg)](https://david-dm.org/lenneTech/cli?type=dev)
+
+[![License](https://img.shields.io/github/license/lenneTech/cli)](/LICENSE)
+
+<!--
+[![GitHub forks](https://img.shields.io/github/forks/lenneTech/cli)](https://github.com/lenneTech/cli/fork) [![GitHub stars](https://img.shields.io/github/stars/lenneTech/cli)](https://github.com/lenneTech/cli)
+-->
+
 ## Installation
 
 ```
