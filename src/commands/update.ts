@@ -11,32 +11,9 @@ const NewCommand: GluegunCommand = {
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
-    const {
-      helper,
-      print: { info, spin, success },
-      system: { run, startTimer }
-    } = toolbox
+    const { updateHelper } = toolbox
 
-    // Start timer
-    const timer = startTimer()
-
-    // Update
-    const updateSpin = spin(`Update @lenne.tech/cli`)
-    await run('npm install -g @lenne.tech/cli')
-    updateSpin.succeed()
-
-    // Check new version
-    const versionSpin = spin(`Get current version from @lenne.tech/cli`)
-    const version = helper.trim(await run('lt version'))
-    versionSpin.succeed()
-
-    // Success
-    success(
-      `Updated to ${version} from @lenne.tech/cli in ${helper.msToMinutesAndSeconds(
-        timer()
-      )}m.`
-    )
-    info('')
+    await updateHelper.runUpdate()
 
     // For tests
     return `updated @lenne.tech/cli`
