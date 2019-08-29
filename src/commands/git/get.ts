@@ -86,9 +86,7 @@ const NewCommand: GluegunCommand = {
         }
         if (mode === 'hard') {
           const prepareSpin = spin('Refresh ' + branch)
-          await system.run(
-            `git branch -D ${branch} && git fetch && git checkout --track origin/${branch}`
-          )
+          await system.run(`git branch -D ${branch}`)
           prepareSpin.succeed()
         }
       } else {
@@ -99,18 +97,15 @@ const NewCommand: GluegunCommand = {
       checkoutSpin = spin('Checkout ' + branch)
 
       // Checkout
-      if (!local) {
-        await system.run(`git checkout --track origin/${branch}`)
-      }
       await system.run(
-        `git checkout ${branch} && git reset --hard && git clean -fd && git pull`
+        `git fetch && git checkout ${branch} && git reset --hard && git clean -fd && git pull`
       )
 
       // Handling for local only
     } else if (local) {
       checkoutSpin = spin('Checkout ' + branch)
       await system.run(
-        `git checkout ${branch} && git reset --hard && git clean -fd`
+        `git fetch && git checkout ${branch} && git reset --hard && git clean -fd`
       )
 
       // No branch found

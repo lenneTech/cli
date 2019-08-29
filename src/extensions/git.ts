@@ -248,8 +248,8 @@ export class Git {
       branch = (await system.run(
         `git branch -a | grep ${branch} | cut -c 3- | head -1`
       ))
-        .replace(/\r?\n|\r/g, '') // replace line breaks
-        .replace(/^remotes\/.*\//, '') // replace remote path
+        .replace(/\r?\n|\r/g, '') // remove line breaks
+        .replace(/^.*origin\//, '') // remove remote path
         .trim()
     }
     if (!branch) {
