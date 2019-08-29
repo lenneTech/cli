@@ -1,4 +1,6 @@
 import * as fs from 'fs'
+import * as os from 'os'
+import { join, sep } from 'path'
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox'
 
 /**
@@ -9,6 +11,64 @@ export class Helper {
    * Constructor for integration of toolbox
    */
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
+
+  /**
+   * Get configuration
+   */
+  public async getConfig() {
+    // Toolbox feature
+    const {
+      config,
+      filesystem,
+      runtime: { brand }
+    } = this.toolbox
+
+    // Configuration in home directory (~/.brand)
+    let homeDirConfig = {}
+    try {
+      const homeDirConfigFile = join(filesystem.homedir(), '.' + brand)
+      if (await filesystem.existsAsync(homeDirConfigFile)) {
+        homeDirConfig = JSON.parse(
+          await filesystem.readAsync(homeDirConfigFile)
+        )
+      }
+    } catch (e) {
+      // Nothing
+    }
+
+    // Configuration in current directory (./.brand)
+    let currentDirConfig = {}
+    try {
+      const currentDirConfigFile = join(filesystem.cwd(), '.' + brand)
+      if (await filesystem.existsAsync(currentDirConfigFile)) {
+        currentDirConfig = JSON.parse(
+          await filesystem.readAsync(currentDirConfigFile)
+        )
+      }
+    } catch (e) {
+      // Nothing
+    }
+
+    return {
+      ...config[brand],
+      ...config.loadConfig(join('~', `.${brand}`), brand),
+      ...homeDirConfig,
+      ...config.loadConfig(filesystem.cwd(), brand),
+      ...currentDirConfig
+    }
+  }
+
+  /**
+   * Get prepared directory path
+   */
+  public getDir(...dirPath: string[]) {
+    if (!dirPath.join('')) {
+      return null
+    }
+    return join(...dirPath) // normalized path
+      .replace('~', os.homedir()) // replace ~ with homedir
+      .replace(/\/|\\/gm, sep) // set OS specific separators
+  }
 
   /**
    * Get input if not set
@@ -109,6 +169,7 @@ export class Helper {
   public async commandSelector(
     toolbox: ExtendedGluegunToolbox,
     options?: {
+      checkUpdate?: boolean
       level?: number
       parentCommand?: string
       welcome?: string
@@ -116,18 +177,22 @@ export class Helper {
   ) {
     // Toolbox feature
     const {
+      config,
+      filesystem: { existsAsync },
       helper,
       print,
       prompt,
-      runtime: { commands }
+      runtime: { commands },
+      updateHelper
     } = toolbox
 
     // Prepare parent command
     const pC = options.parentCommand ? options.parentCommand.trim() : ''
 
     // Process options
-    const { level, parentCommand, welcome } = Object.assign(
+    const { checkUpdate, level, parentCommand, welcome } = Object.assign(
       {
+        checkUpdate: true,
         level: pC ? pC.split(' ').length : 0,
         parentCommand: '',
         welcome: pC
@@ -136,6 +201,24 @@ export class Helper {
       },
       options
     )
+
+    // Check for updates
+    if (
+      checkUpdate && // parameter
+      config.lt.checkForUpdate && // current configuration
+      (await helper.getConfig()).checkForUpdate && // extra configuration
+      !(await existsAsync(join(__dirname, '..', 'src'))) // not development environment
+    ) {
+      config.lt.checkForUpdate = false
+
+      // tslint:disable-next-line:no-floating-promises
+      toolbox.meta.checkForUpdate().then(update => {
+        if (update) {
+          // tslint:disable-next-line:no-floating-promises
+          updateHelper.runUpdate(false)
+        }
+      })
+    }
 
     // Welcome
     if (welcome) {
@@ -203,7 +286,17 @@ export class Helper {
         )[0]
 
         // Run command
-        command.run(toolbox)
+        try {
+          await command.run(toolbox)
+        } catch (e) {
+          // Abort via CTRL-C
+          if (!e) {
+            console.log('Goodbye ✌️')
+          } else {
+            // Throw error
+            throw e
+          }
+        }
       }
     }
   }

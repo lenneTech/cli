@@ -22,6 +22,8 @@
   },
   "scripts": {
     "start": "bin/lt",
+    "start:build": "npm run build && bin/lt --compiled-build",
+    "start:compiled": "bin/lt --compiled-build",
     "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
     "lint": "tslint -p .",
     "clean-build": "rimraf ./build",

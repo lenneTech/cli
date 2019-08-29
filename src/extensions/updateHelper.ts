@@ -9,7 +9,11 @@ export class UpdateHelper {
    */
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
 
-  public async runUpdate() {
+  /**
+   * Run update
+   * @param showInfos
+   */
+  public async runUpdate(showInfos: boolean = true) {
     const {
       helper,
       print: { info, spin, success },
@@ -17,6 +21,11 @@ export class UpdateHelper {
     } = this.toolbox
     // Start timer
     const timer = startTimer()
+
+    // Run without infos
+    if (!showInfos) {
+      return run('npm install -g @lenne.tech/cli')
+    }
 
     // Update
     const updateSpin = spin(`Update @lenne.tech/cli`)
