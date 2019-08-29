@@ -150,14 +150,17 @@ export class Helper {
   /**
    * Trim and remove linebreaks from input
    */
-  public trim(input: string) {
+  public trim(input: any) {
     // Check input
-    if (!input) {
+    if (input !== 0 && !input) {
       return input
     }
 
     // Trim input
-    return input.trim().replace(/(\r\n|\n|\r)/gm, '')
+    return input
+      .toString()
+      .trim()
+      .replace(/(\r\n|\n|\r)/gm, '')
   }
 
   /**

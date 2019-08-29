@@ -5,6 +5,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 module.exports = {
   name: 'tool',
+  alias: ['t'],
   description: 'Tool commands',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {

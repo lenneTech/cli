@@ -45,7 +45,7 @@ const NewCommand: GluegunCommand = {
 
     // Check name
     if (await git.getBranch(name, { exact: true })) {
-      error(`Rename branch ${branch} already exists`)
+      error(`Branch with name ${name} already exists`)
       return
     }
 
@@ -60,9 +60,21 @@ const NewCommand: GluegunCommand = {
     // Start timer
     let timer = startTimer()
 
+    // Get remote
+    const remote = await git.getBranch(name, { exact: true, remote: true })
+
     // Rename branch
     const renameSpin = spin(`Rename ${branch} into ${name}`)
-    await run(`git branch -m ${name} && git push origin ${name}`)
+    await run(`git branch -m ${name}`)
+
+    // Ask to push branch
+    if (
+      remote &&
+      (parameters.options.noConfirm ||
+        (await confirm(`Push ${name} to remote?`)))
+    ) {
+      await run(`git push origin ${name}`)
+    }
     renameSpin.succeed()
 
     // Save time
@@ -70,9 +82,10 @@ const NewCommand: GluegunCommand = {
 
     // Ask to delete remote branch
     if (
-      parameters.options.deleteRemote ||
-      (!parameters.options.noConfirm &&
-        (await confirm(`Delete remote branch ${branch}?`)))
+      remote &&
+      (parameters.options.deleteRemote ||
+        (!parameters.options.noConfirm &&
+          (await confirm(`Delete remote branch ${branch}?`))))
     ) {
       timer = startTimer()
       const deleteSpin = spin(`Delete remote branch ${branch}`)

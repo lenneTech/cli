@@ -4,7 +4,8 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * TypeScript commands
  */
 module.exports = {
-  name: 'ts',
+  name: 'typescript',
+  alias: ['ts'],
   description: 'Typescript commands',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -12,9 +13,9 @@ module.exports = {
       helper: { commandSelector }
     } = toolbox
     await commandSelector(toolbox, {
-      parentCommand: 'ts',
+      parentCommand: 'typescript',
       welcome: 'TypeScript commands'
     })
-    return 'ts'
+    return 'typescript'
   }
 }

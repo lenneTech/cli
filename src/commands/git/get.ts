@@ -29,12 +29,12 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Get branch
-    let branch = await helper.getInput(parameters.first, {
+    // Get (part of) branch name
+    const branchName = await helper.getInput(parameters.first, {
       name: 'branch name',
       showError: true
     })
-    if (!branch) {
+    if (!branchName) {
       return
     }
 
@@ -44,7 +44,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Get branch
-    branch = await git.getBranch(parameters.first, {
+    const branch = await git.getBranch(branchName, {
       error: true,
       exact: false,
       remote: false,
@@ -54,11 +54,10 @@ const NewCommand: GluegunCommand = {
       return
     }
 
-    // Get branches
+    // Get remote branch
     const remoteBranch = await git.getBranch(branch, { remote: true })
-    const local = await git.getBranch(branch)
 
-    // Ask for checkout branch?
+    // Ask for checkout branch
     if (
       !parameters.options.noConfirm &&
       !(await prompt.confirm(
@@ -76,7 +75,11 @@ const NewCommand: GluegunCommand = {
     if (remoteBranch) {
       // Delete local
       const checkSpin = spin('Check status')
-      if (branch !== 'master' && local && (await git.diffFiles(local)).length) {
+      if (
+        branch !== 'master' &&
+        branch &&
+        (await git.diffFiles(branch)).length
+      ) {
         checkSpin.succeed()
         let mode = parameters.options.mode
         if (!mode) {
@@ -102,7 +105,7 @@ const NewCommand: GluegunCommand = {
       )
 
       // Handling for local only
-    } else if (local) {
+    } else if (branch) {
       checkoutSpin = spin('Checkout ' + branch)
       await system.run(
         `git fetch && git checkout ${branch} && git reset --hard && git clean -fd`
