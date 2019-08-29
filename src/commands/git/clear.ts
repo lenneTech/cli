@@ -6,7 +6,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   name: 'clear',
-  alias: ['cl'],
+  alias: ['clean', 'cl'],
   description: 'Undo current changes',
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
