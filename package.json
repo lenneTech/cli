@@ -47,17 +47,17 @@
     "bin"
   ],
   "dependencies": {
-    "@lenne.tech/npm-package-helper": "0.0.8",
     "find-file-up": "2.0.1",
-    "gluegun": "3.3.3",
+    "gluegun": "3.3.4",
     "open": "6.4.0",
     "rimraf": "3.0.0",
     "ts-node": "8.3.0",
-    "typescript": "3.5.3"
+    "typescript": "3.6.2"
   },
   "devDependencies": {
+    "@lenne.tech/npm-package-helper": "0.0.9",
     "@types/jest": "24.0.18",
-    "@types/node": "12.7.2",
+    "@types/node": "12.7.3",
     "husky": "3.0.4",
     "jest": "24.9.0",
     "prettier": "1.18.2",
