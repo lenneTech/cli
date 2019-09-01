@@ -47,6 +47,7 @@
     "bin"
   ],
   "dependencies": {
+    "@lenne.tech/npm-package-helper": "0.0.8",
     "find-file-up": "2.0.1",
     "gluegun": "3.3.3",
     "open": "6.4.0",
@@ -72,7 +73,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "ts-node extras/sync-version.ts && pretty-quick --staged",
+      "pre-commit": "ts-node --skip-project extras/sync-version.ts && pretty-quick --staged",
       "pre-push": "npm run lint && npm run test"
     }
   },
