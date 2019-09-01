@@ -176,7 +176,7 @@ export class Git {
 
     const gitInstalled = !!system.which('git')
     if (!gitInstalled) {
-      error('Please install git')
+      error('Please install git: https://git-scm.com')
       return false
     }
 

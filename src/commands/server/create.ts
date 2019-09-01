@@ -48,7 +48,7 @@ const NewCommand: GluegunCommand = {
     const projectDir = kebabCase(name)
 
     // Check if directory already exists
-    if (filesystem.exists(name)) {
+    if (filesystem.exists(projectDir)) {
       info(``)
       error(`There's already a folder named "${projectDir}" here.`)
       return undefined

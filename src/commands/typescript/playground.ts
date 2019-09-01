@@ -7,7 +7,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 const NewCommand: GluegunCommand = {
   name: 'playground',
   alias: ['pg'],
-  description: 'Creat a new typescript playground',
+  description: 'Create a new typescript playground',
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
