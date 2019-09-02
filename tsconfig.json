@@ -2,6 +2,7 @@
   "compilerOptions": {
     "allowSyntheticDefaultImports": false,
     "experimentalDecorators": true,
+    "baseUrl": "./",
     "lib": [
       "es2015",
       "scripthost",
@@ -20,7 +21,10 @@
     "outDir": "build",
     "strict": false,
     "target": "es6",
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "@lenne.tech/cli-helper": ["node_modules/@lenne.tech/cli-helper/dist/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "src/templates/**/*"]
