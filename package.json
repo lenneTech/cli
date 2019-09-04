@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.27",
+  "version": "0.0.28",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -47,6 +47,7 @@
     "bin"
   ],
   "dependencies": {
+    "@lenne.tech/cli-plugin-helper": "0.0.1",
     "find-file-up": "2.0.1",
     "gluegun": "3.3.4",
     "open": "6.4.0",

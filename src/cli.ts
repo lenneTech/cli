@@ -10,6 +10,10 @@ async function run(argv) {
       .brand('lt')
       .src(__dirname)
       // .plugins('./node_modules', { matching: 'lt-*', hidden: true })
+      .plugin('./node_modules/@lenne.tech/cli-plugin-helper/dist', {
+        commandFilePattern: '*.js',
+        extensionFilePattern: '*.js'
+      })
       .help() // provides default for help, h, --help, -h
       .version() // provides default for version, v, --version, -v
       .create()
