@@ -89,24 +89,45 @@ export class Git {
   }
 
   /**
-   * Get all relative files paths of files that differ between two branches
+   * Get all relative files paths of files that differ between local branch and origin / other branch
    */
-  public async diffFiles(branch: string, otherBranch?: string) {
-    // Toolbox features
-    const { system } = this.toolbox
-
-    // Default other branch
-    if (!otherBranch) {
-      otherBranch = `origin/${branch}`
+  public async diffFiles(
+    branch: string,
+    options?: {
+      noDiffResult?: string
+      otherBranch?: string
+      showWarning?: boolean
     }
-
-    // Get diff
-    const diff = await system.run(
-      `git --no-pager diff --name-only ${branch} ${otherBranch}`
+  ) {
+    // Process options
+    const opts = Object.assign(
+      {
+        noDiffResult: null,
+        otherBranch: `origin/${branch}`,
+        showWarning: false
+      },
+      options
     )
 
-    // Return relative file paths as array
-    return diff.split(/\r?\n/).filter(item => item)
+    // Toolbox features
+    const {
+      system,
+      print: { warning }
+    } = this.toolbox
+
+    // Get diff
+    try {
+      const diff = await system.run(
+        `git --no-pager diff --name-only ${branch} ${opts.otherBranch}`
+      )
+      // Return relative file paths as array
+      return diff.split(/\r?\n/).filter(item => item)
+    } catch (error) {
+      if (opts.showWarning) {
+        warning('Branch diff could not be performed!')
+      }
+      return opts.noDiffResult
+    }
   }
 
   /**
@@ -192,6 +213,7 @@ export class Git {
       error?: boolean // show error via print.error
       errorText?: string // text for error shown via print.error
       exact?: boolean // exact branch name or included branch name
+      local?: boolean // must the branch exist local
       remote?: boolean // must the branch exist remotely
       spin?: boolean // show spinner
       spinText?: string // text of spinner
@@ -208,6 +230,7 @@ export class Git {
         error: false,
         errorText: `Branch ${branch} not found!`,
         exact: true,
+        local: false,
         remote: false,
         spin: false,
         spinText: 'Search branch'
@@ -250,6 +273,7 @@ export class Git {
       ))
         .replace(/\r?\n|\r/g, '') // remove line breaks
         .replace(/^.*origin\//, '') // remove remote path
+        .replace(/^.*github\//, '') // remove remote path
         .trim()
     }
     if (!branch) {
@@ -265,19 +289,41 @@ export class Git {
     // Trim branch
     branch = trim(branch)
 
-    // End spinner
-    if (opts.spin) {
-      searchSpin.succeed()
-    }
-
     // Check remote, if not done before
     if (opts.remote && !opts.exact) {
       const remoteBranch = trim(
         await system.run(`git ls-remote --heads origin ${branch}`)
       )
       if (!remoteBranch) {
+        if (opts.spin) {
+          searchSpin.fail()
+        }
+        if (opts.error) {
+          error(opts.errorText)
+        }
         return
       }
+    }
+
+    // Check local
+    if (opts.local) {
+      const remoteBranch = trim(
+        await system.run(`git rev-parse --verify --quiet ${branch}`)
+      )
+      if (!remoteBranch) {
+        if (opts.spin) {
+          searchSpin.fail()
+        }
+        if (opts.error) {
+          error(opts.errorText)
+        }
+        return
+      }
+    }
+
+    // End spinner
+    if (opts.spin) {
+      searchSpin.succeed()
     }
 
     // Return branch name
