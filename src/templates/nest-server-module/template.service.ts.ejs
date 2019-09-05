@@ -21,7 +21,7 @@ import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 const pubSub = new PubSub();
 
 /**
- * User service
+ * <%= props.namePascal %> service
  */
 @Injectable()
 export class <%= props.namePascal %>Service {
@@ -31,7 +31,7 @@ export class <%= props.namePascal %>Service {
   // ===================================================================================================================
 
   /**
-   * User repository
+   * <%= props.namePascal %> repository
    */
   @InjectRepository(<%= props.namePascal %>)
   protected readonly db: MongoRepository<<%= props.namePascal %>>;
@@ -61,13 +61,16 @@ export class <%= props.namePascal %>Service {
     await this.prepareInput(input, currentUser, { create: true });
 
     // Create new <%= props.namePascal %>
-    const created<%= props.namePascal %> = this.db.create(input);
+    const created<%= props.namePascal %> = await this.db.create(input);
+
+    // Save new <%= props.namePascal %>
+    await created<%= props.namePascal %>.save();
 
     // Prepare output
     await this.prepareOutput(created<%= props.namePascal %>, args[0]);
 
     // Inform subscriber
-    pubSub.publish('<%= props.nameCamel %>Created', { <%= props.nameCamel %>Created: created<%= props.namePascal %> });
+    await pubSub.publish('<%= props.nameCamel %>Created', { <%= props.nameCamel %>Created: created<%= props.namePascal %> });
 
     // Return created <%= props.namePascal %>
     return created<%= props.namePascal %>;
@@ -105,7 +108,7 @@ export class <%= props.namePascal %>Service {
     if (!<%= props.nameCamel %>) {
       throw new NotFoundException();
     }
-    return this.prepareOutput(<%= props.nameCamel %>, args[0]);
+    return await this.prepareOutput(<%= props.nameCamel %>, args[0]);
   }
 
   /**
@@ -157,7 +160,7 @@ export class <%= props.namePascal %>Service {
     currentUser: User,
     options: { create?: boolean } = {},
   ) {
-    return ServiceHelper.prepareInput(input, currentUser, options);
+    return await ServiceHelper.prepareInput(input, currentUser, options);
   }
 
   /**
@@ -167,6 +170,6 @@ export class <%= props.namePascal %>Service {
     <%= props.nameCamel %>: <%= props.namePascal %>,
     info?: GraphQLResolveInfo,
   ) {
-    return ServiceHelper.prepareOutput(<%= props.nameCamel %>, Editor, this.userService);
+    return await ServiceHelper.prepareOutput(<%= props.nameCamel %>, Editor, this.userService);
   }
 }
