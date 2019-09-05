@@ -23,7 +23,8 @@
     "url": "https://github.com/lenneTech/nest-server-starter/issues"
   },
   "scripts": {
-    "build": "rimraf dist && tsc -p tsconfig.build.json",
+    "build": "rimraf dist && tsc -p tsconfig.build.json && npm run copy:templates",
+    "copy:templates": "cp -r ./src/templates ./dist",
     "format": "prettier --write \"src/**/*.ts\"",
     "lint": "tslint -p tsconfig.json -c tslint.json",
     "prestart:prod": "rimraf dist && npm run build",
