@@ -142,7 +142,7 @@ const NewCommand: GluegunCommand = {
     info(``)
 
     // For tests
-    return `project ${toolbox.parameters.first} created`
+    return `project ${name} created`
   }
 }
 

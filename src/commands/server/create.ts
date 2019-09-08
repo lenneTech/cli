@@ -171,7 +171,7 @@ const NewCommand: GluegunCommand = {
     info(``)
 
     // For tests
-    return `new server ${toolbox.parameters.first}`
+    return `new server ${name}`
   }
 }
 

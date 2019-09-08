@@ -38,9 +38,9 @@ const NewCommand: GluegunCommand = {
     }
 
     // Set up initial props (to pass into templates)
-    const nameCamel = camelCase(parameters.first)
-    const nameKebab = kebabCase(parameters.first)
-    const namePascal = pascalCase(parameters.first)
+    const nameCamel = camelCase(name)
+    const nameKebab = kebabCase(name)
+    const namePascal = pascalCase(name)
 
     // Check if directory
     const cwd = filesystem.cwd()
@@ -137,7 +137,7 @@ const NewCommand: GluegunCommand = {
     info(``)
 
     // For tests
-    return `new module ${toolbox.parameters.first}`
+    return `new module ${name}`
   }
 }
 
