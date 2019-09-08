@@ -49,7 +49,7 @@
     "node": ">= 12.4.0"
   },
   "dependencies": {
-    "@lenne.tech/nest-server": "0.0.20"
+    "@lenne.tech/nest-server": "0.0.21"
   },
   "jest": {
     "collectCoverage": true,

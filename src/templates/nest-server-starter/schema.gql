@@ -3,16 +3,24 @@
 # !!!   DO NOT MODIFY THIS FILE BY YOURSELF   !!!
 # -----------------------------------------------
 
-"""Auth"""
+"""
+Auth
+"""
 type Auth {
-  """JavaScript Web Token (JWT)"""
+  """
+  JavaScript Web Token (JWT)
+  """
   token: String!
 
-  """User who signed in"""
+  """
+  User who signed in
+  """
   user: User!
 }
 
-"""Combination of multiple filters via logical operator"""
+"""
+Combination of multiple filters via logical operator
+"""
 input CombinedFilterInput {
   """
   Logical Operator to combine filters. If set the `filters` must be also set.
@@ -45,24 +53,38 @@ The javascript `Date` as string. Type represents date and time as the ISO Date s
 """
 scalar DateTime
 
-"""Editor"""
+"""
+Editor
+"""
 type Editor {
-  """ID of the editor"""
+  """
+  ID of the editor
+  """
   id: ID!
 
-  """Email of the editor"""
+  """
+  Email of the editor
+  """
   email: String
 
-  """First name of the editor"""
+  """
+  First name of the editor
+  """
   firstName: String
 
-  """Last name of the editor"""
+  """
+  Last name of the editor
+  """
   lastName: String
 
-  """Username of the editor"""
+  """
+  Username of the editor
+  """
   username: String
 
-  """URL to avatar file of the editor"""
+  """
+  URL to avatar file of the editor
+  """
   avatar: String
 }
 
@@ -70,10 +92,14 @@ type Editor {
 Input for filtering. The `singleFilter` will be ignored if the `combinedFilter` is set.
 """
 input FilterInput {
-  """Combination of multiple filters via logical operator"""
+  """
+  Combination of multiple filters via logical operator
+  """
   combinedFilter: CombinedFilterInput
 
-  """Filter for a single property"""
+  """
+  Filter for a single property
+  """
   singleFilter: SingleFilterInput
 }
 
@@ -82,7 +108,9 @@ JSON scalar type. Information on the exact schema of the JSON object is containe
 """
 scalar JSON
 
-"""Logical operators to combine filters"""
+"""
+Logical operators to combine filters
+"""
 enum LogicalOperatorEnum {
   AND
   NOR
@@ -90,44 +118,66 @@ enum LogicalOperatorEnum {
 }
 
 type Mutation {
-  """Create a new user"""
+  """
+  Create a new user
+  """
   createUser(input: UserCreateInput!): User!
 
-  """Update existing user"""
+  """
+  Update existing user
+  """
   updateUser(id: String!, input: UserInput!): User!
 
-  """Delete existing user"""
+  """
+  Delete existing user
+  """
   deleteUser(id: String!): User!
 }
 
 type Query {
-  """Get JWT token"""
+  """
+  Get JWT token
+  """
   signIn(password: String!, email: String!): Auth!
 
-  """Get user with specified ID"""
+  """
+  Get user with specified ID
+  """
   getUser(id: String!): User!
 
-  """Find users (via filter)"""
+  """
+  Find users (via filter)
+  """
   findUsers(
     """
     Limit specifies the maximum number of elements found that are to be returned
     """
     take: Int = 25
 
-    """Skip specifies how many found elements should be skipped on return"""
+    """
+    Skip specifies how many found elements should be skipped on return
+    """
     skip: Int = 0
 
-    """Sorting the returned elements"""
+    """
+    Sorting the returned elements
+    """
     sort: [SortInput!]
 
-    """Input for filtering"""
+    """
+    Input for filtering
+    """
     filter: FilterInput
   ): [User!]!
 }
 
-"""Input for a configuration of a filter"""
+"""
+Input for a configuration of a filter
+"""
 input SingleFilterInput {
-  """Name of the property to be used for the filter"""
+  """
+  Name of the property to be used for the filter
+  """
   field: String!
 
   """
@@ -145,20 +195,30 @@ input SingleFilterInput {
   """
   options: String
 
-  """Value of the property"""
+  """
+  Value of the property
+  """
   value: JSON!
 }
 
-"""Sorting the returned elements"""
+"""
+Sorting the returned elements
+"""
 input SortInput {
-  """Field that is to be used for sorting"""
+  """
+  Field that is to be used for sorting
+  """
   field: String!
 
-  """SortInput order of the field"""
+  """
+  SortInput order of the field
+  """
   order: SortOrderEnum!
 }
 
-"""SortInput order of items"""
+"""
+SortInput order of items
+"""
 enum SortOrderEnum {
   ASC
   DESC
@@ -168,89 +228,147 @@ type Subscription {
   userCreated: User!
 }
 
-"""User"""
+"""
+User
+"""
 type User {
-  """ID of the persistence object"""
+  """
+  ID of the persistence object
+  """
   id: ID
 
-  """Created date"""
+  """
+  Created date
+  """
   createdAt: DateTime
 
-  """Labels of the object"""
+  """
+  Labels of the object
+  """
   labels: [String!]
 
-  """Users who own the object"""
+  """
+  Users who own the object
+  """
   ownerIds: [String!]
 
-  """Tags for the object"""
+  """
+  Tags for the object
+  """
   tags: [String!]
 
-  """Updated date"""
+  """
+  Updated date
+  """
   updatedAt: DateTime
 
-  """Email of the user"""
+  """
+  Email of the user
+  """
   email: String
 
-  """First name of the user"""
+  """
+  First name of the user
+  """
   firstName: String
 
-  """Last name of the user"""
+  """
+  Last name of the user
+  """
   lastName: String
 
-  """Roles of the user"""
+  """
+  Roles of the user
+  """
   roles: [String!]
 
-  """Username of the user"""
+  """
+  Username of the user
+  """
   username: String
 
-  """URL to avatar file of the user"""
+  """
+  URL to avatar file of the user
+  """
   avatar: String
 
-  """ID of the user who created the object"""
+  """
+  ID of the user who created the object
+  """
   createdBy: Editor
 
-  """ID of the user who last updated the object"""
+  """
+  ID of the user who last updated the object
+  """
   updatedBy: Editor
 }
 
-"""User input to create a new user"""
+"""
+User input to create a new user
+"""
 input UserCreateInput {
-  """Email of the user"""
+  """
+  Email of the user
+  """
   email: String!
 
-  """First name of the user"""
+  """
+  First name of the user
+  """
   firstName: String
 
-  """Last name of the user"""
+  """
+  Last name of the user
+  """
   lastName: String
 
-  """Roles of the user"""
-  roles: [String!] = []
+  """
+  Roles of the user
+  """
+  roles: [String!]
 
-  """Username / alias of the user"""
+  """
+  Username / alias of the user
+  """
   username: String
 
-  """Password of the user"""
+  """
+  Password of the user
+  """
   password: String
 }
 
-"""User input"""
+"""
+User input
+"""
 input UserInput {
-  """Email of the user"""
+  """
+  Email of the user
+  """
   email: String
 
-  """First name of the user"""
+  """
+  First name of the user
+  """
   firstName: String
 
-  """Last name of the user"""
+  """
+  Last name of the user
+  """
   lastName: String
 
-  """Roles of the user"""
-  roles: [String!] = []
+  """
+  Roles of the user
+  """
+  roles: [String!]
 
-  """Username / alias of the user"""
+  """
+  Username / alias of the user
+  """
   username: String
 
-  """Password of the user"""
+  """
+  Password of the user
+  """
   password: String
 }
