@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.34",
+  "version": "0.0.35",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -77,9 +77,5 @@
       "pre-commit": "ts-node --skip-project extras/sync-version.ts && pretty-quick --staged",
       "pre-push": "npm run lint && npm run test"
     }
-  },
-  "prettier": {
-    "semi": false,
-    "singleQuote": true
   }
 }
