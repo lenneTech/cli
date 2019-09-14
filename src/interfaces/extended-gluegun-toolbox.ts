@@ -1,15 +1,11 @@
-import { Helper } from '@lenne.tech/cli-plugin-helper'
-import { GluegunToolbox } from 'gluegun'
+import { IHelperExtendedGluegunToolbox } from '@lenne.tech/cli-plugin-helper'
 import { Git } from '../extensions/git'
-import { Npm } from '../extensions/npm'
 import { Typescript } from '../extensions/typescript'
 
 /**
  * Extended GluegunToolbox
  */
-export interface ExtendedGluegunToolbox extends GluegunToolbox {
+export interface ExtendedGluegunToolbox extends IHelperExtendedGluegunToolbox {
   git: Git
-  helper: Helper
-  npm: Npm
   typescript: Typescript
 }
