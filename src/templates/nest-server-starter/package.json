@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/nest-server-starter",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "description": "Starter for lenne.Tech Nest Server",
   "keywords": [
     "starter",
@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json && npm run copy:templates",
-    "copy:templates": "cp -r ./src/templates ./dist",
+    "copy:templates": "cpy --parents --cwd=./src templates/**/* ../dist",
     "format": "prettier --write 'src/**/*.ts'",
     "lint": "tslint -p tsconfig.json -c tslint.json",
     "prestart:prod": "rimraf dist && npm run build",
@@ -50,6 +50,9 @@
   },
   "dependencies": {
     "@lenne.tech/nest-server": "0.0.21"
+  },
+  "devDependencies": {
+    "cpy-cli": "2.0.0"
   },
   "jest": {
     "collectCoverage": true,
