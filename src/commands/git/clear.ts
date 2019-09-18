@@ -2,11 +2,11 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
- * Undo last commit (without loosing files)
+ * Undo current changes
  */
 const NewCommand: GluegunCommand = {
   name: 'clear',
-  alias: ['clean', 'cl'],
+  alias: ['cl'],
   description: 'Undo current changes',
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
