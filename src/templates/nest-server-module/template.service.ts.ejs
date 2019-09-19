@@ -61,10 +61,10 @@ export class <%= props.namePascal %>Service {
     await this.prepareInput(input, currentUser, { create: true });
 
     // Create new <%= props.namePascal %>
-    const created<%= props.namePascal %> = await this.db.create(input);
+    let created<%= props.namePascal %> = await this.db.create(input);
 
     // Save new <%= props.namePascal %>
-    await created<%= props.namePascal %>.save();
+    created<%= props.namePascal %> = await this.db.save(created<%= props.namePascal %>);
 
     // Prepare output
     await this.prepareOutput(created<%= props.namePascal %>, args[0]);
