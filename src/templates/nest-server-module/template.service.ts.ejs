@@ -114,10 +114,10 @@ export class <%= props.namePascal %>Service {
   /**
    * Get <%= props.namePascal %> via filter
    */
-  find(filterArgs?: FilterArgs, ...args: any[]): Promise<<%= props.namePascal %>[]> {
+  async find(filterArgs?: FilterArgs, ...args: any[]): Promise<<%= props.namePascal %>[]> {
 
     // Return found users
-    return this.db.find(Filter.generateFilterOptions(filterArgs, { dbType: this.configService.get('typeOrm.type') }));
+    return await this.db.find(Filter.generateFilterOptions(filterArgs, { dbType: this.configService.get('typeOrm.type') }));
   }
 
   /**
