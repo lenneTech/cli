@@ -1,4 +1,4 @@
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Npm commands
@@ -11,8 +11,8 @@ module.exports = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper: { commandSelector }
-    } = toolbox
-    await commandSelector(toolbox, { parentCommand: 'npm' })
-    return 'npm'
+    } = toolbox;
+    await commandSelector(toolbox, { parentCommand: 'npm' });
+    return 'npm';
   }
-}
+};

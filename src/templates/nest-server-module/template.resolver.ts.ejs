@@ -64,7 +64,7 @@ export class <%= props.namePascal %>Resolver {
     @Args('input') input: <%= props.namePascal %>Input,
     @Args('id') id: string,
     @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo,
+    @Info() info: GraphQLResolveInfo
   ): Promise<<%= props.namePascal %>> {
 
     // Check input

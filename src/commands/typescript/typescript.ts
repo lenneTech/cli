@@ -1,4 +1,4 @@
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * TypeScript commands
@@ -11,11 +11,11 @@ module.exports = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper: { commandSelector }
-    } = toolbox
+    } = toolbox;
     await commandSelector(toolbox, {
       parentCommand: 'typescript',
       welcome: 'TypeScript commands'
-    })
-    return 'typescript'
+    });
+    return 'typescript';
   }
-}
+};

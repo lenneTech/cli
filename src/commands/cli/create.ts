@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new CLI
@@ -21,103 +21,93 @@ const NewCommand: GluegunCommand = {
       prompt: { ask },
       strings: { kebabCase },
       system
-    } = toolbox
+    } = toolbox;
 
     // Info
-    info('Create a new CLI')
+    info('Create a new CLI');
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Get name
     const name = await helper.getInput(parameters.first, {
       name: 'CLI name',
       showError: true
-    })
+    });
     if (!name) {
-      return
+      return;
     }
 
     // Get author
     const author = await helper.getInput(parameters.options.author, {
       name: 'Author',
       showError: true
-    })
+    });
 
     // Link
-    let link = parameters.options.link && !parameters.options.nolink
+    let link = parameters.options.link && !parameters.options.nolink;
     if (!parameters.options.link && !parameters.options.nolink) {
       link = !!(await ask({
         type: 'confirm',
         name: 'link',
         message: 'Link when finished?'
-      })).link
+      })).link;
     }
 
     // Start timer
-    const timer = system.startTimer()
+    const timer = system.startTimer();
 
     // Set project directory
-    const projectDir = kebabCase(name) // kebab-case
+    const projectDir = kebabCase(name); // kebab-case
 
     // Check if directory already exists
     if (filesystem.exists(projectDir)) {
-      info(``)
-      error(`There's already a folder named "${projectDir}" here.`)
-      return undefined
+      info(``);
+      error(`There's already a folder named "${projectDir}" here.`);
+      return undefined;
     }
 
     // Clone git repository
-    const cloneSpinner = spin(
-      'Clone https://github.com/lenneTech/cli-starter.git'
-    )
-    await system.run(
-      `git clone https://github.com/lenneTech/cli-starter.git ${projectDir}`
-    )
+    const cloneSpinner = spin('Clone https://github.com/lenneTech/cli-starter.git');
+    await system.run(`git clone https://github.com/lenneTech/cli-starter.git ${projectDir}`);
     if (filesystem.isDirectory(`./${projectDir}`)) {
-      filesystem.remove(`./${projectDir}/.git`)
-      cloneSpinner.succeed(
-        'Repository cloned from https://github.com/lenneTech/cli-starter.git'
-      )
+      filesystem.remove(`./${projectDir}/.git`);
+      cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/cli-starter.git');
     } else {
-      cloneSpinner.fail(`The directory "${projectDir}" could not be created.`)
-      return undefined
+      cloneSpinner.fail(`The directory "${projectDir}" could not be created.`);
+      return undefined;
     }
 
     // Install packages
-    const installSpinner = spin('Install npm packages')
-    await system.run(`cd ${projectDir} && npm i`)
-    installSpinner.succeed('NPM packages installed')
+    const installSpinner = spin('Install npm packages');
+    await system.run(`cd ${projectDir} && npm i`);
+    installSpinner.succeed('NPM packages installed');
 
     // Rename files and data
-    const renameSpinner = spin(`Rename files & data ${link ? ' and link' : ''}`)
+    const renameSpinner = spin(`Rename files & data ${link ? ' and link' : ''}`);
     await system.run(
-      `cd ${projectDir} && npm run rename -- "${name}" --author "${author}" --${
-        link ? 'link' : 'nolink'
-      }`
-    )
-    renameSpinner.succeed(`Files & data renamed${link ? ' and linked' : ''}`)
+      `cd ${projectDir} && npm run rename -- "${name}" --author "${author}" --${link ? 'link' : 'nolink'}`
+    );
+    renameSpinner.succeed(`Files & data renamed${link ? ' and linked' : ''}`);
 
     // Init git
-    const initGitSpinner = spin('Initialize git')
+    const initGitSpinner = spin('Initialize git');
     await system.run(
       `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`
-    )
-    initGitSpinner.succeed('Git initialized')
+    );
+    initGitSpinner.succeed('Git initialized');
 
     // We're done, so show what to do next
-    info(``)
+    info(``);
     success(
-      `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(
-        timer()
-      )}m.`
-    )
+      `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`
+    );
 
     // For tests
-    return `new cli ${name}`
+    return `new cli ${name}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

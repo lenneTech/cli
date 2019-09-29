@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Update npm packages
@@ -16,22 +16,20 @@ const NewCommand: GluegunCommand = {
       npm,
       print: { success },
       system
-    } = toolbox
+    } = toolbox;
 
     // Start timer
-    const timer = system.startTimer()
+    const timer = system.startTimer();
 
     // Update
-    await npm.update({ showError: true, install: true })
+    await npm.update({ showError: true, install: true });
 
     // Success info
-    success(
-      `Updated npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`
-    )
+    success(`Updated npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`);
 
     // For tests
-    return `npm update`
+    return `npm update`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

@@ -1,7 +1,8 @@
 {
   "extends": ["tslint-config-standard", "tslint-config-prettier"],
   "rules": {
-    "strict-type-predicates": false
+    "strict-type-predicates": false,
+    "trailing-comma": false
   },
   "env": {
     "jest": true

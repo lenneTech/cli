@@ -6,4 +6,4 @@ module.exports = {
   defaults: {
     checkForUpdate: true
   }
-}
+};

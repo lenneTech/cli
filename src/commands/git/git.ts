@@ -1,4 +1,4 @@
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Git commands
@@ -11,8 +11,8 @@ module.exports = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper: { commandSelector }
-    } = toolbox
-    await commandSelector(toolbox, { parentCommand: 'git' })
-    return 'git'
+    } = toolbox;
+    await commandSelector(toolbox, { parentCommand: 'git' });
+    return 'git';
   }
-}
+};

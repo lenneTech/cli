@@ -1,4 +1,4 @@
-import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox'
+import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 
 /**
  * Git functions
@@ -12,9 +12,7 @@ export class Git {
   /**
    * Ask for reset
    */
-  public async askForReset(
-    options: { errorMessage?: string; showError?: boolean; text?: string } = {}
-  ) {
+  public async askForReset(options: { errorMessage?: string; showError?: boolean; text?: string } = {}) {
     // Process options
     const opts = Object.assign(
       {
@@ -23,30 +21,30 @@ export class Git {
         text: 'There are changes, reset?'
       },
       options
-    )
+    );
 
     // Toolbox features
     const {
       print: { error },
       prompt,
       system
-    } = this.toolbox
+    } = this.toolbox;
 
     // Check changes in current branch
-    const changes = await system.run('git status --porcelain')
+    const changes = await system.run('git status --porcelain');
     if (changes) {
-      const reset = await prompt.confirm(opts.text)
+      const reset = await prompt.confirm(opts.text);
       if (!reset) {
         if (opts.showError) {
-          error(opts.errorMessage)
+          error(opts.errorMessage);
         }
-        return false
+        return false;
       }
-      await system.run('git reset --hard && git clean -fd')
+      await system.run('git reset --hard && git clean -fd');
     }
 
     // Return changes
-    return true
+    return true;
   }
 
   /**
@@ -60,20 +58,20 @@ export class Git {
         errorMessage: 'Please commit or stash changes!'
       },
       options
-    )
+    );
 
     // Toolbox features
     const {
       print: { error },
       system
-    } = this.toolbox
+    } = this.toolbox;
 
     // Check changes
-    const changes = system.run('git status --porcelain')
+    const changes = system.run('git status --porcelain');
     if (changes && opts.showError) {
-      error(opts.errorMessage)
+      error(opts.errorMessage);
     }
-    return changes
+    return changes;
   }
 
   /**
@@ -84,8 +82,8 @@ export class Git {
     const {
       helper: { trim },
       system
-    } = this.toolbox
-    return trim(await system.run('git rev-parse --abbrev-ref HEAD'))
+    } = this.toolbox;
+    return trim(await system.run('git rev-parse --abbrev-ref HEAD'));
   }
 
   /**
@@ -94,9 +92,9 @@ export class Git {
   public async diffFiles(
     branch: string,
     options?: {
-      noDiffResult?: string
-      otherBranch?: string
-      showWarning?: boolean
+      noDiffResult?: string;
+      otherBranch?: string;
+      showWarning?: boolean;
     }
   ) {
     // Process options
@@ -107,26 +105,24 @@ export class Git {
         showWarning: false
       },
       options
-    )
+    );
 
     // Toolbox features
     const {
       system,
       print: { warning }
-    } = this.toolbox
+    } = this.toolbox;
 
     // Get diff
     try {
-      const diff = await system.run(
-        `git --no-pager diff --name-only ${branch} ${opts.otherBranch}`
-      )
+      const diff = await system.run(`git --no-pager diff --name-only ${branch} ${opts.otherBranch}`);
       // Return relative file paths as array
-      return diff.split(/\r?\n/).filter(item => item)
+      return diff.split(/\r?\n/).filter((item) => item);
     } catch (error) {
       if (opts.showWarning) {
-        warning('Branch diff could not be performed!')
+        warning('Branch diff could not be performed!');
       }
-      return opts.noDiffResult
+      return opts.noDiffResult;
     }
   }
 
@@ -135,22 +131,22 @@ export class Git {
    */
   public async getBranches() {
     // Prepare results
-    const result = []
+    const result = [];
 
     // Toolbox features
-    const { system } = this.toolbox
+    const { system } = this.toolbox;
 
     // Get branches
-    const branches = await system.run('git fetch && git show-branch --list')
-    branches.split('\n').forEach(item => {
-      const matches = item.match(/\[(.*?)\]/)
+    const branches = await system.run('git fetch && git show-branch --list');
+    branches.split('\n').forEach((item) => {
+      const matches = item.match(/\[(.*?)\]/);
       if (matches) {
-        result.push(matches[1])
+        result.push(matches[1]);
       }
-    })
+    });
 
     // Return result
-    return result
+    return result;
   }
 
   /**
@@ -161,9 +157,9 @@ export class Git {
     const {
       helper: { trim },
       system: { run }
-    } = this.toolbox
+    } = this.toolbox;
 
-    return trim(await run(`git merge-base HEAD ${baseBranch}`))
+    return trim(await run(`git merge-base HEAD ${baseBranch}`));
   }
 
   /**
@@ -174,15 +170,15 @@ export class Git {
     const {
       helper: { trim },
       system: { run }
-    } = this.toolbox
+    } = this.toolbox;
 
     // Get data
-    const user: { email: string; name: string } = {} as any
-    user.email = trim(await run('git config user.email'))
-    user.name = trim(await run('git config user.name'))
+    const user: { email: string; name: string } = {} as any;
+    user.email = trim(await run('git config user.email'));
+    user.name = trim(await run('git config user.name'));
 
     // Return user
-    return user
+    return user;
   }
 
   /**
@@ -193,15 +189,15 @@ export class Git {
     const {
       print: { error },
       system
-    } = this.toolbox
+    } = this.toolbox;
 
-    const gitInstalled = !!system.which('git')
+    const gitInstalled = !!system.which('git');
     if (!gitInstalled) {
-      error('Please install git: https://git-scm.com')
-      return false
+      error('Please install git: https://git-scm.com');
+      return false;
     }
 
-    return true
+    return true;
   }
 
   /**
@@ -210,18 +206,18 @@ export class Git {
   public async getBranch(
     branch: string,
     options: {
-      error?: boolean // show error via print.error
-      errorText?: string // text for error shown via print.error
-      exact?: boolean // exact branch name or included branch name
-      local?: boolean // must the branch exist local
-      remote?: boolean // must the branch exist remotely
-      spin?: boolean // show spinner
-      spinText?: string // text of spinner
+      error?: boolean; // show error via print.error
+      errorText?: string; // text for error shown via print.error
+      exact?: boolean; // exact branch name or included branch name
+      local?: boolean; // must the branch exist local
+      remote?: boolean; // must the branch exist remotely
+      spin?: boolean; // show spinner
+      spinText?: string; // text of spinner
     } = {}
   ) {
     // Check branch
     if (!branch) {
-      return
+      return;
     }
 
     // Process options
@@ -236,98 +232,92 @@ export class Git {
         spinText: 'Search branch'
       },
       options
-    )
+    );
 
     // Toolbox features
     const {
       helper: { trim },
       print: { error, spin },
       system
-    } = this.toolbox
+    } = this.toolbox;
 
     // Prepare spinner
-    let searchSpin
+    let searchSpin;
     if (opts.spin) {
-      searchSpin = spin(opts.spinText)
+      searchSpin = spin(opts.spinText);
     }
 
     // Update infos
-    await system.run(`git fetch`)
+    await system.run(`git fetch`);
 
     // Search branch
     if (opts.exact) {
       if (opts.remote) {
         if (!(await system.run(`git ls-remote --heads origin ${branch}`))) {
-          branch = null
+          branch = null;
         }
       } else {
         try {
-          await system.run(`git rev-parse --verify ${branch}`)
+          await system.run(`git rev-parse --verify ${branch}`);
         } catch (e) {
-          branch = null
+          branch = null;
         }
       }
     } else {
-      branch = (await system.run(
-        `git branch -a | grep ${branch} | cut -c 3- | head -1`
-      ))
+      branch = (await system.run(`git branch -a | grep ${branch} | cut -c 3- | head -1`))
         .replace(/\r?\n|\r/g, '') // remove line breaks
         .replace(/^.*origin\//, '') // remove remote path
         .replace(/^.*github\//, '') // remove remote path
-        .trim()
+        .trim();
     }
     if (!branch) {
       if (opts.spin) {
-        searchSpin.fail()
+        searchSpin.fail();
       }
       if (opts.error) {
-        error(opts.errorText)
+        error(opts.errorText);
       }
-      return
+      return;
     }
 
     // Trim branch
-    branch = trim(branch)
+    branch = trim(branch);
 
     // Check remote, if not done before
     if (opts.remote && !opts.exact) {
-      const remoteBranch = trim(
-        await system.run(`git ls-remote --heads origin ${branch}`)
-      )
+      const remoteBranch = trim(await system.run(`git ls-remote --heads origin ${branch}`));
       if (!remoteBranch) {
         if (opts.spin) {
-          searchSpin.fail()
+          searchSpin.fail();
         }
         if (opts.error) {
-          error(opts.errorText)
+          error(opts.errorText);
         }
-        return
+        return;
       }
     }
 
     // Check local
     if (opts.local) {
-      const remoteBranch = trim(
-        await system.run(`git rev-parse --verify --quiet ${branch}`)
-      )
+      const remoteBranch = trim(await system.run(`git rev-parse --verify --quiet ${branch}`));
       if (!remoteBranch) {
         if (opts.spin) {
-          searchSpin.fail()
+          searchSpin.fail();
         }
         if (opts.error) {
-          error(opts.errorText)
+          error(opts.errorText);
         }
-        return
+        return;
       }
     }
 
     // End spinner
     if (opts.spin) {
-      searchSpin.succeed()
+      searchSpin.succeed();
     }
 
     // Return branch name
-    return branch
+    return branch;
   }
 
   /**
@@ -338,9 +328,9 @@ export class Git {
     const {
       helper: { trim },
       system: { run }
-    } = this.toolbox
+    } = this.toolbox;
 
-    return trim(await run('git show-branch --no-name HEAD'))
+    return trim(await run('git show-branch --no-name HEAD'));
   }
 
   /**
@@ -350,18 +340,14 @@ export class Git {
     // Toolbox features
     const {
       system: { run }
-    } = this.toolbox
-    return run(
-      soft ? `git reset --soft ${mergeBase}` : `git reset ${mergeBase}`
-    )
+    } = this.toolbox;
+    return run(soft ? `git reset --soft ${mergeBase}` : `git reset ${mergeBase}`);
   }
 
   /**
    * Select a branch
    */
-  public async selectBranch(
-    options: { defaultBranch?: string; text?: string } = {}
-  ) {
+  public async selectBranch(options: { defaultBranch?: string; text?: string } = {}) {
     // Process options
     const opts = Object.assign(
       {
@@ -369,29 +355,27 @@ export class Git {
         text: 'Select branch'
       },
       options
-    )
+    );
 
     // Toolbox features
     const {
       prompt: { ask }
-    } = this.toolbox
+    } = this.toolbox;
 
     // Get branches
-    let branches = await this.getBranches()
+    let branches = await this.getBranches();
     if (!branches || branches.length === 0) {
-      return
+      return;
     }
 
     // Check default branch
     if (!branches.includes(opts.defaultBranch) && branches.includes('master')) {
-      opts.defaultBranch = 'master'
+      opts.defaultBranch = 'master';
     }
 
     // Prepare branches
     if (branches.includes(opts.defaultBranch)) {
-      branches = [opts.defaultBranch].concat(
-        branches.filter(item => item !== opts.defaultBranch)
-      )
+      branches = [opts.defaultBranch].concat(branches.filter((item) => item !== opts.defaultBranch));
     }
 
     // Select branch
@@ -400,10 +384,10 @@ export class Git {
       name: 'branch',
       message: opts.text,
       choices: branches
-    })
+    });
 
     // Return selected branch
-    return branch
+    return branch;
   }
 
   /**
@@ -413,8 +397,8 @@ export class Git {
     // Toolbox features
     const {
       system: { run }
-    } = this.toolbox
-    return run('git status')
+    } = this.toolbox;
+    return run('git status');
   }
 }
 
@@ -422,5 +406,5 @@ export class Git {
  * Extend toolbox
  */
 export default (toolbox: ExtendedGluegunToolbox) => {
-  toolbox.git = new Git(toolbox)
-}
+  toolbox.git = new Git(toolbox);
+};

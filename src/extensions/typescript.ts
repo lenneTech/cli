@@ -1,7 +1,7 @@
-import * as fs from 'fs'
-import { join } from 'path'
-import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox'
-import * as open from 'open'
+import * as fs from 'fs';
+import { join } from 'path';
+import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import * as open from 'open';
 
 /**
  * Common helper functions
@@ -23,76 +23,69 @@ export class Typescript {
       npm,
       print: { error, info, spin, success },
       system: { run, startTimer, which }
-    } = this.toolbox
+    } = this.toolbox;
 
     // Get project name
     const name = await helper.getInput(null, {
       name: 'project name',
       showError: true
-    })
+    });
     if (!name) {
-      return
+      return;
     }
 
     // Check dir
-    const dir = join(cwd(), name)
+    const dir = join(cwd(), name);
     if (await existsAsync(dir)) {
-      error(`Diretory ${dir} exists!`)
+      error(`Diretory ${dir} exists!`);
     }
 
     // Start timer
-    const timer = startTimer()
+    const timer = startTimer();
 
     // Init
-    const cloneSpin = spin(`Init project ${name}`)
+    const cloneSpin = spin(`Init project ${name}`);
 
     // Init gts
-    fs.mkdirSync(dir)
-    await run(
-      `cd ${dir} && npm init -y && npx gts init && npm install -D ts-node`
-    )
+    fs.mkdirSync(dir);
+    await run(`cd ${dir} && npm init -y && npx gts init && npm install -D ts-node`);
 
     // Prepare package.json
     const { path, data } = await npm.getPackageJson({
       cwd: dir,
       showError: true
-    })
+    });
     if (!path) {
-      return
+      return;
     }
-    data.scripts.start = 'npx ts-node src/index.ts'
-    data.main = 'build/index.js'
+    data.scripts.start = 'npx ts-node src/index.ts';
+    data.main = 'build/index.js';
     if (!(await npm.setPackageJson(data, { cwd: dir, showError: true }))) {
-      return
+      return;
     }
 
     // Overwrite index.ts
-    const pathOfIndex = join(dir, 'src', 'index.ts')
-    fs.unlinkSync(pathOfIndex)
-    fs.writeFileSync(
-      pathOfIndex,
-      "// Write your code here\nconsole.log('hello world!');"
-    )
+    const pathOfIndex = join(dir, 'src', 'index.ts');
+    fs.unlinkSync(pathOfIndex);
+    fs.writeFileSync(pathOfIndex, "// Write your code here\nconsole.log('hello world!');");
 
     // Init git
     if (which('git')) {
-      await run(`git init`)
+      await run(`git init`);
     }
 
-    cloneSpin.succeed()
+    cloneSpin.succeed();
 
     // Success info
-    success(
-      `Project ${name} was created in ${helper.msToMinutesAndSeconds(timer())}.`
-    )
-    info('')
+    success(`Project ${name} was created in ${helper.msToMinutesAndSeconds(timer())}.`);
+    info('');
   }
 
   /**
    * Open stackblitz
    */
   public async stackblitz() {
-    return open('https://stackblitz.com/fork/typescript')
+    return open('https://stackblitz.com/fork/typescript');
   }
 
   /**
@@ -107,41 +100,41 @@ export class Typescript {
       npm,
       print: { error, spin },
       system: { run }
-    } = this.toolbox
+    } = this.toolbox;
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Get project name
     const name = await helper.getInput(null, {
       name: 'project name',
       showError: true
-    })
+    });
     if (!name) {
-      return
+      return;
     }
 
     // Check dir
-    const dir = join(cwd(), name)
+    const dir = join(cwd(), name);
     if (await existsAsync(dir)) {
-      error(`Diretory ${dir} exists!`)
+      error(`Diretory ${dir} exists!`);
     }
 
     // Clone
-    const repository = 'https://github.com/chinchang/web-maker.git'
-    const cloneSpin = spin(`Cloning web-maker: ${repository}`)
-    await run(`git clone ${repository} ${dir}`)
-    cloneSpin.succeed()
+    const repository = 'https://github.com/chinchang/web-maker.git';
+    const cloneSpin = spin(`Cloning web-maker: ${repository}`);
+    await run(`git clone ${repository} ${dir}`);
+    cloneSpin.succeed();
 
     // Install packages
     if (await npm.install({ cwd: dir, showError: true })) {
-      return
+      return;
     }
 
     // Start
-    await run(`cd ${dir} && npm start`)
+    await run(`cd ${dir} && npm start`);
   }
 }
 
@@ -149,5 +142,5 @@ export class Typescript {
  * Extend toolbox
  */
 export default (toolbox: ExtendedGluegunToolbox) => {
-  toolbox.typescript = new Typescript(toolbox)
-}
+  toolbox.typescript = new Typescript(toolbox);
+};

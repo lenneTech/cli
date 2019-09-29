@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Checkout git branch
@@ -19,28 +19,28 @@ const NewCommand: GluegunCommand = {
       print: { error, info, spin, success },
       prompt,
       system
-    } = toolbox
+    } = toolbox;
 
     // Start timer
-    const timer = system.startTimer()
+    const timer = system.startTimer();
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Get (part of) branch name
     const branchName = await helper.getInput(parameters.first, {
       name: 'branch name',
       showError: true
-    })
+    });
     if (!branchName) {
-      return
+      return;
     }
 
     // Check changes in current branch (reset necessary)
     if (!(await git.askForReset({ showError: true }))) {
-      return
+      return;
     }
 
     // Search for branch, which includes branch name
@@ -49,103 +49,89 @@ const NewCommand: GluegunCommand = {
       exact: false,
       remote: false,
       spin: true
-    })
+    });
     if (!branch) {
-      return
+      return;
     }
 
     // Get remote branch
-    const remoteBranch = await git.getBranch(branch, { remote: true })
+    const remoteBranch = await git.getBranch(branch, { remote: true });
 
     // Ask for checkout branch
     if (
       !parameters.options.noConfirm &&
-      !(await prompt.confirm(
-        'Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch
-      ))
+      !(await prompt.confirm('Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch))
     ) {
-      return
+      return;
     }
 
     // Checkout branch
-    await system.run('git checkout master')
-    let checkoutSpin
+    await system.run('git checkout master');
+    let checkoutSpin;
 
     // Handling for remote
     if (remoteBranch) {
       // Delete local
-      let removed = false
-      const checkSpin = spin('Check status')
-      if (
-        branch !== 'master' &&
-        branch &&
-        (await git.diffFiles(branch, { noDiffResult: '' })).length
-      ) {
-        checkSpin.succeed()
-        let mode = parameters.options.mode
+      let removed = false;
+      const checkSpin = spin('Check status');
+      if (branch !== 'master' && branch && (await git.diffFiles(branch, { noDiffResult: '' })).length) {
+        checkSpin.succeed();
+        let mode = parameters.options.mode;
         if (!mode) {
           if (await prompt.confirm(`Remove local commits of ${branch}`)) {
-            mode = 'hard'
+            mode = 'hard';
           }
         }
         if (mode === 'hard') {
-          const prepareSpin = spin('Refresh ' + branch)
-          await system.run(`git branch -D ${branch}`)
-          removed = true
-          prepareSpin.succeed()
+          const prepareSpin = spin('Refresh ' + branch);
+          await system.run(`git branch -D ${branch}`);
+          removed = true;
+          prepareSpin.succeed();
         }
       } else {
-        checkSpin.succeed()
+        checkSpin.succeed();
       }
 
       // Start spin
-      checkoutSpin = spin('Checkout ' + branch)
+      checkoutSpin = spin('Checkout ' + branch);
 
       // Checkout remote if local branch not exists
       if (removed || !(await git.getBranch(branch, { local: true }))) {
         await system.run(
           `git fetch && git checkout --track origin/${branch} && git reset --hard && git clean -fd && git pull`
-        )
+        );
 
         // Checkout local branch
       } else {
-        await system.run(
-          `git fetch && git checkout ${branch} && git reset --hard && git clean -fd && git pull`
-        )
+        await system.run(`git fetch && git checkout ${branch} && git reset --hard && git clean -fd && git pull`);
       }
 
       // Handling for local only
     } else if (branch) {
-      checkoutSpin = spin('Checkout ' + branch)
-      await system.run(
-        `git fetch && git checkout ${branch} && git reset --hard && git clean -fd`
-      )
+      checkoutSpin = spin('Checkout ' + branch);
+      await system.run(`git fetch && git checkout ${branch} && git reset --hard && git clean -fd`);
 
       // No branch found
     } else {
-      error(`Branch ${branch} not found!`)
-      return
+      error(`Branch ${branch} not found!`);
+      return;
     }
 
     // Checkout done
-    checkoutSpin.succeed()
+    checkoutSpin.succeed();
 
     // Install npm packages
-    await npm.install()
+    await npm.install();
 
     // Success info
     success(
-      `${
-        remoteBranch ? 'Remote' : 'Local'
-      } branch ${branch} checked out in ${helper.msToMinutesAndSeconds(
-        timer()
-      )}m.`
-    )
-    info('')
+      `${remoteBranch ? 'Remote' : 'Local'} branch ${branch} checked out in ${helper.msToMinutesAndSeconds(timer())}m.`
+    );
+    info('');
 
     // For tests
-    return `get branch ${branch}`
+    return `get branch ${branch}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

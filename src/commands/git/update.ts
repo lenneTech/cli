@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Update branch
@@ -17,34 +17,34 @@ const NewCommand: GluegunCommand = {
       npm,
       print: { info, spin, success },
       system: { run, startTimer }
-    } = toolbox
+    } = toolbox;
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Start timer
-    const timer = startTimer()
+    const timer = startTimer();
 
     // Get current branch
-    const branch = await git.currentBranch()
+    const branch = await git.currentBranch();
 
     // Update
-    const updateSpin = spin(`Update branch ${branch}`)
-    await run('git fetch && git pull')
-    updateSpin.succeed()
+    const updateSpin = spin(`Update branch ${branch}`);
+    await run('git fetch && git pull');
+    updateSpin.succeed();
 
     // Install npm packages
-    await npm.install()
+    await npm.install();
 
     // Success
-    success(`Updated ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`)
-    info('')
+    success(`Updated ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    info('');
 
     // For tests
-    return `updated ${branch}`
+    return `updated ${branch}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

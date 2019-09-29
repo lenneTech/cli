@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Undo last commit (without loosing files)
@@ -18,46 +18,39 @@ const NewCommand: GluegunCommand = {
       prompt: { confirm },
       print: { info, spin, success },
       system: { run, startTimer }
-    } = toolbox
+    } = toolbox;
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Last commit message
-    const lastCommitMessage = await git.lastCommitMessage()
+    const lastCommitMessage = await git.lastCommitMessage();
 
     // Ask to squash the branch
-    if (
-      !parameters.options.noConfirm &&
-      !(await confirm(`Undo last commit "${lastCommitMessage}"?`))
-    ) {
-      return
+    if (!parameters.options.noConfirm && !(await confirm(`Undo last commit "${lastCommitMessage}"?`))) {
+      return;
     }
 
     // Start timer
-    const timer = startTimer()
+    const timer = startTimer();
 
     // Get current branch
-    const branch = await git.currentBranch()
+    const branch = await git.currentBranch();
 
     // Reset soft
-    const undoSpinner = spin(`Undo last commit of branch ${branch}`)
-    await run('git reset --soft HEAD~')
-    undoSpinner.succeed()
+    const undoSpinner = spin(`Undo last commit of branch ${branch}`);
+    await run('git reset --soft HEAD~');
+    undoSpinner.succeed();
 
     // Success
-    success(
-      `Undo last commit of ${branch} in ${helper.msToMinutesAndSeconds(
-        timer()
-      )}m.`
-    )
-    info('')
+    success(`Undo last commit of ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    info('');
 
     // For tests
-    return `undo last commit of branch ${branch}`
+    return `undo last commit of branch ${branch}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

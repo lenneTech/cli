@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new branch
@@ -18,63 +18,54 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       system
-    } = toolbox
+    } = toolbox;
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Check changes in current branch (reset optional)
-    await git.askForReset()
+    await git.askForReset();
 
     // Get branch
     const branch = await helper.getInput(parameters.first, {
       name: 'branch name',
       showError: true
-    })
+    });
     if (!branch) {
-      return
+      return;
     }
 
     // Check if branch already exists
     if (await git.getBranch(branch)) {
-      error(`Branch ${branch} already exists!`)
+      error(`Branch ${branch} already exists!`);
     }
 
     // Select base branch
-    let baseBranch = parameters.second
+    let baseBranch = parameters.second;
     if (!baseBranch || !(await git.getBranch(baseBranch))) {
-      baseBranch = await git.selectBranch({ text: 'Select base branch' })
+      baseBranch = await git.selectBranch({ text: 'Select base branch' });
     }
 
     // Start timer
-    const timer = system.startTimer()
+    const timer = system.startTimer();
 
     // Checkout
-    const createSpin = spin('Create ' + branch)
-    await system.run(
-      `git fetch &&` +
-        `git checkout ${baseBranch} &&` +
-        'git pull && ' +
-        `git checkout -b ${branch}`
-    )
-    createSpin.succeed()
+    const createSpin = spin('Create ' + branch);
+    await system.run(`git fetch &&` + `git checkout ${baseBranch} &&` + 'git pull && ' + `git checkout -b ${branch}`);
+    createSpin.succeed();
 
     // Install npm packages
-    await npm.install()
+    await npm.install();
 
     // Success info
-    success(
-      `Branch ${branch} was created in ${helper.msToMinutesAndSeconds(
-        timer()
-      )}m.`
-    )
-    info('')
+    success(`Branch ${branch} was created in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    info('');
 
     // For tests
-    return `created branch ${branch}`
+    return `created branch ${branch}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

@@ -1,6 +1,6 @@
-import { GluegunCommand } from 'gluegun'
-import * as open from 'open'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import * as open from 'open';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Open regex tools in browser
@@ -12,11 +12,11 @@ const NewCommand: GluegunCommand = {
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Open link
-    await open('https://regex101.com')
+    await open('https://regex101.com');
 
     // For tests
-    return `open regex`
+    return `open regex`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

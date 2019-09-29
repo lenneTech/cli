@@ -13,6 +13,6 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
   imports: [TypeOrmModule.forFeature([<%= props.namePascal %>]), UserModule],
   controllers: [],
   providers: [<%= props.namePascal %>Resolver, <%= props.namePascal %>Service, JSON],
-  exports: [TypeOrmModule, <%= props.namePascal %>Resolver, <%= props.namePascal %>Service],
+  exports: [TypeOrmModule, <%= props.namePascal %>Resolver, <%= props.namePascal %>Service]
 })
 export class <%= props.namePascal %>Module {}

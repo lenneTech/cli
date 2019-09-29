@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.43",
+  "version": "0.0.44",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -21,21 +21,21 @@
     "lt": "bin/lt"
   },
   "scripts": {
-    "start": "node bin/lt",
-    "start:build": "npm run build && node bin/lt --compiled-build",
-    "start:compiled": "node bin/lt --compiled-build",
-    "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
-    "lint": "tslint -p .",
+    "build": "npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
     "clean-build": "rimraf ./build",
     "compile": "tsc -p .",
     "copy-templates": "path-exists ./src/templates && rimraf ./build/templates && cpy --parents --cwd=./src  templates/**/* ../build || echo 'No templates to copy'",
-    "build": "npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
-    "test": "jest --testTimeout=60000",
-    "watch": "jest --watch",
-    "snapupdate": "jest --updateSnapshot",
     "coverage": "jest --coverage",
+    "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
+    "lint": "tslint -p .",
     "prepublishOnly": "npm run build",
-    "preversion": "npm run lint"
+    "preversion": "npm run lint",
+    "snapupdate": "jest --updateSnapshot",
+    "start": "node bin/lt",
+    "start:build": "npm run build && node bin/lt --compiled-build",
+    "start:compiled": "node bin/lt --compiled-build",
+    "test": "jest --testTimeout=60000",
+    "watch": "jest --watch"
   },
   "files": [
     "tsconfig.json",

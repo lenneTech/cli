@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Undo last commit (without loosing files)
@@ -18,39 +18,36 @@ const NewCommand: GluegunCommand = {
       prompt: { confirm },
       print: { info, spin, success },
       system: { run, startTimer }
-    } = toolbox
+    } = toolbox;
 
     // Check git
     if (!(await git.gitInstalled())) {
-      return
+      return;
     }
 
     // Get current branch
-    const branch = await git.currentBranch()
+    const branch = await git.currentBranch();
 
     // Ask to squash the branch
-    if (
-      !parameters.options.noConfirm &&
-      !(await confirm(`Clear "${branch}"?`))
-    ) {
-      return
+    if (!parameters.options.noConfirm && !(await confirm(`Clear "${branch}"?`))) {
+      return;
     }
 
     // Start timer
-    const timer = startTimer()
+    const timer = startTimer();
 
     // Reset soft
-    const undoSpinner = spin(`Clear ${branch}`)
-    await run('git reset --hard && git clean -fd')
-    undoSpinner.succeed()
+    const undoSpinner = spin(`Clear ${branch}`);
+    await run('git reset --hard && git clean -fd');
+    undoSpinner.succeed();
 
     // Success
-    success(`Clear ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`)
-    info('')
+    success(`Clear ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    info('');
 
     // For tests
-    return `clear branch ${branch}`
+    return `clear branch ${branch}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;

@@ -1,5 +1,5 @@
-import { GluegunCommand } from 'gluegun'
-import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox'
+import { GluegunCommand } from 'gluegun';
+import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 
 /**
  * Update @lenne.tech/cli
@@ -14,14 +14,14 @@ const NewCommand: GluegunCommand = {
     const {
       helper,
       runtime: { brand }
-    } = toolbox
+    } = toolbox;
 
     // Update cli and show process
-    await helper.updateCli({ showInfos: true })
+    await helper.updateCli({ showInfos: true });
 
     // For tests
-    return `updated ${brand}`
+    return `updated ${brand}`;
   }
-}
+};
 
-export default NewCommand
+export default NewCommand;
