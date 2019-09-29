@@ -4,15 +4,15 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Tool commands
  */
 module.exports = {
-  name: 'tool',
+  name: 'tools',
   alias: ['t'],
-  description: 'Tool commands',
+  description: 'Tools commands',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper: { commandSelector }
     } = toolbox
-    await commandSelector(toolbox, { parentCommand: 'tool' })
-    return 'tool'
+    await commandSelector(toolbox, { parentCommand: 'tools' })
+    return 'tools'
   }
 }

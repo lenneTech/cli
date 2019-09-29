@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.42",
+  "version": "0.0.43",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -49,7 +49,7 @@
   "dependencies": {
     "@lenne.tech/cli-plugin-helper": "0.0.3",
     "find-file-up": "2.0.1",
-    "gluegun": "3.3.4",
+    "gluegun": "3.3.5",
     "open": "6.4.0",
     "ts-node": "8.4.1",
     "typescript": "3.6.3"
@@ -57,9 +57,9 @@
   "devDependencies": {
     "@lenne.tech/npm-package-helper": "0.0.10",
     "@types/jest": "24.0.18",
-    "@types/node": "12.7.7",
+    "@types/node": "12.7.8",
     "cpy-cli": "2.0.0",
-    "husky": "3.0.5",
+    "husky": "3.0.7",
     "jest": "24.9.0",
     "path-exists-cli": "1.0.0",
     "prettier": "1.18.2",

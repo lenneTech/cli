@@ -3,12 +3,12 @@ import * as open from 'open'
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
 
 /**
- * Open regex tool in browser
+ * Open regex tools in browser
  */
 const NewCommand: GluegunCommand = {
   name: 'regex',
   alias: [],
-  description: 'Open regex tool in browser',
+  description: 'Open regex tools in browser',
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Open link
