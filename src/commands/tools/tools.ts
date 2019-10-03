@@ -9,10 +9,7 @@ module.exports = {
   description: 'Tools commands',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
-    const {
-      helper: { commandSelector }
-    } = toolbox;
-    await commandSelector(toolbox, { parentCommand: 'tools' });
+    await toolbox.helper.showMenu('tools');
     return 'tools';
   }
 };

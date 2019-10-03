@@ -8,11 +8,7 @@ module.exports = {
   description: 'Welcome to lenne.Tech CLI',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
-    const { helper } = toolbox;
-    await helper.commandSelector(toolbox, {
-      level: 0,
-      welcome: 'Welcome to lenne.Tech CLI ' + toolbox.meta.version()
-    });
+    await toolbox.helper.showMenu(null, { headline: 'Welcome to lenne.Tech CLI ' + toolbox.meta.version() });
     return 'lt';
   }
 };

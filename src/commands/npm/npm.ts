@@ -9,10 +9,7 @@ module.exports = {
   description: 'Npm commands',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
-    const {
-      helper: { commandSelector }
-    } = toolbox;
-    await commandSelector(toolbox, { parentCommand: 'npm' });
+    await toolbox.helper.showMenu('npm');
     return 'npm';
   }
 };

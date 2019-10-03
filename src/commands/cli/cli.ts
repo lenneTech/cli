@@ -9,13 +9,7 @@ module.exports = {
   description: 'Commands to create a CLI',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
-    const {
-      helper: { commandSelector }
-    } = toolbox;
-    await commandSelector(toolbox, {
-      parentCommand: 'cli',
-      welcome: 'CLI commands'
-    });
+    await toolbox.helper.showMenu('cli', { headline: 'CLI commands' });
     return 'cli';
   }
 };

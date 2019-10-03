@@ -9,13 +9,7 @@ module.exports = {
   description: 'Typescript commands',
   hidden: true,
   run: async (toolbox: ExtendedGluegunToolbox) => {
-    const {
-      helper: { commandSelector }
-    } = toolbox;
-    await commandSelector(toolbox, {
-      parentCommand: 'typescript',
-      welcome: 'TypeScript commands'
-    });
+    await toolbox.helper.showMenu('typescript', { headline: 'TypeScript commands' });
     return 'typescript';
   }
 };
