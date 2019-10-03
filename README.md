@@ -2,6 +2,10 @@
 
 A CLI for [lenne.Tech](https://github.com/lenneTech) libraries and frameworks.
 
+CLI in action:
+
+![Gluegun Menu Demo](assets/demo.gif)
+
 [![License](https://img.shields.io/github/license/lenneTech/cli)](/LICENSE) [![CircleCI](https://circleci.com/gh/lenneTech/cli/tree/master.svg?style=shield)](https://circleci.com/gh/lenneTech/cli/tree/master)
 [![Dependency Status](https://david-dm.org/lenneTech/cli.svg)](https://david-dm.org/lenneTech/cli) [![devDependency Status](https://david-dm.org/lenneTech/cli/dev-status.svg)](https://david-dm.org/lenneTech/cli?type=dev)
 
