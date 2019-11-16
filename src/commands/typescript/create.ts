@@ -1,4 +1,5 @@
 import { GluegunCommand } from 'gluegun';
+import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
@@ -16,9 +17,11 @@ const NewCommand: GluegunCommand = {
       git,
       helper,
       meta,
+      npm,
       parameters,
       patching,
       print: { error, info, spin, success },
+      prompt: { confirm },
       strings: { kebabCase, pascalCase, camelCase },
       system,
       template
@@ -114,10 +117,17 @@ const NewCommand: GluegunCommand = {
 
     prepareSpinner.succeed('Files prepared');
 
-    // Init npm
-    const installSpinner = spin('Install npm packages');
-    await system.run(`cd ${projectDir} && npm i`);
-    installSpinner.succeed('NPM packages installed');
+    // Install packages
+    const update = await confirm('Do you want to install the latest versions of the included packages?', true);
+    if (update) {
+      // Update
+      await npm.update({ cwd: join(filesystem.cwd(), projectDir), showError: true, install: true });
+    } else {
+      // Init npm
+      const installSpinner = spin('Install npm packages');
+      await system.run(`cd ${projectDir} && npm i`);
+      installSpinner.succeed('NPM packages installed');
+    }
 
     // Init git
     const initGitSpinner = spin('Initialize git');
