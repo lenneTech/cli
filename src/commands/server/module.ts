@@ -108,14 +108,14 @@ const NewCommand: GluegunCommand = {
 
     generateSpinner.succeed('Files generated');
 
-    const serverModule = join(path, 'src', 'server.module.ts');
+    const serverModule = join(path, 'src', 'server', 'server.module.ts');
     if (filesystem.exists(serverModule)) {
       const includeSpinner = spin('Include module into server');
-      await patching.patch(join(path, 'src', 'server.module.ts'), {
+      await patching.patch(serverModule, {
         insert: `import { ${namePascal}Module } from './server/modules/${nameKebab}/${nameKebab}.module';\n`,
         before: 'import'
       });
-      await patching.patch(join(path, 'src', 'server.module.ts'), {
+      await patching.patch(serverModule, {
         insert: `    ${namePascal}Module,\n`,
         after: new RegExp('imports:[^\\]]*', 'm')
       });
