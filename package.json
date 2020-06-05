@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.49",
+  "version": "0.0.50",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -30,6 +30,7 @@
     "lint": "tslint -p .",
     "prepublishOnly": "npm run build",
     "preversion": "npm run lint",
+    "reinit": "rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i && npm run test && npm run build",
     "snapupdate": "jest --updateSnapshot",
     "start": "node bin/lt",
     "start:build": "npm run build && node bin/lt --compiled-build",
@@ -57,7 +58,7 @@
   "devDependencies": {
     "@lenne.tech/npm-package-helper": "0.0.10",
     "@types/jest": "25.2.3",
-    "@types/node": "14.0.11",
+    "@types/node": "12.12.44",
     "cpy-cli": "3.1.1",
     "husky": "4.2.5",
     "jest": "26.0.1",
