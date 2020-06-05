@@ -92,6 +92,11 @@ const NewCommand: GluegunCommand = {
     );
     await patching.replace(
       `./${projectDir}/src/config.env.ts`,
+      'SECRET_OR_PRIVATE_KEY_PREV',
+      crypto.randomBytes(512).toString('base64')
+    );
+    await patching.replace(
+      `./${projectDir}/src/config.env.ts`,
       'SECRET_OR_PRIVATE_KEY_PROD',
       crypto.randomBytes(512).toString('base64')
     );

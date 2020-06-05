@@ -10,7 +10,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
 import { MongoRepository } from 'typeorm';
-import { Editor } from '../../common/models/editor.model';
 import { User } from '../user/user.model';
 import { UserService } from '../user/user.service';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
@@ -61,7 +60,7 @@ export class <%= props.namePascal %>Service {
     await this.prepareInput(input, currentUser, { create: true });
 
     // Create new <%= props.namePascal %>
-    let created<%= props.namePascal %> = await this.db.create(input);
+    let created<%= props.namePascal %> = await this.db.create(input as Record<string, any>);
 
     // Save new <%= props.namePascal %>
     created<%= props.namePascal %> = await this.db.save(created<%= props.namePascal %>);
@@ -139,7 +138,7 @@ export class <%= props.namePascal %>Service {
     await this.prepareInput(input, currentUser);
 
     // Search <%= props.namePascal %>
-    await this.db.update(id, input);
+    await this.db.update(id, input as Record<string, any>);
 
     // Return <%= props.namePascal %>
     return await this.prepareOutput(
@@ -170,6 +169,6 @@ export class <%= props.namePascal %>Service {
     <%= props.nameCamel %>: <%= props.namePascal %>,
     info?: GraphQLResolveInfo,
   ) {
-    return await ServiceHelper.prepareOutput(<%= props.nameCamel %>, Editor, this.userService);
+    return await ServiceHelper.prepareOutput(<%= props.nameCamel %>, User, this.userService, info);
   }
 }

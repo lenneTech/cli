@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.48",
+  "version": "0.0.49",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -47,28 +47,28 @@
     "bin"
   ],
   "dependencies": {
-    "@lenne.tech/cli-plugin-helper": "0.0.5",
+    "@lenne.tech/cli-plugin-helper": "0.0.8",
     "find-file-up": "2.0.1",
-    "gluegun": "4.0.0",
-    "open": "6.4.0",
-    "ts-node": "8.4.1",
-    "typescript": "3.6.3"
+    "gluegun": "4.3.1",
+    "open": "7.0.4",
+    "ts-node": "8.10.2",
+    "typescript": "3.9.5"
   },
   "devDependencies": {
     "@lenne.tech/npm-package-helper": "0.0.10",
-    "@types/jest": "24.0.18",
-    "@types/node": "12.7.8",
-    "cpy-cli": "2.0.0",
-    "husky": "3.0.7",
-    "jest": "24.9.0",
+    "@types/jest": "25.2.3",
+    "@types/node": "14.0.11",
+    "cpy-cli": "3.1.1",
+    "husky": "4.2.5",
+    "jest": "26.0.1",
     "path-exists-cli": "1.0.0",
-    "prettier": "1.18.2",
-    "pretty-quick": "1.11.1",
-    "rimraf": "3.0.0",
-    "ts-jest": "24.1.0",
-    "tslint": "5.20.0",
+    "prettier": "2.0.5",
+    "pretty-quick": "2.0.1",
+    "rimraf": "3.0.2",
+    "ts-jest": "26.1.0",
+    "tslint": "6.1.2",
     "tslint-config-prettier": "1.18.0",
-    "tslint-config-standard": "8.0.1"
+    "tslint-config-standard": "9.0.0"
   },
   "jest": {
     "preset": "ts-jest",

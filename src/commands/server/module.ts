@@ -112,7 +112,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(serverModule)) {
       const includeSpinner = spin('Include module into server');
       await patching.patch(serverModule, {
-        insert: `import { ${namePascal}Module } from './server/modules/${nameKebab}/${nameKebab}.module';\n`,
+        insert: `import { ${namePascal}Module } from './modules/${nameKebab}/${nameKebab}.module';\n`,
         before: 'import'
       });
       await patching.patch(serverModule, {

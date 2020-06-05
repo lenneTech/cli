@@ -1,7 +1,7 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Column, Entity } from 'typeorm';
 import { PersistenceModel } from '../../common/models/persistence.model';
-import { User } from '../user/user.model';
+import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
 
 /**
  * <%= props.namePascal %> model
@@ -17,7 +17,8 @@ export class <%= props.namePascal %> extends PersistenceModel {
   /**
    * Description of the property
    */
-  @Field(type => User, { description: 'Description of the property', nullable: true })
-  @Column('varchar')
-  property: string | User;
+  @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
+  @Field( type => [String], { description: 'Description of the property', nullable: 'items'})
+  @Column('simple-array')
+  property: string[] = [];
 }
