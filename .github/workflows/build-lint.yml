@@ -1,0 +1,29 @@
+name: Dev - CI
+
+on:
+  push:
+    branches:
+      - '*/*'
+      - '*'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v1
+      - name: Use Node.js 12.8
+        uses: actions/setup-node@v1
+        with:
+          node-version: 12.8
+      - name: Install dependencies
+        run: npm install
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build -- --prod
+      - name: Save build
+        uses: actions/upload-artifact@v1
+        with:
+          name: build
+          path: ./dist
