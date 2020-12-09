@@ -16,7 +16,7 @@ const NewCommand: GluegunCommand = {
       npm,
       parameters,
       print: { error },
-      system
+      system,
     } = toolbox;
 
     // Get root path
@@ -35,8 +35,8 @@ const NewCommand: GluegunCommand = {
     await system.run(`cd ${rootPath} && npm run rename -- ${parameters.string}`);
 
     // For tests
-    return `Rename current CLI to ${name}`;
-  }
+    return `Rename current CLI`;
+  },
 };
 
 export default NewCommand;
