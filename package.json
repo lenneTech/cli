@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.51",
+  "version": "0.0.52",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -10,10 +10,10 @@
   "author": "Kai Haase",
   "homepage": "http://lenne.tech",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/lenneTech/cli"
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   },
+  "repository": "https://github.com/lenneTech/cli.git",
   "bugs": {
     "url": "https://github.com/lenneTech/cli/issues"
   },
