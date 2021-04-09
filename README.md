@@ -68,6 +68,26 @@ $ lt git g <branch-name or part-of-branch-name>
 
 ```
 
+## Development
+
+```
+# Clone project
+git clone git@github.com:lenneTech/cli.git
+cd cli
+
+# Link the project for global usage
+npm link
+
+# Make changes
+...
+
+# Test changes
+lt ...
+
+# Build new version
+npm build
+```
+
 ## Thanks
 
 Many thanks to the developers of [Glugun](https://infinitered.github.io/gluegun)
