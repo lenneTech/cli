@@ -60,23 +60,22 @@ const NewCommand: GluegunCommand = {
       appName = 'app';
     }
 
-    // Clone git repository
-    const cloneSpinner = spin(`Create workspace ${projectDir} with ${appName}`);
+    // Init Workspace
+    const workspaceSpinner = spin(`Create workspace ${projectDir} with ${appName}`);
     await system.run(
       `npx create-nx-workspace ${projectDir} --preset='angular' --appName='${appName}' --style='scss' --linter='eslint' --packageManager='npm' --nxCloud=false --cli="nx"`
     );
-    if (filesystem.isDirectory(`./${projectDir}`)) {
-      cloneSpinner.succeed(`Create workspace ${projectDir} for ${appName} created`);
-    }
-
-    // Check directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
       error(`The directory "${projectDir}" could not be created.`);
       return undefined;
     }
+    workspaceSpinner.succeed(`Create workspace ${projectDir} for ${appName} created`);
 
+    // Include @lenne.tech/ng-base
     const ngBaseSpinner = spin('Include ng-base');
-    await system.run(`cd ${projectDir} && npm i @lenne.tech/ng-base`);
+    await system.run(
+      `cd ${projectDir} && npm i @lenne.tech/ng-base && git add . && npm commit -am "@lenne.tech/ng-base integrated"`
+    );
     ngBaseSpinner.succeed('ng-base included');
 
     // We're done, so show what to do next
