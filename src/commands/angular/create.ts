@@ -131,7 +131,7 @@ const NewCommand: GluegunCommand = {
           });
 
           // Update proxy
-          await patching.update(`./${projectDir}/apps/example/proxy.conf.json`, (config) => {
+          await patching.update(`./${projectDir}/apps/${appName}/proxy.conf.json`, (config) => {
             config['/api']['target'] = 'http://localhost:3000';
             return config;
           });
