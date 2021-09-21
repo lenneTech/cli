@@ -70,7 +70,7 @@ export class <%= props.namePascal %>Resolver {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
-    input = await InputHelper.check(input, user, <%= props.namePascal %>);
+    input = await InputHelper.check(input, user);
 
     // Update <%= props.namePascal %>
     return await this.<%= props.nameCamel %>Service.update(id, input, user, info);

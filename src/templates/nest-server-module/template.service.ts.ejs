@@ -29,12 +29,6 @@ export class <%= props.namePascal %>Service {
   // Properties
   // ===================================================================================================================
 
-  /**
-   * <%= props.namePascal %> repository
-   */
-  @InjectRepository(<%= props.namePascal %>)
-  protected readonly db: MongoRepository<<%= props.namePascal %>>;
-
   // ===================================================================================================================
   // Injections
   // ===================================================================================================================
@@ -46,6 +40,7 @@ export class <%= props.namePascal %>Service {
     protected readonly configService: ConfigService,
     protected readonly emailService: EmailService,
     protected readonly userService: UserService,
+    @InjectModel('<%= props.namePascal %>') protected readonly <%= props.namePascal %>Model: Model<<%= props.namePascal %>Document>,
   ) {}
 
   // ===================================================================================================================
@@ -59,11 +54,10 @@ export class <%= props.namePascal %>Service {
     // Prepare input
     await this.prepareInput(input, currentUser, { create: true });
 
-    // Create new <%= props.namePascal %>
-    let created<%= props.namePascal %> = await this.db.create(input as Record<string, any>);
-
     // Save new <%= props.namePascal %>
-    created<%= props.namePascal %> = await this.db.save(created<%= props.namePascal %>);
+    const created<%= props.namePascal %> = new this.<%= props.namePascal %>Model(<%= props.namePascal %>.map(input));
+
+    await created<%= props.namePascal %>.save();
 
     // Prepare output
     await this.prepareOutput(created<%= props.namePascal %>, args[0]);
@@ -79,31 +73,28 @@ export class <%= props.namePascal %>Service {
    * Delete <%= props.namePascal %> via ID
    */
   async delete(id: string, ...args: any[]): Promise<<%= props.namePascal %>> {
-    // Search <%= props.namePascal %>
-    const <%= props.nameCamel %> = await this.db.findOne(id);
+      // Search <%= props.namePascal %>
+      const created<%= props.namePascal %> = await this.<%= props.namePascal %>Model.findOne({ _id: id }).exec();
 
-    // Check <%= props.namePascal %>
-    if (!<%= props.nameCamel %>) {
-      throw new NotFoundException();
-    }
+      // Check <%= props.namePascal %>
+      if (!created<%= props.namePascal %>) {
+        throw new NotFoundException();
+      }
 
-    // Delete <%= props.namePascal %>
-    const deleted = await this.db.delete(id);
+      // Delete
+      await this.<%= props.namePascal %>Model.deleteOne({ _id: id }).exec();
 
-    // Check deleted
-    if (!deleted) {
-      throw new InternalServerErrorException();
-    }
+      const <%= props.namePascal %>Result = <%= props.namePascal %>.map(created<%= props.namePascal %>);
 
     // Return deleted user
-    return await this.prepareOutput(<%= props.nameCamel %>, args[0]);
+    return await this.prepareOutput(<%= props.namePascal %>Result, args[0]);
   }
 
   /**
    * Get <%= props.namePascal %> via ID
    */
   async get(id: string, ...args: any[]): Promise<<%= props.namePascal %>> {
-    const <%= props.nameCamel %> = await this.db.findOne(id);
+    const <%= props.nameCamel %> = await this.<%= props.namePascal %>Model.findOne({ _id: id }).exec();
     if (!<%= props.nameCamel %>) {
       throw new NotFoundException();
     }
@@ -114,9 +105,10 @@ export class <%= props.namePascal %>Service {
    * Get <%= props.namePascal %> via filter
    */
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<<%= props.namePascal %>[]> {
+    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs)[0];
 
-    // Return found users
-    return await this.db.find(Filter.generateFilterOptions(filterArgs, { dbType: this.configService.get('typeOrm.type') }));
+    // Return founded
+    return await this.<%= props.namePascal %>Model.find(filterQuery);
   }
 
   /**
@@ -129,7 +121,7 @@ export class <%= props.namePascal %>Service {
     ...args: any[]
   ): Promise<<%= props.namePascal %>> {
     // Check if <%= props.namePascal %> exists
-    const <%= props.nameCamel %> = await this.db.findOne(id);
+    const <%= props.nameCamel %> = await this.<%= props.namePascal %>Model.findOne({_id: id});
     if (!<%= props.nameCamel %>) {
       throw new NotFoundException(`<%= props.namePascal %> not found with ID: ${id}`);
     }
@@ -137,8 +129,11 @@ export class <%= props.namePascal %>Service {
     // Prepare input
     await this.prepareInput(input, currentUser);
 
-    // Search <%= props.namePascal %>
-    await this.db.update(id, input as Record<string, any>);
+    // Update
+    <%= props.nameCamel %>.set(input);
+
+    // Save
+    await <%= props.nameCamel %>.save();
 
     // Return <%= props.namePascal %>
     return await this.prepareOutput(

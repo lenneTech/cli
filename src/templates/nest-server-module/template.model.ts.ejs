@@ -1,12 +1,15 @@
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Column, Entity } from 'typeorm';
 import { PersistenceModel } from '../../common/models/persistence.model';
 import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import * as mongoose from 'mongoose';
+
+export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;
 
 /**
  * <%= props.namePascal %> model
  */
-@Entity()
+@Schema()
 @ObjectType({ description: '<%= props.namePascal %>' })
 export class <%= props.namePascal %> extends PersistenceModel {
 
@@ -19,6 +22,8 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
   @Field( type => [String], { description: 'Description of the property', nullable: 'items'})
-  @Column('simple-array')
+  @Prop([String])
   property: string[] = [];
 }
+
+export const <%= props.namePascal %>Schema = SchemaFactory.createForClass(<%= props.namePascal %>);
