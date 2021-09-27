@@ -94,6 +94,13 @@ const NewCommand: GluegunCommand = {
     // Install packages
     await system.run(`cd ${projectDir} && npm i @lenne.tech/ng-base`);
 
+    // Extend ts config
+    await patching.update(`./${projectDir}/tsconfig.base.json`, (config) => {
+      config.compilerOptions.resolveJsonModule = true;
+      config.compilerOptions.strictNullChecks = false;
+      return config;
+    });
+
     // Get src files
     await system.run(`cd ${projectDir} && git clone https://github.com/lenneTech/angular-example temp`);
 
