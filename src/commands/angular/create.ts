@@ -104,8 +104,11 @@ const NewCommand: GluegunCommand = {
     // Get src files
     await system.run(`cd ${projectDir} && git clone https://github.com/lenneTech/angular-example temp`);
 
+    let dependencies = '';
+
     // Integrate files
     if (filesystem.isDirectory(`./${projectDir}/temp`)) {
+      dependencies = filesystem.read(`./${projectDir}/temp/package.json`, 'json')?.dependencies;
       filesystem.remove(`./${projectDir}/apps/${appName}/src`);
       filesystem.copy(`./${projectDir}/temp/apps/example/src`, `./${projectDir}/apps/${appName}/src`, {
         overwrite: true,
@@ -157,6 +160,7 @@ const NewCommand: GluegunCommand = {
             config.scripts['start:app'] = 'npm start';
             config.scripts['start:server'] = 'nx serve api';
             config.scripts['e2e'] = `nx e2e ${appName}-e2e`;
+            config.scripts['dependencies'] = dependencies;
             return config;
           });
 
