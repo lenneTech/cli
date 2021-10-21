@@ -18,7 +18,7 @@ export class Git {
       {
         errorMessage: 'Please commit or stash changes!',
         showError: false,
-        text: 'There are changes, reset?'
+        text: 'There are changes, reset?',
       },
       options
     );
@@ -27,7 +27,7 @@ export class Git {
     const {
       print: { error },
       prompt,
-      system
+      system,
     } = this.toolbox;
 
     // Check changes in current branch
@@ -55,7 +55,7 @@ export class Git {
     const opts = Object.assign(
       {
         showError: false,
-        errorMessage: 'Please commit or stash changes!'
+        errorMessage: 'Please commit or stash changes!',
       },
       options
     );
@@ -63,7 +63,7 @@ export class Git {
     // Toolbox features
     const {
       print: { error },
-      system
+      system,
     } = this.toolbox;
 
     // Check changes
@@ -81,7 +81,7 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      system
+      system,
     } = this.toolbox;
     return trim(await system.run('git rev-parse --abbrev-ref HEAD'));
   }
@@ -102,7 +102,7 @@ export class Git {
       {
         noDiffResult: null,
         otherBranch: `origin/${branch}`,
-        showWarning: false
+        showWarning: false,
       },
       options
     );
@@ -110,7 +110,7 @@ export class Git {
     // Toolbox features
     const {
       system,
-      print: { warning }
+      print: { warning },
     } = this.toolbox;
 
     // Get diff
@@ -156,7 +156,7 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      system: { run }
+      system: { run },
     } = this.toolbox;
 
     return trim(await run(`git merge-base HEAD ${baseBranch}`));
@@ -169,7 +169,7 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      system: { run }
+      system: { run },
     } = this.toolbox;
 
     // Get data
@@ -188,7 +188,7 @@ export class Git {
     // Toolbox features
     const {
       print: { error },
-      system
+      system,
     } = this.toolbox;
 
     const gitInstalled = !!system.which('git');
@@ -229,7 +229,7 @@ export class Git {
         local: false,
         remote: false,
         spin: false,
-        spinText: 'Search branch'
+        spinText: 'Search branch',
       },
       options
     );
@@ -238,7 +238,7 @@ export class Git {
     const {
       helper: { trim },
       print: { error, spin },
-      system
+      system,
     } = this.toolbox;
 
     // Prepare spinner
@@ -327,7 +327,7 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      system: { run }
+      system: { run },
     } = this.toolbox;
 
     return trim(await run('git show-branch --no-name HEAD'));
@@ -339,7 +339,7 @@ export class Git {
   public reset(mergeBase: string, soft: boolean = false) {
     // Toolbox features
     const {
-      system: { run }
+      system: { run },
     } = this.toolbox;
     return run(soft ? `git reset --soft ${mergeBase}` : `git reset ${mergeBase}`);
   }
@@ -352,14 +352,14 @@ export class Git {
     const opts = Object.assign(
       {
         defaultBranch: 'develop',
-        text: 'Select branch'
+        text: 'Select branch',
       },
       options
     );
 
     // Toolbox features
     const {
-      prompt: { ask }
+      prompt: { ask },
     } = this.toolbox;
 
     // Get branches
@@ -369,8 +369,8 @@ export class Git {
     }
 
     // Check default branch
-    if (!branches.includes(opts.defaultBranch) && branches.includes('master')) {
-      opts.defaultBranch = 'master';
+    if (!branches.includes(opts.defaultBranch) && branches.includes('main')) {
+      opts.defaultBranch = 'main';
     }
 
     // Prepare branches
@@ -383,7 +383,7 @@ export class Git {
       type: 'select',
       name: 'branch',
       message: opts.text,
-      choices: branches
+      choices: branches,
     });
 
     // Return selected branch
@@ -396,7 +396,7 @@ export class Git {
   public status() {
     // Toolbox features
     const {
-      system: { run }
+      system: { run },
     } = this.toolbox;
     return run('git status');
   }

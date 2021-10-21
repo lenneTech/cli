@@ -27,7 +27,7 @@ const NewCommand: GluegunCommand = {
     const currentBranch = await git.currentBranch();
 
     let branch;
-    if (currentBranch !== 'develop' || currentBranch !== 'master') {
+    if (currentBranch !== 'develop' || currentBranch !== 'main') {
       // Search for branch, which includes branch name
       branch = await git.getBranch('develop', {
         error: false,
@@ -37,7 +37,7 @@ const NewCommand: GluegunCommand = {
       });
 
       if (branch !== 'develop') {
-        branch = await git.getBranch('master', {
+        branch = await git.getBranch('main', {
           error: true,
           exact: false,
           remote: false,
@@ -62,7 +62,7 @@ const NewCommand: GluegunCommand = {
     info(resultpull);
 
     const resultDelete = await run(
-      `git branch --merged | egrep -v "(^\\*|master|dev|develop|beta|intern|release)" | xargs git branch -d`
+      `git branch --merged | egrep -v "(^\\*|main|dev|develop|beta|intern|release)" | xargs git branch -d`
     );
     info(resultDelete);
 

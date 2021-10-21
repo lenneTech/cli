@@ -17,7 +17,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       prompt: { confirm },
-      system: { run, startTimer }
+      system: { run, startTimer },
     } = toolbox;
 
     // Check git
@@ -31,14 +31,14 @@ const NewCommand: GluegunCommand = {
     // Get new name
     const name = await helper.getInput(parameters.first, {
       name: 'new name',
-      showError: true
+      showError: true,
     });
     if (!branch) {
       return;
     }
 
     // Check branch
-    if (branch === 'master' || branch === 'release' || branch === 'develop') {
+    if (branch === 'main' || branch === 'release' || branch === 'develop') {
       error(`Rename branch ${branch} is not allowed!`);
       return;
     }
@@ -92,7 +92,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `renamed ${branch} to ${name}`;
-  }
+  },
 };
 
 export default NewCommand;

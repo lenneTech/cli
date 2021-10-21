@@ -17,7 +17,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       prompt: { confirm },
-      system: { run, startTimer }
+      system: { run, startTimer },
     } = toolbox;
 
     // Check git
@@ -29,7 +29,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch();
 
     // Check branch
-    if (branch === 'master' || branch === 'release' || branch === 'develop') {
+    if (branch === 'main' || branch === 'release' || branch === 'develop') {
       error(`Rebase of branch ${branch} is not allowed!`);
       return;
     }
@@ -61,7 +61,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `rebased ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

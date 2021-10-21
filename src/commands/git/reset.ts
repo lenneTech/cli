@@ -18,7 +18,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       prompt,
-      system
+      system,
     } = toolbox;
 
     // Start timer
@@ -53,7 +53,7 @@ const NewCommand: GluegunCommand = {
     await system.run(
       'git clean -fd && ' +
         'git reset HEAD --hard && ' +
-        'git checkout master && ' +
+        'git checkout main && ' +
         'git fetch && ' +
         'git pull && ' +
         'git branch -D ' +
@@ -75,7 +75,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `reset branch ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

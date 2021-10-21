@@ -18,7 +18,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       prompt,
-      system
+      system,
     } = toolbox;
 
     // Start timer
@@ -32,7 +32,7 @@ const NewCommand: GluegunCommand = {
     // Get (part of) branch name
     const branchName = await helper.getInput(parameters.first, {
       name: 'branch name',
-      showError: true
+      showError: true,
     });
     if (!branchName) {
       return;
@@ -48,7 +48,7 @@ const NewCommand: GluegunCommand = {
       error: true,
       exact: false,
       remote: false,
-      spin: true
+      spin: true,
     });
     if (!branch) {
       return;
@@ -66,7 +66,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Checkout branch
-    await system.run('git checkout master');
+    await system.run('git checkout main');
     let checkoutSpin;
 
     // Handling for remote
@@ -74,7 +74,7 @@ const NewCommand: GluegunCommand = {
       // Delete local
       let removed = false;
       const checkSpin = spin('Check status');
-      if (branch !== 'master' && branch && (await git.diffFiles(branch, { noDiffResult: '' })).length) {
+      if (branch !== 'main' && branch && (await git.diffFiles(branch, { noDiffResult: '' })).length) {
         checkSpin.succeed();
         let mode = parameters.options.mode;
         if (!mode) {
@@ -131,7 +131,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `get branch ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

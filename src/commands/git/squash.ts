@@ -17,7 +17,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       prompt: { ask, confirm },
-      system: { run, startTimer }
+      system: { run, startTimer },
     } = toolbox;
 
     // Check git
@@ -29,7 +29,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch();
 
     // Check branch
-    if (branch === 'master' || branch === 'release' || branch === 'develop') {
+    if (branch === 'main' || branch === 'release' || branch === 'develop') {
       error(`Squash of branch ${branch} is not allowed!`);
       return;
     }
@@ -74,22 +74,26 @@ const NewCommand: GluegunCommand = {
     // Ask for author
     let author = parameters.options.author;
     if (!author) {
-      author = (await ask({
-        type: 'input',
-        name: 'author',
-        initial: `${user.name} <${user.email}>`,
-        message: 'Author: '
-      })).author;
+      author = (
+        await ask({
+          type: 'input',
+          name: 'author',
+          initial: `${user.name} <${user.email}>`,
+          message: 'Author: ',
+        })
+      ).author;
     }
 
     // Ask for message
     let message = parameters.options.message;
     if (!message) {
-      message = (await ask({
-        type: 'input',
-        name: 'message',
-        message: 'Message: '
-      })).message;
+      message = (
+        await ask({
+          type: 'input',
+          name: 'message',
+          message: 'Message: ',
+        })
+      ).message;
     }
 
     // Confirm inputs
@@ -111,7 +115,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `squashed ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;
