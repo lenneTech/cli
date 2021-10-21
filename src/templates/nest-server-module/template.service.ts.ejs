@@ -15,10 +15,7 @@ import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.in
 import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
-
-
-// Subscription
-const pubSub = new PubSub();
+import { Inject } from '@nestjs/common';
 
 /**
  * <%= props.namePascal %> service
@@ -42,6 +39,7 @@ export class <%= props.namePascal %>Service {
     protected readonly emailService: EmailService,
     protected readonly userService: UserService,
     @InjectModel('<%= props.namePascal %>') protected readonly <%= props.namePascal %>Model: Model<<%= props.namePascal %>Document>,
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {}
 
   // ===================================================================================================================
@@ -64,7 +62,7 @@ export class <%= props.namePascal %>Service {
     await this.prepareOutput(created<%= props.namePascal %>, args[0]);
 
     // Inform subscriber
-    await pubSub.publish('<%= props.nameCamel %>Created', { <%= props.nameCamel %>Created: created<%= props.namePascal %> });
+    await this.pubSub.publish('<%= props.nameCamel %>Created', <%= props.namePascal %>.map(created<%= props.namePascal %>));
 
     // Return created <%= props.namePascal %>
     return created<%= props.namePascal %>;

@@ -7,9 +7,7 @@ import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
 import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
-
-// Subscription
-const pubSub = new PubSub();
+import { Inject } from '@nestjs/common';
 
 /**
  * Resolver to process with <%= props.namePascal %> data
@@ -20,7 +18,8 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Import services
    */
-  constructor(private readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service) {}
+  constructor(private readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service,
+              @Inject('PUB_SUB') protected readonly pubSub: PubSub) {}
 
   // ===========================================================================
   // Queries
@@ -92,9 +91,10 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Subscription for create <%= props.namePascal %>
    */
-  @Roles(RoleEnum.ADMIN)
-  @Subscription(returns => <%= props.namePascal %>)
-  <%= props.nameCamel %>Created() {
-    return pubSub.asyncIterator('<%= props.nameCamel %>Created');
+  @Subscription(returns => <%= props.namePascal %>, {
+    resolve: (value) => value,
+  })
+  async <%= props.nameCamel %>Created() {
+    return this.pubSub.asyncIterator('<%= props.nameCamel %>Created');
   }
 }

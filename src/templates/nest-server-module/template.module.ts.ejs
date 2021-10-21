@@ -5,6 +5,7 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { <%= props.namePascal %>, <%= props.namePascal %>Schema } from './<%= props.nameKebab %>.model';
 import { <%= props.namePascal %>Resolver } from './<%= props.nameKebab %>.resolver';
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
+import { PubSub } from 'graphql-subscriptions';
 
 /**
  * <%= props.namePascal %> module
@@ -12,7 +13,15 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
 @Module({
   imports: [MongooseModule.forFeature([{ name: <%= props.namePascal %>.name, schema: <%= props.namePascal %>Schema }]), UserModule],
   controllers: [],
-  providers: [<%= props.namePascal %>Resolver, <%= props.namePascal %>Service, JSON],
+  providers: [
+    <%= props.namePascal %>Resolver,
+    <%= props.namePascal %>Service,
+    JSON,
+    {
+      provide: 'PUB_SUB',
+      useValue: new PubSub(),
+    },
+  ],
   exports: [MongooseModule, <%= props.namePascal %>Resolver, <%= props.namePascal %>Service]
 })
 export class <%= props.namePascal %>Module {}
