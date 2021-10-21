@@ -6,15 +6,16 @@ import {
   ServiceHelper,
 } from '@lenne.tech/nest-server';
 import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoRepository } from 'typeorm';
 import { User } from '../user/user.model';
 import { UserService } from '../user/user.service';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
 import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
+import { Model } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
+
 
 // Subscription
 const pubSub = new PubSub();
@@ -105,10 +106,10 @@ export class <%= props.namePascal %>Service {
    * Get <%= props.namePascal %> via filter
    */
   async find(filterArgs?: FilterArgs, ...args: any[]): Promise<<%= props.namePascal %>[]> {
-    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs)[0];
+    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
 
     // Return founded
-    return await this.<%= props.namePascal %>Model.find(filterQuery);
+    return this.<%= props.namePascal %>Model.find(filterQuery[0], null, filterQuery[1]);
   }
 
   /**
@@ -122,6 +123,7 @@ export class <%= props.namePascal %>Service {
   ): Promise<<%= props.namePascal %>> {
     // Check if <%= props.namePascal %> exists
     const <%= props.nameCamel %> = await this.<%= props.namePascal %>Model.findOne({_id: id});
+
     if (!<%= props.nameCamel %>) {
       throw new NotFoundException(`<%= props.namePascal %> not found with ID: ${id}`);
     }
@@ -135,9 +137,11 @@ export class <%= props.namePascal %>Service {
     // Save
     await <%= props.nameCamel %>.save();
 
-    // Return <%= props.namePascal %>
+    const mapped<%= props.namePascal %> = <%= props.namePascal %>.map(<%= props.nameCamel %>);
+
+    // Return mapped<%= props.namePascal %>
     return await this.prepareOutput(
-      Object.assign(<%= props.nameCamel %>, input) as <%= props.namePascal %>,
+      Object.assign(mapped<%= props.namePascal %>, input) as <%= props.namePascal %>,
       args[0],
     );
   }
