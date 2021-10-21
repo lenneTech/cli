@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.63](https://github.com/lenneTech/cli/compare/v0.0.62...v0.0.63) (2021-10-21)
+
+### Features
+
+- Adjust nest-server-module for subscriptions ([60da49f](https://github.com/lenneTech/cli/commit/60da49fa9d7acd25a5c16399674da8869a6b4286))
+
 ### [0.0.62](https://github.com/lenneTech/cli/compare/v0.0.53...v0.0.62) (2021-10-21)
 
 ### Features
