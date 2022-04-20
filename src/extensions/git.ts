@@ -152,7 +152,7 @@ export class Git {
   /**
    * Get merge base
    */
-  public async getMergeBase(baseBranch: string = 'develop') {
+  public async getMergeBase(baseBranch = 'develop') {
     // Toolbox features
     const {
       helper: { trim },
@@ -173,9 +173,10 @@ export class Git {
     } = this.toolbox;
 
     // Get data
-    const user: { email: string; name: string } = {} as any;
-    user.email = trim(await run('git config user.email'));
-    user.name = trim(await run('git config user.name'));
+    const user: { email: string; name: string } = {
+      email: trim(await run('git config user.email')),
+      name: trim(await run('git config user.name')),
+    };
 
     // Return user
     return user;
@@ -336,7 +337,7 @@ export class Git {
   /**
    * Reset branch
    */
-  public reset(mergeBase: string, soft: boolean = false) {
+  public reset(mergeBase: string, soft = false) {
     // Toolbox features
     const {
       system: { run },

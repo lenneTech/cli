@@ -20,7 +20,7 @@ const NewCommand: GluegunCommand = {
       print: { error, info, spin, success },
       strings: { kebabCase, pascalCase, camelCase },
       system,
-      template
+      template,
     } = toolbox;
 
     // Start timer
@@ -31,7 +31,7 @@ const NewCommand: GluegunCommand = {
 
     // Get name
     const name = await helper.getInput(parameters.first, {
-      name: 'module name'
+      name: 'module name',
     });
     if (!name) {
       return;
@@ -63,42 +63,42 @@ const NewCommand: GluegunCommand = {
     await template.generate({
       template: 'nest-server-module/inputs/template.input.ts.ejs',
       target: join(moduleDir, 'inputs', nameKebab + '.input.ts'),
-      props: { nameCamel, nameKebab, namePascal }
+      props: { nameCamel, nameKebab, namePascal },
     });
 
     // nest-server-module/inputs/xxx-create.input.ts
     await template.generate({
       template: 'nest-server-module/inputs/template-create.input.ts.ejs',
       target: join(moduleDir, 'inputs', nameKebab + '-create.input.ts'),
-      props: { nameCamel, nameKebab, namePascal }
+      props: { nameCamel, nameKebab, namePascal },
     });
 
     // nest-server-module/xxx.model.ts
     await template.generate({
       template: 'nest-server-module/template.model.ts.ejs',
       target: join(moduleDir, nameKebab + '.model.ts'),
-      props: { nameCamel, nameKebab, namePascal }
+      props: { nameCamel, nameKebab, namePascal },
     });
 
     // nest-server-module/xxx.module.ts
     await template.generate({
       template: 'nest-server-module/template.module.ts.ejs',
       target: join(moduleDir, nameKebab + '.module.ts'),
-      props: { nameCamel, nameKebab, namePascal }
+      props: { nameCamel, nameKebab, namePascal },
     });
 
     // nest-server-module/xxx.resolver.ts
     await template.generate({
       template: 'nest-server-module/template.resolver.ts.ejs',
       target: join(moduleDir, nameKebab + '.resolver.ts'),
-      props: { nameCamel, nameKebab, namePascal }
+      props: { nameCamel, nameKebab, namePascal },
     });
 
     // nest-server-module/xxx.service.ts
     await template.generate({
       template: 'nest-server-module/template.service.ts.ejs',
       target: join(moduleDir, nameKebab + '.service.ts'),
-      props: { nameCamel, nameKebab, namePascal }
+      props: { nameCamel, nameKebab, namePascal },
     });
 
     const prettier = join(path, 'node_modules', '.bin', 'prettier');
@@ -113,11 +113,11 @@ const NewCommand: GluegunCommand = {
       const includeSpinner = spin('Include module into server');
       await patching.patch(serverModule, {
         insert: `import { ${namePascal}Module } from './modules/${nameKebab}/${nameKebab}.module';\n`,
-        before: 'import'
+        before: 'import',
       });
       await patching.patch(serverModule, {
-        insert: `    ${namePascal}Module,\n`,
-        after: new RegExp('imports:[^\\]]*', 'm')
+        insert: `  ${namePascal}Module,\n`,
+        after: new RegExp('imports:[^\\]]*', 'm'),
       });
       if (filesystem.exists(prettier)) {
         await system.run(prettier + ' ' + serverModule);
@@ -134,7 +134,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `new module ${name}`;
-  }
+  },
 };
 
 export default NewCommand;

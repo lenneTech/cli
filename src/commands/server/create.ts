@@ -22,7 +22,7 @@ const NewCommand: GluegunCommand = {
       print: { error, info, spin, success },
       strings: { kebabCase },
       system,
-      template
+      template,
     } = toolbox;
 
     // Start timer
@@ -39,7 +39,7 @@ const NewCommand: GluegunCommand = {
     // Get name
     const name = await helper.getInput(parameters.first, {
       name: 'server name',
-      showError: true
+      showError: true,
     });
     if (!name) {
       return;
@@ -69,10 +69,16 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
+    // Get description
+    const description = await helper.getInput(parameters.second, {
+      name: 'Description',
+      showError: false,
+    });
+
     // Get author
     const author = await helper.getInput(parameters.second, {
       name: 'Author',
-      showError: false
+      showError: false,
     });
 
     const prepareSpinner = spin('Prepare files');
@@ -81,38 +87,33 @@ const NewCommand: GluegunCommand = {
     await template.generate({
       template: 'nest-server-starter/README.md.ejs',
       target: `./${projectDir}/README.md`,
-      props: { name }
+      props: { name, description },
     });
 
     // Set configuration
-    await patching.replace(
-      `./${projectDir}/src/config.env.ts`,
-      'SECRET_OR_PRIVATE_KEY_DEV',
-      crypto.randomBytes(512).toString('base64')
-    );
-    await patching.replace(
-      `./${projectDir}/src/config.env.ts`,
-      'SECRET_OR_PRIVATE_KEY_PREV',
-      crypto.randomBytes(512).toString('base64')
-    );
-    await patching.replace(
-      `./${projectDir}/src/config.env.ts`,
-      'SECRET_OR_PRIVATE_KEY_PROD',
-      crypto.randomBytes(512).toString('base64')
+    for (const env of ['DEV', 'TEST', 'PREV', 'PROD']) {
+      await patching.replace(
+        `./${projectDir}/src/config.env.ts`,
+        'SECRET_OR_PRIVATE_KEY_' + env,
+        crypto.randomBytes(512).toString('base64')
+      );
+    }
+    await patching.update(`./${projectDir}/src/config.env.ts`, (data) =>
+      data.replace(/nest-server-/g, projectDir + '-')
     );
 
     // Set package.json
     await patching.update(`./${projectDir}/package.json`, (config) => {
       config.author = author;
       config.bugs = {
-        url: ''
+        url: '',
       };
-      config.description = name;
+      config.description = description || name;
       config.homepage = '';
       config.name = projectDir;
       config.repository = {
         type: 'git',
-        url: ''
+        url: '',
       };
       config.version = '0.0.1';
       return config;
@@ -140,13 +141,15 @@ const NewCommand: GluegunCommand = {
     info(``);
     info(`Next:`);
     info(`  Start database server (e.g. MongoDB)`);
-    info(`  $ cd ${projectDir}`);
-    info(`  $ npm run test:e2e`);
+    info(`  Check config: ${projectDir}/src/config.env.ts`);
+    info(`  Go to project directory: cd ${projectDir}`);
+    info(`  Run tests: npm run test:e2e`);
+    info(`  Start server: npm start`);
     info(``);
 
     // For tests
     return `new server ${name}`;
-  }
+  },
 };
 
 export default NewCommand;
