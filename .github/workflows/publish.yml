@@ -11,14 +11,14 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v1
-      - name: Node 14.6
+      - name: Node 16
         uses: actions/setup-node@v1
         with:
-          node-version: 14.6
+          node-version: 16
       - name: NPM install
         run: npm install
       - name: Build
-        run: npm build
+        run: npm run build
       - name: Publish
         uses: JS-DevTools/npm-publish@v1
         with:
