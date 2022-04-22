@@ -49,7 +49,7 @@
     "bin"
   ],
   "dependencies": {
-    "@lenne.tech/cli-plugin-helper": "0.0.9",
+    "@lenne.tech/cli-plugin-helper": "0.0.11",
     "find-file-up": "2.0.1",
     "gluegun": "5.1.2",
     "open": "8.4.0",
@@ -58,7 +58,7 @@
     "typescript": "4.6.3"
   },
   "devDependencies": {
-    "@lenne.tech/npm-package-helper": "0.0.10",
+    "@lenne.tech/npm-package-helper": "0.0.12",
     "@types/jest": "27.4.1",
     "@types/node": "16.11.27",
     "@typescript-eslint/eslint-plugin": "5.20.0",
