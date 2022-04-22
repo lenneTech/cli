@@ -132,6 +132,10 @@ const NewCommand: GluegunCommand = {
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info(``);
 
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
     return `new module ${name}`;
   },

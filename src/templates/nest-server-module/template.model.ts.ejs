@@ -22,12 +22,12 @@ export class <%= props.namePascal %> extends PersistenceModel {
    * Description of the property
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Field( type => [String], { description: 'Description of the property', nullable: 'items'})
+  @Field( type => [String], { description: 'Properties of <%= props.namePascal %>', nullable: 'items'})
   @Prop([String])
-  property: string[] = undefined;
+  properties: string[] = undefined;
 
   @Field(() => User, {
-    description: 'User who has tested the object',
+    description: 'User who has tested the <%= props.namePascal %>',
     nullable: true,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
@@ -42,7 +42,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   init() {
     super.init();
-    this.property = [];
+    this.properties = [];
     return this;
   }
 }

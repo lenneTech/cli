@@ -91,7 +91,7 @@ const NewCommand: GluegunCommand = {
     });
 
     // Set configuration
-    for (const env of ['DEV', 'TEST', 'PREV', 'PROD']) {
+    for (const env of ['LOCAL', 'DEV', 'TEST', 'PREV', 'PROD']) {
       await patching.replace(
         `./${projectDir}/src/config.env.ts`,
         'SECRET_OR_PRIVATE_KEY_' + env,
@@ -118,6 +118,15 @@ const NewCommand: GluegunCommand = {
       config.version = '0.0.1';
       return config;
     });
+
+    // Set package.json
+    if (filesystem.exists(`./${projectDir}/src/meta`)) {
+      await patching.update(`./${projectDir}/src/meta`, (config) => {
+        config.name = name;
+        config.description = description;
+        return config;
+      });
+    }
 
     prepareSpinner.succeed('Files prepared');
 
@@ -146,6 +155,10 @@ const NewCommand: GluegunCommand = {
     info(`  Run tests: npm run test:e2e`);
     info(`  Start server: npm start`);
     info(``);
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `new server ${name}`;

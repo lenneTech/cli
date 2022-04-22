@@ -39,6 +39,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Get <%= props.namePascal %> via ID
    */
+  @Roles(RoleEnum.USER)
   @Query(returns => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
   async get<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.get(id, { fieldSelection: { info, select: 'get<%= props.namePascal %>' } });
@@ -51,6 +52,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Create new <%= props.namePascal %>
    */
+  @Roles(RoleEnum.USER)
   @Mutation(returns => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
   async create<%= props.namePascal %>(@Args('input') input: <%= props.namePascal %>CreateInput, @GraphQLUser() user: User, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.create(input, { currentUser: user, fieldSelection: { info, select: 'create<%= props.namePascal %>' } });
