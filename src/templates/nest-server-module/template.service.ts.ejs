@@ -1,18 +1,8 @@
-import {
-  ConfigService,
-  EmailService,
-  Filter,
-  FilterArgs,
-  ServiceHelper,
-} from '@lenne.tech/nest-server';
-import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
-import { GraphQLResolveInfo } from 'graphql';
+import { CrudService, ServiceOptions } from '@lenne.tech/nest-server';
+import { Injectable } from '@nestjs/common';
 import { PubSub } from 'graphql-subscriptions';
-import { User } from '../user/user.model';
-import { UserService } from '../user/user.service';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
-import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
-import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
+import { <%= props.namePascal %>, <%= props.namePascal %>Document } from './<%= props.nameKebab %>.model';
 import { Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { Inject } from '@nestjs/common';
@@ -21,7 +11,7 @@ import { Inject } from '@nestjs/common';
  * <%= props.namePascal %> service
  */
 @Injectable()
-export class <%= props.namePascal %>Service {
+export class <%= props.namePascal %>Service extends CrudService<<%= props.namePascal %>> {
 
   // ===================================================================================================================
   // Properties
@@ -35,137 +25,30 @@ export class <%= props.namePascal %>Service {
    * Constructor for injecting services
    */
   constructor(
-    protected readonly configService: ConfigService,
-    protected readonly emailService: EmailService,
-    protected readonly userService: UserService,
     @InjectModel('<%= props.namePascal %>') protected readonly <%= props.namePascal %>Model: Model<<%= props.namePascal %>Document>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub
-  ) {}
+  ) {
+    super({mainDbModel: <%= props.namePascal %>Model, mainModelConstructor: <%= props.namePascal %>});
+  }
 
   // ===================================================================================================================
   // Methods
   // ===================================================================================================================
 
   /**
-   * Create new <%= props.namePascal %> and send welcome email
+   * Create new <%= props.namePascal %>
+   * Overwrites create method from CrudService
    */
-  async create(input: <%= props.namePascal %>CreateInput, currentUser?: User, ...args: any[]): Promise<<%= props.namePascal %>> {
-    // Prepare input
-    await this.prepareInput(input, currentUser, { create: true });
-
-    // Save new <%= props.namePascal %>
-    const created<%= props.namePascal %> = new this.<%= props.namePascal %>Model(<%= props.namePascal %>.map(input));
-
-    await created<%= props.namePascal %>.save();
-
-    // Prepare output
-    await this.prepareOutput(created<%= props.namePascal %>, args[0]);
+  async create(input: <%= props.namePascal %>CreateInput, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
+    // Get new <%= props.namePascal %>
+    const created<%= props.namePascal %> = await super.create(input, serviceOptions);
 
     // Inform subscriber
-    await this.pubSub.publish('<%= props.nameCamel %>Created', <%= props.namePascal %>.map(created<%= props.namePascal %>));
+    if (serviceOptions?.pubSub === undefined || serviceOptions.pubSub) {
+      await this.pubSub.publish('<%= props.nameCamel %>Created', <%= props.namePascal %>.map(created<%= props.namePascal %>));
+    }
 
     // Return created <%= props.namePascal %>
     return created<%= props.namePascal %>;
-  }
-
-  /**
-   * Delete <%= props.namePascal %> via ID
-   */
-  async delete(id: string, ...args: any[]): Promise<<%= props.namePascal %>> {
-      // Search <%= props.namePascal %>
-      const created<%= props.namePascal %> = await this.<%= props.namePascal %>Model.findOne({ _id: id }).exec();
-
-      // Check <%= props.namePascal %>
-      if (!created<%= props.namePascal %>) {
-        throw new NotFoundException();
-      }
-
-      // Delete
-      await this.<%= props.namePascal %>Model.deleteOne({ _id: id }).exec();
-
-      const <%= props.namePascal %>Result = <%= props.namePascal %>.map(created<%= props.namePascal %>);
-
-    // Return deleted user
-    return await this.prepareOutput(<%= props.namePascal %>Result, args[0]);
-  }
-
-  /**
-   * Get <%= props.namePascal %> via ID
-   */
-  async get(id: string, ...args: any[]): Promise<<%= props.namePascal %>> {
-    const <%= props.nameCamel %> = await this.<%= props.namePascal %>Model.findOne({ _id: id }).exec();
-    if (!<%= props.nameCamel %>) {
-      throw new NotFoundException();
-    }
-    return await this.prepareOutput(<%= props.nameCamel %>, args[0]);
-  }
-
-  /**
-   * Get <%= props.namePascal %> via filter
-   */
-  async find(filterArgs?: FilterArgs, ...args: any[]): Promise<<%= props.namePascal %>[]> {
-    const filterQuery = Filter.convertFilterArgsToQuery(filterArgs);
-
-    // Return founded
-    return this.<%= props.namePascal %>Model.find(filterQuery[0], null, filterQuery[1]);
-  }
-
-  /**
-   * Update <%= props.namePascal %> via ID
-   */
-  async update(
-    id: string,
-    input: <%= props.namePascal %>Input,
-    currentUser: User,
-    ...args: any[]
-  ): Promise<<%= props.namePascal %>> {
-    // Check if <%= props.namePascal %> exists
-    const <%= props.nameCamel %> = await this.<%= props.namePascal %>Model.findOne({_id: id});
-
-    if (!<%= props.nameCamel %>) {
-      throw new NotFoundException(`<%= props.namePascal %> not found with ID: ${id}`);
-    }
-
-    // Prepare input
-    await this.prepareInput(input, currentUser);
-
-    // Update
-    <%= props.nameCamel %>.set(input);
-
-    // Save
-    await <%= props.nameCamel %>.save();
-
-    const mapped<%= props.namePascal %> = <%= props.namePascal %>.map(<%= props.nameCamel %>);
-
-    // Return mapped<%= props.namePascal %>
-    return await this.prepareOutput(
-      Object.assign(mapped<%= props.namePascal %>, input) as <%= props.namePascal %>,
-      args[0],
-    );
-  }
-
-  // ===================================================================================================================
-  // Helper methods
-  // ===================================================================================================================
-
-  /**
-   * Prepare input before save
-   */
-  protected async prepareInput(
-    input: { [key: string]: any },
-    currentUser: User,
-    options: { create?: boolean } = {},
-  ) {
-    return await ServiceHelper.prepareInput(input, currentUser, options);
-  }
-
-  /**
-   * Prepare output before return
-   */
-  protected async prepareOutput(
-    <%= props.nameCamel %>: <%= props.namePascal %>,
-    info?: GraphQLResolveInfo,
-  ) {
-    return await ServiceHelper.prepareOutput(<%= props.nameCamel %>, User, this.userService, info);
   }
 }

@@ -17,7 +17,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       prompt: { confirm },
       print: { info, spin, success },
-      system: { run, startTimer }
+      system: { run, startTimer },
     } = toolbox;
 
     // Check git
@@ -48,9 +48,13 @@ const NewCommand: GluegunCommand = {
     success(`Undo last commit of ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
 
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
     return `undo last commit of branch ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

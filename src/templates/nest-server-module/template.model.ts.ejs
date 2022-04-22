@@ -1,16 +1,17 @@
 import { Field, ObjectType } from '@nestjs/graphql';
 import { PersistenceModel } from '../../common/models/persistence.model';
 import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import * as mongoose from 'mongoose';
+import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
+import { Schema, Document } from 'mongoose';
+import { User } from '../user/user.model';
 
 export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;
 
 /**
  * <%= props.namePascal %> model
  */
-@Schema()
 @ObjectType({ description: '<%= props.namePascal %>' })
+@MongooseSchema({ timestamps: true })
 export class <%= props.namePascal %> extends PersistenceModel {
 
   // ===================================================================================================================
@@ -21,9 +22,29 @@ export class <%= props.namePascal %> extends PersistenceModel {
    * Description of the property
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Field( type => [String], { description: 'Description of the property', nullable: 'items'})
+  @Field( type => [String], { description: 'Properties of <%= props.namePascal %>', nullable: 'items'})
   @Prop([String])
-  property: string[] = [];
+  properties: string[] = undefined;
+
+  @Field(() => User, {
+    description: 'User who has tested the <%= props.namePascal %>',
+    nullable: true,
+  })
+  @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
+  testedBy: User = undefined;
+
+  // ===================================================================================================================
+  // Methods
+  // ===================================================================================================================
+
+  /**
+   * Initialize instance with default values instead of undefined
+   */
+  init() {
+    super.init();
+    this.properties = [];
+    return this;
+  }
 }
 
 export const <%= props.namePascal %>Schema = SchemaFactory.createForClass(<%= props.namePascal %>);

@@ -1,4 +1,5 @@
-import { FilterArgs, GraphQLUser, InputHelper, RoleEnum, Roles } from '@lenne.tech/nest-server';
+import { check, FilterArgs, GraphQLUser, RoleEnum, Roles } from '@lenne.tech/nest-server';
+import { Inject } from '@nestjs/common';
 import { Args, Info, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { GraphQLResolveInfo } from 'graphql';
 import { PubSub } from 'graphql-subscriptions';
@@ -7,7 +8,6 @@ import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
 import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
-import { Inject } from '@nestjs/common';
 
 /**
  * Resolver to process with <%= props.namePascal %> data
@@ -18,28 +18,31 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Import services
    */
-  constructor(private readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service,
-              @Inject('PUB_SUB') protected readonly pubSub: PubSub) {}
+  constructor(
+    private readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service,
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub
+  ) {}
 
   // ===========================================================================
   // Queries
   // ===========================================================================
 
   /**
-   * Get <%= props.namePascal %> via ID
-   */
-  @Query(returns => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
-  async get<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.get(id, info);
-  }
-
-  /**
    * Get <%= props.namePascal %>s (via filter)
    */
+   @Roles(RoleEnum.USER)
+   @Query(returns => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
+   async find<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+     return await this.<%= props.nameCamel %>Service.find(args, { fieldSelection: { info, select: 'find<%= props.namePascal %>s' } });
+   }
+
+  /**
+   * Get <%= props.namePascal %> via ID
+   */
   @Roles(RoleEnum.USER)
-  @Query(returns => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
-  async find<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
-    return await this.<%= props.nameCamel %>Service.find(args, info);
+  @Query(returns => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
+  async get<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.get(id, { fieldSelection: { info, select: 'get<%= props.namePascal %>' } });
   }
 
   // ===========================================================================
@@ -49,9 +52,19 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Create new <%= props.namePascal %>
    */
+  @Roles(RoleEnum.USER)
   @Mutation(returns => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
   async create<%= props.namePascal %>(@Args('input') input: <%= props.namePascal %>CreateInput, @GraphQLUser() user: User, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.create(input, user, info);
+    return await this.<%= props.nameCamel %>Service.create(input, { currentUser: user, fieldSelection: { info, select: 'create<%= props.namePascal %>' } });
+  }
+
+  /**
+   * Delete existing <%= props.namePascal %>
+   */
+  @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
+  @Mutation(returns => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
+  async delete<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.delete(id, { fieldSelection: { info, select: 'delete<%= props.namePascal %>' } });
   }
 
   /**
@@ -69,19 +82,13 @@ export class <%= props.namePascal %>Resolver {
     // Check input
     // Hint: necessary as long as global CheckInputPipe can't access context for current user
     // (see https://github.com/nestjs/graphql/issues/325)
-    input = await InputHelper.check(input, user);
+    input = await check(input, user);
 
     // Update <%= props.namePascal %>
-    return await this.<%= props.nameCamel %>Service.update(id, input, user, info);
-  }
-
-  /**
-   * Delete existing <%= props.namePascal %>
-   */
-  @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Mutation(returns => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
-  async delete<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.delete(id, info);
+    return await this.<%= props.nameCamel %>Service.update(id, input, {
+      currentUser: user,
+      fieldSelection: { info, select: 'update<%= props.namePascal %>' },
+    });
   }
 
   // ===========================================================================
@@ -92,6 +99,9 @@ export class <%= props.namePascal %>Resolver {
    * Subscription for create <%= props.namePascal %>
    */
   @Subscription(returns => <%= props.namePascal %>, {
+    filter(this: <%= props.namePascal %>Resolver, payload, variables, context) {
+      return context.user.roles.include(RoleEnum.ADMIN);
+    },
     resolve: (value) => value,
   })
   async <%= props.nameCamel %>Created() {

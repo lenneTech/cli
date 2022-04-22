@@ -30,7 +30,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Current branch
-    let branch = await git.currentBranch();
+    const branch = await git.currentBranch();
     if (!branch) {
       error(`No current branch!`);
       return;

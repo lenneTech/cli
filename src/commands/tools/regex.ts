@@ -1,6 +1,5 @@
 import { GluegunCommand } from 'gluegun';
 import * as open from 'open';
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Open regex tools in browser
@@ -10,13 +9,13 @@ const NewCommand: GluegunCommand = {
   alias: [],
   description: 'Open regex tools in browser',
   hidden: false,
-  run: async (toolbox: ExtendedGluegunToolbox) => {
+  run: async () => {
     // Open link
     await open('https://regex101.com');
 
     // For tests
     return `open regex`;
-  }
+  },
 };
 
 export default NewCommand;
