@@ -16,7 +16,7 @@ export class <%= props.namePascal %>Input {
    * Description of the property
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Field(type => [String], { description: 'Description of the property', nullable: true })
+  @Field(() => [String], { description: 'Description of the property', nullable: true })
   @IsOptional()
   property?: string[];
 }

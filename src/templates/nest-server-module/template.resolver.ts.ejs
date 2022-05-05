@@ -1,4 +1,4 @@
-import { check, FilterArgs, GraphQLUser, RoleEnum, Roles } from '@lenne.tech/nest-server';
+import { FilterArgs, GraphQLUser, RoleEnum, Roles } from '@lenne.tech/nest-server';
 import { Inject } from '@nestjs/common';
 import { Args, Info, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { GraphQLResolveInfo } from 'graphql';
@@ -12,7 +12,7 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
 /**
  * Resolver to process with <%= props.namePascal %> data
  */
-@Resolver(of => <%= props.namePascal %>)
+@Resolver(() => <%= props.namePascal %>)
 export class <%= props.namePascal %>Resolver {
 
   /**
@@ -31,18 +31,28 @@ export class <%= props.namePascal %>Resolver {
    * Get <%= props.namePascal %>s (via filter)
    */
    @Roles(RoleEnum.USER)
-   @Query(returns => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
+   @Query(() => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
    async find<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
-     return await this.<%= props.nameCamel %>Service.find(args, { fieldSelection: { info, select: 'find<%= props.namePascal %>s' } });
+     return await this.<%= props.nameCamel %>Service.find(args, {
+       fieldSelection: { info, select: 'find<%= props.namePascal %>s' },
+       inputType: FilterArgs
+     });
    }
 
   /**
    * Get <%= props.namePascal %> via ID
    */
   @Roles(RoleEnum.USER)
-  @Query(returns => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
-  async get<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.get(id, { fieldSelection: { info, select: 'get<%= props.namePascal %>' } });
+  @Query(() => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
+  async get<%= props.namePascal %>(
+    @Args('id') id: string,
+    @Info() info: GraphQLResolveInfo,
+    @GraphQLUser() user: User
+  ): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.get(id, {
+      currentUser: user,
+      fieldSelection: { info, select: 'get<%= props.namePascal %>' },
+    });
   }
 
   // ===========================================================================
@@ -53,41 +63,52 @@ export class <%= props.namePascal %>Resolver {
    * Create new <%= props.namePascal %>
    */
   @Roles(RoleEnum.USER)
-  @Mutation(returns => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
-  async create<%= props.namePascal %>(@Args('input') input: <%= props.namePascal %>CreateInput, @GraphQLUser() user: User, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.create(input, { currentUser: user, fieldSelection: { info, select: 'create<%= props.namePascal %>' } });
+  @Mutation(() => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
+  async create<%= props.namePascal %>(
+    @Info() info: GraphQLResolveInfo,
+    @Args('input') input: <%= props.namePascal %>CreateInput,
+    @GraphQLUser() user: User
+  ): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.create(input, {
+      currentUser: user,
+      fieldSelection: { info, select: 'create<%= props.namePascal %>' },
+      inputType: <%= props.namePascal %>CreateInput
+    });
   }
 
   /**
    * Delete existing <%= props.namePascal %>
    */
-  @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Mutation(returns => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
-  async delete<%= props.namePascal %>(@Args('id') id: string, @Info() info: GraphQLResolveInfo): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.delete(id, { fieldSelection: { info, select: 'delete<%= props.namePascal %>' } });
+  @Roles(RoleEnum.USER)
+  @Mutation(() => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
+  async delete<%= props.namePascal %>(
+    @Args('id') id: string,
+    @Info() info: GraphQLResolveInfo,
+    @GraphQLUser() user: User,
+  ): Promise<<%= props.namePascal %>> {
+    return await this.<%= props.nameCamel %>Service.delete(id, {
+      currentUser: user,
+      fieldSelection: { info, select: 'delete<%= props.namePascal %>' },
+      roles: [RoleEnum.ADMIN, RoleEnum.OWNER]
+    });
   }
 
   /**
    * Update existing <%= props.namePascal %>
    */
-  @Roles(RoleEnum.ADMIN, RoleEnum.OWNER)
-  @Mutation(returns => <%= props.namePascal %>, { description: 'Update existing <%= props.namePascal %>' })
+  @Roles(RoleEnum.USER)
+  @Mutation(() => <%= props.namePascal %>, { description: 'Update existing <%= props.namePascal %>' })
   async update<%= props.namePascal %>(
     @Args('input') input: <%= props.namePascal %>Input,
     @Args('id') id: string,
     @GraphQLUser() user: User,
     @Info() info: GraphQLResolveInfo
   ): Promise<<%= props.namePascal %>> {
-
-    // Check input
-    // Hint: necessary as long as global CheckInputPipe can't access context for current user
-    // (see https://github.com/nestjs/graphql/issues/325)
-    input = await check(input, user);
-
-    // Update <%= props.namePascal %>
     return await this.<%= props.nameCamel %>Service.update(id, input, {
       currentUser: user,
       fieldSelection: { info, select: 'update<%= props.namePascal %>' },
+      inputType: <%= props.namePascal %>Input,
+      roles: [RoleEnum.ADMIN, RoleEnum.OWNER]
     });
   }
 
@@ -98,7 +119,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Subscription for create <%= props.namePascal %>
    */
-  @Subscription(returns => <%= props.namePascal %>, {
+  @Subscription(() => <%= props.namePascal %>, {
     filter(this: <%= props.namePascal %>Resolver, payload, variables, context) {
       return context.user.roles.include(RoleEnum.ADMIN);
     },

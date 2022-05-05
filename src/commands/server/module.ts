@@ -116,7 +116,7 @@ const NewCommand: GluegunCommand = {
         before: 'import',
       });
       await patching.patch(serverModule, {
-        insert: `  ${namePascal}Module,\n`,
+        insert: `  ${namePascal}Module,\n  `,
         after: new RegExp('imports:[^\\]]*', 'm'),
       });
       if (filesystem.exists(prettier)) {
