@@ -30,7 +30,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Get <%= props.namePascal %>s (via filter)
    */
-   @Roles(RoleEnum.USER)
+   @Roles(RoleEnum.S_USER)
    @Query(() => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
    async find<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
      return await this.<%= props.nameCamel %>Service.find(args, {
@@ -42,7 +42,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Get <%= props.namePascal %> via ID
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Query(() => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
   async get<%= props.namePascal %>(
     @Args('id') id: string,
@@ -62,7 +62,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Create new <%= props.namePascal %>
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Mutation(() => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
   async create<%= props.namePascal %>(
     @Info() info: GraphQLResolveInfo,
@@ -79,7 +79,7 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Delete existing <%= props.namePascal %>
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Mutation(() => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
   async delete<%= props.namePascal %>(
     @Args('id') id: string,
@@ -89,14 +89,14 @@ export class <%= props.namePascal %>Resolver {
     return await this.<%= props.nameCamel %>Service.delete(id, {
       currentUser: user,
       fieldSelection: { info, select: 'delete<%= props.namePascal %>' },
-      roles: [RoleEnum.ADMIN, RoleEnum.OWNER]
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR]
     });
   }
 
   /**
    * Update existing <%= props.namePascal %>
    */
-  @Roles(RoleEnum.USER)
+  @Roles(RoleEnum.S_USER)
   @Mutation(() => <%= props.namePascal %>, { description: 'Update existing <%= props.namePascal %>' })
   async update<%= props.namePascal %>(
     @Args('input') input: <%= props.namePascal %>Input,
@@ -108,7 +108,7 @@ export class <%= props.namePascal %>Resolver {
       currentUser: user,
       fieldSelection: { info, select: 'update<%= props.namePascal %>' },
       inputType: <%= props.namePascal %>Input,
-      roles: [RoleEnum.ADMIN, RoleEnum.OWNER]
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR]
     });
   }
 

@@ -21,7 +21,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
   /**
    * Description of the property
    */
-  @Restricted(RoleEnum.ADMIN, RoleEnum.OWNER)
+  @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
   @Field( () => [String], { description: 'Properties of <%= props.namePascal %>', nullable: 'items'})
   @Prop([String])
   properties: string[] = undefined;
