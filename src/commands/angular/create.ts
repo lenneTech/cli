@@ -16,7 +16,6 @@ const NewCommand: GluegunCommand = {
       git,
       helper,
       parameters,
-      patching,
       print: { error, info, spin, success },
       prompt: { confirm },
       strings: { kebabCase },
@@ -32,13 +31,6 @@ const NewCommand: GluegunCommand = {
     // Check git
     if (!(await git.gitInstalled())) {
       return;
-    }
-
-    // Check ng
-    if (!system.which('nx') && (await confirm(`Install nx global?`))) {
-      const nxSpinner = spin('Install nx global');
-      await system.run(`npm i -g @nrwl/cli`);
-      nxSpinner.succeed('nx global installed');
     }
 
     // Get name of the workspace
@@ -60,62 +52,74 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
-    // Get name of the app
-    let appName = await helper.getInput(parameters.second, {
-      name: 'app name',
-      showError: true,
-    });
-    if (!appName) {
-      appName = 'app';
-    }
-
     // Set preset
     // See https://github.com/nrwl/nx/blob/4bcd25ec01d793ca59e0ebaf1578bae275b6821d/packages/create-nx-workspace/bin/create-nx-workspace.ts#L32
     const preset =
-      parameters.third === 'true' || (!parameters.third && (await confirm(`Add API (Nest server)?`)))
+      parameters.second === 'true' || (!parameters.second && (await confirm(`Add API (Nest server)?`)))
         ? 'angular-nest'
         : 'angular';
 
-    // Init Workspace
-    // See https://github.com/nrwl/nx/blob/4bcd25ec01d793ca59e0ebaf1578bae275b6821d/packages/create-nx-workspace/bin/create-nx-workspace.ts#L163
-    const workspaceSpinner = spin(`Create ${preset} workspace ${projectDir} with ${appName} app`);
-    await system.run(
-      `npx create-nx-workspace ${projectDir} --preset='${preset}' --appName='${appName}' --style='scss' --linter='eslint' --packageManager='npm' --nxCloud=false --cli="nx"`
-    );
+    let addToGit = await confirm(`Add workspace to a new git repository?`);
+    let gitLink;
+
+    // Check if git init is active
+    if (addToGit) {
+      // Get name of the app
+      gitLink = await helper.getInput(null, {
+        name: 'git repository link',
+        showError: true,
+      });
+      if (!gitLink) {
+        addToGit = false;
+      }
+    }
+
+    const workspaceSpinner = spin(`Create ${preset} workspace ${projectDir} with ${name} app`);
+
+    // Clone monorepo
+    await system.run(`git clone https://github.com/lenneTech/lt-monorepo.git ${projectDir}`);
+
+    // Check for directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
       error(`The directory "${projectDir}" could not be created.`);
       return undefined;
     }
-    workspaceSpinner.succeed(`Create ${preset} workspace ${projectDir} for ${appName} created`);
+
+    workspaceSpinner.succeed(`Create ${preset} workspace ${projectDir} for ${name} created`);
 
     // Include example app
     const ngBaseSpinner = spin('Integrate example for Angular');
 
-    // Install packages
-    await system.run(`cd ${projectDir} && npm i @lenne.tech/ng-base`);
+    // Remove git folder after clone
+    await system.run(`cd ${projectDir} && rm -rf .git`);
 
-    // Extend ts config
-    await patching.update(`./${projectDir}/tsconfig.base.json`, (config) => {
-      config.compilerOptions.resolveJsonModule = true;
-      config.compilerOptions.strictNullChecks = false;
-      return config;
-    });
+    // Check if git init is active
+    if (addToGit) {
+      await system.run(`cd ${projectDir} && git init --initial-branch=main`);
+      await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
+      await system.run(`cd ${projectDir} && git add .`);
+      await system.run(`cd ${projectDir} && git commit -m "Initial commit"`);
+      await system.run(`cd ${projectDir} && git push -u origin main`);
+    }
 
-    // Get src files
-    await system.run(`cd ${projectDir} && git clone https://github.com/lenneTech/angular-example temp`);
+    // Clone ng-base-starter
+    await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
+
+    // Remove gitkeep file
+    await system.run(`cd ${projectDir}/projects && rm .gitkeep`);
+
+    // Remove git folder after clone
+    await system.run(`cd ${projectDir}/projects/app && rm -rf .git`);
 
     // Integrate files
-    if (filesystem.isDirectory(`./${projectDir}/temp`)) {
-      filesystem.remove(`./${projectDir}/apps/${appName}/src`);
-      filesystem.copy(`./${projectDir}/temp/apps/example/src`, `./${projectDir}/apps/${appName}/src`, {
-        overwrite: true,
-      });
-
-      // Remove temp files
-      filesystem.remove(`./${projectDir}/temp`);
-
-      // Commit changes
-      await system.run(`cd ${projectDir} && git add . && git commit -am "Angular example integrated"`);
+    if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
+      // Check if git init is active
+      if (addToGit) {
+        // Commit changes
+        await system.run(
+          `cd ${projectDir} && git add . && git commit -am "feat: Angular example integrated" && git push`
+        );
+      }
 
       // Angular example integration done
       ngBaseSpinner.succeed('Example for Angular integrated');
@@ -124,44 +128,29 @@ const NewCommand: GluegunCommand = {
       if (preset === 'angular-nest') {
         // Init
         const serverSpinner = spin(`Integrate Nest Server Starter`);
-        await system.run(`cd ${projectDir} && npm i @lenne.tech/nest-server`);
-        await system.run(`cd ${projectDir} && git clone https://github.com/lenneTech/nest-server-starter temp`);
+
+        // Clone api
+        await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/nest-server-starter api`);
 
         // Integrate files
-        if (filesystem.isDirectory(`./${projectDir}/temp`)) {
-          filesystem.remove(`./${projectDir}/apps/api/src`);
-          filesystem.copy(`./${projectDir}/temp/src`, `./${projectDir}/apps/api/src`, { overwrite: true });
-          filesystem.write(`./${projectDir}/apps/api/src/meta.json`, {
-            name: `${appName}-api-server`,
-            description: `API for ${appName} app`,
+        if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {
+          // Remove git folder from clone
+          await system.run(`cd ${projectDir}/projects/api && rm -rf .git`);
+
+          // Prepare meta.json in api
+          filesystem.write(`./${projectDir}/projects/api/src/meta.json`, {
+            name: `${name}-api-server`,
+            description: `API for ${name} app`,
             version: '0.0.0',
           });
 
-          // Update proxy
-          await patching.update(`./${projectDir}/apps/${appName}/proxy.conf.json`, (config) => {
-            config['/api']['target'] = 'http://localhost:3000';
-            return config;
-          });
-
-          // Extend ts config
-          await patching.update(`./${projectDir}/apps/api/tsconfig.app.json`, (config) => {
-            config.compilerOptions.resolveJsonModule = true;
-            return config;
-          });
-
-          // Remove temp files
-          filesystem.remove(`./${projectDir}/temp`);
-
-          // Add scripts
-          await patching.update(`./${projectDir}/package.json`, (config) => {
-            config.scripts['start:app'] = 'npm start';
-            config.scripts['start:server'] = 'nx serve api';
-            config.scripts['e2e'] = `nx e2e ${appName}-e2e`;
-            return config;
-          });
-
-          // Commit changes
-          await system.run(`cd ${projectDir} && git add . && git commit -am "Nest Server Starter integrated"`);
+          // Check if git init is active
+          if (addToGit) {
+            // Commit changes
+            await system.run(
+              `cd ${projectDir} && git add . && git commit -am "feat: Nest Server Starter integrated" && git push`
+            );
+          }
 
           // Done
           serverSpinner.succeed('Nest Server Starter integrated');
@@ -170,27 +159,25 @@ const NewCommand: GluegunCommand = {
         }
       }
 
+      // Install all packages
+      const installSpinner = spin('Install all packages');
+      await system.run(`cd ${projectDir} && npm i && npm run init`);
+      installSpinner.succeed('Successfull installed all packages');
+
       // We're done, so show what to do next
       info(``);
       success(
-        `Generated ${preset} workspace ${projectDir} with ${appName} app in ${helper.msToMinutesAndSeconds(timer())}m.`
+        `Generated ${preset} workspace ${projectDir} with ${name} app in ${helper.msToMinutesAndSeconds(timer())}m.`
       );
       info(``);
       info(`Next:`);
-      info(`  Run ${appName}`);
+      info(`  Run ${name}`);
       info(`  $ cd ${projectDir}`);
-      if (preset === 'angular-nest') {
-        info(`  $ npm run start:server`);
-        info(`  $ npm run start:app`);
-      } else {
-        info(`  $ npm start`);
-      }
-      info(``);
-      info(`More infos about Nx and Angular: https://nx.dev/angular`);
+      info(`  $ npm run start`);
       info(``);
 
       // For tests
-      return `new workspace ${projectDir} with ${appName}`;
+      return `new workspace ${projectDir} with ${name}`;
     }
   },
 };
