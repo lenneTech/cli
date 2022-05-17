@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.69](https://github.com/lenneTech/cli/compare/v0.0.63...v0.0.69) (2022-05-17)
+
+### Features
+
+- Update angular-create command to new ng-base-starter and lt-monorepo ([c4da520](https://github.com/lenneTech/cli/commit/c4da52012e983f5d05a7ec9997c5958b8f639b73))
+
 ### [0.0.63](https://github.com/lenneTech/cli/compare/v0.0.62...v0.0.63) (2021-10-21)
 
 ### Features
