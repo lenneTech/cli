@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.71](https://github.com/lenneTech/cli/compare/v0.0.70...v0.0.71) (2022-05-22)
+
+### Features
+
+- Optimized module creation ([b9aa303](https://github.com/lenneTech/cli/commit/b9aa303e757445d18d98668a0ce582b5c1be4c3f))
+
 ### [0.0.70](https://github.com/lenneTech/cli/compare/v0.0.69...v0.0.70) (2022-05-17)
 
 ### Features
