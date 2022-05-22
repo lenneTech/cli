@@ -1,11 +1,12 @@
-import { IsOptional } from 'class-validator';
 import { Field, InputType } from '@nestjs/graphql';
+import { IsOptional } from 'class-validator';
+import { <%= props.namePascal %>Input } from './<%= props.nameKebab %>.input';
 
 /**
  * <%= props.namePascal %> create input
  */
 @InputType({ description: 'Input data to create a new <%= props.namePascal %>' })
-export class <%= props.namePascal %>CreateInput {
+export class <%= props.namePascal %>CreateInput extends <%= props.namePascal %>Input {
 
   // ===================================================================================================================
   // Properties

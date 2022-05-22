@@ -1,11 +1,10 @@
-import { CrudService, ServiceOptions } from '@lenne.tech/nest-server';
-import { Injectable } from '@nestjs/common';
+import { assignPlain, CrudService, ServiceOptions } from '@lenne.tech/nest-server';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
+import { Model } from 'mongoose';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
 import { <%= props.namePascal %>, <%= props.namePascal %>Document } from './<%= props.nameKebab %>.model';
-import { Model } from 'mongoose';
-import { InjectModel } from '@nestjs/mongoose';
-import { Inject } from '@nestjs/common';
 
 /**
  * <%= props.namePascal %> service
@@ -25,10 +24,10 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
    * Constructor for injecting services
    */
   constructor(
-    @InjectModel('<%= props.namePascal %>') protected readonly <%= props.namePascal %>Model: Model<<%= props.namePascal %>Document>,
+    @InjectModel('<%= props.namePascal %>') protected readonly <%= props.nameCamel %>Model: Model<<%= props.namePascal %>Document>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {
-    super({mainDbModel: <%= props.namePascal %>Model, mainModelConstructor: <%= props.namePascal %>});
+    super({mainDbModel: <%= props.nameCamel %>Model, mainModelConstructor: <%= props.namePascal %>});
   }
 
   // ===================================================================================================================
@@ -50,5 +49,26 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
 
     // Return created <%= props.namePascal %>
     return created<%= props.namePascal %>;
+  }
+
+  /**
+   * Example method
+   * Extends the CrudService
+   */
+  async exampleMethode(id: string, input: Record<string, any>, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
+
+    // Get and check <%= props.namePascal %>
+    const <%= props.nameCamel %> = await this.mainDbModel.findById(id).exec();
+    if (!<%= props.nameCamel %>) {
+      throw new NotFoundException(`<%= props.namePascal %> not found with ID: ${id}`);
+    }
+
+    // Process input and output
+    return await this.process(async (data) => {
+
+      // Update, save and return <%= props.namePascal %>
+      return await assignPlain(<%= props.nameCamel %>, data.input).save();
+
+    }, {input, serviceOptions});
   }
 }

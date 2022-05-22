@@ -1,11 +1,11 @@
 import { JSON } from '@lenne.tech/nest-server';
 import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { PubSub } from 'graphql-subscriptions';
 import { UserModule } from '../user/user.module';
-import { MongooseModule } from "@nestjs/mongoose";
 import { <%= props.namePascal %>, <%= props.namePascal %>Schema } from './<%= props.nameKebab %>.model';
 import { <%= props.namePascal %>Resolver } from './<%= props.nameKebab %>.resolver';
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
-import { PubSub } from 'graphql-subscriptions';
 
 /**
  * <%= props.namePascal %> module

@@ -111,14 +111,25 @@ const NewCommand: GluegunCommand = {
     const serverModule = join(path, 'src', 'server', 'server.module.ts');
     if (filesystem.exists(serverModule)) {
       const includeSpinner = spin('Include module into server');
+
+      // Import module
       await patching.patch(serverModule, {
         insert: `import { ${namePascal}Module } from './modules/${nameKebab}/${nameKebab}.module';\n`,
         before: 'import',
       });
+
+      // Add Module
       await patching.patch(serverModule, {
         insert: `  ${namePascal}Module,\n  `,
         after: new RegExp('imports:[^\\]]*', 'm'),
       });
+
+      // Add comma if necessary
+      await patching.patch(serverModule, {
+        insert: '$1,$2',
+        replace: new RegExp('([^,\\s])(\\s*' + namePascal + 'Module,\\s*\\])'),
+      });
+
       if (filesystem.exists(prettier)) {
         await system.run(prettier + ' ' + serverModule);
       }

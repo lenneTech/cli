@@ -1,8 +1,8 @@
-import { Field, ObjectType } from '@nestjs/graphql';
-import { PersistenceModel } from '../../common/models/persistence.model';
 import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Schema, Document } from 'mongoose';
+import { Document, Schema } from 'mongoose';
+import { PersistenceModel } from '../../common/models/persistence.model';
 import { User } from '../user/user.model';
 
 export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;

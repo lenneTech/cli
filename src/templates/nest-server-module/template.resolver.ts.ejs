@@ -32,8 +32,13 @@ export class <%= props.namePascal %>Resolver {
    */
    @Roles(RoleEnum.S_USER)
    @Query(() => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
-   async find<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+   async find<%= props.namePascal %>s(
+     @Info() info: GraphQLResolveInfo,
+     @GraphQLUser() user: User,
+     @Args() args?: FilterArgs
+   ) {
      return await this.<%= props.nameCamel %>Service.find(args, {
+       currentUser: user,
        fieldSelection: { info, select: 'find<%= props.namePascal %>s' },
        inputType: FilterArgs
      });
@@ -45,9 +50,9 @@ export class <%= props.namePascal %>Resolver {
   @Roles(RoleEnum.S_USER)
   @Query(() => <%= props.namePascal %>, { description: 'Get <%= props.namePascal %> with specified ID' })
   async get<%= props.namePascal %>(
-    @Args('id') id: string,
     @Info() info: GraphQLResolveInfo,
-    @GraphQLUser() user: User
+    @GraphQLUser() user: User,
+    @Args('id') id: string,
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.get(id, {
       currentUser: user,
@@ -66,8 +71,8 @@ export class <%= props.namePascal %>Resolver {
   @Mutation(() => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
   async create<%= props.namePascal %>(
     @Info() info: GraphQLResolveInfo,
-    @Args('input') input: <%= props.namePascal %>CreateInput,
-    @GraphQLUser() user: User
+    @GraphQLUser() user: User,
+    @Args('input') input: <%= props.namePascal %>CreateInput
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.create(input, {
       currentUser: user,
@@ -82,9 +87,9 @@ export class <%= props.namePascal %>Resolver {
   @Roles(RoleEnum.S_USER)
   @Mutation(() => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
   async delete<%= props.namePascal %>(
-    @Args('id') id: string,
     @Info() info: GraphQLResolveInfo,
     @GraphQLUser() user: User,
+    @Args('id') id: string
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.delete(id, {
       currentUser: user,
@@ -99,10 +104,10 @@ export class <%= props.namePascal %>Resolver {
   @Roles(RoleEnum.S_USER)
   @Mutation(() => <%= props.namePascal %>, { description: 'Update existing <%= props.namePascal %>' })
   async update<%= props.namePascal %>(
-    @Args('input') input: <%= props.namePascal %>Input,
-    @Args('id') id: string,
+    @Info() info: GraphQLResolveInfo,
     @GraphQLUser() user: User,
-    @Info() info: GraphQLResolveInfo
+    @Args('id') id: string,
+    @Args('input') input: <%= props.namePascal %>Input
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.update(id, input, {
       currentUser: user,
@@ -121,7 +126,7 @@ export class <%= props.namePascal %>Resolver {
    */
   @Subscription(() => <%= props.namePascal %>, {
     filter(this: <%= props.namePascal %>Resolver, payload, variables, context) {
-      return context.user.roles.include(RoleEnum.ADMIN);
+      return context?.user?.hasRole?.(RoleEnum.ADMIN);
     },
     resolve: (value) => value,
   })
