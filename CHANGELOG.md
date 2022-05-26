@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.72](https://github.com/lenneTech/cli/compare/v0.0.71...v0.0.72) (2022-05-26)
+
+### Bug Fixes
+
+- Add missing templates in build directory ([39465d8](https://github.com/lenneTech/cli/commit/39465d8f041f5a6ee594cdc6647e97becd78594f))
+
 ### [0.0.71](https://github.com/lenneTech/cli/compare/v0.0.70...v0.0.71) (2022-05-22)
 
 ### Features
