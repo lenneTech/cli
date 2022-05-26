@@ -21,7 +21,7 @@
     "build": "npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
     "clean-build": "rimraf ./build",
     "compile": "tsc -p .",
-    "copy-templates": "path-exists ./src/templates && rimraf ./build/templates && cpy --parents --cwd=./src  templates/**/* ../build || echo 'No templates to copy'",
+    "copy-templates": "cp -R ./src/templates ./build/templates",
     "coverage": "jest --coverage",
     "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix --cache",
