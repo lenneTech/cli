@@ -1,4 +1,4 @@
-import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
@@ -47,6 +47,16 @@ export class <%= props.namePascal %> extends PersistenceModel {
     super.init();
     this.properties = [];
     return this;
+  }
+
+  /**
+   * Map input
+   *
+   * Hint: Non-primitive variables should always be mapped (see mapClasses / mapClassesAsync in ModelHelper)
+   */
+  map(input) {
+    super.map(input);
+    return mapClasses(input, {user: User}, this);
   }
 }
 
