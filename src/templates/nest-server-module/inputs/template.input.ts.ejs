@@ -13,10 +13,10 @@ export class <%= props.namePascal %>Input {
   // ===================================================================================================================
 
   /**
-   * Description of the property
+   * Description of the properties
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
-  @Field(() => [String], { description: 'Description of the property', nullable: true })
+  @Field(() => [String], { description: 'Description of the properties', nullable: true })
   @IsOptional()
-  property?: string[];
+  properties?: string[];
 }

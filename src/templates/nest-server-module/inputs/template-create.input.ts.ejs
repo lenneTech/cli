@@ -13,9 +13,9 @@ export class <%= props.namePascal %>CreateInput extends <%= props.namePascal %>I
   // ===================================================================================================================
 
   /**
-   * Description of the property
+   * Description of the properties
    */
-  @Field(() => [String], { description: 'Description of the property', nullable: true })
+  @Field(() => [String], { description: 'Description of the properties', nullable: true })
   @IsOptional()
-  property?: string[];
+  properties?: string[];
 }
