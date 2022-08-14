@@ -73,6 +73,13 @@ const NewCommand: GluegunCommand = {
       props: { nameCamel, nameKebab, namePascal },
     });
 
+    // nest-server-module/output/find-and-count-xxxs-result.output.ts
+    await template.generate({
+      template: 'nest-server-module/outputs/template-fac-result.output.ts.ejs',
+      target: join(moduleDir, 'outputs', 'find-and-count-' + nameKebab + 's-result.output.ts'),
+      props: { nameCamel, nameKebab, namePascal },
+    });
+
     // nest-server-module/xxx.model.ts
     await template.generate({
       template: 'nest-server-module/template.model.ts.ejs',

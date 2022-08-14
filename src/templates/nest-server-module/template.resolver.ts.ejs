@@ -6,6 +6,7 @@ import { PubSub } from 'graphql-subscriptions';
 import { User } from '../user/user.model';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
+import { FindAndCount<%= props.namePascal %>sResult } from './outputs/find-and-count-<%= props.nameKebab %>s-result.output';
 import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
 
@@ -28,10 +29,22 @@ export class <%= props.namePascal %>Resolver {
   // ===========================================================================
 
   /**
+   * Get and total count <%= props.namePascal %>s (via filter)
+   */
+  @Roles(RoleEnum.ADMIN)
+  @Query(() => FindAndCount<%= props.namePascal %>sResult, { description: 'Find <%= props.namePascal %>s (via filter)' })
+  async findAndCount<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+    return await this.<%= props.nameCamel %>Service.findAndCount(args, {
+      fieldSelection: { info, select: 'findAndCount<%= props.namePascal %>s' },
+      inputType: FilterArgs,
+    });
+  }
+
+  /**
    * Get <%= props.namePascal %>s (via filter)
    */
    @Roles(RoleEnum.S_USER)
-   @Query(() => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %> (via filter)' })
+   @Query(() => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %>s (via filter)' })
    async find<%= props.namePascal %>s(
      @Info() info: GraphQLResolveInfo,
      @GraphQLUser() user: User,

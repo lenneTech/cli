@@ -1,0 +1,11 @@
+import { Field, ObjectType } from '@nestjs/graphql';
+import { <%= props.namePascal %> } from '../<%= props.nameKebab %>.model';
+
+@ObjectType({ description: 'Result of find and count <%= props.namePascal %>s' })
+export class FindAndCount<%= props.namePascal %>sResult {
+  @Field(() => [<%= props.namePascal %>], { description: 'Found <%= props.namePascal %>s' })
+  items: <%= props.namePascal %>[];
+
+  @Field({ description: 'Total count (skip/offset and limit/take are ignored in the count)' })
+  totalCount: number;
+}
