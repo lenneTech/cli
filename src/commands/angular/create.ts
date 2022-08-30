@@ -59,18 +59,21 @@ const NewCommand: GluegunCommand = {
         ? 'angular-nest'
         : 'angular';
 
-    let addToGit = await confirm(`Add workspace to a new git repository?`);
+    let addToGit = false;
     let gitLink;
+    if (parameters.third !== 'false') {
+      addToGit = parameters.third === 'true' || (await confirm(`Add workspace to a new git repository?`));
 
-    // Check if git init is active
-    if (addToGit) {
-      // Get name of the app
-      gitLink = await helper.getInput(null, {
-        name: 'git repository link',
-        showError: true,
-      });
-      if (!gitLink) {
-        addToGit = false;
+      // Check if git init is active
+      if (addToGit) {
+        // Get name of the app
+        gitLink = await helper.getInput(null, {
+          name: 'git repository link',
+          showError: true,
+        });
+        if (!gitLink) {
+          addToGit = false;
+        }
       }
     }
 
@@ -175,6 +178,10 @@ const NewCommand: GluegunCommand = {
       info(`  $ cd ${projectDir}`);
       info(`  $ npm run start`);
       info(``);
+
+      if (!toolbox.parameters.options.fromGluegunMenu) {
+        process.exit();
+      }
 
       // For tests
       return `new workspace ${projectDir} with ${name}`;
