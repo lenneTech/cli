@@ -62,6 +62,9 @@ const NewCommand: GluegunCommand = {
     }
     mergeBaseSpin.succeed();
 
+    // Get squash message (before reset)
+    const squashMessage = await git.getFirstBranchCommit(await git.currentBranch(), base);
+
     // Soft reset
     const resetSpin = spin('Soft reset');
     await git.reset(mergeBase, true);
@@ -100,7 +103,7 @@ const NewCommand: GluegunCommand = {
         await ask({
           type: 'input',
           name: 'message',
-          initial: await git.getFirstBranchCommit(await git.currentBranch(), base),
+          initial: squashMessage,
           message: 'Message: ',
         })
       ).message;
@@ -124,6 +127,9 @@ const NewCommand: GluegunCommand = {
     // Success
     success(`Squashed ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `squashed ${branch}`;
