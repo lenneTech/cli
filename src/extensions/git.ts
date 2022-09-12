@@ -50,7 +50,7 @@ export class Git {
   /**
    * Check if current branch has changes
    */
-  public changes(options?: { errorMessage?: string; showError?: boolean }) {
+  public async changes(options?: { errorMessage?: string; showError?: boolean }) {
     // Process options
     const opts = Object.assign(
       {
@@ -67,7 +67,7 @@ export class Git {
     } = this.toolbox;
 
     // Check changes
-    const changes = system.run('git status --porcelain');
+    const changes = await system.run('git status --porcelain');
     if (changes && opts.showError) {
       error(opts.errorMessage);
     }
@@ -160,6 +160,26 @@ export class Git {
     } = this.toolbox;
 
     return trim(await run(`git merge-base HEAD ${baseBranch}`));
+  }
+
+  /**
+   * Get first commit messages from branch
+   */
+  public async getFirstBranchCommit(branch: string, baseBranch: string = 'develop') {
+    if (!branch || !baseBranch) {
+      throw new Error(`Missing branches: branch=${branch}, baseBranch=${baseBranch}`);
+    }
+
+    // Toolbox features
+    const {
+      helper: { trim },
+      system: { run },
+    } = this.toolbox;
+
+    const message = await run(`git log ${baseBranch}..${branch} --oneline | tail -1`);
+    const splitted = message.split(' ');
+    splitted.shift();
+    return trim(splitted.join(' '));
   }
 
   /**

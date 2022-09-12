@@ -29,7 +29,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch();
 
     // Check branch
-    if (branch === 'main' || branch === 'release' || branch === 'develop') {
+    if (['master', 'main', 'release', 'test', 'develop', 'dev'].includes(branch)) {
       error(`Squash of branch ${branch} is not allowed!`);
       return;
     }
@@ -44,9 +44,18 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Get description
+    let base = parameters.first;
+    if (!base) {
+      base = await helper.getInput('develop', {
+        name: 'Base branche',
+        showError: false,
+      });
+    }
+
     // Merge base
-    const mergeBaseSpin = spin('Get merge base');
-    const mergeBase = await git.getMergeBase();
+    const mergeBaseSpin = spin('Get merge ' + base);
+    const mergeBase = await git.getMergeBase(base);
     if (!mergeBase) {
       error('No merge base found!');
       return;
@@ -91,6 +100,7 @@ const NewCommand: GluegunCommand = {
         await ask({
           type: 'input',
           name: 'message',
+          initial: await git.getFirstBranchCommit(await git.currentBranch(), base),
           message: 'Message: ',
         })
       ).message;
@@ -104,10 +114,12 @@ const NewCommand: GluegunCommand = {
     }
 
     // Start timer
+    const commitAndPushSpin = spin('Commit and push');
     const timer = startTimer();
 
-    // Squash
+    // Commit and push
     await run(`git commit -am "${message}" --author="${author}" && git push -f origin HEAD`);
+    commitAndPushSpin.succeed();
 
     // Success
     success(`Squashed ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
