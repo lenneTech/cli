@@ -58,15 +58,17 @@ const NewCommand: GluegunCommand = {
     const remoteBranch = await git.getBranch(branch, { remote: true });
 
     // Ask for checkout branch
-    if (
-      !parameters.options.noConfirm &&
-      !(await prompt.confirm('Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch))
-    ) {
-      return;
+    if (branchName !== branch) {
+      if (
+        !parameters.options.noConfirm &&
+        !(await prompt.confirm('Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch))
+      ) {
+        return;
+      }
     }
 
     // Checkout branch
-    await system.run('git checkout main');
+    await system.run('git checkout ' + ((await git.getDefaultBranch()) || 'main'));
     let checkoutSpin;
 
     // Handling for remote
@@ -128,6 +130,9 @@ const NewCommand: GluegunCommand = {
       `${remoteBranch ? 'Remote' : 'Local'} branch ${branch} checked out in ${helper.msToMinutesAndSeconds(timer())}m.`
     );
     info('');
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `get branch ${branch}`;

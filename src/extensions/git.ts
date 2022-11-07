@@ -165,9 +165,12 @@ export class Git {
   /**
    * Get first commit messages from branch
    */
-  public async getFirstBranchCommit(branch: string, baseBranch: string = 'develop') {
-    if (!branch || !baseBranch) {
-      throw new Error(`Missing branches: branch=${branch}, baseBranch=${baseBranch}`);
+  public async getFirstBranchCommit(branch: string, baseBranch: string) {
+    if (!baseBranch) {
+      baseBranch = (await this.getDefaultBranch()) || 'develop';
+    }
+    if (!branch) {
+      throw new Error(`Missing branch`);
     }
 
     // Toolbox features
@@ -180,6 +183,18 @@ export class Git {
     const splitted = message.split(' ');
     splitted.shift();
     return trim(splitted.join(' '));
+  }
+
+  /**
+   * Get default branch
+   */
+  public getDefaultBranch(): Promise<string> {
+    // Toolbox features
+    const {
+      system: { run },
+    } = this.toolbox;
+
+    return run(`basename $(git symbolic-ref --short refs/remotes/origin/HEAD)`);
   }
 
   /**

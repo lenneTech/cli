@@ -1,4 +1,3 @@
-import { JSON } from '@lenne.tech/nest-server';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
@@ -16,7 +15,6 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
   providers: [
     <%= props.namePascal %>Resolver,
     <%= props.namePascal %>Service,
-    JSON,
     {
       provide: 'PUB_SUB',
       useValue: new PubSub(),
