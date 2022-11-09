@@ -1,0 +1,98 @@
+version: "3.7"
+
+networks:
+  traefik-public:
+    external: true
+  overlay_mongo:
+    external: true
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${CI_REGISTRY_IMAGE?Variable not set}/api:${IMAGE_TAG?Variable not set}
+    restart: unless-stopped
+    container_name: <%= props.nameCamel %>-api-${IMAGE_TAG?Variable not set}
+    networks:
+      - traefik-public
+      - overlay_mongo
+    deploy:
+      placement:
+        constraints:
+          - node.labels.traefik-public.traefik-public-certificates == true
+      update_config:
+        order: start-first
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-http.rule=Host(`api.${APP_URL?Variable not set}`)
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-http.entrypoints=http
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-http.middlewares=https-redirect
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-https.rule=Host(`api.${APP_URL?Variable not set}`)
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-https.entrypoints=https
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-https.tls=true
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api-https.tls.certresolver=le
+        - traefik.http.services.${STACK_NAME?Variable not set}-${IMAGE_TAG}-api.loadbalancer.server.port=3000
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        npm run migrate:test:up
+        NODE_ENV=test node ./src/main.js
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    image: ${CI_REGISTRY_IMAGE?Variable not set}/app-ssr:${IMAGE_TAG?Variable not set}
+    restart: unless-stopped
+    container_name: <%= props.nameCamel %>-app-${IMAGE_TAG?Variable not set}
+    entrypoint: ["/bin/sh", "-c"]
+    networks:
+      - traefik-public
+    deploy:
+      placement:
+        constraints:
+          - node.labels.traefik-public.traefik-public-certificates == true
+      update_config:
+        order: start-first
+        failure_action: rollback
+        delay: 10s
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-public
+        - traefik.constraint-label=traefik-public
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-http.rule=Host(`${APP_URL?Variable not set}`, `www.${APP_URL?Variable not set}`)
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-http.entrypoints=http
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-http.middlewares=https-redirect
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.rule=Host(`${APP_URL?Variable not set}`, `www.${APP_URL?Variable not set}`)
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.entrypoints=https
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.tls=true
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.tls.certresolver=le
+        - traefik.http.middlewares.${STACK_NAME?Variable not set}-${IMAGE_TAG}-redirect.redirectregex.regex=^https?://www.${APP_URL}/(.*)
+        - traefik.http.middlewares.${STACK_NAME?Variable not set}-${IMAGE_TAG}-redirect.redirectregex.replacement=https://${APP_URL}/$${1}
+        - traefik.http.middlewares.${STACK_NAME?Variable not set}-${IMAGE_TAG}-redirect.redirectregex.permanent=true
+        - traefik.http.services.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app.loadbalancer.server.port=4000
+        - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.middlewares=${STACK_NAME?Variable not set}-${IMAGE_TAG}-redirect
+    command:
+      - |
+        NODE_ENV=test node main.js

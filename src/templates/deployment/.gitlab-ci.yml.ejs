@@ -1,0 +1,187 @@
+image: node:18-alpine
+
+stages:
+  - install_dependencies
+#  - version_number
+  - build
+  - package
+  - deploy
+
+variables:
+  APP_URL_PROD: <%= props.url %>
+  APP_URL_TEST: test.<%= props.url %>
+  STACK_NAME: $CI_PROJECT_NAME
+  FILE_NAME_PROD: docker-compose.prod.yml
+  FILE_NAME_TEST: docker-compose.test.yml
+  CI_NAME: 'gitlab'
+  CI_EMAIL: 'gitlab-ci@example.com'
+
+install_dependencies:
+  stage: install_dependencies
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+    policy: push
+  script:
+    - npm ci
+  only:
+    refs:
+      - develop
+      - test
+      - release
+      - preview
+      - main
+    changes:
+      - package-lock.json
+
+build_review:
+  stage: build
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+    policy: pull
+  artifacts:
+    paths:
+      - projects/api/dist/
+      - projects/app/dist/
+    expire_in: 5 minutes
+  script:
+    - npm run init
+    - npm run build
+  rules:
+    - if: $CI_MERGE_REQUEST_ID && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "test" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "release" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "preview" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME != "main"
+
+build:prod:
+  stage: build
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+    policy: pull
+  artifacts:
+    paths:
+      - projects/api/dist/
+      - projects/app/dist/
+    expire_in: 5 minutes
+  script:
+    - npm run init
+    - npm run build
+  only:
+    - main
+
+build:test:
+  stage: build
+  image: tarampampam/node:16-alpine
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+    policy: pull
+  artifacts:
+    paths:
+      - projects/api/dist/
+      - projects/app/dist/
+    expire_in: 5 minutes
+  script:
+    - git config --global user.email $CI_EMAIL
+    - git config --global user.name $CI_NAME
+    - git config http.sslVerify "false"
+    - git config receive.advertisePushOptions true
+    - git fetch
+    - git pull https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git test:test
+    - npm run init
+    - npm run build:test
+  only:
+    - test
+
+build:develop:
+  stage: build
+  cache:
+    key: $CI_PROJECT_DIR
+    paths:
+      - node_modules/
+    policy: pull
+  artifacts:
+    paths:
+      - projects/api/dist/
+      - projects/app/dist/
+    expire_in: 5 minutes
+  script:
+    - npm run init
+    - npm run build:develop
+  only:
+    - develop
+
+#version_number:
+#  stage: version_number
+#  image: tarampampam/node:alpine
+#  script:
+#    - git config --global user.email $CI_EMAIL
+#    - git config --global user.name $CI_NAME
+#    - git config http.sslVerify "false"
+#    - npm install
+#    - git config receive.advertisePushOptions true
+#    - git checkout -B "$CI_COMMIT_REF_NAME" "$CI_COMMIT_SHA"
+#    - npm run release
+#    - git push -o ci.skip --no-verify https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git --follow-tags test:test
+#    - git fetch && git checkout develop
+#    - git merge test
+#    - git push -o ci.skip --no-verify https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git --follow-tags develop:develop
+#  only:
+#    - test
+
+docker_build_push_test:
+  stage: package
+  image: tiangolo/docker-with-compose
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    - FILE_NAME=$FILE_NAME_TEST STACK_NAME=$STACK_NAME APP_URL=$APP_URL_TEST IMAGE_TAG=test CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh build-push.sh
+  only:
+    - test
+
+deploy_test:
+  stage: deploy
+  image: tiangolo/docker-with-compose
+  tags:
+    - docker-swarm
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    - FILE_NAME=$FILE_NAME_TEST STACK_NAME=$STACK_NAME APP_URL=$APP_URL_TEST IMAGE_TAG=test CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh deploy.sh
+  environment:
+    name: test
+    url: https://$APP_URL_TEST
+  only:
+    - test
+
+docker_build_push_prod:
+  stage: package
+  image: tiangolo/docker-with-compose
+  dependencies:
+    - build:prod
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    - FILE_NAME=$FILE_NAME_PROD STACK_NAME=$STACK_NAME APP_URL=$APP_URL_PROD IMAGE_TAG=production CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh build-push.sh
+  only:
+    - main
+
+deploy_prod:
+  stage: deploy
+  image: tiangolo/docker-with-compose
+  tags:
+    - docker-live
+  before_script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+  script:
+    - FILE_NAME=$FILE_NAME_PROD STACK_NAME=$STACK_NAME APP_URL=$APP_URL_PROD IMAGE_TAG=production CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh deploy.sh
+  environment:
+    name: production
+    url: https://$APP_URL_PROD
+  only:
+    - main

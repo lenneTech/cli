@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  release:
+    types:
+      - prereleased
+
+env:
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, docker-live]
+    env:
+      STACK_NAME: <%= props.nameCamel %>
+      APP_URL: test.<%= props.url %>
+      CI_REGISTRY_IMAGE: localhost:5000/<%= props.nameCamel %>
+      FILE_NAME: docker-compose.test.yml
+    steps:
+      - uses: actions/checkout@v1
+      - name: Use Node.js 18
+        uses: actions/setup-node@v1
+        with:
+          node-version: 18
+      - name: Install
+        run: npm run init
+      - name: Build app
+        run: npm run build:test
+      - name: Build docker
+        run: STACK_NAME=${{env.STACK_NAME}} APP_URL=${{env.APP_URL}} IMAGE_TAG=test CI_REGISTRY_IMAGE=${{env.CI_REGISTRY_IMAGE}} sh build-push.sh
+      - name: Deploy
+        run: FILE_NAME=${{env.FILE_NAME}} STACK_NAME=${{env.STACK_NAME}} APP_URL=${{env.APP_URL}} IMAGE_TAG=test CI_REGISTRY_IMAGE=${{env.CI_REGISTRY_IMAGE}} sh deploy.sh
+      - name: Deploy notification
+        if: always()
+        uses: adamkdean/simple-slack-notify@master
+        with:
+          channel: "#deployments"
+          status: ${{ job.status }}
+          success_text: "Version (#${{ github.event.release.tag_name }}) von <%= props.nameCamel %> wurde erfolgreich auf *Test* deployed."
+          failure_text: "Testversion (#${{ github.event.release.tag_name }}) von <%= props.nameCamel %> ist fehlgeschlagen."
+          cancelled_text: "Testversion (#${{ github.event.release.tag_name }}) von <%= props.nameCamel %> wurde abgebrochen."
