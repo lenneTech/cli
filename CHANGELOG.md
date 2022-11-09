@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.80](https://github.com/lenneTech/cli/compare/v0.0.79...v0.0.80) (2022-11-09)
+
+### Features
+
+- Add generator for deployment ([e2d1a0c](https://github.com/lenneTech/cli/commit/e2d1a0c297bbca3437d4d2c5adbcf6f23ba27e97))
+
 ### [0.0.72](https://github.com/lenneTech/cli/compare/v0.0.71...v0.0.72) (2022-05-26)
 
 ### Bug Fixes
