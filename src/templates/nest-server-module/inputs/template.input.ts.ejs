@@ -1,6 +1,6 @@
 import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, InputType } from '@nestjs/graphql';
-import { IsOptional } from 'class-validator';
+import { IsOptional } from 'class-validator';<%- props.imports %>
 
 /**
  * <%= props.namePascal %> input
@@ -11,12 +11,5 @@ export class <%= props.namePascal %>Input {
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
-
-  /**
-   * Description of the properties
-   */
-  @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
-  @Field(() => [String], { description: 'Description of the properties', nullable: true })
-  @IsOptional()
-  properties?: string[];
+  <%- props.props %>
 }

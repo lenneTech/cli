@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { ServerProps } from '../../interfaces/ServerProps.interface';
 
 /**
  * Create a new server module
@@ -18,6 +19,8 @@ const NewCommand: GluegunCommand = {
       parameters,
       patching,
       print: { error, info, spin, success },
+      prompt: { ask, confirm },
+      server,
       strings: { kebabCase, pascalCase, camelCase },
       system,
       template,
@@ -57,20 +60,71 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
+    // Set props
+    const props: Record<string, ServerProps> = {};
+    let setProps = false;
+    if (await confirm(`Set properties?`, true)) {
+      setProps = true;
+    }
+    while (setProps) {
+      const name = (
+        await ask({
+          type: 'input',
+          name: 'input',
+          message: `Enter property name (e.g. myProperty)`,
+        })
+      ).input;
+
+      let type = (
+        await ask({
+          type: 'input',
+          name: 'input',
+          message: `Enter property type (e.g. string, ID, File, etc.)`,
+        })
+      ).input;
+      const arrayEnding = type.endsWith('[]');
+      type = type.replace('[]', '');
+
+      let reference: string;
+      if (type === 'ObjectId') {
+        reference = (
+          await ask({
+            type: 'input',
+            name: 'input',
+            message: `Enter reference for ObjectId`,
+          })
+        ).input;
+      }
+
+      const isArray = arrayEnding || (await confirm(`Array?`));
+
+      const nullable = await confirm(`Nullable?`, true);
+
+      props[name] = { name, nullable, isArray, type, reference };
+
+      // Additional property?
+      if (!(await confirm(`Set additional property?`, true))) {
+        setProps = false;
+      }
+    }
+
     const generateSpinner = spin('Generate files');
+    const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
+    const createTemplate = server.propsForInput(props, { modelName: name, nullable: false });
+    const modelTemplate = server.propsForModel(props, { modelName: name });
 
     // nest-server-module/inputs/xxx.input.ts
     await template.generate({
       template: 'nest-server-module/inputs/template.input.ts.ejs',
       target: join(moduleDir, 'inputs', nameKebab + '.input.ts'),
-      props: { nameCamel, nameKebab, namePascal },
+      props: { nameCamel, nameKebab, namePascal, props: inputTemplate.props, imports: inputTemplate.imports },
     });
 
     // nest-server-module/inputs/xxx-create.input.ts
     await template.generate({
       template: 'nest-server-module/inputs/template-create.input.ts.ejs',
       target: join(moduleDir, 'inputs', nameKebab + '-create.input.ts'),
-      props: { nameCamel, nameKebab, namePascal },
+      props: { nameCamel, nameKebab, namePascal, props: createTemplate.props, imports: createTemplate.imports },
     });
 
     // nest-server-module/output/find-and-count-xxxs-result.output.ts
@@ -84,7 +138,7 @@ const NewCommand: GluegunCommand = {
     await template.generate({
       template: 'nest-server-module/template.model.ts.ejs',
       target: join(moduleDir, nameKebab + '.model.ts'),
-      props: { nameCamel, nameKebab, namePascal },
+      props: { nameCamel, nameKebab, namePascal, props: modelTemplate.props, imports: modelTemplate.imports },
     });
 
     // nest-server-module/xxx.module.ts
