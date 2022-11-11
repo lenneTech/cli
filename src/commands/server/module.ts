@@ -62,10 +62,7 @@ const NewCommand: GluegunCommand = {
 
     // Set props
     const props: Record<string, ServerProps> = {};
-    let setProps = false;
-    if (await confirm(`Set properties?`, true)) {
-      setProps = true;
-    }
+    let setProps = await confirm(`Set properties?`, true);
     while (setProps) {
       const name = (
         await ask({
@@ -76,14 +73,24 @@ const NewCommand: GluegunCommand = {
       ).input;
 
       let type = (
-        await ask({
-          type: 'input',
-          name: 'input',
-          message: `Enter property type (e.g. string, ID, File, etc.)`,
-        })
+        await ask([
+          {
+            type: 'select',
+            name: 'input',
+            message: 'Choose property type',
+            choices: ['boolean', 'string', 'number', 'ObjectId', 'Date', 'Use own'],
+          },
+        ])
       ).input;
-      const arrayEnding = type.endsWith('[]');
-      type = type.replace('[]', '');
+
+      if (type === 'Use own')
+        type = (
+          await ask({
+            type: 'input',
+            name: 'input',
+            message: `Enter property type (e.g. MyClass or MyClass[])`,
+          })
+        ).input;
 
       let reference: string;
       if (type === 'ObjectId') {
@@ -91,11 +98,14 @@ const NewCommand: GluegunCommand = {
           await ask({
             type: 'input',
             name: 'input',
+            initial: pascalCase(name),
             message: `Enter reference for ObjectId`,
           })
         ).input;
       }
 
+      const arrayEnding = type.endsWith('[]');
+      type = type.replace('[]', '');
       const isArray = arrayEnding || (await confirm(`Array?`));
 
       const nullable = await confirm(`Nullable?`, true);
@@ -103,9 +113,7 @@ const NewCommand: GluegunCommand = {
       props[name] = { name, nullable, isArray, type, reference };
 
       // Additional property?
-      if (!(await confirm(`Set additional property?`, true))) {
-        setProps = false;
-      }
+      setProps = await confirm(`Set additional property?`, true);
     }
 
     const generateSpinner = spin('Generate files');
@@ -138,7 +146,14 @@ const NewCommand: GluegunCommand = {
     await template.generate({
       template: 'nest-server-module/template.model.ts.ejs',
       target: join(moduleDir, nameKebab + '.model.ts'),
-      props: { nameCamel, nameKebab, namePascal, props: modelTemplate.props, imports: modelTemplate.imports },
+      props: {
+        nameCamel,
+        nameKebab,
+        namePascal,
+        props: modelTemplate.props,
+        imports: modelTemplate.imports,
+        mappings: modelTemplate.mappings,
+      },
     });
 
     // nest-server-module/xxx.module.ts

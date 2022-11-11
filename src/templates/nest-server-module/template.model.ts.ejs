@@ -1,9 +1,8 @@
 import { mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';
+import { Document, Schema, Types } from 'mongoose';
 import { PersistenceModel } from '../../common/models/persistence.model';
-import { User } from '../user/user.model';<%- props.imports %>
 
 export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;
 
@@ -28,6 +27,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   init() {
     super.init();
+    // this.xxx = [];
     return this;
   }
 
@@ -38,7 +38,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   map(input) {
     super.map(input);
-    return mapClasses(input, {user: User}, this);
+    return <%- props.mappings %>
   }
 }
 

@@ -27,10 +27,19 @@ export class Server {
   inputClassTypes: Record<string, string> = {
     File: 'FileUpload',
     FileInfo: 'FileUpload',
-    Id: 'String',
-    ID: 'String',
-    ObjectId: 'String',
+    Id: 'string',
+    ID: 'string',
+    ObjectId: 'string',
     Upload: 'FileUpload',
+  };
+
+  modelFieldTypes: Record<string, string> = {
+    File: 'CoreFileInfo',
+    FileInfo: 'CoreFileInfo',
+    ID: 'String',
+    Id: 'String',
+    ObjectId: 'String',
+    Upload: 'CoreFileInfo',
   };
 
   modelClassTypes: Record<string, string> = {
@@ -41,6 +50,8 @@ export class Server {
     ObjectId: 'Types.ObjectId',
     Upload: 'CoreFileInfo',
   };
+
+  standardTypes: string[] = ['boolean', 'string', 'number', 'Date', 'ObjectId'];
 
   /**
    * Constructor for integration of toolbox
@@ -57,7 +68,7 @@ export class Server {
   propsForModel(
     props: Record<string, ServerProps>,
     options?: { modelName?: string; useDefault?: boolean }
-  ): { props: string; imports: string } {
+  ): { mappings: string; imports: string; props: string } {
     // Preparations
     const config = { useDefault: true, ...options };
     const { modelName, useDefault } = config;
@@ -66,7 +77,7 @@ export class Server {
     // Check parameters
     if (!props || !(typeof props !== 'object') || !Object.keys(props).length) {
       if (!useDefault) {
-        return { props: '', imports: '' };
+        return { props: '', imports: '', mappings: 'this;' };
       }
 
       // Use default
@@ -92,27 +103,41 @@ export class Server {
   testedBy: User = undefined;
   `,
           imports: '',
+          mappings: 'mapClasses(input, {user: User}, this);',
         };
       }
     }
 
     // Process configuration
     const imports = {};
+    const mappings = {};
     for (const [name, item] of Object.entries<ServerProps>(props)) {
+      const propName = this.camelCase(name);
       const modelClassType = this.modelClassTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+      const modelFieldType = this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+      const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
+      if (!this.standardTypes.includes(type)) {
+        mappings[propName] = type;
+      }
       if (this.imports[modelClassType]) {
         imports[modelClassType] = this.imports[modelClassType];
       }
       result += `  
   /**
-   * ${this.pascalCase(name) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
+   * ${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
-  @Field(() => ${(item.isArray ? '[' : '') + modelClassType + (item.isArray ? ']' : '')}, {
-    description: '${this.pascalCase(name) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
+  @Field(() => ${(item.isArray ? '[' : '') + modelFieldType + (item.isArray ? ']' : '')}, {
+    description: '${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${item.nullable},
   })
-  @Prop(${item.reference ? `{ type: Schema.Types.ObjectId, ref: '${modelClassType}' }` : ''})
-  ${this.camelCase(name)}: ${modelClassType + (item.isArray ? '[]' : '')} = undefined;
+  @Prop(${
+    item.reference
+      ? (item.isArray ? '[' : '') +
+        `{ type: Schema.Types.ObjectId, ref: '${this.pascalCase(item.reference)}' }` +
+        (item.isArray ? '[' : '')
+      : ''
+  })
+  ${propName}: ${modelClassType + (item.isArray ? '[]' : '')} = undefined;
   `;
     }
 
@@ -122,10 +147,17 @@ export class Server {
       importsResult += `\n${value}`;
     }
 
+    // Process mappings
+    let mappingsResult = [];
+    for (const [key, value] of Object.entries(mappings)) {
+      mappingsResult.push(`${key}: ${value}`);
+    }
+
     // Return template data
     return {
       props: result,
       imports: importsResult,
+      mappings: mappingsResult.length ? `mapClasses(input, {${mappingsResult.join(', ')}}, this);` : 'this;',
     };
   }
 
@@ -155,8 +187,9 @@ export class Server {
    * Description of properties
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
-  @Field(() => [String], { description: 'Properties of ${this.pascalCase(modelName)}', nullable: 'items'})
-  @Prop([String])
+  @Field(() => [String], { description: 'Properties of ${this.pascalCase(modelName)}', nullable: ${
+            config.nullable ? config.nullable : `'items'`
+          }})
   properties: string[] = undefined;
 
   /**
@@ -164,9 +197,8 @@ export class Server {
    */
   @Field(() => User, {
     description: 'User who has tested the ${this.pascalCase(modelName)}',
-    nullable: true,
+    nullable: ${config.nullable},
   })
-  @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
   testedBy: User = undefined;
   `,
           imports: '',
