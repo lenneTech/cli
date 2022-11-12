@@ -5,6 +5,7 @@ import { IsOptional } from 'class-validator';<%- props.imports %>
 /**
  * <%= props.namePascal %> input
  */
+@Restricted(RoleEnum.ADMIN)
 @InputType({ description: 'Input data to update an existing <%= props.namePascal %>' })
 export class <%= props.namePascal %>Input {
 

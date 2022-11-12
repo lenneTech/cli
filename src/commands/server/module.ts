@@ -62,15 +62,19 @@ const NewCommand: GluegunCommand = {
 
     // Set props
     const props: Record<string, ServerProps> = {};
-    let setProps = await confirm(`Set properties?`, true);
+    let setProps = true;
+    let refsSet = false;
     while (setProps) {
       const name = (
         await ask({
           type: 'input',
           name: 'input',
-          message: `Enter property name (e.g. myProperty)`,
+          message: `Enter property name (e.g. myProperty) to create new property or leave empty (ENTER)`,
         })
       ).input;
+      if (!name.trim()) {
+        break;
+      }
 
       let type = (
         await ask([
@@ -78,10 +82,13 @@ const NewCommand: GluegunCommand = {
             type: 'select',
             name: 'input',
             message: 'Choose property type',
-            choices: ['boolean', 'string', 'number', 'ObjectId', 'Date', 'Use own'],
+            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'Use own'],
           },
         ])
       ).input;
+      if (type === 'ObjectId / Reference') {
+        type = 'ObjectId';
+      }
 
       if (type === 'Use own')
         type = (
@@ -102,6 +109,9 @@ const NewCommand: GluegunCommand = {
             message: `Enter reference for ObjectId`,
           })
         ).input;
+        if (reference) {
+          refsSet = true;
+        }
       }
 
       const arrayEnding = type.endsWith('[]');
@@ -111,9 +121,6 @@ const NewCommand: GluegunCommand = {
       const nullable = await confirm(`Nullable?`, true);
 
       props[name] = { name, nullable, isArray, type, reference };
-
-      // Additional property?
-      setProps = await confirm(`Set additional property?`, true);
     }
 
     const generateSpinner = spin('Generate files');
@@ -218,6 +225,11 @@ const NewCommand: GluegunCommand = {
     info(``);
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info(``);
+
+    // We're done, so show what to do next
+    if (refsSet) {
+      success(`HINT: References have been added, so it is necessary to add the corresponding imports!`);
+    }
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();

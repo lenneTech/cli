@@ -13,6 +13,7 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
 /**
  * Resolver to process with <%= props.namePascal %> data
  */
+@Roles(RoleEnum.ADMIN)
 @Resolver(() => <%= props.namePascal %>)
 export class <%= props.namePascal %>Resolver {
 

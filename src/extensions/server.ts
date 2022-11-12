@@ -5,16 +5,19 @@ import { ServerProps } from '../interfaces/ServerProps.interface';
  * Server helper functions
  */
 export class Server {
+  // String manipulation functions
   camelCase: (value: string) => string;
   kebabCase: (value: string) => string;
   pascalCase: (value: string) => string;
 
+  // Specific imports for default modells
   imports: Record<string, string> = {
     CoreFileInfo: "import { CoreFileInfo } from '@lenne.tech/nest-server';",
     GraphQLUpload: "import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';",
     FileUpload: "import type { FileUpload } from 'graphql-upload/processRequest.js';",
   };
 
+  // Specific types for properties in input fields
   inputFieldTypes: Record<string, string> = {
     File: 'GraphQLUpload',
     FileInfo: 'GraphQLUpload',
@@ -24,6 +27,7 @@ export class Server {
     Upload: 'GraphQLUpload',
   };
 
+  // Specific types for properties in input classes
   inputClassTypes: Record<string, string> = {
     File: 'FileUpload',
     FileInfo: 'FileUpload',
@@ -33,6 +37,7 @@ export class Server {
     Upload: 'FileUpload',
   };
 
+  // Specific types for properties in model fields
   modelFieldTypes: Record<string, string> = {
     File: 'CoreFileInfo',
     FileInfo: 'CoreFileInfo',
@@ -42,16 +47,18 @@ export class Server {
     Upload: 'CoreFileInfo',
   };
 
+  // Specific types for properties in model class
   modelClassTypes: Record<string, string> = {
     File: 'CoreFileInfo',
     FileInfo: 'CoreFileInfo',
-    ID: 'Types.ObjectId',
-    Id: 'Types.ObjectId',
-    ObjectId: 'Types.ObjectId',
+    ID: 'string',
+    Id: 'string',
+    ObjectId: 'string',
     Upload: 'CoreFileInfo',
   };
 
-  standardTypes: string[] = ['boolean', 'string', 'number', 'Date', 'ObjectId'];
+  // Standard types: primitives and default JavaScript classes
+  standardTypes: string[] = ['boolean', 'string', 'number', 'Date'];
 
   /**
    * Constructor for integration of toolbox
@@ -113,11 +120,18 @@ export class Server {
     const mappings = {};
     for (const [name, item] of Object.entries<ServerProps>(props)) {
       const propName = this.camelCase(name);
-      const modelClassType = this.modelClassTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+      const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+      const isArray = item.isArray;
+      const modelClassType =
+        this.modelClassTypes[this.pascalCase(item.type)] ||
+        (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
       const modelFieldType = this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
-      if (!this.standardTypes.includes(type)) {
+      if (!this.standardTypes.includes(type) && type !== 'ObjectId') {
         mappings[propName] = type;
+      }
+      if (reference) {
+        mappings[propName] = reference;
       }
       if (this.imports[modelClassType]) {
         imports[modelClassType] = this.imports[modelClassType];
@@ -126,18 +140,19 @@ export class Server {
   /**
    * ${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
-  @Field(() => ${(item.isArray ? '[' : '') + modelFieldType + (item.isArray ? ']' : '')}, {
+  @Restricted(RoleEnum.S_EVERYONE)
+  @Field(() => ${(isArray ? '[' : '') + modelFieldType + (isArray ? ']' : '')}, {
     description: '${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${item.nullable},
   })
   @Prop(${
-    item.reference
-      ? (item.isArray ? '[' : '') +
-        `{ type: Schema.Types.ObjectId, ref: '${this.pascalCase(item.reference)}' }` +
-        (item.isArray ? '[' : '')
+    reference
+      ? (isArray ? '[' : '') + `{ type: Schema.Types.ObjectId, ref: '${reference}' }` + (isArray ? ']' : '')
       : ''
   })
-  ${propName}: ${modelClassType + (item.isArray ? '[]' : '')} = undefined;
+  ${propName}: ${
+        modelClassType + (isArray ? '[]' : '') + (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
+      } = undefined;
   `;
     }
 
@@ -148,7 +163,7 @@ export class Server {
     }
 
     // Process mappings
-    let mappingsResult = [];
+    const mappingsResult = [];
     for (const [key, value] of Object.entries(mappings)) {
       mappingsResult.push(`${key}: ${value}`);
     }
@@ -209,7 +224,9 @@ export class Server {
       const imports = {};
       for (const [name, item] of Object.entries<ServerProps>(props)) {
         const inputFieldType = this.inputFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
-        const inputClassType = this.inputClassTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+        const inputClassType =
+          this.inputClassTypes[this.pascalCase(item.type)] ||
+          (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
         if (this.imports[inputFieldType]) {
           imports[inputFieldType] = this.imports[inputFieldType];
         }
@@ -220,6 +237,7 @@ export class Server {
   /**
    * ${this.pascalCase(name) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
+  @Restricted(RoleEnum.S_EVERYONE)
   @Field(() => ${(item.isArray ? '[' : '') + inputFieldType + (item.isArray ? ']' : '')}, {
     description: '${this.pascalCase(name) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${nullable || item.nullable},
