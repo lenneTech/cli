@@ -121,6 +121,7 @@ export class Server {
     for (const [name, item] of Object.entries<ServerProps>(props)) {
       const propName = this.camelCase(name);
       const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+      const modelFieldType = this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
       const isArray = item.isArray;
       const modelClassType =
         this.modelClassTypes[this.pascalCase(item.type)] ||
@@ -140,7 +141,7 @@ export class Server {
    * ${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
   @Restricted(RoleEnum.S_EVERYONE)
-  @Field(() => ${(isArray ? '[' : '') + reference + (isArray ? ']' : '')}, {
+  @Field(() => ${(isArray ? '[' : '') + reference ? reference : modelFieldType + (isArray ? ']' : '')}, {
     description: '${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${item.nullable},
   })
