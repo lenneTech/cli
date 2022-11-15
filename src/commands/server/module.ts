@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { ServerProps } from '../../interfaces/ServerProps.interface';
 
 /**
  * Create a new server module
@@ -18,6 +19,8 @@ const NewCommand: GluegunCommand = {
       parameters,
       patching,
       print: { error, info, spin, success },
+      prompt: { ask, confirm },
+      server,
       strings: { kebabCase, pascalCase, camelCase },
       system,
       template,
@@ -57,20 +60,86 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
+    // Set props
+    const props: Record<string, ServerProps> = {};
+    const setProps = true;
+    let refsSet = false;
+    while (setProps) {
+      const name = (
+        await ask({
+          type: 'input',
+          name: 'input',
+          message: `Enter property name (e.g. myProperty) to create new property or leave empty (ENTER)`,
+        })
+      ).input;
+      if (!name.trim()) {
+        break;
+      }
+
+      let type = (
+        await ask([
+          {
+            type: 'select',
+            name: 'input',
+            message: 'Choose property type',
+            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'Use own'],
+          },
+        ])
+      ).input;
+      if (type === 'ObjectId / Reference') {
+        type = 'ObjectId';
+      }
+
+      if (type === 'Use own')
+        type = (
+          await ask({
+            type: 'input',
+            name: 'input',
+            message: `Enter property type (e.g. MyClass or MyClass[])`,
+          })
+        ).input;
+
+      let reference: string;
+      if (type === 'ObjectId') {
+        reference = (
+          await ask({
+            type: 'input',
+            name: 'input',
+            initial: pascalCase(name),
+            message: `Enter reference for ObjectId`,
+          })
+        ).input;
+        if (reference) {
+          refsSet = true;
+        }
+      }
+
+      const arrayEnding = type.endsWith('[]');
+      type = type.replace('[]', '');
+      const isArray = arrayEnding || (await confirm(`Array?`));
+
+      const nullable = await confirm(`Nullable?`, true);
+
+      props[name] = { name, nullable, isArray, type, reference };
+    }
+
     const generateSpinner = spin('Generate files');
+    const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
+    const createTemplate = server.propsForInput(props, { modelName: name, nullable: false });
+    const modelTemplate = server.propsForModel(props, { modelName: name });
 
     // nest-server-module/inputs/xxx.input.ts
     await template.generate({
       template: 'nest-server-module/inputs/template.input.ts.ejs',
       target: join(moduleDir, 'inputs', nameKebab + '.input.ts'),
-      props: { nameCamel, nameKebab, namePascal },
+      props: { nameCamel, nameKebab, namePascal, props: inputTemplate.props, imports: inputTemplate.imports },
     });
 
     // nest-server-module/inputs/xxx-create.input.ts
     await template.generate({
       template: 'nest-server-module/inputs/template-create.input.ts.ejs',
       target: join(moduleDir, 'inputs', nameKebab + '-create.input.ts'),
-      props: { nameCamel, nameKebab, namePascal },
+      props: { nameCamel, nameKebab, namePascal, props: createTemplate.props, imports: createTemplate.imports },
     });
 
     // nest-server-module/output/find-and-count-xxxs-result.output.ts
@@ -84,7 +153,14 @@ const NewCommand: GluegunCommand = {
     await template.generate({
       template: 'nest-server-module/template.model.ts.ejs',
       target: join(moduleDir, nameKebab + '.model.ts'),
-      props: { nameCamel, nameKebab, namePascal },
+      props: {
+        nameCamel,
+        nameKebab,
+        namePascal,
+        props: modelTemplate.props,
+        imports: modelTemplate.imports,
+        mappings: modelTemplate.mappings,
+      },
     });
 
     // nest-server-module/xxx.module.ts
@@ -149,6 +225,11 @@ const NewCommand: GluegunCommand = {
     info(``);
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info(``);
+
+    // We're done, so show what to do next
+    if (refsSet) {
+      success(`HINT: References have been added, so it is necessary to add the corresponding imports!`);
+    }
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();

@@ -13,6 +13,7 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
 /**
  * Resolver to process with <%= props.namePascal %> data
  */
+@Roles(RoleEnum.ADMIN)
 @Resolver(() => <%= props.namePascal %>)
 export class <%= props.namePascal %>Resolver {
 
@@ -35,7 +36,7 @@ export class <%= props.namePascal %>Resolver {
   @Query(() => FindAndCount<%= props.namePascal %>sResult, { description: 'Find <%= props.namePascal %>s (via filter)' })
   async findAndCount<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
     return await this.<%= props.nameCamel %>Service.findAndCount(args, {
-      fieldSelection: { info, select: 'findAndCount<%= props.namePascal %>s' },
+      fieldSelection: { info, select: 'findAndCount<%= props.namePascal %>s.items' },
       inputType: FilterArgs,
     });
   }

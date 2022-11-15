@@ -3,13 +3,13 @@ import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
 import { PersistenceModel } from '../../common/models/persistence.model';
-import { User } from '../user/user.model';
 
 export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;
 
 /**
  * <%= props.namePascal %> model
  */
+@Restricted(RoleEnum.ADMIN)
 @ObjectType({ description: '<%= props.namePascal %>' })
 @MongooseSchema({ timestamps: true })
 export class <%= props.namePascal %> extends PersistenceModel {
@@ -17,24 +17,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
   // ===================================================================================================================
   // Properties
   // ===================================================================================================================
-
-  /**
-   * Description of properties
-   */
-  @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
-  @Field(() => [String], { description: 'Properties of <%= props.namePascal %>', nullable: 'items'})
-  @Prop([String])
-  properties: string[] = undefined;
-
-  /**
-   * User how has tested the <%= props.namePascal %>
-   */
-  @Field(() => User, {
-    description: 'User who has tested the <%= props.namePascal %>',
-    nullable: true,
-  })
-  @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
-  testedBy: User = undefined;
+  <%- props.props %>
 
   // ===================================================================================================================
   // Methods
@@ -45,7 +28,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   init() {
     super.init();
-    this.properties = [];
+    // this.xxx = [];
     return this;
   }
 
@@ -56,7 +39,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   map(input) {
     super.map(input);
-    return mapClasses(input, {user: User}, this);
+    return <%- props.mappings %>
   }
 }
 
