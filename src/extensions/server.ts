@@ -125,7 +125,6 @@ export class Server {
       const modelClassType =
         this.modelClassTypes[this.pascalCase(item.type)] ||
         (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
-      const modelFieldType = this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
       if (!this.standardTypes.includes(type) && type !== 'ObjectId') {
         mappings[propName] = type;
@@ -141,7 +140,7 @@ export class Server {
    * ${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
   @Restricted(RoleEnum.S_EVERYONE)
-  @Field(() => ${(isArray ? '[' : '') + modelFieldType + (isArray ? ']' : '')}, {
+  @Field(() => ${(isArray ? '[' : '') + reference + (isArray ? ']' : '')}, {
     description: '${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${item.nullable},
   })

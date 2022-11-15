@@ -62,7 +62,7 @@ const NewCommand: GluegunCommand = {
 
     // Set props
     const props: Record<string, ServerProps> = {};
-    let setProps = true;
+    const setProps = true;
     let refsSet = false;
     while (setProps) {
       const name = (
