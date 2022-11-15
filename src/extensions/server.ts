@@ -141,7 +141,7 @@ export class Server {
    * ${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
   @Restricted(RoleEnum.S_EVERYONE)
-  @Field(() => ${(isArray ? '[' : '') + reference ? reference : modelFieldType + (isArray ? ']' : '')}, {
+  @Field(() => ${(isArray ? '[' : '') + (reference ? reference : modelFieldType) + (isArray ? ']' : '')}, {
     description: '${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${item.nullable},
   })
