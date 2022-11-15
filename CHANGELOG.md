@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.82](https://github.com/lenneTech/cli/compare/v0.0.80...v0.0.82) (2022-11-15)
+
 ### [0.0.80](https://github.com/lenneTech/cli/compare/v0.0.79...v0.0.80) (2022-11-09)
 
 ### Features
