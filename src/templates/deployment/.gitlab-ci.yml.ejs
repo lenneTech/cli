@@ -85,12 +85,6 @@ build:test:
       - projects/app/dist/
     expire_in: 5 minutes
   script:
-    - git config --global user.email $CI_EMAIL
-    - git config --global user.name $CI_NAME
-    - git config http.sslVerify "false"
-    - git config receive.advertisePushOptions true
-    - git fetch
-    - git pull https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git test:test
     - npm run init
     - npm run build:test
   only:
@@ -140,7 +134,7 @@ docker_build_push_test:
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
   script:
-    - FILE_NAME=$FILE_NAME_TEST STACK_NAME=$STACK_NAME APP_URL=$APP_URL_TEST IMAGE_TAG=test CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh build-push.sh
+    - FILE_NAME=$FILE_NAME_TEST STACK_NAME=$STACK_NAME APP_URL=$APP_URL_TEST IMAGE_TAG=test CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh ./scripts/build-push.sh
   only:
     - test
 
@@ -148,11 +142,11 @@ deploy_test:
   stage: deploy
   image: tiangolo/docker-with-compose
   tags:
-    - docker-swarm
+    - <%= props.testRunner %>
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
   script:
-    - FILE_NAME=$FILE_NAME_TEST STACK_NAME=$STACK_NAME APP_URL=$APP_URL_TEST IMAGE_TAG=test CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh deploy.sh
+    - FILE_NAME=$FILE_NAME_TEST STACK_NAME=$STACK_NAME APP_URL=$APP_URL_TEST IMAGE_TAG=test CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh ./scripts/deploy.sh
   environment:
     name: test
     url: https://$APP_URL_TEST
@@ -167,7 +161,7 @@ docker_build_push_prod:
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
   script:
-    - FILE_NAME=$FILE_NAME_PROD STACK_NAME=$STACK_NAME APP_URL=$APP_URL_PROD IMAGE_TAG=production CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh build-push.sh
+    - FILE_NAME=$FILE_NAME_PROD STACK_NAME=$STACK_NAME APP_URL=$APP_URL_PROD IMAGE_TAG=production CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh ./scripts/build-push.sh
   only:
     - main
 
@@ -175,11 +169,11 @@ deploy_prod:
   stage: deploy
   image: tiangolo/docker-with-compose
   tags:
-    - docker-live
+    - <%= props.prodRunner %>
   before_script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
   script:
-    - FILE_NAME=$FILE_NAME_PROD STACK_NAME=$STACK_NAME APP_URL=$APP_URL_PROD IMAGE_TAG=production CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh deploy.sh
+    - FILE_NAME=$FILE_NAME_PROD STACK_NAME=$STACK_NAME APP_URL=$APP_URL_PROD IMAGE_TAG=production CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE sh ./scripts/deploy.sh
   environment:
     name: production
     url: https://$APP_URL_PROD

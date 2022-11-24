@@ -95,4 +95,4 @@ services:
         - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.middlewares=${STACK_NAME?Variable not set}-${IMAGE_TAG}-redirect
     command:
       - |
-        NODE_ENV=test node main.js
+        NODE_ENV=test node dist/app/server/main.js

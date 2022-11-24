@@ -89,4 +89,4 @@ services:
         - traefik.http.routers.${STACK_NAME?Variable not set}-${IMAGE_TAG}-app-https.middlewares=${STACK_NAME?Variable not set}-${IMAGE_TAG}-redirect
     command:
       - |
-        NODE_ENV="production" node main.js
+        NODE_ENV=production node dist/app/server/main.js
