@@ -181,7 +181,10 @@ const NewCommand: GluegunCommand = {
         replace: new RegExp('http://127.0.0.1:4200', 'g'),
         insert: 'https://' + domain,
       });
+    } else {
+      info('Missing projects/app/src/environments/environment.prod.ts');
     }
+
     const testEnv = await filesystem.exists('projects/app/src/environments/environment.test.ts');
     if (testEnv) {
       await patching.patch('projects/app/src/environments/environment.test.ts', {
@@ -196,7 +199,10 @@ const NewCommand: GluegunCommand = {
         replace: new RegExp('http://127.0.0.1:4200', 'g'),
         insert: 'https://test.' + domain,
       });
+    } else {
+      info('Missing projects/app/src/environments/environment.test.ts');
     }
+
     environmentsSpinner.succeed('App environment files updated');
 
     // We're done, so show what to do next
