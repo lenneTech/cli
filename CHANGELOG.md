@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.84](https://github.com/lenneTech/cli/compare/v0.0.83...v0.0.84) (2022-11-25)
+
+### Features
+
+- Optimized SSR configuration for angular projects ([491d0e2](https://github.com/lenneTech/cli/commit/491d0e24cad736462d69f2a7737522b2f8b1fa39))
+
 ### [0.0.83](https://github.com/lenneTech/cli/compare/v0.0.82...v0.0.83) (2022-11-24)
 
 ### Features
