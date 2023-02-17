@@ -7,9 +7,9 @@ import { ServerProps } from '../../interfaces/ServerProps.interface';
  * Create a new server module
  */
 const NewCommand: GluegunCommand = {
-  name: 'module',
-  alias: ['m'],
-  description: 'Creates a new server module',
+  name: 'object',
+  alias: ['o'],
+  description: 'Creates a new server object (with inputs)',
   hidden: false,
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
@@ -17,7 +17,6 @@ const NewCommand: GluegunCommand = {
       filesystem,
       helper,
       parameters,
-      patching,
       print: { error, info, spin, success },
       prompt: { ask, confirm },
       server,
@@ -30,11 +29,11 @@ const NewCommand: GluegunCommand = {
     const timer = system.startTimer();
 
     // Info
-    info('Create a new server module');
+    info('Create a new server object (with inputs)');
 
     // Get name
     const name = await helper.getInput(parameters.first, {
-      name: 'module name',
+      name: 'object name',
     });
     if (!name) {
       return;
@@ -53,10 +52,10 @@ const NewCommand: GluegunCommand = {
       error(`No src directory in "${path}".`);
       return undefined;
     }
-    const moduleDir = join(path, 'src', 'server', 'modules', nameKebab);
-    if (filesystem.exists(moduleDir)) {
+    const objectDir = join(path, 'src', 'server', 'common', 'objects', nameKebab);
+    if (filesystem.exists(objectDir)) {
       info(``);
-      error(`Module directory "${moduleDir}" already exists.`);
+      error(`Module directory "${objectDir}" already exists.`);
       return undefined;
     }
 
@@ -139,104 +138,46 @@ const NewCommand: GluegunCommand = {
     const generateSpinner = spin('Generate files');
     const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
     const createTemplate = server.propsForInput(props, { modelName: name, nullable: false, create: true });
-    const modelTemplate = server.propsForModel(props, { modelName: name });
+    const objectTemplate = server.propsForModel(props, { modelName: name });
 
     // nest-server-module/inputs/xxx.input.ts
     await template.generate({
-      template: 'nest-server-module/inputs/template.input.ts.ejs',
-      target: join(moduleDir, 'inputs', nameKebab + '.input.ts'),
+      template: 'nest-server-object/template.input.ts.ejs',
+      target: join(objectDir, nameKebab + '.input.ts'),
       props: { nameCamel, nameKebab, namePascal, props: inputTemplate.props, imports: inputTemplate.imports },
     });
 
-    // nest-server-module/inputs/xxx-create.input.ts
+    // nest-server-object/inputs/xxx-create.input.ts
     await template.generate({
-      template: 'nest-server-module/inputs/template-create.input.ts.ejs',
-      target: join(moduleDir, 'inputs', nameKebab + '-create.input.ts'),
+      template: 'nest-server-object/template-create.input.ts.ejs',
+      target: join(objectDir, nameKebab + '-create.input.ts'),
       props: { nameCamel, nameKebab, namePascal, props: createTemplate.props, imports: createTemplate.imports },
-    });
-
-    // nest-server-module/output/find-and-count-xxxs-result.output.ts
-    await template.generate({
-      template: 'nest-server-module/outputs/template-fac-result.output.ts.ejs',
-      target: join(moduleDir, 'outputs', 'find-and-count-' + nameKebab + 's-result.output.ts'),
-      props: { nameCamel, nameKebab, namePascal },
     });
 
     // nest-server-module/xxx.model.ts
     await template.generate({
-      template: 'nest-server-module/template.model.ts.ejs',
-      target: join(moduleDir, nameKebab + '.model.ts'),
+      template: 'nest-server-object/template.object.ts.ejs',
+      target: join(objectDir, nameKebab + '.object.ts'),
       props: {
         nameCamel,
         nameKebab,
         namePascal,
-        props: modelTemplate.props,
-        imports: modelTemplate.imports,
-        mappings: modelTemplate.mappings,
+        props: objectTemplate.props,
+        imports: objectTemplate.imports,
+        mappings: objectTemplate.mappings,
       },
-    });
-
-    // nest-server-module/xxx.module.ts
-    await template.generate({
-      template: 'nest-server-module/template.module.ts.ejs',
-      target: join(moduleDir, nameKebab + '.module.ts'),
-      props: { nameCamel, nameKebab, namePascal },
-    });
-
-    // nest-server-module/xxx.resolver.ts
-    await template.generate({
-      template: 'nest-server-module/template.resolver.ts.ejs',
-      target: join(moduleDir, nameKebab + '.resolver.ts'),
-      props: { nameCamel, nameKebab, namePascal },
-    });
-
-    // nest-server-module/xxx.service.ts
-    await template.generate({
-      template: 'nest-server-module/template.service.ts.ejs',
-      target: join(moduleDir, nameKebab + '.service.ts'),
-      props: { nameCamel, nameKebab, namePascal },
     });
 
     const prettier = join(path, 'node_modules', '.bin', 'prettier');
     if (filesystem.exists(prettier)) {
-      await system.run(prettier + ' ' + join(moduleDir, '**', '*.ts'));
+      await system.run(prettier + ' ' + join(objectDir, '**', '*.ts'));
     }
 
     generateSpinner.succeed('Files generated');
 
-    const serverModule = join(path, 'src', 'server', 'server.module.ts');
-    if (filesystem.exists(serverModule)) {
-      const includeSpinner = spin('Include module into server');
-
-      // Import module
-      await patching.patch(serverModule, {
-        insert: `import { ${namePascal}Module } from './modules/${nameKebab}/${nameKebab}.module';\n`,
-        before: 'import',
-      });
-
-      // Add Module
-      await patching.patch(serverModule, {
-        insert: `  ${namePascal}Module,\n  `,
-        after: new RegExp('imports:[^\\]]*', 'm'),
-      });
-
-      // Add comma if necessary
-      await patching.patch(serverModule, {
-        insert: '$1,$2',
-        replace: new RegExp('([^,\\s])(\\s*' + namePascal + 'Module,\\s*\\])'),
-      });
-
-      if (filesystem.exists(prettier)) {
-        await system.run(prettier + ' ' + serverModule);
-      }
-      includeSpinner.succeed('Module included');
-    } else {
-      info("Don't forget to include the module into your main module.");
-    }
-
     // We're done, so show what to do next
     info(``);
-    success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    success(`Generated ${namePascal}Object in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info(``);
 
     // We're done, so show what to do next
@@ -249,7 +190,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // For tests
-    return `new module ${name}`;
+    return `new object ${name}`;
   },
 };
 

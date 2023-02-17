@@ -6,5 +6,6 @@ export interface ServerProps {
   isArray: boolean;
   nullable: boolean;
   reference: string;
+  enumRef: string;
   type: string;
 }

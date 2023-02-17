@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { ConfigService } from '@lenne.tech/nest-server';
+import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import { UserModule } from '../user/user.module';
@@ -10,9 +11,13 @@ import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service
  * <%= props.namePascal %> module
  */
 @Module({
-  imports: [MongooseModule.forFeature([{ name: <%= props.namePascal %>.name, schema: <%= props.namePascal %>Schema }]), UserModule],
+  imports: [
+    MongooseModule.forFeature([{ name: <%= props.namePascal %>.name, schema: <%= props.namePascal %>Schema }]),
+    forwardRef(() => UserModule),
+  ],
   controllers: [],
   providers: [
+    ConfigService,
     <%= props.namePascal %>Resolver,
     <%= props.namePascal %>Service,
     {

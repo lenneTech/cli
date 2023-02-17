@@ -19,42 +19,65 @@ export class Server {
 
   // Specific types for properties in input fields
   inputFieldTypes: Record<string, string> = {
+    Boolean: 'Boolean',
+    Date: 'number',
     File: 'GraphQLUpload',
     FileInfo: 'GraphQLUpload',
     Id: 'String',
     ID: 'String',
+    Number: 'Number',
     ObjectId: 'String',
+    String: 'String',
     Upload: 'GraphQLUpload',
   };
 
   // Specific types for properties in input classes
   inputClassTypes: Record<string, string> = {
+    Boolean: 'boolean',
+    Date: 'Date',
     File: 'FileUpload',
     FileInfo: 'FileUpload',
     Id: 'string',
     ID: 'string',
+    Number: 'number',
     ObjectId: 'string',
+    String: 'string',
     Upload: 'FileUpload',
   };
 
   // Specific types for properties in model fields
   modelFieldTypes: Record<string, string> = {
+    Boolean: 'Boolean',
+    Date: 'Number',
     File: 'CoreFileInfo',
     FileInfo: 'CoreFileInfo',
     ID: 'String',
     Id: 'String',
+    Number: 'Number',
     ObjectId: 'String',
+    String: 'String',
     Upload: 'CoreFileInfo',
   };
 
   // Specific types for properties in model class
   modelClassTypes: Record<string, string> = {
+    Boolean: 'boolean',
+    Date: 'Date',
     File: 'CoreFileInfo',
     FileInfo: 'CoreFileInfo',
     ID: 'string',
     Id: 'string',
+    Number: 'number',
     ObjectId: 'string',
+    String: 'string',
     Upload: 'CoreFileInfo',
+  };
+
+  // Additional string for ID properties
+  propertySuffixTypes: Record<string, string> = {
+    Id: 'Id',
+    ID: 'Id',
+    ObjectId: 'Id',
   };
 
   // Standard types: primitives and default JavaScript classes
@@ -121,13 +144,16 @@ export class Server {
     for (const [name, item] of Object.entries<ServerProps>(props)) {
       const propName = this.camelCase(name);
       const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
-      const modelFieldType = this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+      const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+      const modelFieldType = enumRef
+        ? 'String'
+        : this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
       const isArray = item.isArray;
       const modelClassType =
         this.modelClassTypes[this.pascalCase(item.type)] ||
         (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
-      if (!this.standardTypes.includes(type) && type !== 'ObjectId') {
+      if (!this.standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Enum') {
         mappings[propName] = type;
       }
       if (reference) {
@@ -138,20 +164,24 @@ export class Server {
       }
       result += `  
   /**
-   * ${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
+   * ${this.pascalCase(propName) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
   @Restricted(RoleEnum.S_EVERYONE)
   @Field(() => ${(isArray ? '[' : '') + (reference ? reference : modelFieldType) + (isArray ? ']' : '')}, {
-    description: '${propName + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
+    description: '${this.pascalCase(propName) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${item.nullable},
   })
   @Prop(${
     reference
       ? (isArray ? '[' : '') + `{ type: Schema.Types.ObjectId, ref: '${reference}' }` + (isArray ? ']' : '')
+      : enumRef
+      ? (isArray ? '[' : '') + `{ type: String, enum: ${enumRef} }` + (isArray ? ']' : '')
       : ''
   })
   ${propName}: ${
-        modelClassType + (isArray ? '[]' : '') + (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
+        (enumRef || modelClassType) +
+        (isArray ? '[]' : '') +
+        (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
       } = undefined;
   `;
     }
@@ -181,11 +211,11 @@ export class Server {
    */
   propsForInput(
     props: Record<string, ServerProps>,
-    options?: { modelName?: string; nullable?: boolean }
+    options?: { modelName?: string; nullable?: boolean; create?: boolean }
   ): { props: string; imports: string } {
     // Preparations
     const config = { useDefault: true, ...options };
-    const { modelName, nullable, useDefault } = config;
+    const { modelName, nullable, create, useDefault } = config;
     let result = '';
 
     // Check parameters
@@ -223,10 +253,23 @@ export class Server {
       // Process configuration
       const imports = {};
       for (const [name, item] of Object.entries<ServerProps>(props)) {
-        const inputFieldType = this.inputFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+        let inputFieldType =
+          this.inputFieldTypes[this.pascalCase(item.type)] ||
+          (item.enumRef
+            ? this.pascalCase(item.enumRef)
+            : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
+        inputFieldType = this.modelFieldTypes[item.type]
+          ? this.pascalCase(this.modelFieldTypes[item.type])
+          : inputFieldType;
         const inputClassType =
           this.inputClassTypes[this.pascalCase(item.type)] ||
-          (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
+          (this.standardTypes.includes(item.type)
+            ? item.type
+            : item.enumRef
+            ? this.pascalCase(item.enumRef)
+            : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
+        const propertySuffix = this.propertySuffixTypes[this.pascalCase(item.type)] || '';
+        const overrideFlag = create ? 'override ' : '';
         if (this.imports[inputFieldType]) {
           imports[inputFieldType] = this.imports[inputFieldType];
         }
@@ -235,14 +278,16 @@ export class Server {
         }
         result += `    
   /**
-   * ${this.pascalCase(name) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
+   * ${this.pascalCase(name) + propertySuffix + (modelName ? ' of ' + this.pascalCase(modelName) : '')}
    */
   @Restricted(RoleEnum.S_EVERYONE)
   @Field(() => ${(item.isArray ? '[' : '') + inputFieldType + (item.isArray ? ']' : '')}, {
-    description: '${this.pascalCase(name) + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
+    description: '${this.pascalCase(name) + propertySuffix + (modelName ? ' of ' + this.pascalCase(modelName) : '')}',
     nullable: ${nullable || item.nullable},
   })${nullable || item.nullable ? '\n  @IsOptional()' : ''}
-  ${this.camelCase(name)}: ${inputClassType + (item.isArray ? '[]' : '')} = undefined;
+  ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${
+          inputClassType + (item.isArray ? '[]' : '')
+        } = undefined;
   `;
       }
 

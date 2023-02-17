@@ -1,4 +1,4 @@
-import { assignPlain, CrudService, ServiceOptions } from '@lenne.tech/nest-server';
+import { assignPlain, ConfigService, CrudService, ServiceOptions } from '@lenne.tech/nest-server';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
@@ -22,12 +22,17 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
 
   /**
    * Constructor for injecting services
+   *
+   * Hints:
+   * To resolve circular dependencies, integrate services as follows:
+   * @Inject(forwardRef(() => XxxService)) protected readonly xxxService: XxxService
    */
   constructor(
+    protected override readonly configService: ConfigService,
     @InjectModel('<%= props.namePascal %>') protected readonly <%= props.nameCamel %>Model: Model<<%= props.namePascal %>Document>,
     @Inject('PUB_SUB') protected readonly pubSub: PubSub
   ) {
-    super({mainDbModel: <%= props.nameCamel %>Model, mainModelConstructor: <%= props.namePascal %>});
+    super({configService: configService, mainDbModel: <%= props.nameCamel %>Model, mainModelConstructor: <%= props.namePascal %>});
   }
 
   // ===================================================================================================================
@@ -38,7 +43,7 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
    * Create new <%= props.namePascal %>
    * Overwrites create method from CrudService
    */
-  async create(input: <%= props.namePascal %>CreateInput, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
+  override async create(input: <%= props.namePascal %>CreateInput, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
     // Get new <%= props.namePascal %>
     const created<%= props.namePascal %> = await super.create(input, serviceOptions);
 

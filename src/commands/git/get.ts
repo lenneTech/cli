@@ -12,6 +12,7 @@ const NewCommand: GluegunCommand = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      filesystem,
       git,
       helper,
       npm,
@@ -124,6 +125,13 @@ const NewCommand: GluegunCommand = {
 
     // Install npm packages
     await npm.install();
+
+    // Init lerna projects
+    if (filesystem.isFile(`./lerna.json`)) {
+      const initProjectsSpin = spin('Init projects');
+      await system.run(`npm run init --if-present`);
+      initProjectsSpin.succeed();
+    }
 
     // Success info
     success(

@@ -97,6 +97,11 @@ const NewCommand: GluegunCommand = {
         'SECRET_OR_PRIVATE_KEY_' + env,
         crypto.randomBytes(512).toString('base64')
       );
+      await patching.replace(
+        `./${projectDir}/src/config.env.ts`,
+        'SECRET_OR_PRIVATE_KEY_' + env + '_REFRESH',
+        crypto.randomBytes(512).toString('base64')
+      );
     }
     await patching.update(`./${projectDir}/src/config.env.ts`, (data) =>
       data.replace(/nest-server-/g, projectDir + '-')

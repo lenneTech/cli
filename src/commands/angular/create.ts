@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
@@ -19,9 +20,9 @@ const NewCommand: GluegunCommand = {
       patching,
       print: { error, info, spin, success },
       prompt: { confirm },
-      strings: { kebabCase },
+      strings: { camelCase, kebabCase, pascalCase },
       system,
-      tools,
+      template,
     } = toolbox;
 
     // Start timer
@@ -59,11 +60,6 @@ const NewCommand: GluegunCommand = {
       parameters.second?.toLowerCase().includes('localize') ||
       (!parameters.second && (await confirm(`Init localize for Angular?`, true)));
 
-    // Angular Universal
-    const angularUniversal =
-      parameters.second?.toLowerCase().includes('universal') ||
-      (!parameters.second && (await confirm(`Add Angular Universal (SSR)?`, true)));
-
     // Nest-Server
     const nestServer =
       parameters.second?.toLowerCase().includes('nest') ||
@@ -98,6 +94,11 @@ const NewCommand: GluegunCommand = {
       return data;
     });
 
+    // Set up initial props (to pass into templates)
+    const nameCamel = camelCase(name);
+    const nameKebab = kebabCase(name);
+    const namePascal = pascalCase(name);
+
     // Install packages
     await system.run(`cd ${projectDir} && npm i`);
 
@@ -121,19 +122,7 @@ const NewCommand: GluegunCommand = {
     // Clone ng-base-starter
     await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
 
-    // Main version of angular
-    let angularVersion = '';
-
     if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
-      // Get main verion of angular
-      await patching.update(`${projectDir}/projects/app/package.json`, (data: Record<string, any>) => {
-        const version = parseInt(data.dependencies['@angular/core'].split('.')[0]);
-        if (version && version > 0) {
-          angularVersion = '@' + version;
-        }
-        return data;
-      });
-
       // Remove git folder after clone
       await system.run(`cd ${projectDir}/projects/app && rm -rf .git`);
 
@@ -159,110 +148,6 @@ const NewCommand: GluegunCommand = {
 
       // Angular example integration done
       ngBaseSpinner.succeed('Example for Angular integrated');
-
-      if (angularUniversal) {
-        // Include example app
-        const ngUniversalSpinner = spin('Integrate example for Angular');
-
-        await system.run(
-          `cd ${projectDir}/projects/app && ng add @nguniversal/express-engine${angularVersion} --skip-confirmation`
-        );
-        await system.run(`cd ${projectDir}/projects/app && npm i localstorage-polyfill`);
-        await system.run(`cd ${projectDir}/projects/app && npm i compression`);
-        await system.run(`cd ${projectDir}/projects/app && npm i --save-dev @types/compression`);
-
-        // Add scripts and clean up dependencies
-        await patching.update(`${projectDir}/projects/app/package.json`, (data: Record<string, any>) => {
-          // Add / extend scripts
-          data.scripts.build = 'ng build --configuration production && ng run app:server';
-          data.scripts['build:test'] = 'ng build --configuration test && ng run app:server';
-
-          // Clean up
-          const dependencies = ['dependencies', 'devDependencies'];
-          for (const deps of dependencies) {
-            for (const dep of Object.keys(data[deps])) {
-              data[deps][dep] = data[deps][dep].replace('^', '');
-            }
-          }
-
-          return data;
-        });
-
-        // Set allowSyntheticDefaultImports
-        tools.stripAndSaveJsonFile(`${projectDir}/projects/app/tsconfig.json`);
-        await patching.update(`${projectDir}/projects/app/tsconfig.json`, (data: Record<string, any>) => {
-          data.compilerOptions.allowSyntheticDefaultImports = true;
-          return data;
-        });
-
-        // Pimp server.ts
-        let localizeString = '';
-        if (localize) {
-          localizeString = `\nimport '@angular/localize/init';`;
-        }
-        const windowAndCo = `
-// ----------------------------------------------
-// window for image lazy loading
-// ----------------------------------------------
-/* eslint-disable */${localizeString}
-import 'reflect-metadata';
-import 'localstorage-polyfill';
-import compression from 'compression';
-import domino from 'domino';
-import { readFileSync } from 'fs';
-const template = readFileSync(join(process.cwd(), 'dist/app/browser/index.html')).toString();
-const win: any = domino.createWindow(template);
-// @ts-ignore
-global['window'] = win;
-global['Node'] = win.Node;
-global['navigator'] = win.navigator;
-global['Event'] = win.Event;
-global['KeyboardEvent'] = win.Event;
-global['MouseEvent'] = win.Event;
-global['Event']['prototype'] = win.Event.prototype;
-global['document'] = win.document;
-global['localStorage'] = localStorage;
-global['WebSocket'] = require('ws');
-/* eslint-enable */
-        `;
-        await patching.update(`${projectDir}/projects/app/server.ts`, (str: string) => {
-          const lines = str.split('\n');
-          const rest = str.split('\n');
-          let back = '';
-          for (let i = 0; i < lines.length; i++) {
-            // Stop if the line is not empty and does not start with an import
-            if (!!lines[i].trim() && !lines[i].trim().startsWith('import')) {
-              break;
-            }
-            back += lines[i] + '\n';
-            rest.shift();
-          }
-          back += windowAndCo + rest.join('\n');
-          return back;
-        });
-        await patching.replace(
-          `${projectDir}/projects/app/server.ts`,
-          'const server = express();',
-          `const server = express();\n  server.use(compression());`
-        );
-
-        // Commit changes
-        await system.run(`cd ${projectDir} && git add . && git commit -am "feat: Angular Universal integrated"`);
-
-        // Check if git init is active
-        if (gitLink) {
-          `cd ${projectDir} && git push`;
-        }
-
-        // Angular universal integration done
-        ngUniversalSpinner.succeed('Angular Universal integrated');
-      } else {
-        await patching.update(`${projectDir}/projects/app/package.json`, (data: Record<string, any>) => {
-          data.scripts.build = 'ng build --configuration production';
-          data.scripts['build:test'] = 'ng build --configuration test';
-          return data;
-        });
-      }
 
       // Include files from https://github.com/lenneTech/nest-server-starter
       if (nestServer) {
@@ -290,6 +175,30 @@ global['WebSocket'] = require('ws');
             name: `${name}-api-server`,
             description: `API for ${name} app`,
             version: '0.0.0',
+          });
+
+          // Set configuration
+          for (const env of ['LOCAL', 'DEV', 'TEST', 'PREV', 'PROD']) {
+            await patching.replace(
+              `./${projectDir}/projects/api/src/config.env.ts`,
+              'SECRET_OR_PRIVATE_KEY_' + env,
+              crypto.randomBytes(512).toString('base64')
+            );
+            await patching.replace(
+              `./${projectDir}/projects/api/src/config.env.ts`,
+              'SECRET_OR_PRIVATE_KEY_' + env + '_REFRESH',
+              crypto.randomBytes(512).toString('base64')
+            );
+          }
+          await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, (data) =>
+            data.replace(/nest-server-/g, projectDir + '-')
+          );
+
+          // Set readme
+          await template.generate({
+            template: 'monorepro/README.md.ejs',
+            target: `./${projectDir}/README.md`,
+            props: { repository: gitLink || 'REPOSITORY', name, nameCamel, nameKebab, namePascal },
           });
 
           // Commit changes
@@ -326,8 +235,9 @@ global['WebSocket'] = require('ws');
       success(`Generated workspace ${projectDir} with ${name} app in ${helper.msToMinutesAndSeconds(timer())}m.`);
       info(``);
       info(`Next:`);
-      info(`  Run ${name}`);
+      info(`  Test and run ${name}:`);
       info(`  $ cd ${projectDir}`);
+      info(`  $ npm run test`);
       info(`  $ npm run start`);
       info(``);
 

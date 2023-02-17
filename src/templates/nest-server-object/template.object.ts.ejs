@@ -1,9 +1,8 @@
-import { mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { CoreModel, mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
-import { PersistenceModel } from '../../common/models/persistence.model';
-import { User } from '../user/user.model';
+import { User } from '../../../modules/user/user.model';
 
 export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;
 
@@ -12,8 +11,8 @@ export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document
  */
 @Restricted(RoleEnum.ADMIN)
 @ObjectType({ description: '<%= props.namePascal %>' })
-@MongooseSchema({ timestamps: true })
-export class <%= props.namePascal %> extends PersistenceModel {
+@MongooseSchema({ _id: false })
+export class <%= props.namePascal %> extends CoreModel {
 
   // ===================================================================================================================
   // Properties

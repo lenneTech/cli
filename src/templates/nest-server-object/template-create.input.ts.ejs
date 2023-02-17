@@ -1,0 +1,18 @@
+import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { Field, InputType } from '@nestjs/graphql';
+import { IsOptional } from 'class-validator';
+import { <%= props.namePascal %>Input } from './<%= props.nameKebab %>.input';<%- props.imports %>
+
+
+/**
+ * <%= props.namePascal %> create input
+ */
+@Restricted(RoleEnum.ADMIN)
+@InputType({ description: 'Input data to create a new <%= props.namePascal %>' })
+export class <%= props.namePascal %>CreateInput extends <%= props.namePascal %>Input {
+
+  // ===================================================================================================================
+  // Properties
+  // ===================================================================================================================
+  <%- props.props %>
+}
