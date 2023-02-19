@@ -3,14 +3,15 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
-import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
 import { <%= props.namePascal %>, <%= props.namePascal %>Document } from './<%= props.nameKebab %>.model';
+import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
 
 /**
  * <%= props.namePascal %> service
  */
 @Injectable()
-export class <%= props.namePascal %>Service extends CrudService<<%= props.namePascal %>> {
+export class <%= props.namePascal %>Service extends CrudService<<%= props.namePascal %>, <%= props.namePascal %>CreateInput, <%= props.namePascal %>Input> {
 
   // ===================================================================================================================
   // Properties

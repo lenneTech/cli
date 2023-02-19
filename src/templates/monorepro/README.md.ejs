@@ -37,16 +37,6 @@ To check if all requirements are met, we can display the versions of the respect
 ```
 mongod --version
   db version v6.0.1
-  Build Info: {
-      "version": "6.0.1",
-      "gitVersion": "32f0f9c88dc44a2c8073a5bd47cf779d4bfdee6b",
-      "modules": [],
-      "allocator": "system",
-      "environment": {
-          "distarch": "aarch64",
-          "target_arch": "aarch64"
-      }
-  }
 
 node -v
   v16.17.0
@@ -61,7 +51,7 @@ Clone this repository and install packages:
 ```
 git clone <%= props.repository %>
 cd <%= props.nameKebab %>
-npm i
+npm run init
 ```
 
 ## Testing
@@ -97,4 +87,4 @@ The architecture of the projects is based on the following structures:
 - To organize the monorepro [lerna](https://lerna.js.org/) is used
 
 ## History
-- Initialized via `lt create angular`
+- Initialized via `lt angular create`

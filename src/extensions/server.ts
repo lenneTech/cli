@@ -179,9 +179,8 @@ export class Server {
       : ''
   })
   ${propName}: ${
-        (enumRef || modelClassType) +
-        (isArray ? '[]' : '') +
-        (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
+        (reference ? reference : enumRef || modelClassType) + (isArray ? '[]' : '')
+        // (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
       } = undefined;
   `;
     }

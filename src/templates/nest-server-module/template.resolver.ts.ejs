@@ -32,10 +32,15 @@ export class <%= props.namePascal %>Resolver {
   /**
    * Get and total count <%= props.namePascal %>s (via filter)
    */
-  @Roles(RoleEnum.ADMIN)
+  @Roles(RoleEnum.S_USER)
   @Query(() => FindAndCount<%= props.namePascal %>sResult, { description: 'Find <%= props.namePascal %>s (via filter)' })
-  async findAndCount<%= props.namePascal %>s(@Info() info: GraphQLResolveInfo, @Args() args?: FilterArgs) {
+  async findAndCount<%= props.namePascal %>s(
+    @Info() info: GraphQLResolveInfo,
+    @GraphQLUser() user: User,
+    @Args() args?: FilterArgs
+  ) {
     return await this.<%= props.nameCamel %>Service.findAndCount(args, {
+      currentUser: user,
       fieldSelection: { info, select: 'findAndCount<%= props.namePascal %>s.items' },
       inputType: FilterArgs,
     });

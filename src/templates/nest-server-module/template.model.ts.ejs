@@ -1,4 +1,4 @@
-import { mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { equalIds, mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, ObjectType } from '@nestjs/graphql';
 import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';
@@ -45,12 +45,22 @@ export class <%= props.namePascal %> extends PersistenceModel {
 
   /**
    * Verification of the user's rights to access the properties of this object
+   *
+   * Check roles, prepare or remove properties
+   * Return undefined if the whole object should not be returned or throw an exception to stop the whole request
    */
   override securityCheck(user: User, force?: boolean) {
+    // In force mode or for admins everything is allowed
     if (force || user?.hasRole(RoleEnum.ADMIN)) {
       return this;
     }
-    // Check rights for properties of this object
+
+    // Usually only the creator has access to the object
+    if (!equalIds(user, this.createdBy)) {
+      return undefined;
+    }
+
+    // Check permissions for properties of this object and return the object afterwards
     return this;
   }
 }
