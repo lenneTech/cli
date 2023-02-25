@@ -33,7 +33,7 @@ export class <%= props.namePascal %>Resolver {
   @Roles(RoleEnum.S_USER)
   @Query(() => FindAndCount<%= props.namePascal %>sResult, { description: 'Find <%= props.namePascal %>s (via filter)' })
   async findAndCount<%= props.namePascal %>s(
-    @GraphQLServiceOptions() serviceOptions: ServiceOptions,
+    @GraphQLServiceOptions({ gqlPath: 'findAndCount<%= props.namePascal %>s.items' }) serviceOptions: ServiceOptions,
     @Args() args?: FilterArgs
   ) {
     return await this.<%= props.nameCamel %>Service.findAndCount(args, {
