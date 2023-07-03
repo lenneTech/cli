@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.91](https://github.com/lenneTech/cli/compare/v0.0.90...v0.0.91) (2023-07-03)
+
+### Bug Fixes
+
+- rename fullstack ([d687c0e](https://github.com/lenneTech/cli/commit/d687c0e29d0a27811f787a94d7ce24ea6fc4d2f0))
+
 ### [0.0.90](https://github.com/lenneTech/cli/compare/v0.0.89...v0.0.90) (2023-07-03)
 
 ### Bug Fixes
