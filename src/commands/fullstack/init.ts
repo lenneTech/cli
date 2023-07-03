@@ -118,7 +118,8 @@ const NewCommand: GluegunCommand = {
       // Clone ng-base-starter
       await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
     } else {
-      await system.run(`cd ${projectDir}/projects && npx create-nuxt-base app`);
+      await system.run(`npm i -g create-nuxt-base`);
+      await system.run(`cd ${projectDir}/projects && create-nuxt-base app`);
     }
 
     // Remove gitkeep file
