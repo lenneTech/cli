@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.89](https://github.com/lenneTech/cli/compare/v0.0.88...v0.0.89) (2023-07-03)
+
+### Features
+
+- Add fullstack init command ([55bd4dc](https://github.com/lenneTech/cli/commit/55bd4dca270f066feeafc06b4e8e0ee708e25fc8))
+
 ### [0.0.84](https://github.com/lenneTech/cli/compare/v0.0.83...v0.0.84) (2022-11-25)
 
 ### Features
