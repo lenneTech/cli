@@ -27,16 +27,16 @@ const NewCommand: GluegunCommand = {
     const currentBranch = await git.currentBranch();
 
     let branch;
-    if (currentBranch !== 'develop' || currentBranch !== 'main') {
+    if (currentBranch !== 'dev' || currentBranch !== 'main') {
       // Search for branch, which includes branch name
-      branch = await git.getBranch('develop', {
+      branch = await git.getBranch('dev', {
         error: false,
         exact: false,
         remote: false,
         spin: true,
       });
 
-      if (branch !== 'develop') {
+      if (branch !== 'dev') {
         branch = await git.getBranch('main', {
           error: true,
           exact: false,

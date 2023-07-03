@@ -38,7 +38,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Check branch
-    if (branch === 'main' || branch === 'release' || branch === 'develop') {
+    if (branch === 'main' || branch === 'release' || branch === 'dev') {
       error(`Rename branch ${branch} is not allowed!`);
       return;
     }

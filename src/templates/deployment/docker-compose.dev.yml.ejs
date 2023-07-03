@@ -48,8 +48,8 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        npm run migrate:develop:up
-        NODE_ENV=develop node ./src/main.js
+        npm run migrate:dev:up
+        NODE_ENV=dev node ./src/main.js
 
   app:
     build:
@@ -96,4 +96,4 @@ services:
 
     command:
       - |
-        NODE_ENV=develop node dist/app/server/main.js
+        NODE_ENV=dev node dist/app/server/main.js

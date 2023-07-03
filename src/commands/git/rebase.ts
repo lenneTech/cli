@@ -29,7 +29,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch();
 
     // Check branch
-    if (branch === 'main' || branch === 'release' || branch === 'develop') {
+    if (branch === 'main' || branch === 'release' || branch === 'dev') {
       error(`Rebase of branch ${branch} is not allowed!`);
       return;
     }

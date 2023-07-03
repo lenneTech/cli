@@ -27,7 +27,7 @@ install_dependencies:
     - npm ci
   only:
     refs:
-      - develop
+      - dev
       - test
       - release
       - preview
@@ -90,7 +90,7 @@ build:test:
   only:
     - test
 
-build:develop:
+build:dev:
   stage: build
   cache:
     key: $CI_PROJECT_DIR
@@ -104,9 +104,9 @@ build:develop:
     expire_in: 5 minutes
   script:
     - npm run init
-    - npm run build:develop
+    - npm run build:dev
   only:
-    - develop
+    - dev
 
 #version_number:
 #  stage: version_number
@@ -120,9 +120,9 @@ build:develop:
 #    - git checkout -B "$CI_COMMIT_REF_NAME" "$CI_COMMIT_SHA"
 #    - npm run release
 #    - git push -o ci.skip --no-verify https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git --follow-tags test:test
-#    - git fetch && git checkout develop
+#    - git fetch && git checkout dev
 #    - git merge test
-#    - git push -o ci.skip --no-verify https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git --follow-tags develop:develop
+#    - git push -o ci.skip --no-verify https://${CI_USER}:${CI_ACCESS_TOKEN}@gitlab.lenne.tech/products/akademie/master-minds.git --follow-tags dev:dev
 #  only:
 #    - test
 

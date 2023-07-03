@@ -125,8 +125,8 @@ const NewCommand: GluegunCommand = {
     });
 
     await template.generate({
-      template: 'deployment/docker-compose.develop.yml.ejs',
-      target: join(cwd, 'docker-compose.develop.yml'),
+      template: 'deployment/docker-compose.dev.yml.ejs',
+      target: join(cwd, 'docker-compose.dev.yml'),
       props: { nameCamel, nameKebab, namePascal },
     });
 

@@ -47,7 +47,7 @@ const NewCommand: GluegunCommand = {
     // Get description
     let base = parameters.first;
     if (!base) {
-      base = await helper.getInput('develop', {
+      base = await helper.getInput('dev', {
         name: 'Base branche',
         showError: false,
       });

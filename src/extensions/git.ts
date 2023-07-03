@@ -152,7 +152,7 @@ export class Git {
   /**
    * Get merge base
    */
-  public async getMergeBase(baseBranch = 'develop') {
+  public async getMergeBase(baseBranch = 'dev') {
     // Toolbox features
     const {
       helper: { trim },
@@ -167,7 +167,7 @@ export class Git {
    */
   public async getFirstBranchCommit(branch: string, baseBranch: string) {
     if (!baseBranch) {
-      baseBranch = (await this.getDefaultBranch()) || 'develop';
+      baseBranch = (await this.getDefaultBranch()) || 'dev';
     }
     if (!branch) {
       throw new Error(`Missing branch`);
@@ -387,7 +387,7 @@ export class Git {
     // Process options
     const opts = Object.assign(
       {
-        defaultBranch: 'develop',
+        defaultBranch: 'dev',
         text: 'Select branch',
       },
       options
