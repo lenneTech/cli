@@ -168,12 +168,12 @@ const NewCommand: GluegunCommand = {
       },
     });
 
-    const prettier = join(path, 'node_modules', '.bin', 'prettier');
-    if (filesystem.exists(prettier)) {
-      await system.run(prettier + ' ' + join(objectDir, '**', '*.ts'));
-    }
-
     generateSpinner.succeed('Files generated');
+
+    // Linting
+    if (await confirm('Run lint?', true)) {
+      await system.run('npm run lint');
+    }
 
     // We're done, so show what to do next
     info(``);

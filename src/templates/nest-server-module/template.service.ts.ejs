@@ -26,7 +26,7 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
    *
    * Hints:
    * To resolve circular dependencies, integrate services as follows:
-   * @Inject(forwardRef(() => XxxService)) protected readonly xxxService: XxxService
+   * @Inject(forwardRef(() => XxxService)) protected readonly xxxService: WrapperType<XxxService>
    */
   constructor(
     protected override readonly configService: ConfigService,

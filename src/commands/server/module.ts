@@ -197,11 +197,6 @@ const NewCommand: GluegunCommand = {
       props: { nameCamel, nameKebab, namePascal },
     });
 
-    const prettier = join(path, 'node_modules', '.bin', 'prettier');
-    if (filesystem.exists(prettier)) {
-      await system.run(prettier + ' ' + join(moduleDir, '**', '*.ts'));
-    }
-
     generateSpinner.succeed('Files generated');
 
     const serverModule = join(path, 'src', 'server', 'server.module.ts');
@@ -226,12 +221,14 @@ const NewCommand: GluegunCommand = {
         replace: new RegExp('([^,\\s])(\\s*' + namePascal + 'Module,\\s*\\])'),
       });
 
-      if (filesystem.exists(prettier)) {
-        await system.run(prettier + ' ' + serverModule);
-      }
       includeSpinner.succeed('Module included');
     } else {
       info("Don't forget to include the module into your main module.");
+    }
+
+    // Linting
+    if (await confirm('Run lint?', true)) {
+      await system.run('npm run lint');
     }
 
     // We're done, so show what to do next
