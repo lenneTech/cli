@@ -114,7 +114,7 @@ export class <%= props.namePascal %>Resolver {
     @Args('input') input: <%= props.namePascal %>Input
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.update(id, input, {
-      serviceOptions,
+      ...serviceOptions,
       inputType: <%= props.namePascal %>Input,
       roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR]
     });

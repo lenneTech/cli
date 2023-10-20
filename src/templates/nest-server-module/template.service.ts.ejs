@@ -61,7 +61,7 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
    * Example method
    * Extends the CrudService
    */
-  async exampleMethode(id: string, input: Record<string, any>, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
+  async exampleMethod(id: string, input: Record<string, any>, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
 
     // Get and check <%= props.namePascal %>
     const <%= props.nameCamel %> = await this.mainDbModel.findById(id).exec();
