@@ -6,7 +6,7 @@ import * as open from 'open';
  */
 const NewCommand: GluegunCommand = {
   name: 'regex',
-  alias: [],
+  alias: ['r'],
   description: 'Open regex tools in browser',
   hidden: false,
   run: async () => {
