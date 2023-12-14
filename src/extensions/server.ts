@@ -175,7 +175,7 @@ export class Server {
     reference
       ? (isArray ? '[' : '') + `{ type: Schema.Types.ObjectId, ref: '${reference}' }` + (isArray ? ']' : '')
       : enumRef
-      ? (isArray ? '[' : '') + `{ type: String, enum: ${enumRef} }` + (isArray ? ']' : '')
+      ? (isArray ? '[' : '') + `{ type: String, enum: ${item.nullable ? `Object.values(${enumRef}).concat([null])` : enumRef} }` + (isArray ? ']' : '')
       : ''
   })
   ${propName}: ${
