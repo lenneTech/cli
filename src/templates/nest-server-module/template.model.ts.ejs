@@ -1,7 +1,8 @@
-import { equalIds, mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
+import { Restricted, RoleEnum, equalIds, mapClasses } from '@lenne.tech/nest-server';
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';
+import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Schema } from 'mongoose';<%- props.imports %>
+
 import { PersistenceModel } from '../../common/models/persistence.model';
 import { User } from '../user/user.model';
 
@@ -29,7 +30,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   override init() {
     super.init();
-    // this.xxx = [];
+    // this.propertyName = [];
     return this;
   }
 
@@ -40,6 +41,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
    */
   override map(input) {
     super.map(input);
+    // return mapClasses(input, { propertyName: PropertyModel }, this);
     return <%- props.mappings %>
   }
 
@@ -60,7 +62,7 @@ export class <%= props.namePascal %> extends PersistenceModel {
       return undefined;
     }
 
-    // Check permissions for properties of this object and return the object afterwards
+    // Check permissions for properties of this object and return the object afterward
     return this;
   }
 }

@@ -1,7 +1,8 @@
 import { CoreModel, mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, ObjectType } from '@nestjs/graphql';
-import { Prop, Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';
+import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Schema } from 'mongoose';<%- props.imports %>
+
 import { User } from '../../../modules/user/user.model';
 
 export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document;

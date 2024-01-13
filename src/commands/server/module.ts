@@ -82,12 +82,14 @@ const NewCommand: GluegunCommand = {
             type: 'select',
             name: 'input',
             message: 'Choose property type',
-            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Use own'],
+            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Use own', 'JSON / any'],
           },
         ])
       ).input;
       if (type === 'ObjectId / Reference') {
         type = 'ObjectId';
+      } else if (type === 'JSON / any') {
+        type = 'JSON';
       }
 
       if (type === 'Use own')
@@ -227,9 +229,9 @@ const NewCommand: GluegunCommand = {
     }
 
     // Linting
-    if (await confirm('Run lint?', true)) {
-      await system.run('npm run lint');
-    }
+    // if (await confirm('Run lint?', false)) {
+    //   await system.run('npm run lint');
+    // }
 
     // We're done, so show what to do next
     info(``);

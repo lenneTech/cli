@@ -15,6 +15,7 @@ export class Server {
     CoreFileInfo: "import { CoreFileInfo } from '@lenne.tech/nest-server';",
     GraphQLUpload: "import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';",
     FileUpload: "import type { FileUpload } from 'graphql-upload/processRequest.js';",
+    'Record<string, unknown>' : "import { JSON } from '@lenne.tech/nest-server';",
   };
 
   // Specific types for properties in input fields
@@ -25,6 +26,8 @@ export class Server {
     FileInfo: 'GraphQLUpload',
     Id: 'String',
     ID: 'String',
+    Json: 'JSON',
+    JSON: 'JSON',
     Number: 'Number',
     ObjectId: 'String',
     String: 'String',
@@ -39,6 +42,8 @@ export class Server {
     FileInfo: 'FileUpload',
     Id: 'string',
     ID: 'string',
+    Json: 'Record<string, unknown>',
+    JSON: 'Record<string, unknown>',
     Number: 'number',
     ObjectId: 'string',
     String: 'string',
@@ -53,6 +58,8 @@ export class Server {
     FileInfo: 'CoreFileInfo',
     ID: 'String',
     Id: 'String',
+    JSON: 'JSON',
+    Json: 'JSON',
     Number: 'Number',
     ObjectId: 'String',
     String: 'String',
@@ -67,6 +74,8 @@ export class Server {
     FileInfo: 'CoreFileInfo',
     ID: 'string',
     Id: 'string',
+    JSON: 'Record<string, unknown>',
+    Json: 'Record<string, unknown>',
     Number: 'number',
     ObjectId: 'string',
     String: 'string',
@@ -153,7 +162,7 @@ export class Server {
         this.modelClassTypes[this.pascalCase(item.type)] ||
         (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
-      if (!this.standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Enum') {
+      if (!this.standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Enum' && type !== 'Json') {
         mappings[propName] = type;
       }
       if (reference) {
@@ -173,9 +182,11 @@ export class Server {
   })
   @Prop(${
     reference
-      ? (isArray ? '[' : '') + `{ type: Schema.Types.ObjectId, ref: '${reference}' }` + (isArray ? ']' : '')
+      ? (isArray ? '[' : '') + `{ ref: '${reference}', type: Schema.Types.ObjectId }` + (isArray ? ']' : '')
       : enumRef
-      ? (isArray ? '[' : '') + `{ type: String, enum: ${item.nullable ? `Object.values(${enumRef}).concat([null])` : enumRef} }` + (isArray ? ']' : '')
+      ? (isArray ? '[' : '') + `{ enum: ${item.nullable ? `Object.values(${enumRef}).concat([null])` : enumRef}, type: String }` + (isArray ? ']' : '')
+      : type === 'Json'
+      ? (isArray ? '[' : '') + `{ type: Object }` + (isArray ? ']' : '')
       : ''
   })
   ${propName}: ${
@@ -201,7 +212,7 @@ export class Server {
     return {
       props: result,
       imports: importsResult,
-      mappings: mappingsResult.length ? `mapClasses(input, {${mappingsResult.join(', ')}}, this);` : 'this;',
+      mappings: mappingsResult.length ? `mapClasses(input, { ${mappingsResult.join(', ')} }, this);` : 'this;',
     };
   }
 
@@ -258,7 +269,7 @@ export class Server {
             ? this.pascalCase(item.enumRef)
             : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
         inputFieldType = this.modelFieldTypes[item.type]
-          ? this.pascalCase(this.modelFieldTypes[item.type])
+          ? this.modelFieldTypes[item.type]
           : inputFieldType;
         const inputClassType =
           this.inputClassTypes[this.pascalCase(item.type)] ||

@@ -1,11 +1,13 @@
-import { assignPlain, ConfigService, CrudService, ServiceOptions } from '@lenne.tech/nest-server';
+import { ConfigService, CrudService, ServiceOptions, assignPlain } from '@lenne.tech/nest-server';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { PubSub } from 'graphql-subscriptions';
 import { Model } from 'mongoose';
-import { <%= props.namePascal %>, <%= props.namePascal %>Document } from './<%= props.nameKebab %>.model';
-import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
+import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+import { <%= props.namePascal %>, <%= props.namePascal %>Document } from './<%= props.nameKebab %>.model';
+
 
 /**
  * <%= props.namePascal %> service
@@ -31,9 +33,9 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
   constructor(
     protected override readonly configService: ConfigService,
     @InjectModel('<%= props.namePascal %>') protected readonly <%= props.nameCamel %>Model: Model<<%= props.namePascal %>Document>,
-    @Inject('PUB_SUB') protected readonly pubSub: PubSub
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub,
   ) {
-    super({configService: configService, mainDbModel: <%= props.nameCamel %>Model, mainModelConstructor: <%= props.namePascal %>});
+    super({ configService, mainDbModel: <%= props.nameCamel %>Model, mainModelConstructor: <%= props.namePascal %> });
   }
 
   // ===================================================================================================================
@@ -75,6 +77,6 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
       // Update, save and return <%= props.namePascal %>
       return await assignPlain(<%= props.nameCamel %>, data.input).save();
 
-    }, {input, serviceOptions});
+    }, { input, serviceOptions });
   }
 }

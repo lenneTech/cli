@@ -81,12 +81,14 @@ const NewCommand: GluegunCommand = {
             type: 'select',
             name: 'input',
             message: 'Choose property type',
-            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Use own'],
+            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Use own', 'JSON / any'],
           },
         ])
       ).input;
       if (type === 'ObjectId / Reference') {
         type = 'ObjectId';
+      } else if (type === 'JSON / any') {
+        type = 'JSON';
       }
 
       if (type === 'Use own')

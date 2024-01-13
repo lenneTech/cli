@@ -2,8 +2,9 @@ import { FilterArgs, GraphQLServiceOptions, RoleEnum, Roles, ServiceOptions } fr
 import { Inject } from '@nestjs/common';
 import { Args, Mutation, Query, Resolver, Subscription } from '@nestjs/graphql';
 import { PubSub } from 'graphql-subscriptions';
-import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
+import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
 import { FindAndCount<%= props.namePascal %>sResult } from './outputs/find-and-count-<%= props.nameKebab %>s-result.output';
 import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
@@ -20,7 +21,7 @@ export class <%= props.namePascal %>Resolver {
    */
   constructor(
     private readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service,
-    @Inject('PUB_SUB') protected readonly pubSub: PubSub
+    @Inject('PUB_SUB') protected readonly pubSub: PubSub,
   ) {}
 
   // ===========================================================================
@@ -34,7 +35,7 @@ export class <%= props.namePascal %>Resolver {
   @Query(() => FindAndCount<%= props.namePascal %>sResult, { description: 'Find <%= props.namePascal %>s (via filter)' })
   async findAndCount<%= props.namePascal %>s(
     @GraphQLServiceOptions({ gqlPath: 'findAndCount<%= props.namePascal %>s.items' }) serviceOptions: ServiceOptions,
-    @Args() args?: FilterArgs
+    @Args() args?: FilterArgs,
   ) {
     return await this.<%= props.nameCamel %>Service.findAndCount(args, {
       ...serviceOptions,
@@ -49,11 +50,11 @@ export class <%= props.namePascal %>Resolver {
    @Query(() => [<%= props.namePascal %>], { description: 'Find <%= props.namePascal %>s (via filter)' })
    async find<%= props.namePascal %>s(
      @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-     @Args() args?: FilterArgs
+     @Args() args?: FilterArgs,
    ) {
      return await this.<%= props.nameCamel %>Service.find(args, {
        ...serviceOptions,
-       inputType: FilterArgs
+       inputType: FilterArgs,
      });
    }
 
@@ -80,11 +81,11 @@ export class <%= props.namePascal %>Resolver {
   @Mutation(() => <%= props.namePascal %>, { description: 'Create a new <%= props.namePascal %>' })
   async create<%= props.namePascal %>(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-    @Args('input') input: <%= props.namePascal %>CreateInput
+    @Args('input') input: <%= props.namePascal %>CreateInput,
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.create(input, {
       ...serviceOptions,
-      inputType: <%= props.namePascal %>CreateInput
+      inputType: <%= props.namePascal %>CreateInput,
     });
   }
 
@@ -95,11 +96,11 @@ export class <%= props.namePascal %>Resolver {
   @Mutation(() => <%= props.namePascal %>, { description: 'Delete existing <%= props.namePascal %>' })
   async delete<%= props.namePascal %>(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
-    @Args('id') id: string
+    @Args('id') id: string,
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.delete(id, {
       ...serviceOptions,
-      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR]
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
 
@@ -111,12 +112,12 @@ export class <%= props.namePascal %>Resolver {
   async update<%= props.namePascal %>(
     @GraphQLServiceOptions() serviceOptions: ServiceOptions,
     @Args('id') id: string,
-    @Args('input') input: <%= props.namePascal %>Input
+    @Args('input') input: <%= props.namePascal %>Input,
   ): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.update(id, input, {
       ...serviceOptions,
       inputType: <%= props.namePascal %>Input,
-      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR]
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
     });
   }
 

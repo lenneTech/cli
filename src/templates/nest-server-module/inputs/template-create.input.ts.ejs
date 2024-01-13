@@ -1,7 +1,8 @@
 import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
 import { Field, InputType } from '@nestjs/graphql';
-import { IsOptional } from 'class-validator';
-import { <%= props.namePascal %>Input } from './<%= props.nameKebab %>.input';<%- props.imports %>
+import { IsOptional } from 'class-validator';<%- props.imports %>
+
+import { <%= props.namePascal %>Input } from './<%= props.nameKebab %>.input';
 
 
 /**
