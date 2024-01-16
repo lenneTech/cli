@@ -7,5 +7,6 @@ export interface ServerProps {
   nullable: boolean;
   reference: string;
   enumRef: string;
+  schema: string;
   type: string;
 }

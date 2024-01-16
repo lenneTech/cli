@@ -153,6 +153,7 @@ export class Server {
     for (const [name, item] of Object.entries<ServerProps>(props)) {
       const propName = this.camelCase(name);
       const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+      const schema = item.schema?.trim() ? this.pascalCase(item.schema.trim()) : '';
       const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
       const modelFieldType = enumRef
         ? 'String'
@@ -183,6 +184,8 @@ export class Server {
   @Prop(${
     reference
       ? (isArray ? '[' : '') + `{ ref: '${reference}', type: Schema.Types.ObjectId }` + (isArray ? ']' : '')
+      : schema
+      ? (isArray ? '[' : '') + `{ type: ${schema}Schema }` + (isArray ? ']' : '')
       : enumRef
       ? (isArray ? '[' : '') + `{ enum: ${item.nullable ? `Object.values(${enumRef}).concat([null])` : enumRef}, type: String }` + (isArray ? ']' : '')
       : type === 'Json'

@@ -63,6 +63,7 @@ const NewCommand: GluegunCommand = {
     const props: Record<string, ServerProps> = {};
     const setProps = true;
     let refsSet = false;
+    let schemaSet = false;
     while (setProps) {
       const name = (
         await ask({
@@ -91,14 +92,20 @@ const NewCommand: GluegunCommand = {
         type = 'JSON';
       }
 
-      if (type === 'Use own')
+      let schema: string;
+      if (type === 'Subobject')
+      {
         type = (
           await ask({
             type: 'input',
             name: 'input',
-            message: `Enter property type (e.g. MyClass or MyClass[])`,
+            message: `Enter property type (e.g. MyClass)`,
           })
         ).input;
+        schema = type;
+        schemaSet = true;
+      }
+      
 
       let reference: string;
       let enumRef: string;
@@ -134,7 +141,7 @@ const NewCommand: GluegunCommand = {
 
       const nullable = await confirm(`Nullable?`, true);
 
-      props[name] = { name, nullable, isArray, type, reference, enumRef };
+      props[name] = { name, nullable, isArray, type, reference, enumRef, schema };
     }
 
     const generateSpinner = spin('Generate files');
@@ -173,9 +180,9 @@ const NewCommand: GluegunCommand = {
     generateSpinner.succeed('Files generated');
 
     // Linting
-    if (await confirm('Run lint?', true)) {
-      await system.run('npm run lint');
-    }
+    // if (await confirm('Run lint?', true)) {
+    //   await system.run('npm run lint');
+    // }
 
     // We're done, so show what to do next
     info(``);
@@ -183,8 +190,8 @@ const NewCommand: GluegunCommand = {
     info(``);
 
     // We're done, so show what to do next
-    if (refsSet) {
-      success(`HINT: References have been added, so it is necessary to add the corresponding imports!`);
+    if (refsSet || schemaSet) {
+      success(`HINT: References / Schemata have been added, so it is necessary to add the corresponding imports!`);
     }
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
