@@ -4,80 +4,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 
-async function getGitHubComponentNames(): Promise<{ name: string; type: 'dir' | 'file' }[]> {
-    const githubApiUrl = 'https://api.github.com/repos/lenneTech/nuxt-base-components/contents/components';
-    try {
-        const response = await axios.get(githubApiUrl);
-        if (response.status === 200) {
-            return response.data.map((file: any) => {
-                return {
-                    name: file.name,
-                    type: file.type,
-                };
-            });
-        } else {
-            throw new Error(`Fehler beim Abrufen der Dateiliste von GitHub: ${response.statusText}`);
-        }
-    } catch (error) {
-        throw new Error(`Fehler beim Abrufen der Dateiliste von GitHub: ${error.message}`);
-    }
-}
-
-async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: string | undefined) {
-    const { print, prompt } = toolbox;
-
-    try {
-        const componentNames = await getGitHubComponentNames();
-
-        if (componentNames.length > 0) {
-            let selectedComponent;
-
-            if (!componentName) {
-                const response = await prompt.ask({
-                    type: 'select',
-                    name: 'componentType',
-                    message: 'Welche Komponente möchten Sie hinzufügen:',
-                    choices: componentNames.map((c) => c.name.replace('.vue','')),
-                });
-
-                selectedComponent = response.componentType;
-            } else {
-                selectedComponent = componentName;
-            }
-
-            const item = componentNames.find((e) => e.type === 'file' ? e.name === selectedComponent + '.vue' : e.name === selectedComponent);
-            if (item?.type === 'dir') {
-                const directoryName = item.name;
-                const directoryFiles = await getFilesInDirectory(directoryName);
-
-                if (directoryFiles.length > 0) {
-                    for (const file of directoryFiles) {
-                        await copyComponent({
-                            githubRawLink: `https://raw.githubusercontent.com/lenneTech/nuxt-base-components/main/components/${directoryName}/${file}`,
-                            name: file,
-                            type: item.type,
-                            directoryName: directoryName,
-                        });
-                    }
-                    console.log(`Alle Dateien aus dem Verzeichnis ${directoryName} wurden erfolgreich kopiert.`);
-                } else {
-                    console.log(`Das Verzeichnis ${directoryName} ist leer.`);
-                }
-            } else if (item?.type === 'file') {
-                await copyComponent({
-                    githubRawLink: `https://raw.githubusercontent.com/lenneTech/nuxt-base-components/main/components/${selectedComponent}.vue`,
-                    name: selectedComponent + '.vue',
-                    type: item.type
-                });
-            }
-        } else {
-            print.error('Keine Komponenten auf GitHub gefunden.');
-        }
-    } catch (error) {
-        print.error(`Fehler beim Hinzufügen/Auswählen der Komponente: ${error.message}`);
-    }
-}
-
 const AddComponentCommand: GluegunCommand = {
     name: 'add',
     description: 'Füge eine bestimmte Komponente zu einem anderen Nuxt-Projekt hinzu',
@@ -88,62 +14,107 @@ const AddComponentCommand: GluegunCommand = {
     },
 };
 
-async function getFilesInDirectory(directoryName: string): Promise<string[]> {
-    const githubApiUrl = `https://api.github.com/repos/lenneTech/nuxt-base-components/contents/components/${directoryName}`;
+async function getFileInfo(path?: string): Promise<{ name: string; type: 'dir' | 'file' }[]> {
+    const githubApiUrl = `https://api.github.com/repos/lenneTech/nuxt-base-components/contents/components${path ? '/' + path : ''}`;
+    const response = await axios.get(githubApiUrl);
 
-    try {
-        const response = await axios.get(githubApiUrl);
-
-        if (response.status === 200) {
-            return response.data.map((file: any) => file.name);
-        } else {
-            throw new Error(`Fehler beim Abrufen von Dateien aus dem Verzeichnis ${directoryName}: ${response.statusText}`);
-        }
-    } catch (error) {
-        throw new Error(`Fehler beim Abrufen von Dateien aus dem Verzeichnis ${directoryName}: ${error.message}`);
+    if (response.status === 200) {
+        return response.data.map((file: any) => {
+            return {
+                name: file.name,
+                type: file.type,
+            };
+        });
+    } else {
+        throw new Error(`Fehler beim Abrufen der Dateiliste von GitHub: ${response.statusText}`);
     }
 }
 
-async function copyComponent({ githubRawLink, name, type, directoryName }: { githubRawLink: string; name: string; type: 'dir' | 'file', directoryName?: string }) {
+async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: string | undefined) {
+    const { print, prompt } = toolbox;
+
     try {
-        const response = await axios.get(githubRawLink);
+        const possibleComponents = await getFileInfo();
+
+        if (possibleComponents.length > 0) {
+            let selectedComponent;
+
+            if (!componentName) {
+                const response = await prompt.ask({
+                    type: 'select',
+                    name: 'componentType',
+                    message: 'Welche Komponente möchten Sie hinzufügen:',
+                    choices: possibleComponents.map((c) => c.name.replace('.vue','')),
+                });
+                selectedComponent = response.componentType;
+            } else {
+                selectedComponent = componentName;
+            }
+
+            const selectedFile = possibleComponents.find((e) => e.type === 'file' ? e.name === selectedComponent + '.vue' : e.name === selectedComponent);
+            if (selectedFile?.type === 'dir') {
+                const directoryFiles = await getFileInfo(selectedFile.name);
+
+                if (directoryFiles.length > 0) {
+                    for (const file of directoryFiles) {
+                        await copyComponent({
+                            name: `${selectedFile.name}/${file.name}`,
+                            type: file.type,
+                        }, toolbox);
+                    }
+                    print.success(`Alle Dateien aus dem Verzeichnis ${selectedFile.name} wurden erfolgreich kopiert.`);
+                } else {
+                    print.error(`Das Verzeichnis ${selectedFile.name} ist leer.`);
+                }
+            } else if (selectedFile?.type === 'file') {
+                await copyComponent(selectedFile, toolbox);
+            }
+        } else {
+            print.error('Keine Komponenten auf GitHub gefunden.');
+        }
+    } catch (error) {
+        print.error(`Fehler beim Hinzufügen/Auswählen der Komponente: ${error.message}`);
+    }
+}
+
+async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolbox: ExtendedGluegunToolbox) {
+    const { print } = toolbox;
+    const apiUrl = `https://raw.githubusercontent.com/lenneTech/nuxt-base-components/main/components/${file.name}`;
+    try {
+        const response = await axios.get(apiUrl);
 
         if (response.status === 200) {
             const sourceCode = response.data;
+            const cwd = process.cwd();
+            let targetDirectory: string;
 
-            const currentWorkingDirectory = process.cwd();
-
-            const srcComponentsDirectory = path.resolve(currentWorkingDirectory, 'src/components');
-            const componentsDirectory = path.resolve(currentWorkingDirectory, 'components');
-
-            let targetDirectory;
-
-            if (fs.existsSync(srcComponentsDirectory)) {
-                targetDirectory = srcComponentsDirectory;
-            } else if (fs.existsSync(componentsDirectory)) {
-                targetDirectory = componentsDirectory;
+            if (fs.existsSync(path.resolve(cwd, 'src/components'))) {
+                targetDirectory = path.resolve(cwd, 'src/components');
+            } else if (fs.existsSync(path.resolve(cwd, 'components'))) {
+                targetDirectory =  path.resolve(cwd, 'components');
             } else {
-                targetDirectory = currentWorkingDirectory;
+                targetDirectory = cwd;
             }
 
-            if (type === 'dir') {
+            if (file.type === 'dir') {
+                const directoryName = file.name.split('/')[0];
                 targetDirectory = targetDirectory + '/' + directoryName;
             }
 
-            const targetPath = path.join(targetDirectory, `${name}`)
+            const targetPath = path.join(targetDirectory, `${file.name}`)
 
             if (!fs.existsSync(targetDirectory)) {
                 fs.mkdirSync(targetDirectory, { recursive: true });
             }
 
+            const spinner = print.spin(`Kopiere die Komponente ${file.name} nach ${targetPath}...`);
             fs.writeFileSync(targetPath, sourceCode);
-
-            console.log(`Die Komponente ${name} wurde erfolgreich kopiert nach ${targetPath}`);
+            spinner.succeed(`Die Komponente ${file.name} wurde erfolgreich kopiert nach ${targetPath}`);
         } else {
-            console.error(`Fehler beim Abrufen der Datei von GitHub: ${response.statusText}`);
+            print.error(`Fehler beim Abrufen der Datei von GitHub: ${response.statusText}`);
         }
     } catch (error) {
-        console.error(`Fehler beim Kopieren der Komponente ${name}: ${error.message}`);
+        print.error(`Fehler beim Kopieren der Komponente ${file.name}: ${error.message}`);
     }
 }
 
