@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.102](https://github.com/lenneTech/cli/compare/v0.0.101...v0.0.102) (2024-02-27)
+
+
+### Bug Fixes
+
+* fix creation of folder in components add command ([7616b2d](https://github.com/lenneTech/cli/commit/7616b2d7674385c6377b440db4b589e5d2c3ad09))
+
 ### [0.0.101](https://github.com/lenneTech/cli/compare/v0.0.99...v0.0.101) (2024-02-20)
 
 ### [0.0.94](https://github.com/lenneTech/cli/compare/v0.0.92...v0.0.94) (2023-08-19)
