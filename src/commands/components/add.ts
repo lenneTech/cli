@@ -12,6 +12,8 @@ const AddComponentCommand: GluegunCommand = {
     const { parameters } = toolbox
     const componentName = parameters.first
     await addComponent(toolbox, componentName)
+    process.exit();
+    return 'add';
   }
 }
 
@@ -47,15 +49,14 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
           type: 'select',
           name: 'componentType',
           message: 'Welche Komponente möchten Sie hinzufügen:',
-          choices: possibleComponents.map((c) => c.name.replace('.vue', ''))
+          choices: possibleComponents,
         })
         selectedComponent = response.componentType
       } else {
         selectedComponent = componentName
       }
 
-      const selectedFile = possibleComponents.find((e) => e.type === 'file' ? e.name === selectedComponent + '.vue' : e.name === selectedComponent)
-
+      const selectedFile = possibleComponents.find((e) => e.name === selectedComponent);
       if (selectedFile?.type === 'dir') {
         print.success(`Das Verzeichnis ${selectedFile.name} wurde ausgewählt.`);
         const directoryFiles = await getFileInfo(selectedFile.name)
@@ -114,17 +115,23 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
 
         const targetPath = path.join(targetDirectory, `${file.name}`)
         if (!fs.existsSync(targetDirectory)) {
-          const directoryName = file.name.split('/')[0]
-          targetDirectory = targetDirectory + '/' + directoryName
-          if (!fs.existsSync(targetDirectory)) {
-            const targetDirSpinner = print.spin(`Creating ${directoryName} directory...`)
-            fs.mkdirSync(targetDirectory, { recursive: true })
-            targetDirSpinner.succeed(`Directory created successfully`)
+          const targetDirSpinner = print.spin(`Creating target directory...`)
+          fs.mkdirSync(targetDirectory, { recursive: true })
+          targetDirSpinner.succeed(`Target directory created successfully`)
+        }
+
+        if (file.type === 'dir') {
+          const dirName = file.name.split('/')[0];
+          const dirPath = path.join(targetDirectory, dirName);
+          if (!fs.existsSync(dirPath)) {
+            const dirSpinner = print.spin(`Creating directory ${dirName}...`)
+            fs.mkdirSync(dirPath, { recursive: true })
+            dirSpinner.succeed(`Directory ${dirName} created successfully`)
           }
         }
 
         const spinner = print.spin(`Kopiere die Komponente ${file.name} nach ${targetPath}...`)
-        fs.writeFileSync(targetPath, sourceCode)
+        fs.writeFileSync(targetPath, sourceCode);
         spinner.succeed(`Die Komponente ${file.name} wurde erfolgreich kopiert nach ${targetPath}`)
         resolve(targetPath)
       } else {
