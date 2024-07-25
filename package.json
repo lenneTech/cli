@@ -52,6 +52,7 @@
     "@lenne.tech/cli-plugin-helper": "0.0.11",
     "bcrypt": "5.1.1",
     "find-file-up": "2.0.1",
+    "glob": "^11.0.0",
     "gluegun": "5.1.6",
     "js-sha256": "0.10.1",
     "open": "8.4.2",

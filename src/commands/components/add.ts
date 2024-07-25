@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun'
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox'
 import * as fsProm from 'fs/promises'
 import * as fs from 'fs'
+import * as glob from 'glob';
 import * as path from 'path'
 import axios from 'axios'
 
@@ -35,10 +36,12 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
   const { print, prompt } = toolbox
 
   try {
+    const compSpinner = print.spin('Lade Komponenten Auswahl von GitHub...');
     const possibleComponents = await getFileInfo()
+    compSpinner.succeed('Komponenten Auswahl von GitHub erfolgreich geladen');
 
     if (possibleComponents.length > 0) {
-      let selectedComponent
+      let selectedComponent: string = '';
 
       if (!componentName) {
         const response = await prompt.ask({
@@ -53,7 +56,9 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
       }
 
       const selectedFile = possibleComponents.find((e) => e.type === 'file' ? e.name === selectedComponent + '.vue' : e.name === selectedComponent)
+
       if (selectedFile?.type === 'dir') {
+        print.success(`Das Verzeichnis ${selectedFile.name} wurde ausgewählt.`);
         const directoryFiles = await getFileInfo(selectedFile.name)
 
         if (directoryFiles.length > 0) {
@@ -68,6 +73,7 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
           print.error(`Das Verzeichnis ${selectedFile.name} ist leer.`)
         }
       } else if (selectedFile?.type === 'file') {
+        print.success(`Die Komponente ${selectedFile.name} wurde ausgewählt.`);
         await copyComponent(selectedFile, toolbox)
       }
     } else {
@@ -80,32 +86,46 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
 
 async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolbox: ExtendedGluegunToolbox) {
   const { print } = toolbox
-  const apiUrl = `https://raw.githubusercontent.com/lenneTech/nuxt-base-components/main/components/${file.name}`
+  const apiUrl = `https://raw.githubusercontent.com/lenneTech/nuxt-base-components/main/components/${file.name}`;
+
   return new Promise(async (resolve, reject) => {
     try {
+      const compSpinner = print.spin(`Lade Komponente ${file.name} von GitHub...`);
       const response = await axios.get(apiUrl)
+      compSpinner.succeed(`Komponente ${file.name} erfolgreich von GitHub geladen`);
 
       if (response.status === 200) {
         const sourceCode = response.data
         const cwd = process.cwd()
         let targetDirectory: string
 
-        if (fs.existsSync(path.resolve(cwd, 'src/components'))) {
-          targetDirectory = path.resolve(cwd, 'src/components')
-        } else if (fs.existsSync(path.resolve(cwd, 'components'))) {
+        if (fs.existsSync(path.resolve(cwd, 'components'))) {
           targetDirectory = path.resolve(cwd, 'components')
         } else {
-          targetDirectory = cwd
+          const directories = glob.sync('*/components', { cwd });
+
+          if (directories.length > 0) {
+            targetDirectory = path.join(cwd, directories[0])
+          } else {
+            targetDirectory = cwd
+          }
         }
 
         print.info(`Found directory for components: ${targetDirectory}`)
 
         const targetPath = path.join(targetDirectory, `${file.name}`)
         if (!fs.existsSync(targetDirectory)) {
-          print.info('Creating directory...')
+          const targetdirSpinner = print.spin(`Creating directory...`)
           const directoryName = file.name.split('/')[0]
           targetDirectory = targetDirectory + '/' + directoryName
           await fsProm.mkdir(targetDirectory, { recursive: true })
+          targetdirSpinner.succeed(`Directory created successfully`)
+        }
+
+        if (file.type === 'dir') {
+          const dirSpinner = print.spin(`Creating directory...`)
+          fs.mkdirSync(targetPath, { recursive: true })
+          dirSpinner.succeed(`Directory created successfully`)
         }
 
         const spinner = print.spin(`Kopiere die Komponente ${file.name} nach ${targetPath}...`)
