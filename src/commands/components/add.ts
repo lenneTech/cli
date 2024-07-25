@@ -115,17 +115,13 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
 
         const targetPath = path.join(targetDirectory, `${file.name}`)
         if (!fs.existsSync(targetDirectory)) {
-          const targetdirSpinner = print.spin(`Creating directory...`)
           const directoryName = file.name.split('/')[0]
           targetDirectory = targetDirectory + '/' + directoryName
-          await fsProm.mkdir(targetDirectory, { recursive: true })
-          targetdirSpinner.succeed(`Directory created successfully`)
-        }
-
-        if (file.type === 'dir') {
-          const dirSpinner = print.spin(`Creating directory...`)
-          fs.mkdirSync(targetPath, { recursive: true })
-          dirSpinner.succeed(`Directory created successfully`)
+          if (!fs.existsSync(targetDirectory)) {
+            const targetDirSpinner = print.spin(`Creating ${directoryName} directory...`)
+            fs.mkdirSync(targetDirectory, { recursive: true })
+            targetDirSpinner.succeed(`Directory created successfully`)
+          }
         }
 
         const spinner = print.spin(`Kopiere die Komponente ${file.name} nach ${targetPath}...`)
