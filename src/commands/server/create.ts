@@ -108,19 +108,14 @@ const NewCommand: GluegunCommand = {
       secretArr.push(crypto.randomBytes(512).toString('base64'));
     }
 
-    console.log(secretArr.length);
-
     // Getting the config content and using native ts to replace the content because patching.update doest accept regex
     let secretIndex = 0;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const updatedContent = configContent.replace(regex, (match) => {
-      console.log('Replacing:', match);
       const secret = secretArr[secretIndex];
       secretIndex++;
-      console.log('secretIndex in replace', secretIndex);
       return secret;
     });
-
-    console.log('secretIndex after replace', secretIndex);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     await patching.update(`./${projectDir}/src/config.env.ts`, (content) => updatedContent);
