@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import * as fs from 'node:fs';
 
 /**
  * Create a new server
@@ -90,19 +91,40 @@ const NewCommand: GluegunCommand = {
       props: { name, description },
     });
 
-    // Set configuration
-    for (const env of ['LOCAL', 'DEV', 'TEST', 'PREV', 'PROD']) {
-      await patching.replace(
-        `./${projectDir}/src/config.env.ts`,
-        'SECRET_OR_PRIVATE_KEY_' + env,
-        crypto.randomBytes(512).toString('base64')
-      );
-      await patching.replace(
-        `./${projectDir}/src/config.env.ts`,
-        'SECRET_OR_PRIVATE_KEY_' + env + '_REFRESH',
-        crypto.randomBytes(512).toString('base64')
-      );
+ const configContent = fs.readFileSync(`./${projectDir}/src/config.env.ts`, 'utf8');
+
+    // Matches SECRET_OR_PRIVATE_KEY then any amount of anything until there is a '
+    const regex = /SECRET_OR_PRIVATE_KEY[^']*/g;
+
+    // if str aint defined its empty, when
+    const count = (str, pattern) => {
+      const re = new RegExp(pattern, 'gi')
+      return ((str || '').match(re) || []).length
     }
+
+    const secretArr: string[] = []
+
+    for (let i = 0; i < count(configContent, regex); i++) {
+      secretArr.push(crypto.randomBytes(512).toString('base64'));
+    }
+
+    console.log(secretArr.length);
+
+    // Getting the config content and using native ts to replace the content because patching.update doest accept regex
+    let secretIndex = 0;
+    const updatedContent = configContent.replace(regex, (match) => {
+      console.log('Replacing:', match);
+      const secret = secretArr[secretIndex];
+      secretIndex++;
+      console.log('secretIndex in replace', secretIndex);
+      return secret;
+    });
+
+    console.log('secretIndex after replace', secretIndex);
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    await patching.update(`./${projectDir}/src/config.env.ts`, (content) => updatedContent);
+
     await patching.update(`./${projectDir}/src/config.env.ts`, (data) =>
       data.replace(/nest-server-/g, projectDir + '-')
     );

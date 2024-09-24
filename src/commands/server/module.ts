@@ -1,24 +1,24 @@
-import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../../interfaces/ServerProps.interface';
+import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 
 /**
  * Create a new server module
  */
-const NewCommand: GluegunCommand = {
+const NewCommand: ExtendedGluegunCommand = {
   name: 'module',
   alias: ['m'],
   description: 'Creates a new server module',
   hidden: false,
-  run: async (toolbox: ExtendedGluegunToolbox) => {
+  run: async (toolbox: ExtendedGluegunToolbox, refArr: string[] = [], currentRef: string = "") => {
     // Retrieve the tools we need
     const {
       filesystem,
       helper,
       parameters,
       patching,
-      print: { error, info, spin, success },
+      print: { error, info, spin, success, divider },
       prompt: { ask, confirm },
       server,
       strings: { kebabCase, pascalCase, camelCase },
@@ -30,11 +30,18 @@ const NewCommand: GluegunCommand = {
     const timer = system.startTimer();
 
     // Info
-    info('Create a new server module');
+    let continueWithRef = false;
 
-    // Get name
+    if(currentRef) {
+      info(`Creating a new server module for ${currentRef}`)
+      continueWithRef = true;
+    } else {
+    info('Create a new server module');
+    }
+
     const name = await helper.getInput(parameters.first, {
       name: 'module name',
+      initial: continueWithRef ? currentRef : '',
     });
     if (!name) {
       return;
@@ -120,6 +127,16 @@ const NewCommand: GluegunCommand = {
         ).input;
         if (reference) {
           refsSet = true;
+        }
+
+let createRefAfter: boolean = false;
+        const moduleDir = join(path, 'src', 'server', 'modules', kebabCase(name));
+        if (!filesystem.exists(moduleDir)) {
+         createRefAfter = await confirm(`Create this Object after all the other Properties?`, true)
+        }
+
+        if(createRefAfter) {
+            refArr.push(reference)
         }
       } else if (type === 'enum') {
         enumRef = (
@@ -243,6 +260,13 @@ const NewCommand: GluegunCommand = {
     info(``);
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info(``);
+    if (refArr.length > 0) {
+      divider()
+      const nextRef = refArr.shift();
+      return NewCommand.run(toolbox, refArr, nextRef);
+    }
+
+    divider()
 
     // We're done, so show what to do next
     if (refsSet || schemaSet) {
