@@ -35,24 +35,38 @@ async function getConfig() {
 }
 
 async function processConfig(config: any, toolbox: ExtendedGluegunToolbox) {
+  const {prompt} = toolbox;
+
   if (config?.npm) {
     const npmPackages = config.npm
     for (const npmPackage of npmPackages) {
-      await installPackage(npmPackage, toolbox)
+      const confirm = await prompt.confirm(`Das npm-Paket ${npmPackage} wird benötigt. Möchten Sie es installieren?`)
+
+      if (confirm) {
+        await installPackage(npmPackage, toolbox)
+      }
     }
   }
 
   if (config?.composables) {
     const composables = config.composables
     for (const composable of composables) {
-      await copyComposable(composable, toolbox)
+      const confirm = await prompt.confirm(`Das composable ${composable} wird benötigt. Möchten Sie es hinzufügen?`)
+
+      if (confirm) {
+        await copyComposable(composable, toolbox)
+      }
     }
   }
 
   if (config?.components) {
     const components = config.components
     for (const component of components) {
-      await copyComponent({ name: component + '.vue', type: 'file' }, toolbox)
+      const confirm = await prompt.confirm(`Die component ${component} wird benötigt. Möchten Sie es hinzufügen?`)
+
+      if (confirm) {
+        await copyComponent({ name: component + '.vue', type: 'file' }, toolbox)
+      }
     }
   }
 }
@@ -131,7 +145,7 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
         })
         selectedComponent = response.componentType
       } else {
-        selectedComponent = componentName
+        selectedComponent = componentName + '.vue';
       }
 
       const selectedFile = possibleComponents.find((e) => e.name === selectedComponent)
@@ -169,14 +183,11 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
   return new Promise(async (resolve, reject) => {
     try {
       const configSpinner = print.spin(`Checken der config für ${file.name}...`)
-      console.log('file.name', file.name)
       const config = await getConfigForComponent(file.name)
       configSpinner.succeed(`Config für ${file.name} erfolgreich geladen`)
 
       if (config) {
-        const processConfigSpinner = print.spin(`Verarbeite Config für ${file.name}...`)
         await processConfig(config, toolbox)
-        processConfigSpinner.succeed(`Config für ${file.name} erfolgreich verarbeitet`)
       }
 
       const compSpinner = print.spin(`Lade Komponente ${file.name} von GitHub...`)
