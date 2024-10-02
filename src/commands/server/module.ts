@@ -1,6 +1,5 @@
 import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { ServerProps } from '../../interfaces/ServerProps.interface';
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 
 /**
@@ -19,7 +18,6 @@ const NewCommand: ExtendedGluegunCommand = {
       parameters,
       patching,
       print: { error, info, spin, success, divider },
-      prompt: { ask, confirm },
       server,
       strings: { kebabCase, pascalCase, camelCase },
       system,
@@ -66,100 +64,8 @@ const NewCommand: ExtendedGluegunCommand = {
       error(`Module directory "${moduleDir}" already exists.`);
       return undefined;
     }
-
-    // Set props
-    const props: Record<string, ServerProps> = {};
-    const setProps = true;
-    let refsSet = false;
-    let schemaSet = false;
-    while (setProps) {
-      const name = (
-        await ask({
-          type: 'input',
-          name: 'input',
-          message: `Enter property name (e.g. myProperty) to create new property or leave empty (ENTER)`,
-        })
-      ).input;
-      if (!name.trim()) {
-        break;
-      }
-
-      let type = (
-        await ask([
-          {
-            type: 'select',
-            name: 'input',
-            message: 'Choose property type',
-            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Subobject', 'Use own', 'JSON / any'],
-          },
-        ])
-      ).input;
-      if (type === 'ObjectId / Reference') {
-        type = 'ObjectId';
-      } else if (type === 'JSON / any') {
-        type = 'JSON';
-      }
-
-      let schema: string;
-      if (type === 'Subobject') {
-        type = (
-          await ask({
-            type: 'input',
-            name: 'input',
-            initial: pascalCase(name),
-            message: `Enter property type (e.g. MyClass)`,
-          })
-        ).input;
-        schema = type;
-        schemaSet = true;
-      }
-
-      let reference: string;
-      let enumRef: string;
-      if (type === 'ObjectId') {
-        reference = (
-          await ask({
-            type: 'input',
-            name: 'input',
-            initial: pascalCase(name),
-            message: `Enter reference for ObjectId`,
-          })
-        ).input;
-        if (reference) {
-          refsSet = true;
-        }
-
-let createRefAfter: boolean = false;
-        const moduleDir = join(path, 'src', 'server', 'modules', kebabCase(name));
-        if (!filesystem.exists(moduleDir)) {
-         createRefAfter = await confirm(`Create this Object after all the other Properties?`, true)
-        }
-
-        if(createRefAfter) {
-            refArr.push(reference)
-        }
-      } else if (type === 'enum') {
-        enumRef = (
-          await ask({
-            type: 'input',
-            name: 'input',
-            initial: pascalCase(name) + 'Enum',
-            message: `Enter enum type`,
-          })
-        ).input;
-        if (enumRef) {
-          refsSet = true;
-        }
-      }
-
-      const arrayEnding = type.endsWith('[]');
-      type = type.replace('[]', '');
-      const isArray = arrayEnding || (await confirm(`Array?`));
-
-      const nullable = await confirm(`Nullable?`, true);
-
-      props[name] = { name, nullable, isArray, type, reference, enumRef, schema };
-    }
+    
+    const {props, refsSet, schemaSet} = await server.addProperties();
 
     const generateSpinner = spin('Generate files');
     const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });

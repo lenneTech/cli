@@ -1,7 +1,6 @@
 import { GluegunCommand, patching } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import * as fs from 'node:fs';
-import * as crypto from 'crypto';
+
 
 /**
  * Create a new server
@@ -20,6 +19,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success },
       prompt: { confirm, ask },
+      server,
       strings: { kebabCase },
       system,
     } = toolbox;
@@ -162,35 +162,8 @@ const NewCommand: GluegunCommand = {
           description: `API for ${name} app`,
           version: '0.0.0',
         });
-
-        const configContent = fs.readFileSync(`./${projectDir}/projects/api/src/config.env.ts`, 'utf8');
-
-        // Matches SECRET_OR_PRIVATE_KEY then any amount of anything until there is a '
-        const regex = /SECRET_OR_PRIVATE_KEY[^']*/gm;
-
-        // if str aint defined its empty, when
-        const count = (str, pattern) => {
-          const re = new RegExp(pattern, 'gi')
-          return ((str || '').match(re) || []).length
-        }
-
-        const secretArr: string[] = []
-
-        for (let i = 0; i < count(configContent, regex); i++) {
-          secretArr.push(crypto.randomBytes(512).toString('base64'));
-        }
-
-        // Getting the config content and using native ts to replace the content because patching.update doest accept regex
-        let secretIndex = 0;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const updatedContent = configContent.replace(regex, (match) => {
-          const secret = secretArr[secretIndex];
-          secretIndex++;
-          return secret;
-        });
-
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, (content) => updatedContent);
+        
+        await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, server.replaceSecretOrPrivateKeys);
 
         // Check if git init is active
         if (addToGit) {

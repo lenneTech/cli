@@ -1,6 +1,13 @@
+import { GluegunFilesystem } from 'gluegun';
+import { PromptOptions } from 'gluegun/build/types/toolbox/prompt-enquirer-types';
+import { GluegunAskResponse, GluegunEnquirer } from 'gluegun/build/types/toolbox/prompt-types';
+import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
+import * as crypto from 'crypto';
 
+type GluegunPromptAsk = <T = GluegunAskResponse>(questions: PromptOptions | ((this: GluegunEnquirer) => PromptOptions) | (PromptOptions | ((this: GluegunEnquirer) => PromptOptions))[]) => Promise<T>;
+type GluegunPromptConfirm = (message: string, initial?: boolean) => Promise<boolean>;
 /**
  * Server helper functions
  */
@@ -9,6 +16,11 @@ export class Server {
   camelCase: (value: string) => string;
   kebabCase: (value: string) => string;
   pascalCase: (value: string) => string;
+  
+  // Gluegun functions
+  ask: GluegunPromptAsk;
+  confirm: GluegunPromptConfirm;
+  filesystem: GluegunFilesystem;
 
   // Specific imports for default modells
   imports: Record<string, string> = {
@@ -96,9 +108,119 @@ export class Server {
    * Constructor for integration of toolbox
    */
   constructor(protected toolbox: ExtendedGluegunToolbox) {
+    this.ask = toolbox.prompt.ask;
     this.camelCase = toolbox.strings.camelCase;
+    this.confirm = toolbox.prompt.confirm;
+    this.filesystem = toolbox.filesystem;
     this.kebabCase = toolbox.strings.kebabCase;
     this.pascalCase = toolbox.strings.pascalCase;
+  }
+  
+  /**
+   * Add properties to model
+   */
+  async addProperties(options?: {refArray?: string[]}): Promise<{props: Record<string, ServerProps>, refsSet: boolean, schemaSet: boolean}> {
+    const {refArray} = {refArray: [], ...options};
+    
+    // Set props
+    const props: Record<string, ServerProps> = {};
+    const setProps = true;
+    let refsSet = false;
+    let schemaSet = false;
+    while (setProps) {
+      const name = (
+        await this.ask({
+          type: 'input',
+          name: 'input',
+          message: `Enter property name (e.g. myProperty) of the property or leave empty (ENTER)`,
+        })
+      ).input;
+      if (!name.trim()) {
+        break;
+      }
+      
+      let type = (
+        await this.ask([
+          {
+            type: 'select',
+            name: 'input',
+            message: 'Choose property type',
+            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Subobject', 'Use own', 'JSON / any'],
+          },
+        ])
+      ).input;
+      if (type === 'ObjectId / Reference') {
+        type = 'ObjectId';
+      } else if (type === 'JSON / any') {
+        type = 'JSON';
+      }
+      
+      let schema: string;
+      if (type === 'Subobject') {
+        type = (
+          await this.ask({
+            type: 'input',
+            name: 'input',
+            initial: this.pascalCase(name),
+            message: `Enter property type (e.g. MyClass)`,
+          })
+        ).input;
+        schema = type;
+        schemaSet = true;
+      }
+      
+      let reference: string;
+      let enumRef: string;
+      if (type === 'ObjectId') {
+        reference = (
+          await this.ask({
+            type: 'input',
+            name: 'input',
+            initial: this.pascalCase(name),
+            message: `Enter reference for ObjectId`,
+          })
+        ).input;
+        if (reference) {
+          refsSet = true;
+          refArray.push(reference);
+        }
+        
+        let createRefAfter: boolean = false;
+        const cwd = this.filesystem.cwd();
+        const path = cwd.substr(0, cwd.lastIndexOf('src'));
+        const moduleDir = join(path, 'src', 'server', 'modules', this.kebabCase(name));
+        if (!this.filesystem.exists(moduleDir)) {
+          createRefAfter = await this.confirm(`Create this Object after all the other Properties?`, true)
+        }
+        
+        if(createRefAfter) {
+          refArray.push(reference)
+        }
+        
+        
+      } else if (type === 'enum') {
+        enumRef = (
+          await this.ask({
+            type: 'input',
+            name: 'input',
+            initial: this.pascalCase(name) + 'Enum',
+            message: `Enter enum type`,
+          })
+        ).input;
+        if (enumRef) {
+          refsSet = true;
+        }
+      }
+      
+      const arrayEnding = type.endsWith('[]');
+      type = type.replace('[]', '');
+      const isArray = arrayEnding || (await this.confirm(`Array?`));
+      
+      const nullable = await this.confirm(`Nullable?`, true);
+      
+      props[name] = { name, nullable, isArray, type, reference, enumRef, schema };
+    }
+    return {props, refsSet, schemaSet};
   }
 
   /**
@@ -316,6 +438,34 @@ export class Server {
         imports: importsResult,
       };
     }
+  }
+  
+  /**
+   * Replace secret or private keys in string (e.g. for config files)
+   */
+  replaceSecretOrPrivateKeys(configContent: string): string {
+    // Matches SECRET_OR_PRIVATE_KEY then any amount of anything until there is a '
+    const regex = /SECRET_OR_PRIVATE_KEY[^']*/gm;
+    
+    // if str aint defined its empty, when
+    const count = (str, pattern) => {
+      const re = new RegExp(pattern, 'gi')
+      return ((str || '').match(re) || []).length
+    }
+    
+    const secretArr: string[] = []
+    
+    for (let i = 0; i < count(configContent, regex); i++) {
+      secretArr.push(crypto.randomBytes(512).toString('base64'));
+    }
+    
+    // Getting the config content and using native ts to replace the content because patching.update doest accept regex
+    let secretIndex = 0;
+    return configContent.replace(regex, () => {
+      const secret = secretArr[secretIndex];
+      secretIndex++;
+      return secret;
+    });
   }
 }
 
