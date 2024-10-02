@@ -10,7 +10,7 @@ const NewCommand: ExtendedGluegunCommand = {
   alias: ['m'],
   description: 'Creates a new server module',
   hidden: false,
-  run: async (toolbox: ExtendedGluegunToolbox, refArr: string[] = [], currentRef: string = "") => {
+  run: async (toolbox: ExtendedGluegunToolbox, refArray: string[] = [], currentRef: string = "") => {
     // Retrieve the tools we need
     const {
       filesystem,
@@ -65,7 +65,7 @@ const NewCommand: ExtendedGluegunCommand = {
       return undefined;
     }
     
-    const {props, refsSet, schemaSet} = await server.addProperties();
+    const {props, refsSet, schemaSet} = await server.addProperties({ refArray });
 
     const generateSpinner = spin('Generate files');
     const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
@@ -166,10 +166,10 @@ const NewCommand: ExtendedGluegunCommand = {
     info(``);
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info(``);
-    if (refArr.length > 0) {
+    if (refArray.length > 0) {
       divider()
-      const nextRef = refArr.shift();
-      return NewCommand.run(toolbox, refArr, nextRef);
+      const nextRef = refArray.shift();
+      return NewCommand.run(toolbox, refArray, nextRef);
     }
 
     divider()

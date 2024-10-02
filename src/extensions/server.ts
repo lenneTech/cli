@@ -115,7 +115,77 @@ export class Server {
     this.kebabCase = toolbox.strings.kebabCase;
     this.pascalCase = toolbox.strings.pascalCase;
   }
-  
+
+  /**
+   * Construct the addition for the create.input.ts
+   */
+  constructCreateInputPatchString(propObj: ServerProps, moduleToEdit: string): string {
+    return ` \n\n
+   /**
+   * ${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}
+   */
+  @Restricted(RoleEnum.ADMIN)
+  @Field(() => ${propObj.isArray ? `[${propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}]` : propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}, {
+    description: '${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}',
+    nullable: ${propObj.nullable},
+  })
+ ${propObj.nullable ? '@IsOptional()' : ''}${propObj.nullable ? '\n' : ''}override ${propObj.name}${propObj.nullable ? '?' : ''}: ${propObj.isArray ? `${propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}[]` : propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)} = undefined;`
+  }
+
+  /**
+  * Construct the Addition for the normal input.ts
+  */
+  constructInputPatchString(propObj: ServerProps, moduleToEdit: string): string {
+
+    const fieldType = propObj.isArray
+      ? `[${propObj.type === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}]`
+      : propObj.type === 'ObjectId'
+        ? propObj.reference
+        : this.pascalCase(propObj.type);
+
+
+    return `
+/**
+ * ${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}
+ */
+@Restricted(RoleEnum.ADMIN)
+@Field(() => ${fieldType}, {
+  description: '${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}',
+  nullable: ${propObj.nullable},
+})
+ ${propObj.nullable ? '@IsOptional()' : ''}${propObj.nullable ? '\n' : ''}override ${propObj.name}${propObj.nullable ? '?' : ''}: ${propObj.isArray ? `${propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}[]` : propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)} = undefined;
+`;
+
+  }
+
+  /**
+   * Construct the addition for the Model
+   */
+  constructModelPatchString(propObj: ServerProps, moduleToEdit: string): string {
+    return `\n\n
+  /**
+   * ${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}
+   */
+  @Restricted(RoleEnum.ADMIN)
+  @Field(() => ${propObj.isArray ? `[${propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}]` : propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}, {
+    description: '${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}',
+    nullable: ${propObj.nullable},
+  })
+  @Prop(${propObj.type == 'ObjectId' ? `{ ref: ${propObj.reference}, type: Schema.Types.ObjectId }` : ''})
+  ${propObj.name}: ${propObj.isArray ? `${propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}[]` : propObj.type
+    == 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)} = undefined;`
+
+  }
+
   /**
    * Add properties to model
    */
@@ -182,7 +252,6 @@ export class Server {
         ).input;
         if (reference) {
           refsSet = true;
-          refArray.push(reference);
         }
         
         let createRefAfter: boolean = false;

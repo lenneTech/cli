@@ -18,7 +18,6 @@ const NewCommand: GluegunCommand = {
       print: { error, info, success, spin, divider },
       prompt: { ask },
       server,
-      strings: { pascalCase },
     } = toolbox;
     
     const refArray: string[] = [];
@@ -74,78 +73,22 @@ const NewCommand: GluegunCommand = {
         continue;
       }
 
-      // Patch the model
+
+      // Patch the Model
       await patching.patch(moduleModel, {
-        insert: `\n\n
-  /**
-   * ${pascalCase(propObj.name)} of ${pascalCase(moduleToEdit)}
-   */
-  @Restricted(RoleEnum.ADMIN)
-  @Field(() => ${propObj.isArray ? `[${propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}]` : propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}, {
-    description: '${pascalCase(propObj.name)} of ${pascalCase(moduleToEdit)}',
-    nullable: ${propObj.nullable},
-  })
-  @Prop(${propObj.type == 'ObjectId' ? `{ ref: ${propObj.reference}, type: Schema.Types.ObjectId }` : ''})
-  ${propObj.name}: ${propObj.isArray ? `${propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}[]` : propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)} = undefined;`,
-        // after: new RegExp('export class \\w+(?: .+)? \\{'),
+        insert: server.constructModelPatchString(propObj, moduleToEdit),
         after: new RegExp('@Field[\\s\\S]*?undefined;(?![\\s\\S]*@Field)', 'g')
       });
-      
-      // Patch the input
-      // Create the Field type string based on conditions
-      const fieldType = propObj.isArray
-        ? `[${propObj.type === 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}]`
-        : propObj.type === 'ObjectId'
-          ? propObj.reference
-          : pascalCase(propObj.type);
-      
-      const arraySuffix = propObj.isArray ? '[]' : '';
-      
-      
-      const optionalSuffix = propObj.nullable ? '?' : '';
 
-// Construct the property string
-      const propertyString = `
-/**
- * ${pascalCase(propObj.name)} of ${pascalCase(moduleToEdit)}
- */
-@Restricted(RoleEnum.ADMIN)
-@Field(() => ${fieldType}, {
-  description: '${pascalCase(propObj.name)} of ${pascalCase(moduleToEdit)}',
-  nullable: ${propObj.nullable},
-})
-${propObj.nullable ? '@IsOptional()' : ''}
-${propObj.name}${optionalSuffix}: ${propObj.type}${arraySuffix} = undefined;
-`;
-
-// Perform the patching
+      // Patch the normal input.ts
       await patching.patch(moduleInput, {
-        insert: propertyString,
+        insert: server.constructInputPatchString(propObj, moduleToEdit),
         after: new RegExp('@Field[\\s\\S]*?undefined;(?![\\s\\S]*@Field)', 'g')
       });
-      
-      
-      // Patch the create input
+
+      // Patch the create.input.ts
       await patching.patch(moduleCreateInput, {
-        insert: ` \n\n
-   /**
-   * ${pascalCase(propObj.name)} of ${pascalCase(moduleToEdit)}
-   */
-  @Restricted(RoleEnum.ADMIN)
-  @Field(() => ${propObj.isArray ? `[${propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}]` : propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}, {
-    description: '${pascalCase(propObj.name)} of ${pascalCase(moduleToEdit)}',
-    nullable: ${propObj.nullable},
-  })
- ${propObj.nullable ? '@IsOptional()' : ''}${propObj.nullable ? '\n' : ''}override ${propObj.name}${propObj.nullable ? '?' : ''}: ${propObj.isArray ? `${propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}[]` : propObj.type
-        == 'ObjectId' ? propObj.reference : pascalCase(propObj.type)} = undefined;`,
-        
+        insert: server.constructCreateInputPatchString(propObj, moduleToEdit),
         after: new RegExp('@Field[\\s\\S]*?undefined;(?![\\s\\S]*@Field)', 'g')
       });
       
