@@ -43,15 +43,16 @@ const NewCommand: GluegunCommand = {
     if (!parameters.options.noConfirm && !(await confirm(`Squash branch ${branch}?`))) {
       return;
     }
+    
+    // Start timer
+    const timer = startTimer();
 
     // Get description
-    let base = parameters.first;
-    if (!base) {
-      base = await helper.getInput('dev', {
-        name: 'Base branche',
-        showError: false,
-      });
-    }
+    const base = await helper.getInput(parameters.first, {
+      initial: 'dev',
+      name: 'Base branche',
+      showError: false,
+    });
 
     // Merge base
     const mergeBaseSpin = spin('Get merge ' + base);
@@ -112,17 +113,27 @@ const NewCommand: GluegunCommand = {
     // Confirm inputs
     info(author);
     info(message);
-    if (!parameters.options.noConfirm && !(await confirm('Continue?'))) {
+    if (!parameters.options.noConfirm && !(await confirm('Commit?'))) {
       return;
     }
 
-    // Start timer
-    const commitAndPushSpin = spin('Commit and push');
-    const timer = startTimer();
+    // Start spinner
+    const commitSpin = spin('Commit');
 
     // Commit and push
-    await run(`git commit -am "${message}" --author="${author}" && git push -f origin HEAD`);
-    commitAndPushSpin.succeed();
+    await run(`git commit -am "${message}" --author="${author}"`);
+    commitSpin.succeed();
+    
+    if (!parameters.options.noConfirm && !(await confirm('Push force?'))) {
+      return;
+    }
+    
+    // Start timer
+    const pushForceSpin = spin('Push force');
+    
+    // Push
+    await run(`git push -f origin HEAD`);
+    pushForceSpin.succeed();
 
     // Success
     success(`Squashed ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);

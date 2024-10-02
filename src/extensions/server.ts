@@ -21,7 +21,7 @@ export class Server {
   // Specific types for properties in input fields
   inputFieldTypes: Record<string, string> = {
     Boolean: 'Boolean',
-    Date: 'number',
+    Date: 'Date',
     File: 'GraphQLUpload',
     FileInfo: 'GraphQLUpload',
     Id: 'String',
@@ -53,7 +53,7 @@ export class Server {
   // Specific types for properties in model fields
   modelFieldTypes: Record<string, string> = {
     Boolean: 'Boolean',
-    Date: 'Number',
+    Date: 'Date',
     File: 'CoreFileInfo',
     FileInfo: 'CoreFileInfo',
     ID: 'String',

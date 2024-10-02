@@ -83,7 +83,7 @@ const NewCommand: GluegunCommand = {
             type: 'select',
             name: 'input',
             message: 'Choose property type',
-            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Use own', 'JSON / any'],
+            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'Subobject', 'Use own', 'JSON / any'],
           },
         ])
       ).input;
@@ -99,6 +99,7 @@ const NewCommand: GluegunCommand = {
           await ask({
             type: 'input',
             name: 'input',
+            initial: pascalCase(name),
             message: `Enter property type (e.g. MyClass)`,
           })
         ).input;
