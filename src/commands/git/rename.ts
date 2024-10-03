@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Rename branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'rename',
   alias: ['rn'],
   description: 'Rename branch',
   hidden: false,
+  name: 'rename',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -75,9 +76,9 @@ const NewCommand: GluegunCommand = {
 
     // Ask to delete remote branch
     if (
-      remote &&
-      (parameters.options.deleteRemote ||
-        (!parameters.options.noConfirm && (await confirm(`Delete remote branch ${branch}?`))))
+      remote
+      && (parameters.options.deleteRemote
+        || (!parameters.options.noConfirm && (await confirm(`Delete remote branch ${branch}?`))))
     ) {
       timer = startTimer();
       const deleteSpin = spin(`Delete remote branch ${branch}`);

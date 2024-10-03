@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Update branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'update',
   alias: ['up'],
   description: 'Update branch',
   hidden: false,
+  name: 'update',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -16,7 +17,7 @@ const NewCommand: GluegunCommand = {
       helper,
       npm,
       print: { info, spin, success },
-      system: { run, startTimer }
+      system: { run, startTimer },
     } = toolbox;
 
     // Check git
@@ -44,7 +45,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `updated ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

@@ -4,12 +4,12 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Npm commands
  */
 module.exports = {
-  name: 'npm',
   alias: ['n'],
   description: 'Npm commands',
   hidden: true,
+  name: 'npm',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     await toolbox.helper.showMenu('npm');
     return 'npm';
-  }
+  },
 };

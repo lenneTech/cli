@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Squash branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'squash',
   alias: ['s'],
   description: 'Squash branch',
   hidden: false,
+  name: 'squash',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -29,7 +30,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch();
 
     // Check branch
-    if (['master', 'main', 'release', 'test', 'develop', 'dev'].includes(branch)) {
+    if (['dev', 'develop', 'main', 'master', 'release', 'test'].includes(branch)) {
       error(`Squash of branch ${branch} is not allowed!`);
       return;
     }
@@ -55,7 +56,7 @@ const NewCommand: GluegunCommand = {
     });
 
     // Merge base
-    const mergeBaseSpin = spin('Get merge ' + base);
+    const mergeBaseSpin = spin(`Get merge ${base}`);
     const mergeBase = await git.getMergeBase(base);
     if (!mergeBase) {
       error('No merge base found!');
@@ -89,10 +90,10 @@ const NewCommand: GluegunCommand = {
     if (!author) {
       author = (
         await ask({
-          type: 'input',
-          name: 'author',
           initial: `${user.name} <${user.email}>`,
           message: 'Author: ',
+          name: 'author',
+          type: 'input',
         })
       ).author;
     }
@@ -102,10 +103,10 @@ const NewCommand: GluegunCommand = {
     if (!message) {
       message = (
         await ask({
-          type: 'input',
-          name: 'message',
           initial: squashMessage,
           message: 'Message: ',
+          name: 'message',
+          type: 'input',
         })
       ).message;
     }
@@ -132,7 +133,7 @@ const NewCommand: GluegunCommand = {
     const pushForceSpin = spin('Push force');
     
     // Push
-    await run(`git push -f origin HEAD`);
+    await run('git push -f origin HEAD');
     pushForceSpin.succeed();
 
     // Success

@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Removed local merged branches
  */
 const NewCommand: GluegunCommand = {
-  name: 'clean',
   alias: ['rm'],
   description: 'Removed local merged branches',
   hidden: false,
+  name: 'clean',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -46,14 +47,14 @@ const NewCommand: GluegunCommand = {
       }
 
       await run(`git checkout ${branch}`);
-      info('Changed Branch to ' + branch);
+      info(`Changed Branch to ${branch}`);
     }
 
     // Start timer
     const timer = startTimer();
 
     // Reset soft
-    const undoSpinner = spin(`Start cleaning`);
+    const undoSpinner = spin('Start cleaning');
 
     const resultFetch = await run('git fetch -p');
     info(resultFetch);
@@ -62,7 +63,7 @@ const NewCommand: GluegunCommand = {
     info(resultpull);
 
     const resultDelete = await run(
-      `git branch --merged | egrep -v "(^\\*|main|dev|develop|beta|intern|release)" | xargs git branch -d`
+      'git branch --merged | egrep -v "(^\\*|main|dev|develop|beta|intern|release)" | xargs git branch -d',
     );
     info(resultDelete);
 
@@ -73,7 +74,7 @@ const NewCommand: GluegunCommand = {
     info('');
 
     // For tests
-    return `cleaned local`;
+    return 'cleaned local';
   },
 };
 

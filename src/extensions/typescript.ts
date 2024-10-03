@@ -1,7 +1,8 @@
 import * as fs from 'fs';
-import { join } from 'path';
-import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import * as open from 'open';
+import { join } from 'path';
+
+import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 
 /**
  * Common helper functions
@@ -22,13 +23,13 @@ export class Typescript {
       helper,
       npm,
       print: { error, info, spin, success },
-      system: { run, startTimer, which }
+      system: { run, startTimer, which },
     } = this.toolbox;
 
     // Get project name
     const name = await helper.getInput(null, {
       name: 'project name',
-      showError: true
+      showError: true,
     });
     if (!name) {
       return;
@@ -51,9 +52,9 @@ export class Typescript {
     await run(`cd ${dir} && npm init -y && npx gts init && npm install -D ts-node`);
 
     // Prepare package.json
-    const { path, data } = await npm.getPackageJson({
+    const { data, path } = await npm.getPackageJson({
       cwd: dir,
-      showError: true
+      showError: true,
     });
     if (!path) {
       return;
@@ -67,11 +68,11 @@ export class Typescript {
     // Overwrite index.ts
     const pathOfIndex = join(dir, 'src', 'index.ts');
     fs.unlinkSync(pathOfIndex);
-    fs.writeFileSync(pathOfIndex, "// Write your code here\nconsole.log('hello world!');");
+    fs.writeFileSync(pathOfIndex, '// Write your code here\nconsole.log(\'hello world!\');');
 
     // Init git
     if (which('git')) {
-      await run(`git init`);
+      await run('git init');
     }
 
     cloneSpin.succeed();
@@ -99,7 +100,7 @@ export class Typescript {
       helper,
       npm,
       print: { error, spin },
-      system: { run }
+      system: { run },
     } = this.toolbox;
 
     // Check git
@@ -110,7 +111,7 @@ export class Typescript {
     // Get project name
     const name = await helper.getInput(null, {
       name: 'project name',
-      showError: true
+      showError: true,
     });
     if (!name) {
       return;

@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from 'fs';
+
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 
 const singleComment = Symbol('singleComment');
@@ -38,7 +39,7 @@ export class Tools {
    * Strip JSON comments from a string
    * Inspired by https://github.com/sindresorhus/strip-json-comments/blob/main/index.js
    */
-  stripJsonComments(jsonString, { whitespace = true, trailingCommas = false } = {}) {
+  stripJsonComments(jsonString, { trailingCommas = false, whitespace = true } = {}) {
     if (typeof jsonString !== 'string') {
       throw new TypeError(`Expected argument \`jsonString\` to be a \`string\`, got \`${typeof jsonString}\``);
     }
@@ -110,10 +111,10 @@ export class Tools {
             offset = index;
             commaIndex = -1;
           } else if (
-            currentCharacter !== ' ' &&
-            currentCharacter !== '\t' &&
-            currentCharacter !== '\r' &&
-            currentCharacter !== '\n'
+            currentCharacter !== ' '
+            && currentCharacter !== '\t'
+            && currentCharacter !== '\r'
+            && currentCharacter !== '\n'
           ) {
             // Hit non-whitespace following a comma; comma is not trailing
             buffer += jsonString.slice(offset, index);

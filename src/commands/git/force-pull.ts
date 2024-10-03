@@ -1,22 +1,23 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Pull branch with loosing changes
  */
 const NewCommand: GluegunCommand = {
-  name: 'force-pull',
   alias: ['pf', 'pull-force'],
   description: 'Pull branch with loosing changes',
   hidden: false,
+  name: 'force-pull',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       git,
       helper,
       parameters,
-      prompt,
       print: { info, spin, success },
+      prompt,
       system: { run, startTimer },
     } = toolbox;
 
@@ -29,7 +30,7 @@ const NewCommand: GluegunCommand = {
     const branch = await git.currentBranch();
 
     // Ask for reset
-    if (!parameters.options.noConfirm && !(await prompt.confirm(`You will lose your changes, are you sure?`))) {
+    if (!parameters.options.noConfirm && !(await prompt.confirm('You will lose your changes, are you sure?'))) {
       return;
     }
 

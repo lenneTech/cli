@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Checkout git branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'get',
   alias: ['g'],
   description: 'Checkout git branch',
   hidden: false,
+  name: 'get',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -61,15 +62,15 @@ const NewCommand: GluegunCommand = {
     // Ask for checkout branch
     if (branchName !== branch) {
       if (
-        !parameters.options.noConfirm &&
-        !(await prompt.confirm('Checkout ' + (remoteBranch ? 'remote' : 'local') + ' branch ' + branch))
+        !parameters.options.noConfirm
+        && !(await prompt.confirm(`Checkout ${remoteBranch ? 'remote' : 'local'} branch ${branch}`))
       ) {
         return;
       }
     }
 
     // Checkout branch
-    await system.run('git checkout ' + ((await git.getDefaultBranch()) || 'main'));
+    await system.run(`git checkout ${(await git.getDefaultBranch()) || 'main'}`);
     let checkoutSpin;
 
     // Handling for remote
@@ -86,7 +87,7 @@ const NewCommand: GluegunCommand = {
           }
         }
         if (mode === 'hard') {
-          const prepareSpin = spin('Refresh ' + branch);
+          const prepareSpin = spin(`Refresh ${branch}`);
           await system.run(`git branch -D ${branch}`);
           removed = true;
           prepareSpin.succeed();
@@ -96,12 +97,12 @@ const NewCommand: GluegunCommand = {
       }
 
       // Start spin
-      checkoutSpin = spin('Checkout ' + branch);
+      checkoutSpin = spin(`Checkout ${branch}`);
 
       // Checkout remote if local branch not exists
       if (removed || !(await git.getBranch(branch, { local: true }))) {
         await system.run(
-          `git fetch && git checkout --track origin/${branch} && git reset --hard && git clean -fd && git pull`
+          `git fetch && git checkout --track origin/${branch} && git reset --hard && git clean -fd && git pull`,
         );
 
         // Checkout local branch
@@ -111,7 +112,7 @@ const NewCommand: GluegunCommand = {
 
       // Handling for local only
     } else if (branch) {
-      checkoutSpin = spin('Checkout ' + branch);
+      checkoutSpin = spin(`Checkout ${branch}`);
       await system.run(`git fetch && git checkout ${branch} && git reset --hard && git clean -fd`);
 
       // No branch found
@@ -127,15 +128,15 @@ const NewCommand: GluegunCommand = {
     await npm.install();
 
     // Init lerna projects
-    if (filesystem.isFile(`./lerna.json`)) {
+    if (filesystem.isFile('./lerna.json')) {
       const initProjectsSpin = spin('Init projects');
-      await system.run(`npm run init --if-present`);
+      await system.run('npm run init --if-present');
       initProjectsSpin.succeed();
     }
 
     // Success info
     success(
-      `${remoteBranch ? 'Remote' : 'Local'} branch ${branch} checked out in ${helper.msToMinutesAndSeconds(timer())}m.`
+      `${remoteBranch ? 'Remote' : 'Local'} branch ${branch} checked out in ${helper.msToMinutesAndSeconds(timer())}m.`,
     );
     info('');
     if (!toolbox.parameters.options.fromGluegunMenu) {

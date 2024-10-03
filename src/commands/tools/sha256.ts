@@ -1,20 +1,21 @@
 import { GluegunCommand } from 'gluegun';
-import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { sha256 } from 'js-sha256';
+
+import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Open regex tools in browser
  */
 const NewCommand: GluegunCommand = {
-  name: 'sha256',
   alias: ['h', 'hash'],
   description: 'Hash a string with sha256',
   hidden: false,
+  name: 'sha256',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper,
-      print: { info },
       parameters,
+      print: { info },
     } = toolbox;
     
     const input = await helper.getInput(parameters.first, {
@@ -29,7 +30,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // For tests
-    return `sha256`;
+    return 'sha256';
   },
 };
 

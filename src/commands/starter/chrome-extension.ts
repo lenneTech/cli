@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new TypeScript project
  */
 const NewCommand: GluegunCommand = {
-  name: 'chrome-extension',
   alias: ['ce'],
   description: 'Creates a new Chrome extension',
   hidden: false,
+  name: 'chrome-extension',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -20,7 +21,7 @@ const NewCommand: GluegunCommand = {
       patching,
       print: { error, info, spin, success },
       strings: { kebabCase },
-      system
+      system,
     } = toolbox;
 
     // Start timer
@@ -37,7 +38,7 @@ const NewCommand: GluegunCommand = {
     // Get name
     const name = await helper.getInput(parameters.first, {
       name: 'Project name',
-      showError: true
+      showError: true,
     });
     if (!name) {
       return;
@@ -48,7 +49,7 @@ const NewCommand: GluegunCommand = {
 
     // Check if directory already exists
     if (filesystem.exists(projectDir)) {
-      info(``);
+      info('');
       error(`There's already a folder named "${projectDir}" here.`);
       return undefined;
     }
@@ -70,7 +71,7 @@ const NewCommand: GluegunCommand = {
     // Get author
     const author = await helper.getInput(parameters.second, {
       name: 'Author',
-      showError: false
+      showError: false,
     });
 
     const prepareSpinner = spin('Prepare files');
@@ -83,21 +84,21 @@ const NewCommand: GluegunCommand = {
     await patching.replace(
       `./${projectDir}/README.md`,
       'This is the lenne.Tech starter for new Chrome Extension via Angular.',
-      ''
+      '',
     );
 
     // Set package.json
     await patching.update(`./${projectDir}/package.json`, (config) => {
       config.author = author;
       config.bugs = {
-        url: ''
+        url: '',
       };
       config.description = name;
       config.homepage = '';
       config.name = nameKebab;
       config.repository = {
         type: 'git',
-        url: ''
+        url: '',
       };
       config.version = '0.0.1';
       return config;
@@ -132,18 +133,18 @@ const NewCommand: GluegunCommand = {
     // Init git
     const initGitSpinner = spin('Initialize git');
     await system.run(
-      `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`
+      `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
     );
     initGitSpinner.succeed('Git initialized');
 
     // We're done, so show what to do next
-    info(``);
+    info('');
     success(`Generated ${name} with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`);
-    info(``);
+    info('');
 
     // For tests
     return `project ${name} created`;
-  }
+  },
 };
 
 export default NewCommand;

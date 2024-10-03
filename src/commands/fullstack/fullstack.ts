@@ -4,10 +4,10 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Fullstack commands
  */
 module.exports = {
-  name: 'fullstack',
   alias: ['full'],
   description: 'Fullstack commands',
   hidden: true,
+  name: 'fullstack',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     await toolbox.helper.showMenu('fullstack');
     return 'fullstack';

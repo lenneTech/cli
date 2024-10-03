@@ -1,15 +1,16 @@
 import * as crypto from 'crypto';
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new server
  */
 const NewCommand: GluegunCommand = {
-  name: 'create',
   alias: ['c'],
   description: 'Creates a new angular (fullstack) workspace',
   hidden: false,
+  name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -50,20 +51,20 @@ const NewCommand: GluegunCommand = {
 
     // Check if directory already exists
     if (filesystem.exists(projectDir)) {
-      info(``);
+      info('');
       error(`There's already a folder named "${projectDir}" here.`);
       return undefined;
     }
 
     // Localize
-    const localize =
-      parameters.second?.toLowerCase().includes('localize') ||
-      (!parameters.second && (await confirm(`Init localize for Angular?`, true)));
+    const localize
+      = parameters.second?.toLowerCase().includes('localize')
+      || (!parameters.second && (await confirm('Init localize for Angular?', true)));
 
     // Nest-Server
-    const nestServer =
-      parameters.second?.toLowerCase().includes('nest') ||
-      (!parameters.second && (await confirm(`Add API (Nest-Server)?`, true)));
+    const nestServer
+      = parameters.second?.toLowerCase().includes('nest')
+      || (!parameters.second && (await confirm('Add API (Nest-Server)?', true)));
 
     const gitLink = (
       await helper.getInput(null, {
@@ -152,7 +153,7 @@ const NewCommand: GluegunCommand = {
       // Include files from https://github.com/lenneTech/nest-server-starter
       if (nestServer) {
         // Init
-        const serverSpinner = spin(`Integrate Nest Server Starter`);
+        const serverSpinner = spin('Integrate Nest Server Starter');
 
         // Clone api
         await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/nest-server-starter api`);
@@ -172,8 +173,8 @@ const NewCommand: GluegunCommand = {
 
           // Prepare meta.json in api
           filesystem.write(`./${projectDir}/projects/api/src/meta.json`, {
-            name: `${name}-api-server`,
             description: `API for ${name} app`,
+            name: `${name}-api-server`,
             version: '0.0.0',
           });
 
@@ -181,24 +182,24 @@ const NewCommand: GluegunCommand = {
           for (const env of ['LOCAL', 'DEV', 'TEST', 'PREV', 'PROD']) {
             await patching.replace(
               `./${projectDir}/projects/api/src/config.env.ts`,
-              'SECRET_OR_PRIVATE_KEY_' + env,
-              crypto.randomBytes(512).toString('base64')
+              `SECRET_OR_PRIVATE_KEY_${env}`,
+              crypto.randomBytes(512).toString('base64'),
             );
             await patching.replace(
               `./${projectDir}/projects/api/src/config.env.ts`,
-              'SECRET_OR_PRIVATE_KEY_' + env + '_REFRESH',
-              crypto.randomBytes(512).toString('base64')
+              `SECRET_OR_PRIVATE_KEY_${env}_REFRESH`,
+              crypto.randomBytes(512).toString('base64'),
             );
           }
-          await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, (data) =>
-            data.replace(/nest-server-/g, projectDir + '-')
+          await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, data =>
+            data.replace(/nest-server-/g, `${projectDir}-`),
           );
 
           // Set readme
           await template.generate({
-            template: 'monorepro/README.md.ejs',
+            props: { name, nameCamel, nameKebab, namePascal, repository: gitLink || 'REPOSITORY' },
             target: `./${projectDir}/README.md`,
-            props: { repository: gitLink || 'REPOSITORY', name, nameCamel, nameKebab, namePascal },
+            template: 'monorepro/README.md.ejs',
           });
 
           // Commit changes
@@ -231,15 +232,15 @@ const NewCommand: GluegunCommand = {
       installSpinner.succeed('Successfully installed all packages');
 
       // We're done, so show what to do next
-      info(``);
+      info('');
       success(`Generated workspace ${projectDir} with ${name} app in ${helper.msToMinutesAndSeconds(timer())}m.`);
-      info(``);
-      info(`Next:`);
+      info('');
+      info('Next:');
       info(`  Test and run ${name}:`);
       info(`  $ cd ${projectDir}`);
-      info(`  $ npm run test`);
-      info(`  $ npm run start`);
-      info(``);
+      info('  $ npm run test');
+      info('  $ npm run start');
+      info('');
 
       if (!toolbox.parameters.options.fromGluegunMenu) {
         process.exit();

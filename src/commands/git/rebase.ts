@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Rebase branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'rebase',
   alias: ['rb'],
   description: 'Rebase branch',
   hidden: false,
+  name: 'rebase',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -51,7 +52,7 @@ const NewCommand: GluegunCommand = {
     // Rebase
     const rebaseSpin = spin(`Set ${baseBranch} as base of ${branch}`);
     await run(
-      `git fetch && git checkout ${baseBranch} && git pull && git checkout ${branch} && git rebase ${baseBranch}`
+      `git fetch && git checkout ${baseBranch} && git pull && git checkout ${branch} && git rebase ${baseBranch}`,
     );
     rebaseSpin.succeed();
 

@@ -4,10 +4,10 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Components commands
  */
 module.exports = {
-    name: 'components',
     alias: ['n'],
     description: 'Base components for Nuxt',
     hidden: true,
+    name: 'components',
     run: async (toolbox: ExtendedGluegunToolbox) => {
         await toolbox.helper.showMenu('components');
         return 'components';

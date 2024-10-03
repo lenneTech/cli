@@ -1,30 +1,31 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'playground',
   alias: ['pg'],
   description: 'Create a new typescript playground',
   hidden: false,
+  name: 'playground',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
-      typescript,
       print: { error },
-      prompt: { ask }
+      prompt: { ask },
+      typescript,
     } = toolbox;
 
     const choices = ['StackBlitz (online)', 'Web-Maker (download)', 'Simple typescript project'];
 
     // Select type
     const { type } = await ask({
-      type: 'select',
-      name: 'type',
+      choices: choices.slice(0),
       message: 'Select',
-      choices: choices.slice(0)
+      name: 'type',
+      type: 'select',
     });
 
     switch (type) {
@@ -41,14 +42,14 @@ const NewCommand: GluegunCommand = {
         break;
       }
       default: {
-        error('No option selected!' + type);
+        error(`No option selected!${type}`);
         return;
       }
     }
 
     // For tests
-    return `typescript`;
-  }
+    return 'typescript';
+  },
 };
 
 export default NewCommand;

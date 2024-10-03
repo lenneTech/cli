@@ -13,7 +13,7 @@ async function run(argv) {
       // .plugins('./node_modules', { matching: 'lt-*', hidden: true })
       .plugin(join(__dirname, '..', 'node_modules', '@lenne.tech', 'cli-plugin-helper', 'dist'), {
         commandFilePattern: ['*.js'],
-        extensionFilePattern: ['*.js']
+        extensionFilePattern: ['*.js'],
       })
       .help() // provides default for help, h, --help, -h
       .version() // provides default for version, v, --version, -v
@@ -27,6 +27,7 @@ async function run(argv) {
   } catch (e) {
     // Abort via CTRL-C
     if (!e) {
+      // eslint-disable-next-line no-console
       console.log('Goodbye ✌️');
     } else {
       // Throw error

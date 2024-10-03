@@ -20,7 +20,7 @@ export class Git {
         showError: false,
         text: 'There are changes, reset?',
       },
-      options
+      options,
     );
 
     // Toolbox features
@@ -54,10 +54,10 @@ export class Git {
     // Process options
     const opts = Object.assign(
       {
-        showError: false,
         errorMessage: 'Please commit or stash changes!',
+        showError: false,
       },
-      options
+      options,
     );
 
     // Toolbox features
@@ -95,7 +95,7 @@ export class Git {
       noDiffResult?: string;
       otherBranch?: string;
       showWarning?: boolean;
-    }
+    },
   ) {
     // Process options
     const opts = Object.assign(
@@ -104,20 +104,20 @@ export class Git {
         otherBranch: `origin/${branch}`,
         showWarning: false,
       },
-      options
+      options,
     );
 
     // Toolbox features
     const {
-      system,
       print: { warning },
+      system,
     } = this.toolbox;
 
     // Get diff
     try {
       const diff = await system.run(`git --no-pager diff --name-only ${branch} ${opts.otherBranch}`);
       // Return relative file paths as array
-      return diff.split(/\r?\n/).filter((item) => item);
+      return diff.split(/\r?\n/).filter(item => item);
     } catch (error) {
       if (opts.showWarning) {
         warning('Branch diff could not be performed!');
@@ -170,7 +170,7 @@ export class Git {
       baseBranch = (await this.getDefaultBranch()) || 'dev';
     }
     if (!branch) {
-      throw new Error(`Missing branch`);
+      throw new Error('Missing branch');
     }
 
     // Toolbox features
@@ -194,7 +194,7 @@ export class Git {
       system: { run },
     } = this.toolbox;
 
-    return run(`basename $(git symbolic-ref --short refs/remotes/origin/HEAD)`);
+    return run('basename $(git symbolic-ref --short refs/remotes/origin/HEAD)');
   }
 
   /**
@@ -249,7 +249,7 @@ export class Git {
       remote?: boolean; // must the branch exist remotely
       spin?: boolean; // show spinner
       spinText?: string; // text of spinner
-    } = {}
+    } = {},
   ) {
     // Check branch
     if (!branch) {
@@ -267,7 +267,7 @@ export class Git {
         spin: false,
         spinText: 'Search branch',
       },
-      options
+      options,
     );
 
     // Toolbox features
@@ -284,7 +284,7 @@ export class Git {
     }
 
     // Update infos
-    await system.run(`git fetch`);
+    await system.run('git fetch');
 
     // Search branch
     if (opts.exact) {
@@ -390,7 +390,7 @@ export class Git {
         defaultBranch: 'dev',
         text: 'Select branch',
       },
-      options
+      options,
     );
 
     // Toolbox features
@@ -411,15 +411,15 @@ export class Git {
 
     // Prepare branches
     if (branches.includes(opts.defaultBranch)) {
-      branches = [opts.defaultBranch].concat(branches.filter((item) => item !== opts.defaultBranch));
+      branches = [opts.defaultBranch].concat(branches.filter(item => item !== opts.defaultBranch));
     }
 
     // Select branch
     const { branch } = await ask({
-      type: 'select',
-      name: 'branch',
-      message: opts.text,
       choices: branches,
+      message: opts.text,
+      name: 'branch',
+      type: 'select',
     });
 
     // Return selected branch
