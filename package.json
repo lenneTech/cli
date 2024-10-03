@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.107",
+  "version": "0.0.108",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -60,6 +60,7 @@
     "typescript": "5.5.4"
   },
   "devDependencies": {
+    "@lenne.tech/eslint-config-ts": "0.0.16",
     "@lenne.tech/npm-package-helper": "0.0.12",
     "@types/jest": "29.5.13",
     "@types/node": "20.16.10",

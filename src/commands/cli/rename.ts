@@ -1,15 +1,16 @@
 import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Rename current CLI
  */
 const NewCommand: GluegunCommand = {
-  name: 'rename',
   alias: ['r'],
   description: 'Rename current CLI',
   hidden: false,
+  name: 'rename',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -35,7 +36,7 @@ const NewCommand: GluegunCommand = {
     await system.run(`cd ${rootPath} && npm run rename -- ${parameters.string}`);
 
     // For tests
-    return `Rename current CLI`;
+    return 'Rename current CLI';
   },
 };
 

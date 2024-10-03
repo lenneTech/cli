@@ -1,21 +1,23 @@
 import { GluegunCommand } from 'gluegun';
 import { sha256 } from 'js-sha256';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+
 import bcrypt = require('bcrypt');
 
 /**
  * Open regex tools in browser
  */
 const NewCommand: GluegunCommand = {
-  name: 'crypt',
   alias: ['c', 'p', 'bcrypt', 'password'],
   description: 'Generate a password hash with bcrypt as in nest-server',
   hidden: false,
+  name: 'crypt',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper,
-      print: { info, error },
       parameters,
+      print: { error, info },
     } = toolbox;
     
     let password = await helper.getInput(parameters.first, {
@@ -43,7 +45,7 @@ const NewCommand: GluegunCommand = {
     }
     
     // For tests
-    return `crypt`;
+    return 'crypt';
   },
 };
 

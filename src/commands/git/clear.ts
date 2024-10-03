@@ -1,23 +1,24 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Undo current changes
  */
 const NewCommand: GluegunCommand = {
-  name: 'clear',
   alias: ['cl'],
   description: 'Undo current changes',
   hidden: false,
+  name: 'clear',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       git,
       helper,
       parameters,
-      prompt: { confirm },
       print: { info, spin, success },
-      system: { run, startTimer }
+      prompt: { confirm },
+      system: { run, startTimer },
     } = toolbox;
 
     // Check git
@@ -47,7 +48,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `clear branch ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

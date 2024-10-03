@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Reset current branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'reset',
   alias: ['rs'],
   description: 'Reset current branch',
   hidden: false,
+  name: 'reset',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -32,7 +33,7 @@ const NewCommand: GluegunCommand = {
     // Current branch
     const branch = await git.currentBranch();
     if (!branch) {
-      error(`No current branch!`);
+      error('No current branch!');
       return;
     }
 
@@ -49,20 +50,20 @@ const NewCommand: GluegunCommand = {
     }
 
     // Reset
-    const resetSpin = spin('Reset ' + branch);
+    const resetSpin = spin(`Reset ${branch}`);
     await system.run(
-      'git clean -fd && ' +
-        'git reset HEAD --hard && ' +
-        'git checkout main && ' +
-        'git fetch && ' +
-        'git pull && ' +
-        'git branch -D ' +
-        branch +
-        ' && ' +
-        'git checkout ' +
-        branch +
-        ' && ' +
-        'git pull'
+      'git clean -fd && '
+        + 'git reset HEAD --hard && '
+        + 'git checkout main && '
+        + 'git fetch && '
+        + 'git pull && '
+        + `git branch -D ${ 
+        branch 
+        } && `
+        + `git checkout ${ 
+        branch 
+        } && `
+        + 'git pull',
     );
     resetSpin.succeed();
 

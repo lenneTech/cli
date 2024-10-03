@@ -1,15 +1,16 @@
 import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new server module
  */
 const NewCommand: GluegunCommand = {
-  name: 'create',
   alias: ['dc'],
   description: 'Creates a new deployment for mono repository',
   hidden: false,
+  name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -18,8 +19,8 @@ const NewCommand: GluegunCommand = {
       parameters,
       patching,
       print: { info, spin, success },
-      strings: { kebabCase, pascalCase, camelCase },
       prompt: { confirm },
+      strings: { camelCase, kebabCase, pascalCase },
       system,
       template,
     } = toolbox;
@@ -34,14 +35,14 @@ const NewCommand: GluegunCommand = {
     let projectName = '';
     const config = await filesystem.exists('lt.json');
     if (config) {
-      await patching.update(`lt.json`, (data: Record<string, any>) => {
+      await patching.update('lt.json', (data: Record<string, any>) => {
         projectName = data.name;
         return data;
       });
     }
 
     if (!projectName) {
-      await patching.update(`package.json`, (data: Record<string, any>) => {
+      await patching.update('package.json', (data: Record<string, any>) => {
         projectName = pascalCase(data.name);
         return data;
       });
@@ -50,7 +51,7 @@ const NewCommand: GluegunCommand = {
     // Get name
     const name = await helper.getInput(parameters.first, {
       initial: projectName,
-      name: 'project name (e.g. ' + (projectName ? projectName : 'My new project') + ')',
+      name: `project name (e.g. ${projectName ? projectName : 'My new project'})`,
     });
 
     if (!name) {
@@ -59,16 +60,16 @@ const NewCommand: GluegunCommand = {
 
     // Get domain
     const domain = await helper.getInput(parameters.second, {
-      initial: kebabCase(name) + '.lenne.tech',
-      name: 'main domain of the project (e.g. ' + kebabCase(name) + '.lenne.tech)',
+      initial: `${kebabCase(name)}.lenne.tech`,
+      name: `main domain of the project (e.g. ${kebabCase(name)}.lenne.tech)`,
     });
 
     if (!name) {
       return;
     }
 
-    const gitHub = await confirm(`Add GitHub pipeline?`);
-    const gitLab = await confirm(`Add GitLab pipeline?`);
+    const gitHub = await confirm('Add GitHub pipeline?');
+    const gitLab = await confirm('Add GitLab pipeline?');
 
     // GitLab test runner
     let testRunner;
@@ -101,66 +102,66 @@ const NewCommand: GluegunCommand = {
     const generateSpinner = spin('Generate files');
 
     await template.generate({
-      template: 'deployment/scripts/build-push.sh.ejs',
+      props: { nameCamel, nameKebab, namePascal },
       target: join(cwd, 'scripts', 'build-push.sh'),
-      props: { nameCamel, nameKebab, namePascal },
+      template: 'deployment/scripts/build-push.sh.ejs',
     });
 
     await template.generate({
-      template: 'deployment/scripts/deploy.sh.ejs',
+      props: { nameCamel, nameKebab, namePascal },
       target: join(cwd, 'scripts', 'deploy.sh'),
-      props: { nameCamel, nameKebab, namePascal },
+      template: 'deployment/scripts/deploy.sh.ejs',
     });
 
     await template.generate({
-      template: 'deployment/Dockerfile.ejs',
+      props: { nameCamel, nameKebab, namePascal },
       target: join(cwd, 'Dockerfile'),
-      props: { nameCamel, nameKebab, namePascal },
+      template: 'deployment/Dockerfile.ejs',
     });
 
     await template.generate({
-      template: 'deployment/Dockerfile.app.ejs',
+      props: { nameCamel, nameKebab, namePascal },
       target: join(cwd, 'Dockerfile.app'),
-      props: { nameCamel, nameKebab, namePascal },
+      template: 'deployment/Dockerfile.app.ejs',
     });
 
     await template.generate({
-      template: 'deployment/docker-compose.dev.yml.ejs',
+      props: { nameCamel, nameKebab, namePascal },
       target: join(cwd, 'docker-compose.dev.yml'),
-      props: { nameCamel, nameKebab, namePascal },
+      template: 'deployment/docker-compose.dev.yml.ejs',
     });
 
     await template.generate({
-      template: 'deployment/docker-compose.test.yml.ejs',
+      props: { nameCamel, nameKebab, namePascal },
       target: join(cwd, 'docker-compose.test.yml'),
-      props: { nameCamel, nameKebab, namePascal },
+      template: 'deployment/docker-compose.test.yml.ejs',
     });
 
     await template.generate({
-      template: 'deployment/docker-compose.prod.yml.ejs',
-      target: join(cwd, 'docker-compose.prod.yml'),
       props: { nameCamel, nameKebab, namePascal },
+      target: join(cwd, 'docker-compose.prod.yml'),
+      template: 'deployment/docker-compose.prod.yml.ejs',
     });
 
     if (gitHub) {
       await template.generate({
-        template: 'deployment/.github/workflows/pre-release.yml.ejs',
-        target: join(cwd, '.github', 'workflows', 'pre-release.yml'),
         props: { nameCamel, nameKebab, namePascal, url: domain },
+        target: join(cwd, '.github', 'workflows', 'pre-release.yml'),
+        template: 'deployment/.github/workflows/pre-release.yml.ejs',
       });
 
       await template.generate({
-        template: 'deployment/.github/workflows/release.yml.ejs',
-        target: join(cwd, '.github', 'workflows', 'release.yml'),
         props: { nameCamel, nameKebab, namePascal, url: domain },
+        target: join(cwd, '.github', 'workflows', 'release.yml'),
+        template: 'deployment/.github/workflows/release.yml.ejs',
       });
     }
 
     if (gitLab) {
       await template.generate({
-        template: 'deployment/.gitlab-ci.yml.ejs',
+        props: { nameCamel, nameKebab, namePascal, prodRunner, testRunner, url: domain },
         target: join(cwd, '.gitlab-ci.yml'),
-        props: { nameCamel, nameKebab, namePascal, url: domain, testRunner, prodRunner },
+        template: 'deployment/.gitlab-ci.yml.ejs',
       });
     }
 
@@ -170,16 +171,16 @@ const NewCommand: GluegunCommand = {
     const prodEnv = await filesystem.exists('projects/app/src/environments/environment.prod.ts');
     if (prodEnv) {
       await patching.patch('projects/app/src/environments/environment.prod.ts', {
+        insert: `https://api.${domain}`,
         replace: new RegExp('http://127.0.0.1:3000', 'g'),
-        insert: 'https://api.' + domain,
       });
       await patching.patch('projects/app/src/environments/environment.prod.ts', {
+        insert: `wss://api.${domain}`,
         replace: new RegExp('ws://127.0.0.1:3000', 'g'),
-        insert: 'wss://api.' + domain,
       });
       await patching.patch('projects/app/src/environments/environment.prod.ts', {
+        insert: `https://${domain}`,
         replace: new RegExp('http://127.0.0.1:4200', 'g'),
-        insert: 'https://' + domain,
       });
     } else {
       info('Missing projects/app/src/environments/environment.prod.ts');
@@ -188,16 +189,16 @@ const NewCommand: GluegunCommand = {
     const testEnv = await filesystem.exists('projects/app/src/environments/environment.test.ts');
     if (testEnv) {
       await patching.patch('projects/app/src/environments/environment.test.ts', {
+        insert: `https://api.test.${domain}`,
         replace: new RegExp('http://127.0.0.1:3000', 'g'),
-        insert: 'https://api.test.' + domain,
       });
       await patching.patch('projects/app/src/environments/environment.test.ts', {
+        insert: `wss://api.test.${domain}`,
         replace: new RegExp('ws://127.0.0.1:3000', 'g'),
-        insert: 'wss://api.test.' + domain,
       });
       await patching.patch('projects/app/src/environments/environment.test.ts', {
+        insert: `https://test.${domain}`,
         replace: new RegExp('http://127.0.0.1:4200', 'g'),
-        insert: 'https://test.' + domain,
       });
     } else {
       info('Missing projects/app/src/environments/environment.test.ts');
@@ -206,18 +207,18 @@ const NewCommand: GluegunCommand = {
     environmentsSpinner.succeed('App environment files updated');
 
     // We're done, so show what to do next
-    info(``);
+    info('');
     success(`Generated deployment for ${namePascal} in ${helper.msToMinutesAndSeconds(timer())}m.`);
-    info(``);
+    info('');
 
     // Hint for CI/CD
     const subDomains = ['www', 'api', 'test', 'www.test', 'api.test'];
-    let urlStr = '\n- ' + domain;
+    let urlStr = `\n- ${domain}`;
     for (const sub of subDomains) {
-      urlStr += '\n- ' + sub + '.' + domain;
+      urlStr += `\n- ${sub}.${domain}`;
     }
     success(`HINT: please initialize following Domains before running the CI/CD pipeline:${urlStr}`);
-    info(``);
+    info('');
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();

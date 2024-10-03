@@ -1,15 +1,16 @@
 import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Reinitialize npm packages
  */
 const NewCommand: GluegunCommand = {
-  name: 'reinit',
   alias: ['r'],
   description: 'Reinitialize npm packages',
   hidden: false,
+  name: 'reinit',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -18,14 +19,14 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { spin, success },
       prompt,
-      system
+      system,
     } = toolbox;
 
     // Start timer
     const timer = system.startTimer();
 
     // Check
-    const { path, data } = await npm.getPackageJson({ showError: true });
+    const { data, path } = await npm.getPackageJson({ showError: true });
     if (!path) {
       return;
     }
@@ -42,7 +43,7 @@ const NewCommand: GluegunCommand = {
         installSpin.succeed();
       }
       const updateSpin = spin('Update package.json');
-      await system.run('ncu -u --packageFile ' + path);
+      await system.run(`ncu -u --packageFile ${path}`);
       updateSpin.succeed();
     }
 
@@ -58,7 +59,7 @@ const NewCommand: GluegunCommand = {
         await system.run('npm i -g rimraf');
       }
       await system.run(
-        `cd ${dirname(path)} && rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i`
+        `cd ${dirname(path)} && rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i`,
       );
       reinitSpin.succeed();
       if (data.scripts && data.scripts['test:e2e']) {
@@ -76,8 +77,8 @@ const NewCommand: GluegunCommand = {
     success(`Reinitialized npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`);
 
     // For tests
-    return `npm reinit`;
-  }
+    return 'npm reinit';
+  },
 };
 
 export default NewCommand;

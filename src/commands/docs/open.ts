@@ -1,22 +1,23 @@
 import { GluegunCommand } from 'gluegun';
 import * as open from 'open';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Open documentations
  */
 const NewCommand: GluegunCommand = {
-  name: 'open',
   alias: ['o'],
   description: 'Open documentation',
   hidden: false,
+  name: 'open',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       helper,
       parameters,
       print: { error },
-      prompt: { ask }
+      prompt: { ask },
     } = toolbox;
 
     const choices = ['lenne.Tech', 'NestJS', 'GlueGun'];
@@ -24,15 +25,15 @@ const NewCommand: GluegunCommand = {
     // Get input
     let input = await helper.getInput(parameters.first, {
       name: 'doc',
-      showError: true
+      showError: true,
     });
     if (!input || !choices.includes(input)) {
       // Select type
       const { type } = await ask({
-        type: 'select',
-        name: 'type',
+        choices: choices.slice(0),
         message: 'Select',
-        choices: choices.slice(0)
+        name: 'type',
+        type: 'select',
       });
       input = type;
     }
@@ -57,8 +58,8 @@ const NewCommand: GluegunCommand = {
     }
 
     // For tests
-    return `docs open`;
-  }
+    return 'docs open';
+  },
 };
 
 export default NewCommand;

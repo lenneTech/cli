@@ -1,15 +1,16 @@
 import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new TypeScript project
  */
 const NewCommand: GluegunCommand = {
-  name: 'create',
   alias: ['c', 'new', 'n'],
   description: 'Creates a new Typescript project',
   hidden: false,
+  name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -22,9 +23,9 @@ const NewCommand: GluegunCommand = {
       patching,
       print: { error, info, spin, success },
       prompt: { confirm },
-      strings: { kebabCase, pascalCase, camelCase },
+      strings: { camelCase, kebabCase, pascalCase },
       system,
-      template
+      template,
     } = toolbox;
 
     // Start timer
@@ -41,7 +42,7 @@ const NewCommand: GluegunCommand = {
     // Get name
     const name = await helper.getInput(parameters.first, {
       name: 'Project name',
-      showError: true
+      showError: true,
     });
     if (!name) {
       return;
@@ -52,7 +53,7 @@ const NewCommand: GluegunCommand = {
 
     // Check if directory already exists
     if (filesystem.exists(projectDir)) {
-      info(``);
+      info('');
       error(`There's already a folder named "${projectDir}" here.`);
       return undefined;
     }
@@ -74,7 +75,7 @@ const NewCommand: GluegunCommand = {
     // Get author
     const author = await helper.getInput(parameters.second, {
       name: 'Author',
-      showError: false
+      showError: false,
     });
 
     const prepareSpinner = spin('Prepare files');
@@ -86,23 +87,23 @@ const NewCommand: GluegunCommand = {
 
     // Set readme
     await template.generate({
-      template: 'typescript-starter/README.md.ejs',
+      props: { author, name, nameCamel, nameKebab, namePascal },
       target: `./${projectDir}/README.md`,
-      props: { name, nameCamel, nameKebab, namePascal, author }
+      template: 'typescript-starter/README.md.ejs',
     });
 
     // Set package.json
     await patching.update(`./${projectDir}/package.json`, (config) => {
       config.author = author;
       config.bugs = {
-        url: ''
+        url: '',
       };
       config.description = name;
       config.homepage = '';
       config.name = nameKebab;
       config.repository = {
         type: 'git',
-        url: ''
+        url: '',
       };
       config.version = '0.0.1';
       return config;
@@ -121,7 +122,7 @@ const NewCommand: GluegunCommand = {
     const update = await confirm('Do you want to install the latest versions of the included packages?', true);
     if (update) {
       // Update
-      await npm.update({ cwd: join(filesystem.cwd(), projectDir), showError: true, install: true });
+      await npm.update({ cwd: join(filesystem.cwd(), projectDir), install: true, showError: true });
     } else {
       // Init npm
       const installSpinner = spin('Install npm packages');
@@ -132,18 +133,18 @@ const NewCommand: GluegunCommand = {
     // Init git
     const initGitSpinner = spin('Initialize git');
     await system.run(
-      `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`
+      `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
     );
     initGitSpinner.succeed('Git initialized');
 
     // We're done, so show what to do next
-    info(``);
+    info('');
     success(`Generated ${name} with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`);
-    info(``);
+    info('');
 
     // For tests
     return `project ${name} created`;
-  }
+  },
 };
 
 export default NewCommand;

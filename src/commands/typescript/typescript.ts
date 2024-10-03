@@ -4,12 +4,12 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * TypeScript commands
  */
 module.exports = {
-  name: 'typescript',
   alias: ['ts'],
   description: 'Typescript commands',
   hidden: true,
+  name: 'typescript',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     await toolbox.helper.showMenu('typescript', { headline: 'TypeScript commands' });
     return 'typescript';
-  }
+  },
 };

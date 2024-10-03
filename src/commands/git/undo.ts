@@ -1,22 +1,23 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Undo last commit (without loosing files)
  */
 const NewCommand: GluegunCommand = {
-  name: 'undo',
   alias: ['un'],
   description: 'Undo last commit (without loosing files)',
   hidden: false,
+  name: 'undo',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
       git,
       helper,
       parameters,
-      prompt: { confirm },
       print: { info, spin, success },
+      prompt: { confirm },
       system: { run, startTimer },
     } = toolbox;
 

@@ -1,15 +1,16 @@
 import * as crypto from 'crypto';
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Open regex tools in browser
  */
 const NewCommand: GluegunCommand = {
-  name: 'createSecret',
   alias: ['cs'],
   description: 'Create a new secret string (for JWT config)',
   hidden: false,
+  name: 'createSecret',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       print: { success },
@@ -17,7 +18,7 @@ const NewCommand: GluegunCommand = {
     success(crypto.randomBytes(512).toString('base64'));
 
     // For tests
-    return `secret created`;
+    return 'secret created';
   },
 };
 

@@ -1,15 +1,16 @@
 import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new server
  */
 const NewCommand: GluegunCommand = {
-  name: 'test',
   alias: ['t'],
   description: 'Creates a new test file',
   hidden: false,
+  name: 'test',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -45,16 +46,16 @@ const NewCommand: GluegunCommand = {
     const cwd = filesystem.cwd();
     const path = cwd.substr(0, cwd.lastIndexOf('src'));
     if (!filesystem.exists(join(path, 'tests'))) {
-      info(``);
+      info('');
       error(`No tests directory in "${path}".`);
       return undefined;
     }
     const testsDir = join(path, 'tests');
-    const filePath = join(testsDir, nameKebab + '.e2e-spec.ts');
+    const filePath = join(testsDir, `${nameKebab}.e2e-spec.ts`);
 
     // Check if file already exists
     if (filesystem.exists(filePath)) {
-      info(``);
+      info('');
       error(`There's already a file named "${filePath}"`);
       return undefined;
     }
@@ -63,17 +64,17 @@ const NewCommand: GluegunCommand = {
 
     // nest-server-tests/tests.e2e-spec.ts.ejs
     await template.generate({
-      template: 'nest-server-tests/tests.e2e-spec.ts.ejs',
-      target: filePath,
       props: { nameCamel, nameKebab, namePascal },
+      target: filePath,
+      template: 'nest-server-tests/tests.e2e-spec.ts.ejs',
     });
 
     generateSpinner.succeed('Generate test file');
 
     // We're done, so show what to do next
-    info(``);
+    info('');
     success(`Generated ${namePascal} test file in ${helper.msToMinutesAndSeconds(timer())}m.`);
-    info(``);
+    info('');
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();

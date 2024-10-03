@@ -2,11 +2,11 @@
  * Server properties for models and inputs
  */
 export interface ServerProps {
-  name: string;
+  enumRef: string;
   isArray: boolean;
+  name: string;
   nullable: boolean;
   reference: string;
-  enumRef: string;
   schema: string;
   type: string;
 }

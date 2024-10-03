@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new branch
  */
 const NewCommand: GluegunCommand = {
-  name: 'create',
   alias: ['c'],
   description: 'Create a new branch',
   hidden: false,
+  name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -17,7 +18,7 @@ const NewCommand: GluegunCommand = {
       npm,
       parameters,
       print: { error, info, spin, success },
-      system
+      system,
     } = toolbox;
 
     // Check git
@@ -31,7 +32,7 @@ const NewCommand: GluegunCommand = {
     // Get branch
     const branch = await helper.getInput(parameters.first, {
       name: 'branch name',
-      showError: true
+      showError: true,
     });
     if (!branch) {
       return;
@@ -52,8 +53,8 @@ const NewCommand: GluegunCommand = {
     const timer = system.startTimer();
 
     // Checkout
-    const createSpin = spin('Create ' + branch);
-    await system.run(`git fetch &&` + `git checkout ${baseBranch} &&` + 'git pull && ' + `git checkout -b ${branch}`);
+    const createSpin = spin(`Create ${branch}`);
+    await system.run('git fetch &&' + `git checkout ${baseBranch} &&` + 'git pull && ' + `git checkout -b ${branch}`);
     createSpin.succeed();
 
     // Install npm packages
@@ -65,7 +66,7 @@ const NewCommand: GluegunCommand = {
 
     // For tests
     return `created branch ${branch}`;
-  }
+  },
 };
 
 export default NewCommand;

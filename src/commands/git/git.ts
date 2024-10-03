@@ -4,12 +4,12 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Git commands
  */
 module.exports = {
-  name: 'git',
   alias: ['g'],
   description: 'Git commands',
   hidden: true,
+  name: 'git',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     await toolbox.helper.showMenu('git');
     return 'git';
-  }
+  },
 };

@@ -1,4 +1,5 @@
 import { GluegunCommand, patching } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 
@@ -6,10 +7,10 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Create a new server
  */
 const NewCommand: GluegunCommand = {
-  name: 'init',
   alias: ['init'],
   description: 'Creates a new fullstack workspace',
   hidden: false,
+  name: 'init',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -18,7 +19,7 @@ const NewCommand: GluegunCommand = {
       helper,
       parameters,
       print: { error, info, spin, success },
-      prompt: { confirm, ask },
+      prompt: { ask, confirm },
       server,
       strings: { kebabCase },
       system,
@@ -49,16 +50,16 @@ const NewCommand: GluegunCommand = {
 
     // Check if directory already exists
     if (filesystem.exists(projectDir)) {
-      info(``);
+      info('');
       error(`There's already a folder named "${projectDir}" here.`);
       return undefined;
     }
 
     let frontend = (
       await ask({
-        type: 'input',
-        name: 'frontend',
         message: 'Angular (a) or Nuxt 3 (n)',
+        name: 'frontend',
+        type: 'input',
       })
     ).frontend;
 
@@ -73,7 +74,7 @@ const NewCommand: GluegunCommand = {
     let addToGit = false;
     let gitLink;
     if (parameters.third !== 'false') {
-      addToGit = parameters.third === 'true' || (await confirm(`Add workspace to a new git repository?`));
+      addToGit = parameters.third === 'true' || (await confirm('Add workspace to a new git repository?'));
 
       // Check if git init is active
       if (addToGit) {
@@ -120,7 +121,7 @@ const NewCommand: GluegunCommand = {
       // Clone ng-base-starter
       await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
     } else {
-      await system.run(`npm i -g create-nuxt-base`);
+      await system.run('npm i -g create-nuxt-base');
       await system.run(`cd ${projectDir}/projects && create-nuxt-base app`);
     }
 
@@ -136,7 +137,7 @@ const NewCommand: GluegunCommand = {
       if (addToGit) {
         // Commit changes
         await system.run(
-          `cd ${projectDir} && git add . && git commit -am "feat: ${frontend} example integrated" && git push`
+          `cd ${projectDir} && git add . && git commit -am "feat: ${frontend} example integrated" && git push`,
         );
       }
 
@@ -146,7 +147,7 @@ const NewCommand: GluegunCommand = {
       // Include files from https://github.com/lenneTech/nest-server-starter
 
       // Init
-      const serverSpinner = spin(`Integrate Nest Server Starter`);
+      const serverSpinner = spin('Integrate Nest Server Starter');
 
       // Clone api
       await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/nest-server-starter api`);
@@ -158,8 +159,8 @@ const NewCommand: GluegunCommand = {
 
         // Prepare meta.json in api
         filesystem.write(`./${projectDir}/projects/api/src/meta.json`, {
-          name: `${name}-api-server`,
           description: `API for ${name} app`,
+          name: `${name}-api-server`,
           version: '0.0.0',
         });
         
@@ -169,7 +170,7 @@ const NewCommand: GluegunCommand = {
         if (addToGit) {
           // Commit changes
           await system.run(
-            `cd ${projectDir} && git add . && git commit -am "feat: Nest Server Starter integrated" && git push`
+            `cd ${projectDir} && git add . && git commit -am "feat: Nest Server Starter integrated" && git push`,
           );
         }
 
@@ -185,18 +186,18 @@ const NewCommand: GluegunCommand = {
       installSpinner.succeed('Successfull installed all packages');
 
       // We're done, so show what to do next
-      info(``);
+      info('');
       success(
         `Generated fullstack workspace with ${frontend} in ${projectDir} with ${name} app in ${helper.msToMinutesAndSeconds(
-          timer()
-        )}m.`
+          timer(),
+        )}m.`,
       );
-      info(``);
-      info(`Next:`);
+      info('');
+      info('Next:');
       info(`  Run ${name}`);
       info(`  $ cd ${projectDir}`);
-      info(`  $ npm run start`);
-      info(``);
+      info('  $ npm run start');
+      info('');
 
       if (!toolbox.parameters.options.fromGluegunMenu) {
         process.exit();

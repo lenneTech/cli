@@ -1,14 +1,15 @@
 import { GluegunCommand } from 'gluegun';
+
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
  * Create a new server
  */
 const NewCommand: GluegunCommand = {
-  name: 'create',
   alias: ['c'],
   description: 'Creates a new server',
   hidden: false,
+  name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -50,7 +51,7 @@ const NewCommand: GluegunCommand = {
     
     // Check if directory already exists
     if (filesystem.exists(projectDir)) {
-      info(``);
+      info('');
       error(`There's already a folder named "${projectDir}" here.`);
       return undefined;
     }
@@ -85,14 +86,14 @@ const NewCommand: GluegunCommand = {
     
     // Set readme
     await template.generate({
-      template: 'nest-server-starter/README.md.ejs',
+      props: { description, name },
       target: `./${projectDir}/README.md`,
-      props: { name, description },
+      template: 'nest-server-starter/README.md.ejs',
     });
     
     // Replace secret or private keys and remove `nest-server`
-    await patching.update(`./${projectDir}/src/config.env.ts`, (content) => server.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, projectDir
-      + '-'));
+    await patching.update(`./${projectDir}/src/config.env.ts`, content => server.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, `${projectDir
+       }-`));
     
     // Set package.json
     await patching.update(`./${projectDir}/package.json`, (config) => {
@@ -129,24 +130,24 @@ const NewCommand: GluegunCommand = {
     if (git) {
       const initGitSpinner = spin('Initialize git');
       await system.run(
-        `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`
+        `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
       );
       initGitSpinner.succeed('Git initialized');
     }
     
     // We're done, so show what to do next
-    info(``);
+    info('');
     success(
-      `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`
+      `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`,
     );
-    info(``);
-    info(`Next:`);
-    info(`  Start database server (e.g. MongoDB)`);
+    info('');
+    info('Next:');
+    info('  Start database server (e.g. MongoDB)');
     info(`  Check config: ${projectDir}/src/config.env.ts`);
     info(`  Go to project directory: cd ${projectDir}`);
-    info(`  Run tests: npm run test:e2e`);
-    info(`  Start server: npm start`);
-    info(``);
+    info('  Run tests: npm run test:e2e');
+    info('  Start server: npm start');
+    info('');
     
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();
