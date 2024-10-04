@@ -1,5 +1,10 @@
 # <%= props.name %>
+
+The <%= props.name %> is a backend server based on the [NestJS](https://nestjs.com/) framework.
+
 <%= props.description %>
+
+The server was initialized with the [Starter for lenne.Tech Nest Server](https://github.com/lenneTech/nest-server-starter).
 
 ## Requirements
 
@@ -12,8 +17,9 @@ the database for your objects
 
 ## Start the server
 
-`$ npm run start:dev`
-
+```
+$ npm run start:dev
+```
 
 ## Extend the server
 
@@ -21,6 +27,12 @@ This server is based on [lenne.Tech Nest Server](https://github.com/lenneTech/ne
 
 Since the lenne.Tech Nest Server is based on [Nest](https://nestjs.com/), you can find all information about extending
 the **<%= props.name %>** in the [documentation of Nest](https://docs.nestjs.com/).
+
+To create a new Module with model, inputs, resolver and service you can use the [CLI](https://github.com/lenneTech/cli):
+
+```
+$ lt server module MODULE_NAME
+```
 
 The documentation of the extensions and auxiliary classes that the
 [lenne.Tech Nest Server](https://github.com/lenneTech/nest-server) contains is currently under construction.
@@ -36,7 +48,6 @@ There you will find a lot of things that will help you to extend your server, su
 - [Common helpers](https://github.com/lenneTech/nest-server/tree/master/src/core/common/helpers) and
 [helpers for tests](https://github.com/lenneTech/nest-server/blob/master/src/test/test.helper.ts)
 - ...
-
 
 ## Further information
 
@@ -59,3 +70,78 @@ $ npm run start:prod
 # e2e tests
 $ npm run test:e2e
 ```
+
+Configuration for testing:
+```
+Node interpreter: /user/local/bin/node
+Jest package: FULL_PATH_TO_PROJECT_DIR/node_modules/jest
+Working directory: FULL_PATH_TO_PROJECT_DIR
+Jest options: --config jest-e2e.json --forceExit
+```
+see [E2E-Tests.run.xml](.run/E2E-Tests.run.xml)
+
+## Debugging
+
+Configuration for debugging is:
+```
+Node interpreter: /user/local/bin/node
+Node parameters: node_modules/@nestjs/cli/bin/nest.js start --debug --watch
+Working directory: FULL_PATH_TO_PROJECT_DIR
+JavaScript file: src/main.ts
+```
+see [Debug.run.xml](.run/Debug.run.xml)
+
+
+## Test & debug the NestServer package in this project
+Use [yalc](https://github.com/wclr/yalc) to include the NestJS server in the project.
+
+1. clone [NestServer](https://github.com/lenneTech/nest-server): `git clone https://github.com/lenneTech/nest-server.git`
+2. go to the nest-server folder (`cd nest-server`), install the packages via `npm i` and start the nest server in watch & yalc mode: `npm run watch`
+3. link the nest server live package to this project via `npm run link:nest-server` and start the server: `npm start`
+4. unlink the nest-server live package and use the normal package again when you are done: `npm run unlink:nest-server`
+
+## Deployment with deploy.party
+
+This project is prepared for deployment with deploy.party.
+
+Example configuration for deploy.party (productive):
+
+| Key                  | Value                                              |
+|----------------------|----------------------------------------------------|
+| Source               | GitLab                                             |
+| Repository           | my-repo                                            |
+| Branch               | main                                               |
+| Registry             | localhost                                          |
+| Name                 | api                                                |
+| URL                  | api.my-domain.com                                  |
+| Type                 | Node                                               |
+| Base image           | node:20                                            |
+| Custom image command | RUN apt-get install -y tzdata curl                 |
+|                      | ENV TZ Europe/Berlin                               |
+| Base directory       | ./projects/api                                     |
+| Install command      | npm install                                        |
+| Build command        | npm run build                                      |
+| Start command        | npm run dp:prod                                    |
+| Healthcheck command  | curl --fail http://localhost:3000/meta \|\| exit 1 |
+| Port                 | 3000                                               |
+| Enable SSL           | true                                               |
+
+## Documentation
+The API and developer documentation can automatically be generated.
+
+```bash
+# generate and serve documentation
+$ npm run docs
+```
+
+## Update
+An update to a new Nest Sever version can be done as follows:
+
+1. set the new Nest Server version in the package.json under `{dependencies: {"@lenne.tech/nest-server": "NEW_VERSION" }}`.
+2. run `npm run update`
+3. adjust project according to changes in git history from nest server
+4. run tests via `npm run tests:e2e`, build via `npm run build` and start the server with `npm start` to check if everything is working
+
+Simply compare the current version in the Git history of
+[Starter for lenne.Tech Nest Server](https://github.com/lenneTech/nest-server-starter) with the version that was
+previously used in the project and adapt your own project accordingly.
