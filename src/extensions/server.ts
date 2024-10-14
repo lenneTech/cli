@@ -541,7 +541,6 @@ export class Server {
     // Matches SECRET_OR_PRIVATE_KEY then any amount of anything until there is a '
     const regex = /SECRET_OR_PRIVATE_KEY[^']*/gm;
 
-    // if str aint defined its empty, when
     const count = (str, pattern) => {
       const re = new RegExp(pattern, 'gi');
       return ((str || '').match(re) || []).length;
@@ -549,18 +548,29 @@ export class Server {
 
     const secretArr: string[] = [];
 
-    for (let i = 0; i < count(configContent, regex); i++) {
+    // -1 because we don't need to replace the first occurrence.
+    for (let i = 0; i < count(configContent, regex) - 1; i++) {
       secretArr.push(crypto.randomBytes(512).toString('base64'));
     }
 
-    // Getting the config content and using native ts to replace the content because patching.update doest accept regex
+    // Getting the config content and using native ts to replace the content, patching.update doesn't accept regex
     let secretIndex = 0;
-    return configContent.replace(regex, () => {
+    let occurrenceCount = 0;
+
+    return configContent.replace(regex, (match) => {
+      occurrenceCount++;
+
+      // Skip the first occurrence
+      if (occurrenceCount === 1) {
+        return match;
+      }
+
       const secret = secretArr[secretIndex];
       secretIndex++;
       return secret;
     });
   }
+
 }
 
 /**
