@@ -60,7 +60,12 @@ async function processConfig(config: any, toolbox: ExtendedGluegunToolbox) {
     const components = config.components;
     for (const component of components) {
       if (component.endsWith('/*')) {
-        await copyComponent({ name: `${component}`, type: 'dir' }, toolbox);
+        const folderName = component.split('/')[0];
+        const directoryFiles = await getFileInfo(folderName);
+
+        for (const file of directoryFiles) {
+          await copyComponent({ name: `${folderName}/${file.name}`, type: 'dir' }, toolbox);
+        }
       } else {
         await copyComponent({ name: `${component}.vue`, type: 'file' }, toolbox);
       }
@@ -71,24 +76,25 @@ async function processConfig(config: any, toolbox: ExtendedGluegunToolbox) {
 async function installPackage(packageName: string, toolbox: ExtendedGluegunToolbox) {
   const { print, prompt, system } = toolbox;
 
+  const nameWithoutVersion = packageName.split('@')[0] || packageName;
   const packageJsonPath = path.resolve(process.cwd(), 'package.json');
   const packageJson = filesystem.read(packageJsonPath, 'json');
   const isInstalled
-    = (packageJson.dependencies && packageJson.dependencies[packageName])
-    || (packageJson.devDependencies && packageJson.devDependencies[packageName]);
+    = (packageJson.dependencies && packageJson.dependencies[nameWithoutVersion])
+    || (packageJson.devDependencies && packageJson.devDependencies[nameWithoutVersion]);
 
   if (!isInstalled) {
-    const confirm = await prompt.confirm(`The npm package ${packageName} is required. Would you like to install it?`);
+    const confirm = await prompt.confirm(`The npm package ${nameWithoutVersion} is required. Would you like to install it?`);
 
     if (!confirm) {
       return;
     }
 
-    const installSpinner = print.spin(`Install npm package ${packageName}...`);
+    const installSpinner = print.spin(`Install npm package ${nameWithoutVersion}...`);
     await system.run(`npm install ${packageName} --save-exact`);
-    installSpinner.succeed(`npm package ${packageName} successfully installed`);
+    installSpinner.succeed(`npm package ${nameWithoutVersion} successfully installed`);
   } else {
-    print.info(`npm package ${packageName} is already installed`);
+    print.info(`npm package ${nameWithoutVersion} is already installed`);
   }
 }
 
@@ -171,11 +177,11 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
         });
         selectedComponent = response.componentType;
       } else {
-        const foundComponent = possibleComponents.find(e => e.name === `${componentName}.vue` || e.name === componentName);
+        const foundComponent = possibleComponents.find(e => e.name.toLowerCase() === `${componentName.toLowerCase()}.vue` || e.name.toLowerCase() === componentName.toLowerCase());
         selectedComponent = foundComponent.name;
       }
 
-      const selectedFile = possibleComponents.find(e => e.name === selectedComponent);
+      const selectedFile = possibleComponents.find(e => e.name.toLowerCase() === selectedComponent.toLowerCase());
       if (selectedFile?.type === 'dir') {
         print.success(`The directory ${selectedFile.name} has been selected.`);
         const directoryFiles = await getFileInfo(selectedFile.name);
