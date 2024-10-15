@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.112](https://github.com/lenneTech/cli/compare/v0.0.111...v0.0.112) (2024-10-15)
+
+
+### Features
+
+* optimize components add command ([b019666](https://github.com/lenneTech/cli/commit/b019666178568d854961374b7c4ace6d782f15a1))
+* optimize components add command ([7c9046c](https://github.com/lenneTech/cli/commit/7c9046c53697d06ad3e52979fd4d87e4c07a3d0f))
+
 ### [0.0.111](https://github.com/lenneTech/cli/compare/v0.0.110...v0.0.111) (2024-10-15)
 
 
