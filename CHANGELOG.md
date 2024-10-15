@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.111](https://github.com/lenneTech/cli/compare/v0.0.110...v0.0.111) (2024-10-15)
+
+
+### Bug Fixes
+
+* fix components add command ([9537965](https://github.com/lenneTech/cli/commit/9537965704de2b5597a937906f61c6c4a4c3209d))
+
 ### [0.0.106](https://github.com/lenneTech/cli/compare/v0.0.105...v0.0.106) (2024-10-01)
 
 ### [0.0.105](https://github.com/lenneTech/cli/compare/v0.0.104...v0.0.105) (2024-07-25)
