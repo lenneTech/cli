@@ -18,10 +18,16 @@ const AddComponentCommand: GluegunCommand = {
   },
 };
 
-async function getConfigForComponent(fileName: string) {
+async function getConfigForComponent(fileName: string, toolbox: ExtendedGluegunToolbox) {
+  const { print } = toolbox;
+  const configSpinner = print.spin(`Checking the config for component...`);
+
   const data = await getConfig();
   const name = fileName.split('.').slice(0, -1).join('.');
-  return data.config[name] || {};
+  const rootName = name.split('/')[0];
+
+  configSpinner.succeed(`Config for ${rootName} loaded successfully`);
+  return data.config[rootName] || {};
 }
 
 async function getConfig() {
@@ -183,9 +189,7 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
 
   return new Promise(async (resolve, reject) => {
     try {
-      const configSpinner = print.spin(`Checking the config for ${file.name}...`);
-      const config = await getConfigForComponent(file.name);
-      configSpinner.succeed(`Config for ${file.name} loaded successfully`);
+      const config = await getConfigForComponent(file.name, toolbox);
 
       if (config) {
         await processConfig(config, toolbox);
