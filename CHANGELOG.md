@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.113](https://github.com/lenneTech/cli/compare/v0.0.112...v0.0.113) (2024-10-15)
+
+
+### Bug Fixes
+
+* fix wrong folder name ([c26c061](https://github.com/lenneTech/cli/commit/c26c0619adfd5563b689022c4ce53e70e199cf42))
+
 ### [0.0.112](https://github.com/lenneTech/cli/compare/v0.0.111...v0.0.112) (2024-10-15)
 
 
