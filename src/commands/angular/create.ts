@@ -1,4 +1,3 @@
-import * as crypto from 'crypto';
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
@@ -8,7 +7,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['c'],
-  description: 'Creates a new angular (fullstack) workspace',
+  description: 'Creates a new angular workspace',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -21,9 +20,8 @@ const NewCommand: GluegunCommand = {
       patching,
       print: { error, info, spin, success },
       prompt: { confirm },
-      strings: { camelCase, kebabCase, pascalCase },
+      strings: { kebabCase },
       system,
-      template,
     } = toolbox;
 
     // Start timer
@@ -61,11 +59,6 @@ const NewCommand: GluegunCommand = {
       = parameters.second?.toLowerCase().includes('localize')
       || (!parameters.second && (await confirm('Init localize for Angular?', true)));
 
-    // Nest-Server
-    const nestServer
-      = parameters.second?.toLowerCase().includes('nest')
-      || (!parameters.second && (await confirm('Add API (Nest-Server)?', true)));
-
     const gitLink = (
       await helper.getInput(null, {
         name: 'link to an empty repository (e.g. git@gitlab.lenne.tech:group/project.git or leave empty for no linking)',
@@ -85,20 +78,15 @@ const NewCommand: GluegunCommand = {
     }
 
     // Remove git folder after clone
-    await system.run(`cd ${projectDir} && rm -rf .git`);
+    filesystem.remove(`${projectDir}/.git`);
 
     // Set project name
-    await filesystem.write(`${projectDir}/lt.json`, JSON.stringify({ name }));
+    filesystem.write(`${projectDir}/lt.json`, JSON.stringify({ name }));
     await patching.update(`${projectDir}/package.json`, (data: Record<string, any>) => {
       data.name = kebabCase(name);
       data.version = '0.0.0';
       return data;
     });
-
-    // Set up initial props (to pass into templates)
-    const nameCamel = camelCase(name);
-    const nameKebab = kebabCase(name);
-    const namePascal = pascalCase(name);
 
     // Install packages
     await system.run(`cd ${projectDir} && npm i`);
@@ -118,17 +106,17 @@ const NewCommand: GluegunCommand = {
     const ngBaseSpinner = spin('Integrate example for Angular');
 
     // Remove gitkeep file
-    await system.run(`cd ${projectDir}/projects && rm .gitkeep`);
+    filesystem.remove(`${projectDir}/projects/.gitkeep`);
 
     // Clone ng-base-starter
     await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
 
     if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
       // Remove git folder after clone
-      await system.run(`cd ${projectDir}/projects/app && rm -rf .git`);
+      filesystem.remove(`${projectDir}/projects/app/.git`);
 
       // Remove husky from app project
-      await system.run(`rm -rf ${projectDir}/projects/app/.husky`);
+      filesystem.remove(`${projectDir}/projects/app/.husky`);
       await patching.update(`${projectDir}/projects/app/package.json`, (data: Record<string, any>) => {
         delete data.scripts.prepare;
         delete data.devDependencies.husky;
@@ -150,72 +138,6 @@ const NewCommand: GluegunCommand = {
       // Angular example integration done
       ngBaseSpinner.succeed('Example for Angular integrated');
 
-      // Include files from https://github.com/lenneTech/nest-server-starter
-      if (nestServer) {
-        // Init
-        const serverSpinner = spin('Integrate Nest Server Starter');
-
-        // Clone api
-        await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/nest-server-starter api`);
-
-        // Integrate files
-        if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {
-          // Remove git folder from clone
-          await system.run(`cd ${projectDir}/projects/api && rm -rf .git`);
-
-          // Remove husky from api project
-          await system.run(`rm -rf ${projectDir}/projects/api/.husky`);
-          await patching.update(`${projectDir}/projects/api/package.json`, (data: Record<string, any>) => {
-            delete data.scripts.prepare;
-            delete data.devDependencies.husky;
-            return data;
-          });
-
-          // Prepare meta.json in api
-          filesystem.write(`./${projectDir}/projects/api/src/meta.json`, {
-            description: `API for ${name} app`,
-            name: `${name}-api-server`,
-            version: '0.0.0',
-          });
-
-          // Set configuration
-          for (const env of ['LOCAL', 'DEV', 'TEST', 'PREV', 'PROD']) {
-            await patching.replace(
-              `./${projectDir}/projects/api/src/config.env.ts`,
-              `SECRET_OR_PRIVATE_KEY_${env}`,
-              crypto.randomBytes(512).toString('base64'),
-            );
-            await patching.replace(
-              `./${projectDir}/projects/api/src/config.env.ts`,
-              `SECRET_OR_PRIVATE_KEY_${env}_REFRESH`,
-              crypto.randomBytes(512).toString('base64'),
-            );
-          }
-          await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, data =>
-            data.replace(/nest-server-/g, `${projectDir}-`),
-          );
-
-          // Set readme
-          await template.generate({
-            props: { name, nameCamel, nameKebab, namePascal, repository: gitLink || 'REPOSITORY' },
-            target: `./${projectDir}/README.md`,
-            template: 'monorepro/README.md.ejs',
-          });
-
-          // Commit changes
-          await system.run(`cd ${projectDir} && git add . && git commit -am "feat: Nest Server Starter integrated"`);
-
-          // Check if git init is active
-          if (gitLink) {
-            `cd ${projectDir} && git push`;
-          }
-
-          // Done
-          serverSpinner.succeed('Nest Server Starter integrated');
-        } else {
-          serverSpinner.warn('Nest Server Starter not integrated');
-        }
-      }
 
       // Install all packages
       const installSpinner = spin('Install all packages');

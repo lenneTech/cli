@@ -1,4 +1,4 @@
-import { GluegunCommand } from 'gluegun';
+import { GluegunCommand, system } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
@@ -54,7 +54,7 @@ const NewCommand: GluegunCommand = {
     const timer = startTimer();
 
     // Reset soft
-    const undoSpinner = spin('Start cleaning');
+    const undoSpinner = spin('Start cleaning\n');
 
     const resultFetch = await run('git fetch -p');
     info(resultFetch);
@@ -62,10 +62,27 @@ const NewCommand: GluegunCommand = {
     const resultpull = await run('git pull');
     info(resultpull);
 
-    const resultDelete = await run(
-      'git branch --merged | egrep -v "(^\\*|main|dev|develop|beta|intern|release)" | xargs git branch -d',
-    );
-    info(resultDelete);
+    const result = await system.run('git branch --merged');
+    const excludedBranches = ['main', 'dev', 'develop', 'beta', 'intern', 'release'];
+
+    // Local Branches into Array
+    const branches = result
+      .split('\n')
+      .map(branch => branch.trim().replace(/^\* /, '')) // Remove '* '
+      .filter(branch => branch && !excludedBranches.includes(branch));
+
+    if (branches.length === 0) {
+      info('No branches to delete.');
+      return;
+    }
+
+    info(`Deleting branches: ${branches.join(', ')}`);
+
+    // Delete branches
+    for (const branch of branches) {
+      await system.run(`git branch -d ${branch}`);
+      success(`Deleted branch: ${branch}`);
+    }
 
     undoSpinner.succeed();
 
