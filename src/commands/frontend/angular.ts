@@ -6,10 +6,10 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Create a new server
  */
 const NewCommand: GluegunCommand = {
-  alias: ['c'],
+  alias: ['a'],
   description: 'Creates a new angular workspace',
   hidden: false,
-  name: 'create',
+  name: 'angular',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
@@ -28,7 +28,7 @@ const NewCommand: GluegunCommand = {
     const timer = system.startTimer();
 
     // Info
-    info('Create a new Angular (fullstack) workspace');
+    info('Create a new Angular workspace');
 
     // Check git
     if (!(await git.gitInstalled())) {

@@ -1,15 +1,15 @@
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
- * Angular commands
+ * Frontend commands
  */
 module.exports = {
-  alias: ['a'],
-  description: 'Angular commands',
+  alias: ['f'],
+  description: 'Frontend commands',
   hidden: true,
-  name: 'angular',
+  name: 'frontend',
   run: async (toolbox: ExtendedGluegunToolbox) => {
-    await toolbox.helper.showMenu('angular');
-    return 'angular';
+    await toolbox.helper.showMenu('frontend');
+    return 'frontend';
   },
 };
