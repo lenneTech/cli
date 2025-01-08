@@ -13,6 +13,7 @@ const NewCommand: GluegunCommand = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      helper,
       print: { spin },
       prompt: { ask },
       strings: { pascalCase },
@@ -24,15 +25,26 @@ const NewCommand: GluegunCommand = {
       await ask({
         message: 'What is the project\'s name?',
         name: 'projectName',
+        required: true,
         type: 'input',
       })
     ).projectName;
+
+    // Start timer
+    const timer = system.startTimer();
 
     const baseSpinner = spin(`Creating nuxt-base with name '${pascalCase(projName)}'`);
 
     await system.run(`npx create-nuxt-base '${pascalCase(projName)}'`);
 
-    baseSpinner.succeed(`Successfully created nuxt workspace with name '${pascalCase(projName)}'`);
+
+    baseSpinner.succeed(`Successfully created nuxt workspace with name '${pascalCase(projName)}' in ${helper.msToMinutesAndSeconds(
+      timer(),
+    )}m.`);
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
   },
 };

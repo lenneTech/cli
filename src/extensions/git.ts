@@ -139,7 +139,7 @@ export class Git {
     // Get branches
     const branches = await system.run('git fetch && git show-branch --list');
     branches.split('\n').forEach((item) => {
-      const matches = item.match(/\[(.*?)\]/);
+      const matches = item.match(/\[(.*?)]/);
       if (matches) {
         result.push(matches[1]);
       }
@@ -165,7 +165,7 @@ export class Git {
   /**
    * Get first commit messages from branch
    */
-  public async getFirstBranchCommit(branch: string, baseBranch: string) {
+  public async getFirstBranchCommit(branch: string, baseBranch?: string): Promise<string> {
     if (!baseBranch) {
       baseBranch = (await this.getDefaultBranch()) || 'dev';
     }
@@ -179,10 +179,22 @@ export class Git {
       system: { run },
     } = this.toolbox;
 
-    const message = await run(`git log ${baseBranch}..${branch} --oneline | tail -1`);
-    const splitted = message.split(' ');
-    splitted.shift();
-    return trim(splitted.join(' '));
+    try {
+      const logCommand = `git log ${baseBranch}..${branch} --oneline`;
+      const output = await run(logCommand);
+
+      if (!output) {
+        throw new Error('No commits found');
+      }
+
+      const commits = output.split('\n').filter(line => line.trim());
+      const firstCommit = commits[commits.length - 1];
+
+      const messageStart = firstCommit.indexOf(' ');
+      return trim(firstCommit.slice(messageStart + 1));
+    } catch (error) {
+      throw new Error(`Failed to get first commit message: ${error.message}`);
+    }
   }
 
   /**
@@ -273,7 +285,7 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      print: { error, spin },
+      print: { error, info, spin },
       system,
     } = this.toolbox;
 
@@ -284,7 +296,11 @@ export class Git {
     }
 
     // Update infos
-    await system.run('git fetch');
+    const fetch = await system.run('git fetch');
+    if (fetch.length && !fetch.startsWith('remote')) {
+      info(`Could not update infos ${fetch.length}`);
+      process.exit(1);
+    }
 
     // Search branch
     if (opts.exact) {
@@ -300,11 +316,16 @@ export class Git {
         }
       }
     } else {
-      branch = (await system.run(`git branch -a | grep ${branch} | cut -c 3- | head -1`))
-        .replace(/\r?\n|\r/g, '') // remove line breaks
-        .replace(/^.*origin\//, '') // remove remote path
-        .replace(/^.*github\//, '') // remove remote path
+
+      branch = (await system.run('git branch -a'))
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .find(line => line.includes(branch))
+        .replace(/^.*origin\//, '')
+        .replace(/^.*github\//, '')
         .trim();
+
+
     }
     if (!branch) {
       if (opts.spin) {

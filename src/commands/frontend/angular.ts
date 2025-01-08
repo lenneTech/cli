@@ -3,11 +3,11 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
- * Create a new server
+ * Create a new Angular workspace
  */
 const NewCommand: GluegunCommand = {
   alias: ['a'],
-  description: 'Creates a new angular workspace',
+  description: 'Creates a new Angular workspace',
   hidden: false,
   name: 'angular',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -61,38 +61,34 @@ const NewCommand: GluegunCommand = {
 
     const gitLink = (
       await helper.getInput(null, {
-        name: 'link to an empty repository (e.g. git@gitlab.lenne.tech:group/project.git or leave empty for no linking)',
+        name: 'Provide the URL of an empty repository (e.g., git@example.com:group/project.git, or leave empty to skip linking)',
         showError: false,
       })
     ).trim();
 
-    const workspaceSpinner = spin(`Create workspace ${projectDir} with ${name} app`);
+    const workspaceSpinner = spin(`Creating angular workspace ${projectDir}...`);
 
     // Clone monorepo
-    await system.run(`git clone https://github.com/lenneTech/lt-monorepo.git ${projectDir}`);
+    await system.run(`git clone https://github.com/lenneTech/ng-base-starter ${projectDir}`);
 
     // Check for directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
-      error(`The directory "${projectDir}" could not be created.`);
+      error(`The directory '${projectDir}' was not created.`);
       return undefined;
     }
 
     // Remove git folder after clone
     filesystem.remove(`${projectDir}/.git`);
 
-    // Set project name
-    filesystem.write(`${projectDir}/lt.json`, JSON.stringify({ name }));
-    await patching.update(`${projectDir}/package.json`, (data: Record<string, any>) => {
-      data.name = kebabCase(name);
-      data.version = '0.0.0';
-      return data;
-    });
 
     // Install packages
     await system.run(`cd ${projectDir} && npm i`);
 
     // Check if git init is active
+
+    const gitSpinner = spin('Initializing git...');
     await system.run(`cd ${projectDir} && git init --initial-branch=main`);
+    gitSpinner.succeed('Successfully initialized Git');
     if (gitLink) {
       await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
       await system.run(`cd ${projectDir} && git add .`);
@@ -100,62 +96,32 @@ const NewCommand: GluegunCommand = {
       await system.run(`cd ${projectDir} && git push -u origin main`);
     }
 
-    workspaceSpinner.succeed(`Create workspace ${projectDir} for ${name} created`);
+    workspaceSpinner.succeed(`Workspace ${projectDir} created`);
 
-    // Include example app
-    const ngBaseSpinner = spin('Integrate example for Angular');
-
-    // Remove gitkeep file
-    filesystem.remove(`${projectDir}/projects/.gitkeep`);
-
-    // Clone ng-base-starter
-    await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
-
-    if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
-      // Remove git folder after clone
-      filesystem.remove(`${projectDir}/projects/app/.git`);
+    if (filesystem.isDirectory(`./${projectDir}`)) {
 
       // Remove husky from app project
-      filesystem.remove(`${projectDir}/projects/app/.husky`);
-      await patching.update(`${projectDir}/projects/app/package.json`, (data: Record<string, any>) => {
+      filesystem.remove(`${projectDir}/.husky`);
+      await patching.update(`${projectDir}/package.json`, (data: Record<string, any>) => {
         delete data.scripts.prepare;
         delete data.devDependencies.husky;
         return data;
       });
 
       if (localize) {
-        await system.run(`cd ${projectDir}/projects/app && ng add @angular/localize --skip-confirmation`);
+        const localizeSpinner = spin('Adding localization for Angular...');
+        await system.run(`cd ${projectDir} && ng add @angular/localize --skip-confirmation`);
+        localizeSpinner.succeed('Added localization for Angular');
       }
-
-      // Commit changes
-      await system.run(`cd ${projectDir} && git add . && git commit -am "feat: Angular example integrated"`);
-
-      // Check if git init is active
-      if (gitLink) {
-        `cd ${projectDir} && git push`;
-      }
-
-      // Angular example integration done
-      ngBaseSpinner.succeed('Example for Angular integrated');
-
 
       // Install all packages
       const installSpinner = spin('Install all packages');
       await system.run(`cd ${projectDir} && npm run init`);
-
-      // Commit changes
-      await system.run(`cd ${projectDir} && git add . && git commit -am "feat: Initialization of workspace done"`);
-
-      // Check if git init is active
-      if (gitLink) {
-        `cd ${projectDir} && git push`;
-      }
-
       installSpinner.succeed('Successfully installed all packages');
 
       // We're done, so show what to do next
       info('');
-      success(`Generated workspace ${projectDir} with ${name} app in ${helper.msToMinutesAndSeconds(timer())}m.`);
+      success(`Generated Angular workspace ${projectDir} in ${helper.msToMinutesAndSeconds(timer())}m.`);
       info('');
       info('Next:');
       info(`  Test and run ${name}:`);
