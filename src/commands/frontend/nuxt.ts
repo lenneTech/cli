@@ -16,7 +16,7 @@ const NewCommand: GluegunCommand = {
       helper,
       print: { spin },
       prompt: { ask },
-      strings: { pascalCase },
+      strings: { kebabCase },
       system,
     } = toolbox;
 
@@ -33,12 +33,12 @@ const NewCommand: GluegunCommand = {
     // Start timer
     const timer = system.startTimer();
 
-    const baseSpinner = spin(`Creating nuxt-base with name '${pascalCase(projName)}'`);
+    const baseSpinner = spin(`Creating nuxt-base with name '${kebabCase(projName)}'`);
 
-    await system.run(`npx create-nuxt-base '${pascalCase(projName)}'`);
+    await system.run(`npx create-nuxt-base '${kebabCase(projName)}'`);
 
 
-    baseSpinner.succeed(`Successfully created nuxt workspace with name '${pascalCase(projName)}' in ${helper.msToMinutesAndSeconds(
+    baseSpinner.succeed(`Successfully created nuxt workspace with name '${kebabCase(projName)}' in ${helper.msToMinutesAndSeconds(
       timer(),
     )}m.`);
 
