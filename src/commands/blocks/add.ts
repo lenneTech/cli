@@ -7,20 +7,20 @@ import * as path from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 const AddComponentCommand: GluegunCommand = {
-  description: 'Adds a specific component to another Nuxt project',
+  description: 'Adds a specific block to another Nuxt project',
   name: 'add',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const { parameters } = toolbox;
-    const componentName = parameters.first;
-    await addComponent(toolbox, componentName);
+    const blockName = parameters.first;
+    await addBlock(toolbox, blockName);
     process.exit();
     return 'add';
   },
 };
 
-async function getConfigForComponent(fileName: string, toolbox: ExtendedGluegunToolbox) {
+async function getConfigForBlock(fileName: string, toolbox: ExtendedGluegunToolbox) {
   const { print } = toolbox;
-  const configSpinner = print.spin('Checking the config for component...');
+  const configSpinner = print.spin('Checking the config for block...');
 
   const data = await getConfig();
   const name = fileName.split('.').slice(0, -1).join('.');
@@ -61,7 +61,7 @@ async function processConfig(config: any, toolbox: ExtendedGluegunToolbox) {
     for (const component of components) {
       if (component.endsWith('/*')) {
         const folderName = component.split('/')[0];
-        const directoryFiles = await getFileInfo(folderName);
+        const directoryFiles = await getComponentsInfo(folderName);
 
         for (const file of directoryFiles) {
           await copyComponent({ name: `${folderName}/${file.name}`, type: 'dir' }, toolbox);
@@ -141,7 +141,7 @@ async function copyComposable(composable: string, toolbox: ExtendedGluegunToolbo
   }
 }
 
-async function getFileInfo(path?: string): Promise<{ name: string; type: 'dir' | 'file' }[]> {
+async function getComponentsInfo(path?: string): Promise<{ name: string; type: 'dir' | 'file' }[]> {
   const githubApiUrl = `https://api.github.com/repos/lenneTech/nuxt-base-components/contents/components${path ? `/${path}` : ''}`;
   const response = await axios.get(githubApiUrl);
 
@@ -157,38 +157,54 @@ async function getFileInfo(path?: string): Promise<{ name: string; type: 'dir' |
   }
 }
 
-async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: string | undefined) {
+async function getBlockInfo(path?: string): Promise<{ name: string; type: 'dir' | 'file' }[]> {
+  const githubApiUrl = `https://api.github.com/repos/lenneTech/nuxt-base-components/contents/blocks${path ? `/${path}` : ''}`;
+  const response = await axios.get(githubApiUrl);
+
+  if (response.status === 200) {
+    return response.data.map((file: any) => {
+      return {
+        name: file.name,
+        type: file.type,
+      };
+    });
+  } else {
+    throw new Error(`Error when retrieving the file list from GitHub: ${response.statusText}`);
+  }
+}
+
+async function addBlock(toolbox: ExtendedGluegunToolbox, blockName: string | undefined) {
   const { print, prompt } = toolbox;
 
   try {
-    const compSpinner = print.spin('Load component selection from GitHub...');
-    const possibleComponents = await getFileInfo();
-    compSpinner.succeed('Components selection successfully loaded from GitHub');
+    const compSpinner = print.spin('Load block selection from GitHub...');
+    const possibleBlocks = await getBlockInfo();
+    compSpinner.succeed('Blocks selection successfully loaded from GitHub');
 
-    if (possibleComponents.length > 0) {
-      let selectedComponent: string = '';
+    if (possibleBlocks.length > 0) {
+      let selectedBlock: string = '';
 
-      if (!componentName) {
+      if (!blockName) {
         const response = await prompt.ask({
-          choices: possibleComponents,
-          message: 'Which component would you like to add?',
-          name: 'componentType',
+          choices: possibleBlocks,
+          message: 'Which block would you like to add?',
+          name: 'blockType',
           type: 'select',
         });
-        selectedComponent = response.componentType;
+        selectedBlock = response.blockType;
       } else {
-        const foundComponent = possibleComponents.find(e => e.name.toLowerCase() === `${componentName.toLowerCase()}.vue` || e.name.toLowerCase() === componentName.toLowerCase());
-        selectedComponent = foundComponent.name;
+        const foundComponent = possibleBlocks.find(e => e.name.toLowerCase() === `${blockName.toLowerCase()}.vue` || e.name.toLowerCase() === blockName.toLowerCase());
+        selectedBlock = foundComponent.name;
       }
 
-      const selectedFile = possibleComponents.find(e => e.name.toLowerCase() === selectedComponent.toLowerCase());
+      const selectedFile = possibleBlocks.find(e => e.name.toLowerCase() === selectedBlock.toLowerCase());
       if (selectedFile?.type === 'dir') {
         print.success(`The directory ${selectedFile.name} has been selected.`);
-        const directoryFiles = await getFileInfo(selectedFile.name);
+        const directoryFiles = await getBlockInfo(selectedFile.name);
 
         if (directoryFiles.length > 0) {
           for (const file of directoryFiles) {
-            await copyComponent({
+            await copyBlock({
               name: `${selectedFile.name}/${file.name}`,
               type: 'dir',
             }, toolbox);
@@ -198,15 +214,89 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
           print.error(`The directory ${selectedFile.name} is empty.`);
         }
       } else if (selectedFile?.type === 'file') {
-        print.success(`The component ${selectedFile.name} was selected.`);
-        await copyComponent(selectedFile, toolbox);
+        print.success(`The block ${selectedFile.name} was selected.`);
+        await copyBlock(selectedFile, toolbox);
       }
     } else {
-      print.error('No components found on GitHub.');
+      print.error('No block found on GitHub.');
     }
   } catch (error) {
-    print.error(`Error when adding/selecting the component: ${error.message}`);
+    print.error(`Error when adding/selecting the block: ${error.message}`);
   }
+}
+
+async function copyBlock(file: { name: string; type: 'dir' | 'file' }, toolbox: ExtendedGluegunToolbox) {
+  const { print } = toolbox;
+  const apiUrl = `https://raw.githubusercontent.com/lenneTech/nuxt-base-components/main/blocks/${file.name}`;
+
+  return new Promise(async (resolve, reject) => {
+    try {
+      const config = await getConfigForBlock(file.name, toolbox);
+
+      if (config) {
+        await processConfig(config, toolbox);
+      }
+
+      const compSpinner = print.spin(`Load block ${file.name} from GitHub...`);
+      const response = await axios.get(apiUrl);
+      compSpinner.succeed(`Block ${file.name} successfully loaded from GitHub`);
+
+      if (response.status === 200) {
+        const sourceCode = response.data;
+        const cwd = process.cwd();
+        let targetDirectory: string;
+
+        if (fs.existsSync(path.resolve(cwd, 'pages'))) {
+          targetDirectory = path.resolve(cwd, 'pages');
+        } else {
+          const directories = glob.sync('*/pages', { cwd });
+
+          if (directories.length > 0) {
+            targetDirectory = path.join(cwd, directories[0]);
+          } else {
+            targetDirectory = cwd;
+          }
+        }
+
+        const targetName = file.name.replace(/([a-z])([A-Z])/g, '$1-$2')
+          .toLowerCase()
+          .replace(/^block-/, '');
+        const targetPath = path.join(targetDirectory, `${targetName}`);
+
+        // check if block already exists
+        if (fs.existsSync(targetPath)) {
+          print.info(`The block ${file.name} already exists`);
+          resolve(targetPath);
+          return;
+        }
+
+        if (!fs.existsSync(targetDirectory)) {
+          const targetDirSpinner = print.spin('Creating the target directory...');
+          fs.mkdirSync(targetDirectory, { recursive: true });
+          targetDirSpinner.succeed();
+        }
+
+        if (file.type === 'dir') {
+          const dirName = file.name.split('/')[0];
+          const dirPath = path.join(targetDirectory, dirName);
+          if (!fs.existsSync(dirPath)) {
+            fs.mkdirSync(dirPath, { recursive: true });
+          }
+        }
+
+        const spinner = print.spin(`Copy the block ${targetName} to ${targetPath}...`);
+        fs.writeFileSync(targetPath, sourceCode);
+        spinner.succeed(`The block ${targetName} was successfully copied to ${targetPath}`);
+        resolve(targetPath);
+      } else {
+        print.error(`Error retrieving the file from GitHub: ${response.statusText}`);
+        reject(response.statusText);
+      }
+    } catch (error) {
+      print.error(`Error when copying the block ${file.name}: ${error.message}`);
+      reject(error);
+    }
+  });
 }
 
 async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolbox: ExtendedGluegunToolbox) {
@@ -215,7 +305,7 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
 
   return new Promise(async (resolve, reject) => {
     try {
-      const config = await getConfigForComponent(file.name, toolbox);
+      const config = await getConfigForBlock(file.name, toolbox);
 
       if (config) {
         await processConfig(config, toolbox);
@@ -244,7 +334,6 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
 
         const targetPath = path.join(targetDirectory, `${file.name}`);
 
-        // check if component already exists
         if (fs.existsSync(targetPath)) {
           print.info(`The component ${file.name} already exists`);
           resolve(targetPath);
