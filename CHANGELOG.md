@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.114](https://github.com/lenneTech/cli/compare/v0.0.113...v0.0.114) (2025-02-19)
+
+
+### Features
+
+* **DEV-102:** Add command for blocks ([#60](https://github.com/lenneTech/cli/issues/60)) ([0e28774](https://github.com/lenneTech/cli/commit/0e28774b6cd60da36c63e3a453e1cedc7781528c))
+
+
+### Bug Fixes
+
+* **TEC-20:** Windows Scripts, nuxt command. ([#59](https://github.com/lenneTech/cli/issues/59)) ([3197e90](https://github.com/lenneTech/cli/commit/3197e900d6db0b58d333b064986e3ab6122f9e5b))
+
 ### [0.0.113](https://github.com/lenneTech/cli/compare/v0.0.112...v0.0.113) (2024-10-15)
 
 
