@@ -350,7 +350,7 @@ export class Server {
   properties: string[] = undefined;
 
   /**
-   * User how has tested the ${this.pascalCase(modelName)}
+   * User who has tested the ${this.pascalCase(modelName)}
    */
   @Field(() => User, {
     description: 'User who has tested the ${this.pascalCase(modelName)}',

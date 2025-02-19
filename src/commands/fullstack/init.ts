@@ -106,7 +106,7 @@ const NewCommand: GluegunCommand = {
     const ngBaseSpinner = spin(`Integrate example for ${frontend}`);
 
     // Remove git folder after clone
-    await system.run(`cd ${projectDir} && rm -rf .git`);
+    filesystem.remove(`${projectDir}/.git`);
 
     // Check if git init is active
     if (addToGit) {
@@ -126,10 +126,10 @@ const NewCommand: GluegunCommand = {
     }
 
     // Remove gitkeep file
-    await system.run(`cd ${projectDir}/projects && rm .gitkeep`);
+    filesystem.remove(`${projectDir}/projects/.gitkeep`);
 
     // Remove git folder after clone
-    await system.run(`cd ${projectDir}/projects/app && rm -rf .git`);
+    filesystem.remove(`${projectDir}/projects/app/.git`);
 
     // Integrate files
     if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
@@ -155,7 +155,7 @@ const NewCommand: GluegunCommand = {
       // Integrate files
       if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {
         // Remove git folder from clone
-        await system.run(`cd ${projectDir}/projects/api && rm -rf .git`);
+        filesystem.remove(`${projectDir}/projects/api/.git`);
 
         // Prepare meta.json in api
         filesystem.write(`./${projectDir}/projects/api/src/meta.json`, {
@@ -163,7 +163,7 @@ const NewCommand: GluegunCommand = {
           name: `${name}-api-server`,
           version: '0.0.0',
         });
-        
+
         await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, server.replaceSecretOrPrivateKeys);
 
         // Check if git init is active
