@@ -257,11 +257,11 @@ async function copyComponent(file: { name: string; type: 'dir' | 'file' }, toolb
           targetDirSpinner.succeed();
         }
 
-        if (file.type === 'dir') {
-          const dirName = file.name.split('/')[0];
-          const dirPath = path.join(targetDirectory, dirName);
+        if (file.type === 'dir' || file.name.split('/').length > 1) {
+          const dirName = file.name.split('/')[0]
+          const dirPath = path.join(targetDirectory, dirName)
           if (!fs.existsSync(dirPath)) {
-            fs.mkdirSync(dirPath, { recursive: true });
+            fs.mkdirSync(dirPath, { recursive: true })
           }
         }
 
