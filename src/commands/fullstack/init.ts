@@ -164,7 +164,9 @@ const NewCommand: GluegunCommand = {
           version: '0.0.0',
         });
 
-        await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, server.replaceSecretOrPrivateKeys);
+        // Replace secret or private keys and remove `nest-server`
+        await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, content => server.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, `${projectDir
+        }-`));
 
         // Check if git init is active
         if (addToGit) {
