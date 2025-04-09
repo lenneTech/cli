@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.115](https://github.com/lenneTech/cli/compare/v0.0.114...v0.0.115) (2025-04-09)
+
+
+### Bug Fixes
+
+* **DEV-44:** update config.env.ts to replace secret keys and adjust project directory prefix ([095719c](https://github.com/lenneTech/cli/commit/095719cd9a59d0266f6f1b8e62d038d5e55b49e9))
+
 ### [0.0.114](https://github.com/lenneTech/cli/compare/v0.0.113...v0.0.114) (2025-02-19)
 
 
