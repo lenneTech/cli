@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.0.116](https://github.com/lenneTech/cli/compare/v0.0.115...v0.0.116) (2025-04-16)
+
+
+### Features
+
+* **DEV-126:** Add option for rest controller. ([#62](https://github.com/lenneTech/cli/issues/62)) ([3c50594](https://github.com/lenneTech/cli/commit/3c505949ec5f6ac616abc6917aaa8ff6747da0af))
+
 ### [0.0.115](https://github.com/lenneTech/cli/compare/v0.0.114...v0.0.115) (2025-04-09)
 
 
