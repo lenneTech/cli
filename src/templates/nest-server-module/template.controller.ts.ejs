@@ -1,0 +1,45 @@
+import { ApiCommonErrorResponses, FilterArgs, RoleEnum, Roles } from '@lenne.tech/nest-server';
+import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+
+import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
+import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
+import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+
+@ApiCommonErrorResponses()
+@Controller('<%= props.lowercase %>')
+@Roles(RoleEnum.ADMIN)
+export class <%= props.namePascal %>Controller {
+
+constructor(protected readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service) {}
+
+  @Post()
+  @Roles(RoleEnum.ADMIN)
+  async create(@Body() input: <%= props.namePascal %>CreateInput): Promise<any> {
+    return await this.<%= props.nameCamel %>Service.create(input);
+  }
+
+  @Get()
+  @Roles(RoleEnum.ADMIN)
+  async get(@Body() filterArgs: FilterArgs): Promise<any> {
+    return await this.<%= props.nameCamel %>Service.find(filterArgs);
+  }
+
+  @Get(':id')
+  @Roles(RoleEnum.ADMIN)
+  async getById(@Param('id') id: string): Promise<any> {
+    return await this.<%= props.nameCamel %>Service.findOne({filterQuery: { _id: id }})
+  }
+
+  @Put(':id')
+  @Roles(RoleEnum.ADMIN)
+  async update(@Param('id') id: string, @Body() input: <%= props.namePascal %>Input): Promise<any> {
+    return await this.<%= props.nameCamel %>Service.update(id, input);
+  }
+
+  @Delete(':id')
+  @Roles(RoleEnum.ADMIN)
+  async delete(@Param('id') id: string): Promise<any> {
+    return await this.<%= props.nameCamel %>Service.delete(id);
+  }
+
+}
