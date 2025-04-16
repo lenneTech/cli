@@ -38,6 +38,7 @@ const NewCommand: ExtendedGluegunCommand = {
       parameters,
       patching,
       print: { divider, error, info, spin, success },
+      prompt: { ask, confirm },
       server,
       strings: { camelCase, kebabCase, pascalCase },
       system,
@@ -61,6 +62,14 @@ const NewCommand: ExtendedGluegunCommand = {
     if (!name) {
       return;
     }
+
+
+    const controller = (await ask({
+      choices: ['Rest', 'GraphQL', 'Both'],
+      message: 'What controller type?',
+      name: 'controller',
+      type: 'select',
+    })).controller;
 
     // Set up initial props (to pass into templates)
     const nameCamel = camelCase(name);
@@ -96,6 +105,14 @@ const NewCommand: ExtendedGluegunCommand = {
       template: 'nest-server-module/inputs/template.input.ts.ejs',
     });
 
+    if (controller === 'Rest' || controller === 'Both') {
+      await template.generate({
+        props: { lowercase: name.toLowerCase(), nameCamel: camelCase(name), nameKebab: kebabCase(name), namePascal: pascalCase(name) },
+        target: join(directory, `${nameKebab}.controller.ts`),
+        template: 'nest-server-module/template.controller.ts.ejs',
+      });
+    }
+
     // nest-server-module/inputs/xxx-create.input.ts
     await template.generate({
       props: { imports: createTemplate.imports, nameCamel, nameKebab, namePascal, props: createTemplate.props },
@@ -126,17 +143,19 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // nest-server-module/xxx.module.ts
     await template.generate({
-      props: { nameCamel, nameKebab, namePascal },
+      props: { controller, nameCamel, nameKebab, namePascal },
       target: join(directory, `${nameKebab}.module.ts`),
       template: 'nest-server-module/template.module.ts.ejs',
     });
 
+    if (controller === 'GraphQL' || controller === 'Both') {
     // nest-server-module/xxx.resolver.ts
     await template.generate({
       props: { nameCamel, nameKebab, namePascal },
       target: join(directory, `${nameKebab}.resolver.ts`),
       template: 'nest-server-module/template.resolver.ts.ejs',
     });
+    }
 
     // nest-server-module/xxx.service.ts
     await template.generate({
@@ -196,6 +215,11 @@ const NewCommand: ExtendedGluegunCommand = {
       divider();
       const nextObj = objectsToAdd.shift().object;
       await genObject.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
+    }
+
+    // Prettier
+    if (await confirm('Run Prettier?', true)) {
+      await system.run('npx prettier --write .');
     }
 
     divider();

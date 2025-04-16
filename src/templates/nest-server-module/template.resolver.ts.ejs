@@ -135,6 +135,6 @@ export class <%= props.namePascal %>Resolver {
     resolve: (value) => value,
   })
   async <%= props.nameCamel %>Created() {
-    return this.pubSub.asyncIterator('<%= props.nameCamel %>Created');
+    return this.pubSub.asyncIterableIterator('<%= props.nameCamel %>Created');
   }
 }

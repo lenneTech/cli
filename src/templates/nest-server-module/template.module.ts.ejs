@@ -5,23 +5,29 @@ import { PubSub } from 'graphql-subscriptions';
 
 import { UserModule } from '../user/user.module';
 import { <%= props.namePascal %>, <%= props.namePascal %>Schema } from './<%= props.nameKebab %>.model';
+<% if ((props.controller === 'GraphQL') || (props.controller === 'Both')) { -%>
 import { <%= props.namePascal %>Resolver } from './<%= props.nameKebab %>.resolver';
+<% } -%>
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
+<% if ((props.controller === 'Rest') || (props.controller === 'Both')) { -%>
+    import { <%= props.namePascal %>Controller } from './<%= props.nameKebab %>.controller';
+<% } -%>
 
 /**
- * <%= props.namePascal %> module
- */
+* <%= props.namePascal %> module
+*/
 @Module({
-  controllers: [],
-  exports: [MongooseModule, <%= props.namePascal %>Resolver, <%= props.namePascal %>Service],
-  imports: [
-    MongooseModule.forFeature([{ name: <%= props.namePascal %>.name, schema: <%= props.namePascal %>Schema }]),
-    forwardRef(() => UserModule),
-  ],
+<% if ((props.controller === 'Rest') || (props.controller === 'Both')) { -%>
+  controllers: [<%= props.namePascal %>Controller],
+<% } -%>
+  exports: [ MongooseModule, <% if ((props.controller === 'GraphQL') || (props.controller === 'Both')) { -%> <%= props.namePascal %>Resolver, <% } -%> <%= props.namePascal %>Service],
+  imports: [ MongooseModule.forFeature([{ name: <%= props.namePascal %>.name, schema: <%= props.namePascal %>Schema }]), forwardRef(() => UserModule) ],
   providers: [
-    ConfigService,
-    <%= props.namePascal %>Resolver,
-    <%= props.namePascal %>Service,
+  ConfigService,
+<% if ((props.controller === 'GraphQL') || (props.controller === 'Both')) { -%>
+  <%= props.namePascal %>Resolver,
+<% } -%>
+  <%= props.namePascal %>Service,
     {
       provide: 'PUB_SUB',
       useValue: new PubSub(),
