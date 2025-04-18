@@ -4,8 +4,8 @@ import { PromptOptions } from 'gluegun/build/types/toolbox/prompt-enquirer-types
 import { GluegunAskResponse, GluegunEnquirer } from 'gluegun/build/types/toolbox/prompt-types';
 import { join } from 'path';
 
-import { ServerProps } from '../interfaces/ServerProps.interface';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { ServerProps } from '../interfaces/ServerProps.interface';
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(questions: (((this: GluegunEnquirer) => PromptOptions) | PromptOptions)[] | ((this: GluegunEnquirer) => PromptOptions) | PromptOptions) => Promise<T>;
 type GluegunPromptConfirm = (message: string, initial?: boolean) => Promise<boolean>;
