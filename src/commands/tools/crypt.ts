@@ -1,9 +1,8 @@
+import bcrypt = require('bcrypt');
 import { GluegunCommand } from 'gluegun';
 import { sha256 } from 'js-sha256';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-
-import bcrypt = require('bcrypt');
 
 /**
  * Open regex tools in browser

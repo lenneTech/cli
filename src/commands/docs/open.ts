@@ -1,5 +1,5 @@
 import { GluegunCommand } from 'gluegun';
-import * as open from 'open';
+import { default as open } from 'open';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 

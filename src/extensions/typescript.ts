@@ -1,5 +1,5 @@
 import * as fs from 'fs';
-import * as open from 'open';
+import { default as open } from 'open';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
