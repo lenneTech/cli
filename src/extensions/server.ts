@@ -3,6 +3,7 @@ import { GluegunFilesystem } from 'gluegun';
 import { PromptOptions } from 'gluegun/build/types/toolbox/prompt-enquirer-types';
 import { GluegunAskResponse, GluegunEnquirer } from 'gluegun/build/types/toolbox/prompt-types';
 import { join } from 'path';
+import * as ts from 'typescript';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
@@ -23,6 +24,7 @@ export class Server {
   ask: GluegunPromptAsk;
   confirm: GluegunPromptConfirm;
   filesystem: GluegunFilesystem;
+  info: (message: string) => void;
 
   // Specific imports for default modells
   imports: Record<string, string> = {
@@ -116,73 +118,7 @@ export class Server {
     this.filesystem = toolbox.filesystem;
     this.kebabCase = toolbox.strings.kebabCase;
     this.pascalCase = toolbox.strings.pascalCase;
-  }
-
-  /**
-   * Construct the addition for the create.input.ts
-   */
-  constructCreateInputPatchString(propObj: ServerProps, moduleToEdit: string): string {
-    return `\n
-  /**
-   * ${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}
-   */
-  @Restricted(RoleEnum.ADMIN)
-  @Field(() => ${propObj.isArray ? `[${propObj.type
-  === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}]` : propObj.type
-  === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}, {
-    description: '${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}',
-    nullable: ${propObj.nullable},
-  })
-  ${propObj.nullable ? '@IsOptional()' : ''}${propObj.nullable ? '\n' : ''}  override ${propObj.name}${propObj.nullable ? '?' : ''}: ${propObj.isArray ? `${propObj.type
-  === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}[]` : propObj.type
-  === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)} = undefined;`;
-  }
-
-  /**
-   * Construct the Addition for the normal input.ts
-   */
-  constructInputPatchString(propObj: ServerProps, moduleToEdit: string): string {
-
-    const fieldType = propObj.isArray
-      ? `[${propObj.type === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}]`
-      : propObj.type === 'ObjectId'
-        ? propObj.reference
-        : this.pascalCase(propObj.type);
-
-    return `\n
-  /**
-   * ${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}
-   */
-  @Restricted(RoleEnum.ADMIN)
-  @Field(() => ${fieldType}, {
-    description: '${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}',
-    nullable: ${propObj.nullable},
-  })
-  ${propObj.nullable ? '@IsOptional()' : ''}${propObj.nullable ? '\n' : ''}  override ${propObj.name}${propObj.nullable ? '?' : ''}: ${propObj.isArray ? `${propObj.type
-    === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}[]` : propObj.type
-    === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)} = undefined;
-  `;
-  }
-
-  /**
-   * Construct the addition for the Model
-   */
-  constructModelPatchString(propObj: ServerProps, moduleToEdit: string): string {
-    return `\n
-  /**
-   * ${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}
-   */
-  @Restricted(RoleEnum.ADMIN)
-  @Field(() => ${propObj.isArray ? `[${propObj.type
-    === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}]` : propObj.type
-    === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}, {
-    description: '${this.pascalCase(propObj.name)} of ${this.pascalCase(moduleToEdit)}',
-    nullable: ${propObj.nullable},
-  })
-  @Prop(${propObj.type === 'ObjectId' ? `{ ref: ${propObj.reference}, type: Schema.Types.ObjectId }` : ''})
-  ${propObj.name}: ${propObj.isArray ? `${propObj.type
-    === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)}[]` : propObj.type
-    === 'ObjectId' ? propObj.reference : this.pascalCase(propObj.type)} = undefined;`;
+    this.info = toolbox.print.info;
   }
 
   /**
@@ -317,16 +253,32 @@ export class Server {
     return { objectsToAdd, props, referencesToAdd, refsSet, schemaSet };
   }
 
+  useDefineForClassFieldsActivated(): boolean {
+    const tsConfigPath = this.filesystem.resolve('tsconfig.json');
+    if (tsConfigPath) {
+      const readConfig = ts.readConfigFile(tsConfigPath, ts.sys.readFile);
+      if (!readConfig.error) {
+        const tsConfig = readConfig.config;
+        if (tsConfig?.compilerOptions?.useDefineForClassFields) {
+          return tsConfig.compilerOptions.useDefineForClassFields;
+        }
+      }
+    }
+    return false;
+  }
+
   /**
    * Create template string for properties in model
    */
   propsForModel(
     props: Record<string, ServerProps>,
-    options?: { modelName?: string; useDefault?: boolean },
+    options?: { declare?: boolean; modelName?: string; useDefault?: boolean },
   ): { imports: string; mappings: string; props: string } {
     // Preparations
     const config = { useDefault: true, ...options };
     const { modelName, useDefault } = config;
+    const declare = config?.declare ?? this.useDefineForClassFieldsActivated();
+    const undefinedString = declare ? ';' : ' = undefined;';
     let result = '';
 
     // Check parameters
@@ -347,7 +299,7 @@ export class Server {
   @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
   @Field(() => [String], { description: 'Properties of ${this.pascalCase(modelName)}', nullable: 'items'})
   @Prop([String])
-  properties: string[] = undefined;
+  properties: string[]${undefinedString}
 
   /**
    * User who has tested the ${this.pascalCase(modelName)}
@@ -357,7 +309,7 @@ export class Server {
     nullable: true,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
-  testedBy: User = undefined;
+  testedBy: User${undefinedString}
   `,
         };
       }
@@ -411,7 +363,7 @@ export class Server {
   ${propName}: ${
         (reference ? reference : enumRef || modelClassType) + (isArray ? '[]' : '')
         // (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
-      } = undefined;
+      }${undefinedString}
   `;
     }
 
@@ -440,11 +392,13 @@ export class Server {
    */
   propsForInput(
     props: Record<string, ServerProps>,
-    options?: { create?: boolean; modelName?: string; nullable?: boolean },
+    options?: { create?: boolean; declare?: boolean; modelName?: string; nullable?: boolean },
   ): { imports: string; props: string } {
     // Preparations
     const config = { useDefault: true, ...options };
     const { create, modelName, nullable, useDefault } = config;
+    const declare = config?.declare ?? this.useDefineForClassFieldsActivated();
+    const undefinedString = declare ? ';' : ' = undefined;';
     let result = '';
 
     // Check parameters
@@ -465,7 +419,7 @@ export class Server {
   @Field(() => [String], { description: 'Properties of ${this.pascalCase(modelName)}', nullable: ${
             config.nullable ? config.nullable : '\'items\''
           }})
-  properties: string[] = undefined;
+  properties: string[]${undefinedString}
 
   /**
    * User how has tested the ${this.pascalCase(modelName)}
@@ -474,7 +428,7 @@ export class Server {
     description: 'User who has tested the ${this.pascalCase(modelName)}',
     nullable: ${config.nullable},
   })
-  testedBy: User = undefined;
+  testedBy: User${undefinedString}
   `,
         };
       }
@@ -498,7 +452,8 @@ export class Server {
               ? this.pascalCase(item.enumRef)
               : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
         const propertySuffix = this.propertySuffixTypes[this.pascalCase(item.type)] || '';
-        const overrideFlag = create ? 'override ' : '';
+        const overrideString = this.useDefineForClassFieldsActivated() ? 'declare ' : 'override ';
+        const overrideFlag = create ? overrideString : '';
         if (this.imports[inputFieldType]) {
           imports[inputFieldType] = this.imports[inputFieldType];
         }
@@ -516,7 +471,7 @@ export class Server {
   })${nullable || item.nullable ? '\n  @IsOptional()' : ''}
   ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${
           inputClassType + (item.isArray ? '[]' : '')
-        } = undefined;
+        }${undefinedString}
   `;
       }
 

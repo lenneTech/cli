@@ -1,5 +1,12 @@
-import { GluegunCommand, patching } from 'gluegun';
+import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
+import {
+  ClassPropertyTypes,
+  OptionalKind,
+  Project,
+  PropertyDeclarationStructure,
+  SyntaxKind,
+} from 'ts-morph';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import genModule from './module';
@@ -18,9 +25,13 @@ const NewCommand: GluegunCommand = {
     const {
       filesystem,
       print: { divider, error, info, spin, success },
-      prompt: { ask },
+      prompt: { ask, confirm },
       server,
+      strings: { pascalCase },
+      system,
     } = toolbox;
+
+    const declare = server.useDefineForClassFieldsActivated();
 
     function getModules() {
       const cwd = filesystem.cwd();
@@ -75,21 +86,38 @@ const NewCommand: GluegunCommand = {
 
     const updateSpinner = spin('Updating files...');
 
-    const elementClass = objectOrModule === 'Module'
+    const project = new Project();
+
+    // Prepare model file
+    const modelPath = objectOrModule === 'Module'
       ? join(path, 'src', 'server', 'modules', elementToEdit, `${elementToEdit}.model.ts`)
       : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}.object.ts`);
-    const elementInput = objectOrModule === 'Module'
+    const moduleFile = project.addSourceFileAtPath(modelPath);
+    const modelDeclaration = moduleFile.getClasses()[0];
+    const modelProperties = modelDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
+
+    // Prepare input file
+    const inputPath = objectOrModule === 'Module'
       ? join(path, 'src', 'server', 'modules', elementToEdit, 'inputs', `${elementToEdit}.input.ts`)
       : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}.input.ts`);
-    const elementCreateInput = objectOrModule === 'Module'
+    const inputFile = project.addSourceFileAtPath(inputPath);
+    const inputDeclaration = inputFile.getClasses()[0];
+    const inputProperties = inputDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
+
+    // Prepare create input file
+    const creatInputPath = objectOrModule === 'Module'
       ? join(path, 'src', 'server', 'modules', elementToEdit, 'inputs', `${elementToEdit}-create.input.ts`)
       : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}-create.input.ts`);
+    const createInputFile = project.addSourceFileAtPath(creatInputPath);
+    const createInputDeclaration = createInputFile.getClasses()[0];
+    const createInputProperties = createInputDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration);
 
-    for (const prop in props) {
+    // Add props
+    for (const prop of Object.keys(props).reverse()) {
 
       const propObj = props[prop];
 
-      if (await patching.exists(elementClass, `${propObj.name}`)) {
+      if (modelProperties.some(p => p.getName() === propObj.name)) {
         info('');
         info(`Property ${propObj.name} already exists`);
 
@@ -109,25 +137,58 @@ const NewCommand: GluegunCommand = {
         continue;
       }
 
+      const type = ['any', 'bigint', 'boolean', 'never', 'null', 'number', 'string', 'symbol', 'undefined', 'unknown', 'void'].includes(propObj.type) ? propObj.type : pascalCase(propObj.type);
+      const standardDeclaration: OptionalKind<PropertyDeclarationStructure> = {
+        decorators: [
+          { arguments: [`() => ${propObj.isArray ? `[${propObj.type
+            === 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}]` : propObj.type
+            === 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}`,
+              `{ description: '${pascalCase(propObj.name)} of ${pascalCase(elementToEdit)}', nullable: ${propObj.nullable} }`],
+            name: 'Field',
+          },
+          { arguments: ['RoleEnum.ADMIN'], name: 'Restricted' },
+        ],
+        hasQuestionToken: propObj.nullable,
+        initializer: declare ? undefined : 'undefined',
+        name: propObj.name,
+        type: `${propObj.type === 'ObjectId' ? propObj.reference : type}${propObj.isArray ? '[]' : ''}`,
+      };
 
-      // Patch the Model
-      await patching.patch(elementClass, {
-        after: new RegExp('@Field[\\s\\S]*?undefined;(?![\\s\\S]*@Field)', 'g'),
-        insert: server.constructModelPatchString(propObj, elementToEdit),
-      });
+      // Patch model
+      const lastModelProperty = modelProperties[modelProperties.length - 1];
+      const newModelProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
+      newModelProperty.decorators.push({ arguments: [`${propObj.type === 'ObjectId' ? `{ ref: ${propObj.reference}, type: Schema.Types.ObjectId }` : ''}`], name: 'Prop' });
+      const insertedModelProp = modelDeclaration.insertProperty(lastModelProperty.getChildIndex() + 1, newModelProperty);
+      insertedModelProp.prependWhitespace('\n');
+      insertedModelProp.appendWhitespace('\n');
 
-      // Patch the normal input.ts
-      await patching.patch(elementInput, {
-        after: new RegExp('@Field[\\s\\S]*?undefined;(?![\\s\\S]*@Field)', 'g'),
-        insert: server.constructInputPatchString(propObj, elementToEdit),
-      });
+      // Patch input
+      const lastInputProperty = inputProperties[inputProperties.length - 1];
+      const newInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
+      if (propObj.nullable) {
+        newInputProperty.decorators.push({ arguments: [], name: 'IsOptional' });
+      }
+      const insertedInputProp = inputDeclaration.insertProperty(lastInputProperty.getChildIndex() + 1, newInputProperty);
+      insertedInputProp.prependWhitespace('\n');
+      insertedInputProp.appendWhitespace('\n');
 
-      // Patch the create.input.ts
-      await patching.patch(elementCreateInput, {
-        after: new RegExp('@Field[\\s\\S]*?undefined;(?![\\s\\S]*@Field)', 'g'),
-        insert: server.constructCreateInputPatchString(propObj, elementToEdit),
-      });
+      // Patch create input
+      const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
+      const newCreateInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(newInputProperty);
+      if (declare) {
+        newCreateInputProperty.hasDeclareKeyword = true;
+      } else {
+        newCreateInputProperty.hasOverrideKeyword = true;
+      }
+      const insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
+      insertedCreateInputProp.prependWhitespace('\n');
+      insertedCreateInputProp.appendWhitespace('\n');
     }
+
+    // Save files
+    await moduleFile.save();
+    await inputFile.save();
+    await createInputFile.save();
 
     updateSpinner.succeed('All files updated successfully.');
 
@@ -143,6 +204,11 @@ const NewCommand: GluegunCommand = {
       divider();
       const nextObj = objectsToAdd.shift().object;
       await genObject.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
+    }
+
+    // Lint fix
+    if (await confirm('Run lint fix?', true)) {
+      await system.run('npm run lint:fix');
     }
 
     if (refsSet || schemaSet) {

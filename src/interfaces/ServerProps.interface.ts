@@ -2,6 +2,7 @@
  * Server properties for models and inputs
  */
 export interface ServerProps {
+  declare?: boolean;
   enumRef: string;
   isArray: boolean;
   name: string;

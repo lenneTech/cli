@@ -37,6 +37,7 @@ const NewCommand: ExtendedGluegunCommand = {
       helper,
       parameters,
       print: { divider, error, info, spin, success },
+      prompt: { confirm },
       server,
       strings: { camelCase, kebabCase, pascalCase },
       system,
@@ -85,9 +86,10 @@ const NewCommand: ExtendedGluegunCommand = {
     const { props, refsSet, schemaSet } = await server.addProperties({ objectsToAdd, referencesToAdd });
 
     const generateSpinner = spin('Generate files');
-    const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
-    const createTemplate = server.propsForInput(props, { create: true, modelName: name, nullable: false });
-    const objectTemplate = server.propsForModel(props, { modelName: name });
+    const declare = server.useDefineForClassFieldsActivated();
+    const inputTemplate = server.propsForInput(props, { declare, modelName: name, nullable: true });
+    const createTemplate = server.propsForInput(props, { create: true, declare, modelName: name, nullable: false });
+    const objectTemplate = server.propsForModel(props, { declare, modelName: name });
 
     // nest-server-module/inputs/xxx.input.ts
     await template.generate({
@@ -119,10 +121,10 @@ const NewCommand: ExtendedGluegunCommand = {
 
     generateSpinner.succeed('Files generated');
 
-    // Linting
-    // if (await confirm('Run lint?', true)) {
-    //   await system.run('npm run lint');
-    // }
+    // Lint fix
+    if (await confirm('Run lint fix?', true)) {
+      await system.run('npm run lint:fix');
+    }
 
     // We're done, so show what to do next
     info('');
