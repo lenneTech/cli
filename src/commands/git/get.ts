@@ -52,6 +52,7 @@ const NewCommand: GluegunCommand = {
       remote: false,
       spin: true,
     });
+    info(`Found branch ${branch} for ${branchName}`);
     if (!branch) {
       return;
     }

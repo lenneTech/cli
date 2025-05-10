@@ -47,6 +47,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Start timer
     const timer = system.startTimer();
+    info('XXX');
 
     // Info
     if (currentItem) {
@@ -176,11 +177,19 @@ const NewCommand: ExtendedGluegunCommand = {
         insert: `import { ${namePascal}Module } from './modules/${nameKebab}/${nameKebab}.module';\n`,
       });
 
-      // Add Module
-      await patching.patch(serverModule, {
+      // Add Module directly into imports config
+      const patched = await patching.patch(serverModule, {
         after: new RegExp('imports:[^\\]]*', 'm'),
         insert: `  ${namePascal}Module,\n  `,
       });
+
+      // Add Module with forwardRef in exported imports
+      if (!patched) {
+        await patching.patch(serverModule, {
+          after: new RegExp('imports = \\[[^\\]]*', 'm'),
+          insert: ` forwardRef(() => ${namePascal}Module),\n  `,
+        });
+      }
 
       // Add comma if necessary
       await patching.patch(serverModule, {
@@ -218,8 +227,8 @@ const NewCommand: ExtendedGluegunCommand = {
     }
 
     // Prettier
-    if (await confirm('Run Prettier?', true)) {
-      await system.run('npx prettier --write .');
+    if (await confirm('Run lint fix?', true)) {
+      await system.run('npm run lint:fix');
     }
 
     divider();
