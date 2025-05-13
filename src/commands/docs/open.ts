@@ -1,5 +1,4 @@
 import { GluegunCommand } from 'gluegun';
-import { default as open } from 'open';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
@@ -19,6 +18,8 @@ const NewCommand: GluegunCommand = {
       print: { error },
       prompt: { ask },
     } = toolbox;
+
+    const { default: open } = await import('open');
 
     const choices = ['lenne.Tech', 'NestJS', 'GlueGun'];
 

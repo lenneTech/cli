@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import { default as open } from 'open';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
@@ -86,6 +85,7 @@ export class Typescript {
    * Open stackblitz
    */
   public async stackblitz() {
+    const { default: open } = await import('open');
     return open('https://stackblitz.com/fork/typescript');
   }
 

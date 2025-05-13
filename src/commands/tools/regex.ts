@@ -1,5 +1,4 @@
 import { GluegunCommand } from 'gluegun';
-import { default as open } from 'open';
 
 /**
  * Open regex tools in browser
@@ -10,6 +9,9 @@ const NewCommand: GluegunCommand = {
   hidden: false,
   name: 'regex',
   run: async () => {
+
+    const { default: open } = await import('open');
+
     // Open link
     await open('https://regex101.com');
 
