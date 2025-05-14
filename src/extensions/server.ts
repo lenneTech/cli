@@ -304,9 +304,10 @@ export class Server {
   /**
    * User who has tested the ${this.pascalCase(modelName)}
    */
-  @Field(() => User, {
+  @UnifiedField({
     description: 'User who has tested the ${this.pascalCase(modelName)}',
-    nullable: true,
+    isOptional: true,
+    type: () => User,
   })
   @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
   testedBy: User${undefinedString}
@@ -344,11 +345,6 @@ export class Server {
   /**
    * ${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}
    */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(() => ${(isArray ? '[' : '') + (reference ? reference : modelFieldType) + (isArray ? ']' : '')}, {
-    description: '${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
-    nullable: ${item.nullable},
-  })
   @Prop(${
         reference
           ? `${isArray ? '[' : ''}{ ref: '${reference}', type: Schema.Types.ObjectId }${isArray ? ']' : ''}`
@@ -360,10 +356,13 @@ export class Server {
                 ? `${isArray ? '[' : ''}{ type: Object }${isArray ? ']' : ''}`
                 : ''
       })
-  ${propName}: ${
-        (reference ? reference : enumRef || modelClassType) + (isArray ? '[]' : '')
-        // (reference ? ' | ' + reference + (isArray ? '[]' : '') : '')
-      }${undefinedString}
+  @UnifiedField({
+    description: '${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
+    isOptional: ${item.nullable},
+    roles: RoleEnum.S_EVERYONE,
+    type: () => ${reference ? reference : modelFieldType},
+  })
+  ${propName}: ${(reference ? reference : enumRef || modelClassType) + (isArray ? '[]' : '')}${undefinedString}
   `;
     }
 
@@ -422,11 +421,11 @@ export class Server {
   properties: string[]${undefinedString}
 
   /**
-   * User how has tested the ${this.pascalCase(modelName)}
+   * User who has tested the ${this.pascalCase(modelName)}
    */
-  @Field(() => User, {
+  @UnifiedField({
     description: 'User who has tested the ${this.pascalCase(modelName)}',
-    nullable: ${config.nullable},
+    isOptional: ${config.nullable},
   })
   testedBy: User${undefinedString}
   `,
@@ -464,14 +463,13 @@ export class Server {
   /**
    * ${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}
    */
-  @Restricted(RoleEnum.S_EVERYONE)
-  @Field(() => ${(item.isArray ? '[' : '') + inputFieldType + (item.isArray ? ']' : '')}, {
+  @UnifiedField({
     description: '${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
-    nullable: ${nullable || item.nullable},
-  })${nullable || item.nullable ? '\n  @IsOptional()' : ''}
-  ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${
-          inputClassType + (item.isArray ? '[]' : '')
-        }${undefinedString}
+    isOptional: ${nullable},
+    roles: RoleEnum.S_EVERYONE,
+    type: () => ${inputFieldType}
+  })
+  ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${inputClassType}${item.isArray ? '[]' : ''}${undefinedString}
   `;
       }
 

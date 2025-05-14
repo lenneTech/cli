@@ -1,9 +1,11 @@
 import { ApiCommonErrorResponses, FilterArgs, RoleEnum, Roles } from '@lenne.tech/nest-server';
 import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import { ApiOkResponse } from '@nestjs/swagger';
 
 import { <%= props.namePascal %>Service } from './<%= props.nameKebab %>.service';
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
+import { <%= props.namePascal %> } from './<%= props.nameKebab %>.model';
 
 @ApiCommonErrorResponses()
 @Controller('<%= props.lowercase %>')
@@ -14,31 +16,36 @@ constructor(protected readonly <%= props.nameCamel %>Service: <%= props.namePasc
 
   @Post()
   @Roles(RoleEnum.ADMIN)
-  async create(@Body() input: <%= props.namePascal %>CreateInput): Promise<any> {
+  @ApiOkResponse({ type: <%= props.namePascal %> })
+  async create(@Body() input: <%= props.namePascal %>CreateInput): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.create(input);
   }
 
   @Get()
   @Roles(RoleEnum.ADMIN)
-  async get(@Body() filterArgs: FilterArgs): Promise<any> {
+  @ApiOkResponse({ isArray: true, type: <%= props.namePascal %> })
+  async get(@Body() filterArgs: FilterArgs): Promise<<%= props.namePascal %>[]> {
     return await this.<%= props.nameCamel %>Service.find(filterArgs);
   }
 
   @Get(':id')
   @Roles(RoleEnum.ADMIN)
-  async getById(@Param('id') id: string): Promise<any> {
+  @ApiOkResponse({ type: <%= props.namePascal %> })
+  async getById(@Param('id') id: string): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.findOne({filterQuery: { _id: id }})
   }
 
   @Put(':id')
   @Roles(RoleEnum.ADMIN)
-  async update(@Param('id') id: string, @Body() input: <%= props.namePascal %>Input): Promise<any> {
+  @ApiOkResponse({ type: <%= props.namePascal %> })
+  async update(@Param('id') id: string, @Body() input: <%= props.namePascal %>Input): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.update(id, input);
   }
 
   @Delete(':id')
   @Roles(RoleEnum.ADMIN)
-  async delete(@Param('id') id: string): Promise<any> {
+  @ApiOkResponse({ type: <%= props.namePascal %> })
+  async delete(@Param('id') id: string): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.delete(id);
   }
 

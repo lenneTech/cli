@@ -1,6 +1,5 @@
-import { Restricted, RoleEnum } from '@lenne.tech/nest-server';
-import { Field, InputType } from '@nestjs/graphql';
-import { IsOptional } from 'class-validator';<%- props.imports %>
+import { Restricted, RoleEnum, UnifiedField } from '@lenne.tech/nest-server';
+import { InputType } from '@nestjs/graphql';
 
 import { <%= props.namePascal %>Input } from './<%= props.nameKebab %>.input';
 

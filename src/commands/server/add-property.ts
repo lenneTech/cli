@@ -1,7 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 import {
-  ClassPropertyTypes,
+  ClassPropertyTypes, IndentationText,
   OptionalKind,
   Project,
   PropertyDeclarationStructure,
@@ -138,26 +138,64 @@ const NewCommand: GluegunCommand = {
       }
 
       const type = ['any', 'bigint', 'boolean', 'never', 'null', 'number', 'string', 'symbol', 'undefined', 'unknown', 'void'].includes(propObj.type) ? propObj.type : pascalCase(propObj.type);
+
+      const description = `'${pascalCase(propObj.name)} of ${pascalCase(elementToEdit)}'`;
+
+      const typeString = () => {
+        switch (true) {
+          case type === 'Json':
+            return 'JSON';
+
+          case !!propObj.enumRef:
+            return propObj.enumRef;
+
+          case !!propObj.schema:
+            return propObj.schema;
+
+          case propObj.type === 'ObjectId':
+            return propObj.reference;
+
+          default:
+            return pascalCase(type);
+        }
+      };
+
+      // Build @UnifiedField options; types vary and can't go in standardDeclaration
+      function constructUnifiedFieldOptions(type: 'create' | 'input' | 'model'): string {
+        switch (type) {
+          case 'create':
+            return `{
+              description: ${description},${propObj.nullable ? '\nisOptional: true,' : ''}
+              roles: RoleEnum.ADMIN,${propObj.enumRef ? '' : `\ntype: () => ${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : ''}`}
+              }`;
+          case 'input':
+            return `{
+              description: ${description},
+              isOptional: true,
+              roles: RoleEnum.ADMIN,
+              ${propObj.enumRef ? `enum: { enum: ${propObj.enumRef} }` : `type: () => ${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? 'Input' : ''}`}
+              }`;
+          case 'model':
+            return `{
+              description: ${description},${propObj.nullable ? '\nisOptional: true,' : ''}
+              roles: RoleEnum.ADMIN,${propObj.enumRef ? '' : `\ntype: () => ${typeString()}`}
+              }`;
+        }
+      }
+
       const standardDeclaration: OptionalKind<PropertyDeclarationStructure> = {
-        decorators: [
-          { arguments: [`() => ${propObj.isArray ? `[${propObj.type
-            === 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}]` : propObj.type
-            === 'ObjectId' ? propObj.reference : pascalCase(propObj.type)}`,
-              `{ description: '${pascalCase(propObj.name)} of ${pascalCase(elementToEdit)}', nullable: ${propObj.nullable} }`],
-            name: 'Field',
-          },
-          { arguments: ['RoleEnum.ADMIN'], name: 'Restricted' },
-        ],
+        decorators: [],
         hasQuestionToken: propObj.nullable,
         initializer: declare ? undefined : 'undefined',
         name: propObj.name,
-        type: `${propObj.type === 'ObjectId' ? propObj.reference : type}${propObj.isArray ? '[]' : ''}`,
       };
 
       // Patch model
       const lastModelProperty = modelProperties[modelProperties.length - 1];
       const newModelProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
-      newModelProperty.decorators.push({ arguments: [`${propObj.type === 'ObjectId' ? `{ ref: ${propObj.reference}, type: Schema.Types.ObjectId }` : ''}`], name: 'Prop' });
+      newModelProperty.decorators.push({ arguments: [`${propObj.type === 'ObjectId' || propObj.schema ? `{ ref: () => ${propObj.reference}, type: Schema.Types.ObjectId }` : ''}`], name: 'Prop' });
+      newModelProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('model')], name: 'UnifiedField' });
+      newModelProperty.type = `${typeString()}${propObj.isArray ? '[]' : ''}`;
       const insertedModelProp = modelDeclaration.insertProperty(lastModelProperty.getChildIndex() + 1, newModelProperty);
       insertedModelProp.prependWhitespace('\n');
       insertedModelProp.appendWhitespace('\n');
@@ -165,25 +203,37 @@ const NewCommand: GluegunCommand = {
       // Patch input
       const lastInputProperty = inputProperties[inputProperties.length - 1];
       const newInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
-      if (propObj.nullable) {
-        newInputProperty.decorators.push({ arguments: [], name: 'IsOptional' });
-      }
+      newInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('input')], name: 'UnifiedField' });
+      const inputSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'Input' : '';
+      newInputProperty.type = `${typeString()}${inputSuffix}${propObj.isArray ? '[]' : ''}`;
       const insertedInputProp = inputDeclaration.insertProperty(lastInputProperty.getChildIndex() + 1, newInputProperty);
       insertedInputProp.prependWhitespace('\n');
       insertedInputProp.appendWhitespace('\n');
 
       // Patch create input
       const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
-      const newCreateInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(newInputProperty);
+      const newCreateInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       if (declare) {
         newCreateInputProperty.hasDeclareKeyword = true;
       } else {
         newCreateInputProperty.hasOverrideKeyword = true;
       }
+      newCreateInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('create')], name: 'UnifiedField' });
+      const createSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : '';
+      newCreateInputProperty.type = `${typeString()}${createSuffix}${propObj.isArray ? '[]' : ''}`;
       const insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
       insertedCreateInputProp.prependWhitespace('\n');
       insertedCreateInputProp.appendWhitespace('\n');
     }
+
+    project.manipulationSettings.set({
+      indentationText: IndentationText.TwoSpaces,
+    });
+
+    // Format files
+    moduleFile.formatText();
+    inputFile.formatText();
+    createInputFile.formatText();
 
     // Save files
     await moduleFile.save();
