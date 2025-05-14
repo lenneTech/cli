@@ -1,7 +1,7 @@
-import { CoreModel, mapClasses, Restricted, RoleEnum } from '@lenne.tech/nest-server';
-import { Field, ObjectType } from '@nestjs/graphql';
+import { CoreModel, Restricted, RoleEnum, UnifiedField } from '@lenne.tech/nest-server';
+import { ObjectType } from '@nestjs/graphql';
 import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Schema } from 'mongoose';<%- props.imports %>
+import { Document } from 'mongoose';<%- props.imports %>
 
 import { User } from '../../../modules/user/user.model';
 
@@ -40,6 +40,7 @@ export class <%= props.namePascal %> extends CoreModel {
    */
   override map(input) {
     super.map(input);
+    // return mapClasses(input, { propertyName: PropertyModel }, this);
     return <%- props.mappings %>
   }
 

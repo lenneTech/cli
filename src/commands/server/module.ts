@@ -116,14 +116,14 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // nest-server-module/inputs/xxx-create.input.ts
     await template.generate({
-      props: { imports: createTemplate.imports, nameCamel, nameKebab, namePascal, props: createTemplate.props },
+      props: { imports: createTemplate.imports, isGql: controller === 'GraphQL' || controller === 'Both', nameCamel, nameKebab, namePascal, props: createTemplate.props },
       target: join(directory, 'inputs', `${nameKebab}-create.input.ts`),
       template: 'nest-server-module/inputs/template-create.input.ts.ejs',
     });
 
     // nest-server-module/output/find-and-count-xxxs-result.output.ts
     await template.generate({
-      props: { nameCamel, nameKebab, namePascal },
+      props: { isGql: controller === 'GraphQL' || controller === 'Both', nameCamel, nameKebab, namePascal },
       target: join(directory, 'outputs', `find-and-count-${nameKebab}s-result.output.ts`),
       template: 'nest-server-module/outputs/template-fac-result.output.ts.ejs',
     });
@@ -132,6 +132,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         imports: modelTemplate.imports,
+        isGql: controller === 'GraphQL' || controller === 'Both',
         mappings: modelTemplate.mappings,
         nameCamel,
         nameKebab,

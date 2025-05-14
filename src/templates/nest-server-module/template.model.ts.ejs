@@ -1,5 +1,7 @@
-import { Restricted, RoleEnum, equalIds, mapClasses } from '@lenne.tech/nest-server';
-import { Field, ObjectType } from '@nestjs/graphql';
+import { Restricted, RoleEnum, equalIds, mapClasses , UnifiedField} from '@lenne.tech/nest-server';
+<% if (props.isGql) { %>
+import { ObjectType } from '@nestjs/graphql';
+<% } %>
 import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';<%- props.imports %>
 
@@ -12,7 +14,7 @@ export type <%= props.namePascal %>Document = <%= props.namePascal %> & Document
  * <%= props.namePascal %> model
  */
 @Restricted(RoleEnum.ADMIN)
-@ObjectType({ description: '<%= props.namePascal %>' })
+<% if (props.isGql) { %> @ObjectType({ description: '<%= props.namePascal %>' })  <% } %>
 @MongooseSchema({ timestamps: true })
 export class <%= props.namePascal %> extends PersistenceModel {
 
