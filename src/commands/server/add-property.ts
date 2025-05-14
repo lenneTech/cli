@@ -140,14 +140,6 @@ const NewCommand: GluegunCommand = {
       const type = ['any', 'bigint', 'boolean', 'never', 'null', 'number', 'string', 'symbol', 'undefined', 'unknown', 'void'].includes(propObj.type) ? propObj.type : pascalCase(propObj.type);
 
       const description = `'${pascalCase(propObj.name)} of ${pascalCase(elementToEdit)}'`;
-      // const typeString = `${type === 'Json'
-      //   ? 'JSON'
-      //   : `${propObj.enumRef
-      //   || (propObj.schema
-      //     ? propObj.schema
-      //     : (propObj.type === 'ObjectId'
-      //       ? propObj.reference
-      //       : pascalCase(type)))}`}`;
 
       const typeString = () => {
         switch (true) {
@@ -168,17 +160,13 @@ const NewCommand: GluegunCommand = {
         }
       };
 
-
-
       // Build @UnifiedField options; types vary and can't go in standardDeclaration
       function constructUnifiedFieldOptions(type: 'create' | 'input' | 'model'): string {
         switch (type) {
           case 'create':
             return `{
-              description: ${description},
-              ${propObj.nullable ? 'isOptional: true,' : ''}
-              roles: RoleEnum.ADMIN,
-              ${propObj.enumRef ? '' : `type: () => ${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : ''}`}
+              description: ${description},${propObj.nullable ? '\nisOptional: true,' : ''}
+              roles: RoleEnum.ADMIN,${propObj.enumRef ? '' : `\ntype: () => ${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : ''}`}
               }`;
           case 'input':
             return `{
@@ -189,10 +177,8 @@ const NewCommand: GluegunCommand = {
               }`;
           case 'model':
             return `{
-              description: ${description},
-              ${propObj.nullable ? 'isOptional: true,' : ''}
-              roles: RoleEnum.ADMIN,
-              ${propObj.enumRef ? '' : `type: () => ${typeString()}`}
+              description: ${description},${propObj.nullable ? '\nisOptional: true,' : ''}
+              roles: RoleEnum.ADMIN,${propObj.enumRef ? '' : `\ntype: () => ${typeString()}`}
               }`;
         }
       }
@@ -253,8 +239,6 @@ const NewCommand: GluegunCommand = {
     await moduleFile.save();
     await inputFile.save();
     await createInputFile.save();
-
-
 
     updateSpinner.succeed('All files updated successfully.');
 
