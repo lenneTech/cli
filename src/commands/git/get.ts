@@ -52,9 +52,9 @@ const NewCommand: GluegunCommand = {
       remote: false,
       spin: true,
     });
-    info(`Found branch ${branch} for ${branchName}`);
+
     if (!branch) {
-      return;
+      process.exit(1);
     }
 
     // Get remote branch
@@ -66,8 +66,10 @@ const NewCommand: GluegunCommand = {
         !parameters.options.noConfirm
         && !(await prompt.confirm(`Checkout ${remoteBranch ? 'remote' : 'local'} branch ${branch}`))
       ) {
-        return;
+        process.exit(1);
       }
+    } else {
+      success(`Branch ${branchName} found`);
     }
 
     // Checkout branch

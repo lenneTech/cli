@@ -321,7 +321,7 @@ export class Git {
         .split(/\r?\n/)
         .map(line => line.trim())
         .find(line => line.includes(branch))
-        .replace(/^.*origin\//, '')
+        ?.replace(/^.*origin\//, '')
         .replace(/^.*github\//, '')
         .replace(/^\* /, '')
         .trim();

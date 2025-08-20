@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "0.0.122",
+  "version": "0.0.123",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -49,7 +49,7 @@
     "bin"
   ],
   "dependencies": {
-    "@lenne.tech/cli-plugin-helper": "0.0.12",
+    "@lenne.tech/cli-plugin-helper": "0.0.13",
     "bcrypt": "6.0.0",
     "find-file-up": "2.0.1",
     "glob": "11.0.3",
@@ -65,10 +65,10 @@
     "@lenne.tech/eslint-config-ts": "2.1.3",
     "@lenne.tech/npm-package-helper": "0.0.12",
     "@types/jest": "30.0.0",
-    "@types/node": "24.2.0",
-    "@typescript-eslint/eslint-plugin": "8.39.0",
-    "@typescript-eslint/parser": "8.39.0",
-    "eslint": "9.32.0",
+    "@types/node": "24.3.0",
+    "@typescript-eslint/eslint-plugin": "8.40.0",
+    "@typescript-eslint/parser": "8.40.0",
+    "eslint": "9.33.0",
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jest": "30.0.5",
