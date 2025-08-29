@@ -9,7 +9,7 @@ import genObject from './object';
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['m'],
-  description: 'Creates a new server module',
+  description: 'Creates a new server module. Use --name <ModuleName>, --controller (Rest|GraphQL|Both), and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode.',
   hidden: false,
   name: 'module',
   run: async (
@@ -55,16 +55,21 @@ const NewCommand: ExtendedGluegunCommand = {
       info('Create a new server module');
     }
 
-    const name = await helper.getInput(currentItem || parameters.first, {
-      initial: currentItem || '',
-      name: 'module name',
-    });
+    // Parse CLI arguments
+    const { controller: cliController, name: cliName, skipLint: cliSkipLint } = parameters.options;
+
+    let name = cliName || currentItem || parameters.first;
+    if (!name) {
+      name = await helper.getInput(currentItem || parameters.first, {
+        initial: currentItem || '',
+        name: 'module name',
+      });
+    }
     if (!name) {
       return;
     }
 
-
-    const controller = (await ask({
+    const controller = cliController || (await ask({
       choices: ['Rest', 'GraphQL', 'Both'],
       message: 'What controller type?',
       name: 'controller',
@@ -91,7 +96,48 @@ const NewCommand: ExtendedGluegunCommand = {
       return undefined;
     }
 
-    const { props, refsSet, schemaSet } = await server.addProperties({ objectsToAdd, referencesToAdd });
+    // Parse property arguments from CLI or prompt interactively
+    const argProps = Object.keys(parameters.options || {}).filter((key: string) => key.startsWith('prop'));
+    let props = {};
+    let refsSet = false;
+    let schemaSet = false;
+
+    if (argProps.length > 0) {
+      // Parse properties from CLI arguments
+      const propNames = argProps.filter(key => key.startsWith('prop-name')).map(key => parameters.options[key]);
+      const propTypes = argProps.filter(key => key.startsWith('prop-type')).map(key => parameters.options[key]);
+      const propNullables = argProps.filter(key => key.startsWith('prop-nullable')).map(key => parameters.options[key] === 'true');
+      const propArrays = argProps.filter(key => key.startsWith('prop-array')).map(key => parameters.options[key] === 'true');
+      const propEnumRefs = argProps.filter(key => key.startsWith('prop-enum')).map(key => parameters.options[key]);
+      const propSchemas = argProps.filter(key => key.startsWith('prop-schema')).map(key => parameters.options[key]);
+      const propReferences = argProps.filter(key => key.startsWith('prop-reference')).map(key => parameters.options[key]);
+
+      // Build props object from CLI arguments
+      for (let i = 0; i < propNames.length; i++) {
+        const name = propNames[i];
+        const type = propTypes[i] || 'string';
+        const nullable = propNullables[i] || false;
+        const isArray = propArrays[i] || false;
+
+        if (name) {
+          props[name] = {
+            enumRef: propEnumRefs[i] || null,
+            isArray,
+            name,
+            nullable,
+            reference: propReferences[i] || null,
+            schema: propSchemas[i] || null,
+            type,
+          };
+        }
+      }
+    } else {
+      // Use interactive mode
+      const result = await server.addProperties({ objectsToAdd, referencesToAdd });
+      props = result.props;
+      refsSet = result.refsSet;
+      schemaSet = result.schemaSet;
+    }
 
     const generateSpinner = spin('Generate files');
     const declare = server.useDefineForClassFieldsActivated();
@@ -228,8 +274,10 @@ const NewCommand: ExtendedGluegunCommand = {
     }
 
     // Lint fix
+    if (!cliSkipLint) {
     if (await confirm('Run lint fix?', true)) {
       await system.run('npm run lint:fix');
+    }
     }
 
     divider();

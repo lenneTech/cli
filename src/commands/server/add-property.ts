@@ -17,7 +17,7 @@ import genObject from './object';
  */
 const NewCommand: GluegunCommand = {
   alias: ['ap'],
-  description: 'Adds a property to a module',
+  description: 'Adds a property to a module. Use --type (Module|Object), --element <name>, --prop-name-X <name>, --prop-type-X <type>, --prop-nullable-X (true|false), --prop-array-X (true|false), --prop-enum-X <EnumName>, --prop-schema-X <SchemaName>, --prop-reference-X <ReferenceName> for non-interactive mode.',
   hidden: false,
   name: 'addProp',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -30,6 +30,11 @@ const NewCommand: GluegunCommand = {
       strings: { pascalCase },
       system,
     } = toolbox;
+
+
+    // const notInteractivce = toolbox.parameters.options.ni;
+const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: string) => key.startsWith('prop'));
+
 
     const declare = server.useDefineForClassFieldsActivated();
 
@@ -49,7 +54,10 @@ const NewCommand: GluegunCommand = {
       return filesystem.subdirectories(objectDirs, true);
     }
 
-    const objectOrModule = (
+    // Parse CLI arguments
+    const { element: cliElement, type: cliType } = toolbox.parameters.options;
+
+    const objectOrModule = cliType || (
       await ask([
         {
           choices: ['Module', 'Object'],
@@ -60,8 +68,7 @@ const NewCommand: GluegunCommand = {
       ])
     ).input;
 
-
-    const elementToEdit = (
+    const elementToEdit = cliElement || (
       await ask([
         {
           choices: objectOrModule === 'Module' ? getModules() : getObjects(),
@@ -82,7 +89,51 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
-    const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet } = await server.addProperties();
+    // Parse property arguments from CLI or prompt interactively
+    let objectsToAdd = [];
+    let props = {};
+    let referencesToAdd = [];
+    let refsSet = false;
+    let schemaSet = false;
+
+    if (argProps.length > 0) {
+      // Parse properties from CLI arguments
+      const propNames = argProps.filter(key => key.startsWith('prop-name')).map(key => toolbox.parameters.options[key]);
+      const propTypes = argProps.filter(key => key.startsWith('prop-type')).map(key => toolbox.parameters.options[key]);
+      const propNullables = argProps.filter(key => key.startsWith('prop-nullable')).map(key => toolbox.parameters.options[key] === 'true');
+      const propArrays = argProps.filter(key => key.startsWith('prop-array')).map(key => toolbox.parameters.options[key] === 'true');
+      const propEnumRefs = argProps.filter(key => key.startsWith('prop-enum')).map(key => toolbox.parameters.options[key]);
+      const propSchemas = argProps.filter(key => key.startsWith('prop-schema')).map(key => toolbox.parameters.options[key]);
+      const propReferences = argProps.filter(key => key.startsWith('prop-reference')).map(key => toolbox.parameters.options[key]);
+
+      // Build props object from CLI arguments
+      for (let i = 0; i < propNames.length; i++) {
+        const name = propNames[i];
+        const type = propTypes[i] || 'string';
+        const nullable = propNullables[i] || false;
+        const isArray = propArrays[i] || false;
+
+        if (name) {
+          props[name] = {
+            enumRef: propEnumRefs[i] || null,
+            isArray,
+            name,
+            nullable,
+            reference: propReferences[i] || null,
+            schema: propSchemas[i] || null,
+            type,
+          };
+        }
+      }
+    } else {
+      // Use interactive mode
+      const result = await server.addProperties();
+      objectsToAdd = result.objectsToAdd;
+      props = result.props;
+      referencesToAdd = result.referencesToAdd;
+      refsSet = result.refsSet;
+      schemaSet = result.schemaSet;
+    }
 
     const updateSpinner = spin('Updating files...');
 
