@@ -31,10 +31,7 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
-
-    // const notInteractivce = toolbox.parameters.options.ni;
 const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: string) => key.startsWith('prop'));
-
 
     const declare = server.useDefineForClassFieldsActivated();
 

@@ -98,7 +98,6 @@ const NewCommand: ExtendedGluegunCommand = {
     const { objectsToAdd: newObjects, props, referencesToAdd: newReferences, refsSet, schemaSet }
       = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
 
-// Update lists
     objectsToAdd = newObjects;
     referencesToAdd = newReferences;
 
