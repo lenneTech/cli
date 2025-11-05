@@ -17,7 +17,7 @@ import genObject from './object';
  */
 const NewCommand: GluegunCommand = {
   alias: ['ap'],
-  description: 'Adds a property to a module',
+  description: 'Adds a property to a module. Use --type (Module|Object), --element <name>, --prop-name-X <name>, --prop-type-X <type>, --prop-nullable-X (true|false), --prop-array-X (true|false), --prop-enum-X <EnumName>, --prop-schema-X <SchemaName>, --prop-reference-X <ReferenceName> for non-interactive mode.',
   hidden: false,
   name: 'addProp',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -30,6 +30,8 @@ const NewCommand: GluegunCommand = {
       strings: { pascalCase },
       system,
     } = toolbox;
+
+const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: string) => key.startsWith('prop'));
 
     const declare = server.useDefineForClassFieldsActivated();
 
@@ -49,7 +51,10 @@ const NewCommand: GluegunCommand = {
       return filesystem.subdirectories(objectDirs, true);
     }
 
-    const objectOrModule = (
+    // Parse CLI arguments
+    const { element: cliElement, type: cliType } = toolbox.parameters.options;
+
+    const objectOrModule = cliType || (
       await ask([
         {
           choices: ['Module', 'Object'],
@@ -60,8 +65,7 @@ const NewCommand: GluegunCommand = {
       ])
     ).input;
 
-
-    const elementToEdit = (
+    const elementToEdit = cliElement || (
       await ask([
         {
           choices: objectOrModule === 'Module' ? getModules() : getObjects(),
@@ -82,7 +86,14 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
-    const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet } = await server.addProperties();
+    const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet }
+      = await toolbox.parseProperties({
+        argProps,
+        objectsToAdd: [],
+        parameters: toolbox.parameters,
+        referencesToAdd: [],
+        server: toolbox.server,
+      });
 
     const updateSpinner = spin('Updating files...');
 
@@ -191,27 +202,38 @@ const NewCommand: GluegunCommand = {
       };
 
       // Patch model
-      const lastModelProperty = modelProperties[modelProperties.length - 1];
       const newModelProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       newModelProperty.decorators.push({ arguments: [`${propObj.type === 'ObjectId' || propObj.schema ? `{ ref: () => ${propObj.reference}, type: Schema.Types.ObjectId }` : ''}`], name: 'Prop' });
       newModelProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('model')], name: 'UnifiedField' });
       newModelProperty.type = `${typeString()}${propObj.isArray ? '[]' : ''}`;
-      const insertedModelProp = modelDeclaration.insertProperty(lastModelProperty.getChildIndex() + 1, newModelProperty);
+
+      let insertedModelProp;
+      if (modelProperties.length > 0) {
+        const lastModelProperty = modelProperties[modelProperties.length - 1];
+        insertedModelProp = modelDeclaration.insertProperty(lastModelProperty.getChildIndex() + 1, newModelProperty);
+      } else {
+        insertedModelProp = modelDeclaration.addProperty(newModelProperty);
+      }
       insertedModelProp.prependWhitespace('\n');
       insertedModelProp.appendWhitespace('\n');
 
       // Patch input
-      const lastInputProperty = inputProperties[inputProperties.length - 1];
       const newInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       newInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('input')], name: 'UnifiedField' });
       const inputSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'Input' : '';
       newInputProperty.type = `${typeString()}${inputSuffix}${propObj.isArray ? '[]' : ''}`;
-      const insertedInputProp = inputDeclaration.insertProperty(lastInputProperty.getChildIndex() + 1, newInputProperty);
+
+      let insertedInputProp;
+      if (inputProperties.length > 0) {
+        const lastInputProperty = inputProperties[inputProperties.length - 1];
+        insertedInputProp = inputDeclaration.insertProperty(lastInputProperty.getChildIndex() + 1, newInputProperty);
+      } else {
+        insertedInputProp = inputDeclaration.addProperty(newInputProperty);
+      }
       insertedInputProp.prependWhitespace('\n');
       insertedInputProp.appendWhitespace('\n');
 
       // Patch create input
-      const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
       const newCreateInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       if (declare) {
         newCreateInputProperty.hasDeclareKeyword = true;
@@ -221,7 +243,14 @@ const NewCommand: GluegunCommand = {
       newCreateInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('create')], name: 'UnifiedField' });
       const createSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : '';
       newCreateInputProperty.type = `${typeString()}${createSuffix}${propObj.isArray ? '[]' : ''}`;
-      const insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
+
+      let insertedCreateInputProp;
+      if (createInputProperties.length > 0) {
+        const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
+        insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
+      } else {
+        insertedCreateInputProp = createInputDeclaration.addProperty(newCreateInputProperty);
+      }
       insertedCreateInputProp.prependWhitespace('\n');
       insertedCreateInputProp.appendWhitespace('\n');
     }

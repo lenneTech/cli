@@ -8,7 +8,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['init'],
-  description: 'Creates a new fullstack workspace',
+  description: 'Creates a new fullstack workspace. Use --name <WorkspaceName>, --frontend (angular|nuxt), --git (true|false), --git-link <GitURL> for non-interactive mode.',
   hidden: false,
   name: 'init',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -36,8 +36,11 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Parse CLI arguments
+    const { frontend: cliFrontend, git: cliGit, 'git-link': cliGitLink, name: cliName } = parameters.options;
+
     // Get name of the workspace
-    const name = await helper.getInput(parameters.first, {
+    const name = cliName || await helper.getInput(parameters.first, {
       name: 'workspace name',
       showError: true,
     });
@@ -55,25 +58,42 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
-    let frontend = (
-      await ask({
-        message: 'Angular (a) or Nuxt 3 (n)',
-        name: 'frontend',
-        type: 'input',
-      })
-    ).frontend;
-
-    if (frontend === 'a') {
-      frontend = 'angular';
-    } else if (frontend === 'n') {
-      frontend = 'nuxt';
+    let frontend;
+    if (cliFrontend) {
+      frontend = cliFrontend === 'angular' ? 'angular' : cliFrontend === 'nuxt' ? 'nuxt' : null;
+      if (!frontend) {
+        error('Invalid frontend option. Use "angular" or "nuxt".');
+        return;
+      }
     } else {
-      process.exit();
+      frontend = (
+        await ask({
+          message: 'Angular (a) or Nuxt 3 (n)',
+          name: 'frontend',
+          type: 'input',
+        })
+      ).frontend;
+
+      if (frontend === 'a') {
+        frontend = 'angular';
+      } else if (frontend === 'n') {
+        frontend = 'nuxt';
+      } else {
+        process.exit();
+      }
     }
 
     let addToGit = false;
     let gitLink;
-    if (parameters.third !== 'false') {
+    if (cliGit !== undefined) {
+      addToGit = cliGit === 'true' || cliGit === true;
+      if (addToGit && cliGitLink) {
+        gitLink = cliGitLink;
+      } else if (addToGit) {
+        error('--git-link is required when --git is true');
+        return;
+      }
+    } else if (parameters.third !== 'false') {
       addToGit = parameters.third === 'true' || (await confirm('Add workspace to a new git repository?'));
 
       // Check if git init is active

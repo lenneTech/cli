@@ -9,7 +9,7 @@ import genObject from './object';
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['m'],
-  description: 'Creates a new server module',
+  description: 'Creates a new server module. Use --name <ModuleName>, --controller (Rest|GraphQL|Both), and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode.',
   hidden: false,
   name: 'module',
   run: async (
@@ -23,13 +23,12 @@ const NewCommand: ExtendedGluegunCommand = {
   ) => {
 
     // Options:
-    const { currentItem, objectsToAdd, preventExitProcess, referencesToAdd } = {
+    const { currentItem, preventExitProcess } = {
       currentItem: '',
-      objectsToAdd: [],
       preventExitProcess: false,
-      referencesToAdd: [],
       ...options,
     };
+    let { objectsToAdd = [], referencesToAdd = [] } = options || {};
 
     // Retrieve the tools we need
     const {
@@ -55,16 +54,21 @@ const NewCommand: ExtendedGluegunCommand = {
       info('Create a new server module');
     }
 
-    const name = await helper.getInput(currentItem || parameters.first, {
-      initial: currentItem || '',
-      name: 'module name',
-    });
+    // Parse CLI arguments
+    const { controller: cliController, name: cliName, skipLint: cliSkipLint } = parameters.options;
+
+    let name = cliName || currentItem || parameters.first;
+    if (!name) {
+      name = await helper.getInput(currentItem || parameters.first, {
+        initial: currentItem || '',
+        name: 'module name',
+      });
+    }
     if (!name) {
       return;
     }
 
-
-    const controller = (await ask({
+    const controller = cliController || (await ask({
       choices: ['Rest', 'GraphQL', 'Both'],
       message: 'What controller type?',
       name: 'controller',
@@ -91,7 +95,11 @@ const NewCommand: ExtendedGluegunCommand = {
       return undefined;
     }
 
-    const { props, refsSet, schemaSet } = await server.addProperties({ objectsToAdd, referencesToAdd });
+    const { objectsToAdd: newObjects, props, referencesToAdd: newReferences, refsSet, schemaSet }
+      = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
+
+    objectsToAdd = newObjects;
+    referencesToAdd = newReferences;
 
     const generateSpinner = spin('Generate files');
     const declare = server.useDefineForClassFieldsActivated();
@@ -228,8 +236,10 @@ const NewCommand: ExtendedGluegunCommand = {
     }
 
     // Lint fix
+    if (!cliSkipLint) {
     if (await confirm('Run lint fix?', true)) {
       await system.run('npm run lint:fix');
+    }
     }
 
     divider();

@@ -9,7 +9,7 @@ import genModule from './module';
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['o'],
-  description: 'Creates a new server object (with inputs)',
+  description: 'Creates a new server object (with inputs). Use --name <ObjectName> and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode.',
   hidden: false,
   name: 'object',
   run: async (
@@ -54,11 +54,17 @@ const NewCommand: ExtendedGluegunCommand = {
       info('Create a new server object (with inputs)');
     }
 
+    // Parse CLI arguments
+    const { name: cliName, skipLint: cliSkipLint } = parameters.options;
+
     // Get name
-    const name = await helper.getInput(currentItem || parameters.first, {
-      initial: currentItem || '',
-      name: 'object name',
-    });
+    let name = cliName || currentItem || parameters.first;
+    if (!name) {
+      name = await helper.getInput(currentItem || parameters.first, {
+        initial: currentItem || '',
+        name: 'object name',
+      });
+    }
     if (!name) {
       return;
     }
@@ -83,7 +89,8 @@ const NewCommand: ExtendedGluegunCommand = {
       return undefined;
     }
 
-    const { props, refsSet, schemaSet } = await server.addProperties({ objectsToAdd, referencesToAdd });
+    // Parse properties from CLI or interactive mode
+    const { props, refsSet, schemaSet } = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
 
     const generateSpinner = spin('Generate files');
     const declare = server.useDefineForClassFieldsActivated();
@@ -122,8 +129,10 @@ const NewCommand: ExtendedGluegunCommand = {
     generateSpinner.succeed('Files generated');
 
     // Lint fix
-    if (await confirm('Run lint fix?', true)) {
-      await system.run('npm run lint:fix');
+    if (!cliSkipLint) {
+      if (await confirm('Run lint fix?', true)) {
+        await system.run('npm run lint:fix');
+      }
     }
 
     // We're done, so show what to do next
