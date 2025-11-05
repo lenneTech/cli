@@ -23,13 +23,12 @@ const NewCommand: ExtendedGluegunCommand = {
   ) => {
 
     // Options:
-    const { currentItem, objectsToAdd, preventExitProcess, referencesToAdd } = {
+    const { currentItem, preventExitProcess } = {
       currentItem: '',
-      objectsToAdd: [],
       preventExitProcess: false,
-      referencesToAdd: [],
       ...options,
     };
+    let { objectsToAdd = [], referencesToAdd = [] } = options || {};
 
     // Retrieve the tools we need
     const {
@@ -96,48 +95,12 @@ const NewCommand: ExtendedGluegunCommand = {
       return undefined;
     }
 
-    // Parse property arguments from CLI or prompt interactively
-    const argProps = Object.keys(parameters.options || {}).filter((key: string) => key.startsWith('prop'));
-    let props = {};
-    let refsSet = false;
-    let schemaSet = false;
+    const { objectsToAdd: newObjects, props, referencesToAdd: newReferences, refsSet, schemaSet }
+      = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
 
-    if (argProps.length > 0) {
-      // Parse properties from CLI arguments
-      const propNames = argProps.filter(key => key.startsWith('prop-name')).map(key => parameters.options[key]);
-      const propTypes = argProps.filter(key => key.startsWith('prop-type')).map(key => parameters.options[key]);
-      const propNullables = argProps.filter(key => key.startsWith('prop-nullable')).map(key => parameters.options[key] === 'true');
-      const propArrays = argProps.filter(key => key.startsWith('prop-array')).map(key => parameters.options[key] === 'true');
-      const propEnumRefs = argProps.filter(key => key.startsWith('prop-enum')).map(key => parameters.options[key]);
-      const propSchemas = argProps.filter(key => key.startsWith('prop-schema')).map(key => parameters.options[key]);
-      const propReferences = argProps.filter(key => key.startsWith('prop-reference')).map(key => parameters.options[key]);
-
-      // Build props object from CLI arguments
-      for (let i = 0; i < propNames.length; i++) {
-        const name = propNames[i];
-        const type = propTypes[i] || 'string';
-        const nullable = propNullables[i] || false;
-        const isArray = propArrays[i] || false;
-
-        if (name) {
-          props[name] = {
-            enumRef: propEnumRefs[i] || null,
-            isArray,
-            name,
-            nullable,
-            reference: propReferences[i] || null,
-            schema: propSchemas[i] || null,
-            type,
-          };
-        }
-      }
-    } else {
-      // Use interactive mode
-      const result = await server.addProperties({ objectsToAdd, referencesToAdd });
-      props = result.props;
-      refsSet = result.refsSet;
-      schemaSet = result.schemaSet;
-    }
+// Update lists
+    objectsToAdd = newObjects;
+    referencesToAdd = newReferences;
 
     const generateSpinner = spin('Generate files');
     const declare = server.useDefineForClassFieldsActivated();

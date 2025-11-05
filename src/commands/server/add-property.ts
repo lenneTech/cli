@@ -89,51 +89,14 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
       return undefined;
     }
 
-    // Parse property arguments from CLI or prompt interactively
-    let objectsToAdd = [];
-    let props = {};
-    let referencesToAdd = [];
-    let refsSet = false;
-    let schemaSet = false;
-
-    if (argProps.length > 0) {
-      // Parse properties from CLI arguments
-      const propNames = argProps.filter(key => key.startsWith('prop-name')).map(key => toolbox.parameters.options[key]);
-      const propTypes = argProps.filter(key => key.startsWith('prop-type')).map(key => toolbox.parameters.options[key]);
-      const propNullables = argProps.filter(key => key.startsWith('prop-nullable')).map(key => toolbox.parameters.options[key] === 'true');
-      const propArrays = argProps.filter(key => key.startsWith('prop-array')).map(key => toolbox.parameters.options[key] === 'true');
-      const propEnumRefs = argProps.filter(key => key.startsWith('prop-enum')).map(key => toolbox.parameters.options[key]);
-      const propSchemas = argProps.filter(key => key.startsWith('prop-schema')).map(key => toolbox.parameters.options[key]);
-      const propReferences = argProps.filter(key => key.startsWith('prop-reference')).map(key => toolbox.parameters.options[key]);
-
-      // Build props object from CLI arguments
-      for (let i = 0; i < propNames.length; i++) {
-        const name = propNames[i];
-        const type = propTypes[i] || 'string';
-        const nullable = propNullables[i] || false;
-        const isArray = propArrays[i] || false;
-
-        if (name) {
-          props[name] = {
-            enumRef: propEnumRefs[i] || null,
-            isArray,
-            name,
-            nullable,
-            reference: propReferences[i] || null,
-            schema: propSchemas[i] || null,
-            type,
-          };
-        }
-      }
-    } else {
-      // Use interactive mode
-      const result = await server.addProperties();
-      objectsToAdd = result.objectsToAdd;
-      props = result.props;
-      referencesToAdd = result.referencesToAdd;
-      refsSet = result.refsSet;
-      schemaSet = result.schemaSet;
-    }
+    const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet }
+      = await toolbox.parseProperties({
+        argProps,
+        objectsToAdd: [],
+        parameters: toolbox.parameters,
+        referencesToAdd: [],
+        server: toolbox.server,
+      });
 
     const updateSpinner = spin('Updating files...');
 
@@ -242,27 +205,38 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
       };
 
       // Patch model
-      const lastModelProperty = modelProperties[modelProperties.length - 1];
       const newModelProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       newModelProperty.decorators.push({ arguments: [`${propObj.type === 'ObjectId' || propObj.schema ? `{ ref: () => ${propObj.reference}, type: Schema.Types.ObjectId }` : ''}`], name: 'Prop' });
       newModelProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('model')], name: 'UnifiedField' });
       newModelProperty.type = `${typeString()}${propObj.isArray ? '[]' : ''}`;
-      const insertedModelProp = modelDeclaration.insertProperty(lastModelProperty.getChildIndex() + 1, newModelProperty);
+
+      let insertedModelProp;
+      if (modelProperties.length > 0) {
+        const lastModelProperty = modelProperties[modelProperties.length - 1];
+        insertedModelProp = modelDeclaration.insertProperty(lastModelProperty.getChildIndex() + 1, newModelProperty);
+      } else {
+        insertedModelProp = modelDeclaration.addProperty(newModelProperty);
+      }
       insertedModelProp.prependWhitespace('\n');
       insertedModelProp.appendWhitespace('\n');
 
       // Patch input
-      const lastInputProperty = inputProperties[inputProperties.length - 1];
       const newInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       newInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('input')], name: 'UnifiedField' });
       const inputSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'Input' : '';
       newInputProperty.type = `${typeString()}${inputSuffix}${propObj.isArray ? '[]' : ''}`;
-      const insertedInputProp = inputDeclaration.insertProperty(lastInputProperty.getChildIndex() + 1, newInputProperty);
+
+      let insertedInputProp;
+      if (inputProperties.length > 0) {
+        const lastInputProperty = inputProperties[inputProperties.length - 1];
+        insertedInputProp = inputDeclaration.insertProperty(lastInputProperty.getChildIndex() + 1, newInputProperty);
+      } else {
+        insertedInputProp = inputDeclaration.addProperty(newInputProperty);
+      }
       insertedInputProp.prependWhitespace('\n');
       insertedInputProp.appendWhitespace('\n');
 
       // Patch create input
-      const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
       const newCreateInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       if (declare) {
         newCreateInputProperty.hasDeclareKeyword = true;
@@ -272,7 +246,14 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
       newCreateInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('create')], name: 'UnifiedField' });
       const createSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : '';
       newCreateInputProperty.type = `${typeString()}${createSuffix}${propObj.isArray ? '[]' : ''}`;
-      const insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
+
+      let insertedCreateInputProp;
+      if (createInputProperties.length > 0) {
+        const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
+        insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
+      } else {
+        insertedCreateInputProp = createInputDeclaration.addProperty(newCreateInputProperty);
+      }
       insertedCreateInputProp.prependWhitespace('\n');
       insertedCreateInputProp.appendWhitespace('\n');
     }
