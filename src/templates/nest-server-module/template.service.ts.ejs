@@ -1,8 +1,8 @@
 import { ConfigService, CrudService, ServiceOptions, assignPlain } from '@lenne.tech/nest-server';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { PubSub } from 'graphql-subscriptions';
-import { Model } from 'mongoose';
+<% if (props.isGql) { %>import { PubSub } from 'graphql-subscriptions';
+<% } %>import { Model } from 'mongoose';
 
 import { <%= props.namePascal %>Input } from './inputs/<%= props.nameKebab %>.input';
 import { <%= props.namePascal %>CreateInput } from './inputs/<%= props.nameKebab %>-create.input';
@@ -33,8 +33,8 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
   constructor(
     protected override readonly configService: ConfigService,
     @InjectModel('<%= props.namePascal %>') protected readonly <%= props.nameCamel %>Model: Model<<%= props.namePascal %>Document>,
-    @Inject('PUB_SUB') protected readonly pubSub: PubSub,
-  ) {
+<% if (props.isGql) { %>    @Inject('PUB_SUB') protected readonly pubSub: PubSub,
+<% } %>  ) {
     super({ configService, mainDbModel: <%= props.nameCamel %>Model, mainModelConstructor: <%= props.namePascal %> });
   }
 
@@ -49,12 +49,12 @@ export class <%= props.namePascal %>Service extends CrudService<<%= props.namePa
   override async create(input: <%= props.namePascal %>CreateInput, serviceOptions?: ServiceOptions): Promise<<%= props.namePascal %>> {
     // Get new <%= props.namePascal %>
     const created<%= props.namePascal %> = await super.create(input, serviceOptions);
-
+<% if (props.isGql) { %>
     // Inform subscriber
     if (serviceOptions?.pubSub === undefined || serviceOptions.pubSub) {
       await this.pubSub.publish('<%= props.nameCamel %>Created', <%= props.namePascal %>.map(created<%= props.namePascal %>));
     }
-
+<% } %>
     // Return created <%= props.namePascal %>
     return created<%= props.namePascal %>;
   }

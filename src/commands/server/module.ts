@@ -5,11 +5,71 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import genObject from './object';
 
 /**
+ * Detect controller type based on existing modules
+ * Analyzes project modules (excluding base modules) to determine common pattern
+ */
+function detectControllerType(filesystem: any, path: string): 'Both' | 'GraphQL' | 'Rest' {
+  const modulesDir = join(path, 'src', 'server', 'modules');
+
+  // Check if modules directory exists
+  if (!filesystem.exists(modulesDir)) {
+    return 'Both'; // Default if no modules exist yet
+  }
+
+  // Base modules to exclude from analysis
+  const excludeModules = ['auth', 'file', 'meta', 'user'];
+
+  // Get all module directories
+  const allModules = filesystem.list(modulesDir) || [];
+  const modulesToAnalyze = allModules.filter(
+    (module: string) => !excludeModules.includes(module) && filesystem.isDirectory(join(modulesDir, module))
+  );
+
+  // If no modules to analyze, use default
+  if (modulesToAnalyze.length === 0) {
+    return 'Both';
+  }
+
+  // Count patterns
+  let onlyController = 0;
+  let onlyResolver = 0;
+  let both = 0;
+
+  for (const module of modulesToAnalyze) {
+    const moduleDir = join(modulesDir, module);
+    const hasController = filesystem.exists(join(moduleDir, `${module}.controller.ts`));
+    const hasResolver = filesystem.exists(join(moduleDir, `${module}.resolver.ts`));
+
+    if (hasController && hasResolver) {
+      both++;
+    } else if (hasController && !hasResolver) {
+      onlyController++;
+    } else if (!hasController && hasResolver) {
+      onlyResolver++;
+    }
+    // If neither exists, skip (incomplete module)
+  }
+
+  // Decision logic
+  // If we have clear majority pattern, use it
+  if (both > 0) {
+    return 'Both'; // If any module uses both, prefer both
+  } else if (onlyController > 0 && onlyResolver === 0) {
+    return 'Rest'; // Only REST controllers found
+  } else if (onlyResolver > 0 && onlyController === 0) {
+    return 'GraphQL'; // Only GraphQL resolvers found
+  }
+
+  // Default to Both if mixed or unclear
+  return 'Both';
+}
+
+/**
  * Create a new server module
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['m'],
-  description: 'Creates a new server module. Use --name <ModuleName>, --controller (Rest|GraphQL|Both), and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode.',
+  description: 'Creates a new server module. Use --name <ModuleName>, --controller (Rest|GraphQL|Both|auto), and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode. Use "auto" to auto-detect controller type from existing modules.',
   hidden: false,
   name: 'module',
   run: async (
@@ -32,6 +92,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       helper,
       parameters,
@@ -54,6 +115,11 @@ const NewCommand: ExtendedGluegunCommand = {
       info('Create a new server module');
     }
 
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configController = ltConfig?.commands?.server?.module?.controller;
+    const configSkipLint = ltConfig?.commands?.server?.module?.skipLint;
+
     // Parse CLI arguments
     const { controller: cliController, name: cliName, skipLint: cliSkipLint } = parameters.options;
 
@@ -68,18 +134,6 @@ const NewCommand: ExtendedGluegunCommand = {
       return;
     }
 
-    const controller = cliController || (await ask({
-      choices: ['Rest', 'GraphQL', 'Both'],
-      message: 'What controller type?',
-      name: 'controller',
-      type: 'select',
-    })).controller;
-
-    // Set up initial props (to pass into templates)
-    const nameCamel = camelCase(name);
-    const nameKebab = kebabCase(name);
-    const namePascal = pascalCase(name);
-
     // Check if directory
     const cwd = filesystem.cwd();
     const path = cwd.substr(0, cwd.lastIndexOf('src'));
@@ -88,6 +142,54 @@ const NewCommand: ExtendedGluegunCommand = {
       error(`No src directory in "${path}".`);
       return undefined;
     }
+
+    // Determine controller type with priority: CLI > config > auto-detect > interactive
+    let controller: string;
+    const detected = detectControllerType(filesystem, path);
+
+    // Priority 1: CLI parameter
+    if (cliController) {
+      if (cliController.toLowerCase() === 'auto') {
+        // Auto-detect without interactive prompt
+        info(`Auto-detected controller pattern: ${detected} (based on existing modules)`);
+        controller = detected;
+      } else {
+        // Explicit controller type provided via CLI
+        controller = cliController;
+      }
+    }
+    // Priority 2: Config file
+    else if (configController) {
+      if (configController.toLowerCase() === 'auto') {
+        // Auto-detect from config
+        info(`Auto-detected controller pattern: ${detected} (based on existing modules, configured via lt.config.json)`);
+        controller = detected;
+      } else {
+        // Use config value
+        info(`Using controller type from lt.config.json: ${configController}`);
+        controller = configController;
+      }
+    }
+    // Priority 3: Interactive mode with auto-detection
+    else {
+      // Map detected value to index for initial selection
+      const choices = ['Rest', 'GraphQL', 'Both'];
+      const initialIndex = choices.indexOf(detected);
+
+      info(`Detected controller pattern: ${detected} (based on existing modules)`);
+      controller = (await ask([{
+        choices,
+        initial: initialIndex >= 0 ? initialIndex : 2, // Default to 'Both' (index 2)
+        message: 'What controller type?',
+        name: 'controller',
+        type: 'select',
+      }])).controller || detected;
+    }
+
+    // Set up initial props (to pass into templates)
+    const nameCamel = camelCase(name);
+    const nameKebab = kebabCase(name);
+    const namePascal = pascalCase(name);
     const directory = join(path, 'src', 'server', 'modules', nameKebab);
     if (filesystem.exists(directory)) {
       info('');
@@ -102,10 +204,9 @@ const NewCommand: ExtendedGluegunCommand = {
     referencesToAdd = newReferences;
 
     const generateSpinner = spin('Generate files');
-    const declare = server.useDefineForClassFieldsActivated();
-    const inputTemplate = server.propsForInput(props, { declare, modelName: name, nullable: true });
-    const createTemplate = server.propsForInput(props, { create: true, declare, modelName: name, nullable: false });
-    const modelTemplate = server.propsForModel(props, { declare, modelName: name });
+    const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
+    const createTemplate = server.propsForInput(props, { create: true, modelName: name, nullable: false });
+    const modelTemplate = server.propsForModel(props, { modelName: name });
 
     // nest-server-module/inputs/xxx.input.ts
     await template.generate({
@@ -169,7 +270,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // nest-server-module/xxx.service.ts
     await template.generate({
-      props: { nameCamel, nameKebab, namePascal },
+      props: { isGql: controller === 'GraphQL' || controller === 'Both', nameCamel, nameKebab, namePascal },
       target: join(directory, `${nameKebab}.service.ts`),
       template: 'nest-server-module/template.service.ts.ejs',
     });
@@ -198,6 +299,22 @@ const NewCommand: ExtendedGluegunCommand = {
           after: new RegExp('imports = \\[[^\\]]*', 'm'),
           insert: ` forwardRef(() => ${namePascal}Module),\n  `,
         });
+
+        // Ensure forwardRef is imported from @nestjs/common
+        const serverModuleContent = filesystem.read(serverModule);
+        if (serverModuleContent && !serverModuleContent.includes('forwardRef')) {
+          // Add forwardRef to @nestjs/common import
+          await patching.patch(serverModule, {
+            insert: '$1, forwardRef$2',
+            replace: /from '@nestjs\/common'(.*?)}/,
+          });
+        } else if (serverModuleContent && serverModuleContent.includes('@nestjs/common') && !serverModuleContent.match(/forwardRef.*@nestjs\/common|@nestjs\/common.*forwardRef/)) {
+          // forwardRef exists but not in @nestjs/common import - add it
+          await patching.patch(serverModule, {
+            insert: '$1, forwardRef$2',
+            replace: /(\w+)\s*}\s*from\s+'@nestjs\/common'/,
+          });
+        }
       }
 
       // Add comma if necessary
@@ -235,11 +352,17 @@ const NewCommand: ExtendedGluegunCommand = {
       await genObject.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
     }
 
-    // Lint fix
-    if (!cliSkipLint) {
-    if (await confirm('Run lint fix?', true)) {
-      await system.run('npm run lint:fix');
-    }
+    // Lint fix with priority: CLI parameter > config > default (false)
+    const skipLint = config.getValue({
+      cliValue: cliSkipLint,
+      configValue: configSkipLint,
+      defaultValue: false,
+    });
+
+    if (!skipLint) {
+      if (await confirm('Run lint fix?', true)) {
+        await system.run('npm run lint:fix');
+      }
     }
 
     divider();

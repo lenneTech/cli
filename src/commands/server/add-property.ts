@@ -1,4 +1,3 @@
-import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 import {
   ClassPropertyTypes, IndentationText,
@@ -8,22 +7,37 @@ import {
   SyntaxKind,
 } from 'ts-morph';
 
+import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import genModule from './module';
 import genObject from './object';
 
 /**
- * Create a new server module
+ * Add property to module or object
  */
-const NewCommand: GluegunCommand = {
+const NewCommand: ExtendedGluegunCommand = {
   alias: ['ap'],
   description: 'Adds a property to a module. Use --type (Module|Object), --element <name>, --prop-name-X <name>, --prop-type-X <type>, --prop-nullable-X (true|false), --prop-array-X (true|false), --prop-enum-X <EnumName>, --prop-schema-X <SchemaName>, --prop-reference-X <ReferenceName> for non-interactive mode.',
   hidden: false,
   name: 'addProp',
-  run: async (toolbox: ExtendedGluegunToolbox) => {
+  run: async (
+    toolbox: ExtendedGluegunToolbox,
+    options?: {
+      preventExitProcess?: boolean;
+    },
+  ) => {
+
+    // Options:
+    const { preventExitProcess } = {
+      preventExitProcess: false,
+      ...options,
+    };
+
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
+      parameters,
       print: { divider, error, info, spin, success },
       prompt: { ask, confirm },
       server,
@@ -31,9 +45,7 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
-const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: string) => key.startsWith('prop'));
-
-    const declare = server.useDefineForClassFieldsActivated();
+    const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: string) => key.startsWith('prop'));
 
     function getModules() {
       const cwd = filesystem.cwd();
@@ -51,8 +63,12 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
       return filesystem.subdirectories(objectDirs, true);
     }
 
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configSkipLint = ltConfig?.commands?.server?.addProp?.skipLint;
+
     // Parse CLI arguments
-    const { element: cliElement, type: cliType } = toolbox.parameters.options;
+    const { element: cliElement, skipLint: cliSkipLint, type: cliType } = parameters.options;
 
     const objectOrModule = cliType || (
       await ask([
@@ -171,41 +187,85 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
         }
       };
 
+      // Get TypeScript type (lowercase for native types, PascalCase for custom types)
+      const standardTypes = ['boolean', 'string', 'number', 'Date'];
+      const tsType = propObj.schema
+        ? propObj.schema
+        : propObj.reference
+          ? propObj.reference
+          : standardTypes.includes(propObj.type)
+            ? propObj.type
+            : pascalCase(propObj.type);
+
       // Build @UnifiedField options; types vary and can't go in standardDeclaration
       function constructUnifiedFieldOptions(type: 'create' | 'input' | 'model'): string {
+        // For enum arrays, we need both enum config and type
+        const enumConfig = propObj.enumRef
+          ? propObj.isArray
+            ? `enum: { enum: ${propObj.enumRef}, options: { each: true } },\n`
+            : `enum: { enum: ${propObj.enumRef} },\n`
+          : '';
+
+        // Type is only needed for arrays (even enum arrays need type for array notation)
+        // OR when there's no enum config
+        const needsType = propObj.isArray || !propObj.enumRef;
+        const typeConfig = needsType
+          ? `type: () => ${propObj.isArray ? '[' : ''}${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? (type === 'create' ? 'CreateInput' : type === 'input' ? 'Input' : '') : ''}${propObj.isArray ? ']' : ''}`
+          : '';
+
+        // Build mongoose configuration for model type
+        let mongooseConfig = '';
+        if (type === 'model') {
+          if (propObj.type === 'ObjectId' && propObj.reference) {
+            mongooseConfig = `mongoose: ${propObj.isArray ? '[' : ''}{ ref: '${propObj.reference}', type: Schema.Types.ObjectId }${propObj.isArray ? ']' : ''},\n`;
+          } else if (propObj.schema) {
+            mongooseConfig = `mongoose: ${propObj.isArray ? '[' : ''}{ type: ${propObj.schema}Schema }${propObj.isArray ? ']' : ''},\n`;
+          } else if (propObj.enumRef) {
+            mongooseConfig = `mongoose: ${propObj.isArray ? '[' : ''}{ enum: ${propObj.nullable ? `Object.values(${propObj.enumRef}).concat([null])` : propObj.enumRef}, type: String }${propObj.isArray ? ']' : ''},\n`;
+          } else if (propObj.type === 'Json') {
+            mongooseConfig = `mongoose: ${propObj.isArray ? '[' : ''}{ type: Object }${propObj.isArray ? ']' : ''},\n`;
+          } else {
+            mongooseConfig = 'mongoose: true,\n';
+          }
+        }
+
         switch (type) {
           case 'create':
             return `{
-              description: ${description},${propObj.nullable ? '\nisOptional: true,' : ''}
-              roles: RoleEnum.ADMIN,${propObj.enumRef ? '' : `\ntype: () => ${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : ''}`}
+              description: ${description},${propObj.nullable ? '\nisOptional: true,' : '\nisOptional: false,'}
+              roles: RoleEnum.S_EVERYONE,
+              ${enumConfig}${typeConfig}
               }`;
           case 'input':
             return `{
               description: ${description},
               isOptional: true,
-              roles: RoleEnum.ADMIN,
-              ${propObj.enumRef ? `enum: { enum: ${propObj.enumRef} }` : `type: () => ${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? 'Input' : ''}`}
+              roles: RoleEnum.S_EVERYONE,
+              ${enumConfig}${typeConfig}
               }`;
           case 'model':
             return `{
-              description: ${description},${propObj.nullable ? '\nisOptional: true,' : ''}
-              roles: RoleEnum.ADMIN,${propObj.enumRef ? '' : `\ntype: () => ${typeString()}`}
+              description: ${description},${propObj.nullable ? '\nisOptional: true,' : '\nisOptional: false,'}
+              ${mongooseConfig}roles: RoleEnum.S_EVERYONE,
+              ${enumConfig}${typeConfig}
               }`;
         }
       }
 
+      // Only use = undefined when useDefineForClassFieldsActivated is false or override keyword is set
+      const useDefineForClassFields = server.useDefineForClassFieldsActivated();
       const standardDeclaration: OptionalKind<PropertyDeclarationStructure> = {
         decorators: [],
         hasQuestionToken: propObj.nullable,
-        initializer: declare ? undefined : 'undefined',
+        initializer: useDefineForClassFields ? undefined : 'undefined',
         name: propObj.name,
       };
 
       // Patch model
       const newModelProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
-      newModelProperty.decorators.push({ arguments: [`${propObj.type === 'ObjectId' || propObj.schema ? `{ ref: () => ${propObj.reference}, type: Schema.Types.ObjectId }` : ''}`], name: 'Prop' });
+
       newModelProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('model')], name: 'UnifiedField' });
-      newModelProperty.type = `${typeString()}${propObj.isArray ? '[]' : ''}`;
+      newModelProperty.type = `${tsType}${propObj.isArray ? '[]' : ''}`;
 
       let insertedModelProp;
       if (modelProperties.length > 0) {
@@ -235,10 +295,10 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
 
       // Patch create input
       const newCreateInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
-      if (declare) {
-        newCreateInputProperty.hasDeclareKeyword = true;
-      } else {
+      // Use override (not declare) when useDefineForClassFieldsActivated is true
+      if (useDefineForClassFields) {
         newCreateInputProperty.hasOverrideKeyword = true;
+        newCreateInputProperty.initializer = 'undefined'; // Override requires = undefined
       }
       newCreateInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('create')], name: 'UnifiedField' });
       const createSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : '';
@@ -258,6 +318,94 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
     project.manipulationSettings.set({
       indentationText: IndentationText.TwoSpaces,
     });
+
+    // Update map method with mapClasses for non-native properties
+    const standardTypes = ['boolean', 'string', 'number', 'Date'];
+    const mapMethod = modelDeclaration.getMethod('map');
+    if (mapMethod) {
+      // Collect all properties that need mapClasses (non-native types)
+      const allModelProps = modelDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
+      const mappings = {};
+
+      for (const prop of allModelProps) {
+        const propName = prop.getName();
+        const propType = prop.getType().getText();
+
+        // Skip if it's a standard type
+        if (standardTypes.some(t => propType.includes(t))) {
+          continue;
+        }
+
+        // Skip ObjectId, enum, and JSON types
+        if (propType.includes('string') || propType.includes('ObjectId') || propType.includes('Record<string, unknown>')) {
+          continue;
+        }
+
+        // Check if this property was in our newly added props and should be mapped
+        const newProp = props[propName];
+        if (newProp) {
+          const type = newProp.type;
+          const reference = newProp.reference?.trim() ? pascalCase(newProp.reference.trim()) : '';
+          const schema = newProp.schema?.trim() ? pascalCase(newProp.schema.trim()) : '';
+
+          if (reference) {
+            mappings[propName] = reference;
+          } else if (schema) {
+            mappings[propName] = schema;
+          } else if (!standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Json') {
+            mappings[propName] = pascalCase(type);
+          }
+        }
+      }
+
+      // Update the map method's return statement
+      const returnStatement = mapMethod.getStatements().find(s => s.getKind() === SyntaxKind.ReturnStatement);
+      if (returnStatement && Object.keys(mappings).length > 0) {
+        const currentReturn = returnStatement.getText();
+
+        // Check if already using mapClasses
+        if (currentReturn.includes('mapClasses')) {
+          // Parse existing mapClasses call to merge with new mappings
+          const match = currentReturn.match(/mapClasses\(input,\s*\{([^}]*)\}/);
+          if (match) {
+            const existingMappings = match[1].trim();
+            const existingPairs = existingMappings ? existingMappings.split(',').map(p => p.trim()) : [];
+
+            // Merge with new mappings
+            const allMappings = {};
+            for (const pair of existingPairs) {
+              const [key, value] = pair.split(':').map(s => s.trim());
+              if (key && value) {
+                allMappings[key] = value;
+              }
+            }
+
+            // Add new mappings
+            for (const [key, value] of Object.entries(mappings)) {
+              allMappings[key] = value;
+            }
+
+            // Generate new mapClasses call
+            const mappingPairs = Object.entries(allMappings).map(([k, v]) => `${k}: ${v}`);
+            returnStatement.replaceWithText(`return mapClasses(input, { ${mappingPairs.join(', ')} }, this);`);
+          }
+        } else if (currentReturn.includes('return this')) {
+          // Replace "return this" with mapClasses call
+          const mappingPairs = Object.entries(mappings).map(([k, v]) => `${k}: ${v}`);
+          returnStatement.replaceWithText(`return mapClasses(input, { ${mappingPairs.join(', ')} }, this);`);
+        }
+
+        // Ensure mapClasses is imported
+        const existingImports = moduleFile.getImportDeclaration('@lenne.tech/nest-server');
+        if (existingImports) {
+          const namedImports = existingImports.getNamedImports();
+          const hasMapClasses = namedImports.some(ni => ni.getName() === 'mapClasses');
+          if (!hasMapClasses) {
+            existingImports.addNamedImport('mapClasses');
+          }
+        }
+      }
+    }
 
     // Format files
     moduleFile.formatText();
@@ -285,17 +433,28 @@ const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: stri
       await genObject.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
     }
 
-    // Lint fix
-    if (await confirm('Run lint fix?', true)) {
-      await system.run('npm run lint:fix');
+    // Lint fix with priority: CLI parameter > config > default (false)
+    const skipLint = config.getValue({
+      cliValue: cliSkipLint,
+      configValue: configSkipLint,
+      defaultValue: false,
+    });
+
+    if (!skipLint) {
+      if (await confirm('Run lint fix?', true)) {
+        await system.run('npm run lint:fix');
+      }
     }
 
-    if (refsSet || schemaSet) {
-      success('HINT: References / Schemata have been added, so it is necessary to add the corresponding imports!');
-    }
+    // We're done, so show what to do next
+    if (!preventExitProcess) {
+      if (refsSet || schemaSet) {
+        success('HINT: References / Schemata have been added, so it is necessary to add the corresponding imports!');
+      }
 
-    if (!toolbox.parameters.options.fromGluegunMenu) {
-      process.exit();
+      if (!toolbox.parameters.options.fromGluegunMenu) {
+        process.exit();
+      }
     }
 
     return `properties updated for ${elementToEdit}`;

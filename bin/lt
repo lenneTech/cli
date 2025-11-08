@@ -2,20 +2,151 @@
 
 
 /* tslint:disable */
-// check if we're running in dev mode
-var devMode = require('fs').existsSync(`${__dirname}/../src`);
-// or want to "force" running the compiled version with --compiled-build
-var wantsCompiled = process.argv.indexOf('--compiled-build') >= 0;
 
-if (wantsCompiled || !devMode) {
-  // this runs from the compiled javascript source
-  require(`${__dirname}/../build/cli`).run(process.argv);
-} else {
-  // this runs from the typescript source (for dev only)
-  // hook into ts-node so we can run typescript on the fly
-  require('ts-node').register({ project: `${__dirname}/../tsconfig.json` });
-  // run the CLI with the current process arguments
-  require(`${__dirname}/../src/cli`).run(process.argv);
+// Handle case where current working directory no longer exists
+try {
+  process.cwd();
+} catch (err) {
+  // Current directory doesn't exist - offer interactive solutions
+  var fs = require('fs');
+  var path = require('path');
+  var os = require('os');
+  var readline = require('readline');
+
+  console.error('\nError: Current working directory no longer exists.');
+  console.error('The directory you were in has been deleted or is no longer accessible.\n');
+
+  // Try to find the next existing parent directory
+  var originalPath = process.env.PWD || process.env.OLDPWD || '';
+  var parentDir = null;
+
+  if (originalPath) {
+    var testPath = path.dirname(originalPath);
+    while (testPath && testPath !== '/' && testPath !== '.') {
+      try {
+        if (fs.existsSync(testPath) && fs.statSync(testPath).isDirectory()) {
+          parentDir = testPath;
+          break;
+        }
+      } catch (e) {
+        // Continue searching
+      }
+      testPath = path.dirname(testPath);
+    }
+  }
+
+  // Build options
+  var options = [];
+  if (parentDir) {
+    options.push({ key: '1', label: 'Change to nearest existing parent directory: ' + parentDir, action: parentDir });
+  }
+  options.push({ key: parentDir ? '2' : '1', label: 'Change to home directory: ' + os.homedir(), action: os.homedir() });
+  options.push({ key: parentDir ? '3' : '2', label: 'Enter a custom directory path', action: 'custom' });
+  options.push({ key: parentDir ? '4' : '3', label: 'Cancel and exit', action: 'exit' });
+
+  // Display options
+  console.log('Please choose an option:\n');
+  options.forEach(function(opt) {
+    console.log('  ' + opt.key + ') ' + opt.label);
+  });
+  console.log('');
+
+  // Read user input
+  var rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  rl.question('Enter your choice: ', function(answer) {
+    var choice = options.find(function(opt) { return opt.key === answer.trim(); });
+
+    if (!choice) {
+      console.error('\nInvalid choice. Exiting.\n');
+      rl.close();
+      process.exit(1);
+      return;
+    }
+
+    if (choice.action === 'exit') {
+      console.log('\nCancelled.\n');
+      rl.close();
+      process.exit(0);
+      return;
+    }
+
+    if (choice.action === 'custom') {
+      rl.question('Enter directory path (absolute or relative to ' + (parentDir || os.homedir()) + '): ', function(customPath) {
+        var targetPath = customPath.trim();
+
+        // If relative path, resolve it relative to parent or home
+        if (!path.isAbsolute(targetPath)) {
+          targetPath = path.resolve(parentDir || os.homedir(), targetPath);
+        }
+
+        try {
+          if (!fs.existsSync(targetPath)) {
+            console.error('\nError: Directory does not exist: ' + targetPath + '\n');
+            rl.close();
+            process.exit(1);
+            return;
+          }
+
+          process.chdir(targetPath);
+          console.log('\nChanged to: ' + targetPath + '\n');
+          rl.close();
+          continueExecution();
+        } catch (e) {
+          console.error('\nError: Cannot change to directory: ' + targetPath);
+          console.error(e.message + '\n');
+          rl.close();
+          process.exit(1);
+        }
+      });
+      return;
+    }
+
+    // Change to selected directory
+    try {
+      process.chdir(choice.action);
+      console.log('\nChanged to: ' + choice.action + '\n');
+      rl.close();
+      continueExecution();
+    } catch (e) {
+      console.error('\nError: Cannot change to directory: ' + choice.action);
+      console.error(e.message + '\n');
+      rl.close();
+      process.exit(1);
+    }
+  });
+
+  // Function to continue CLI execution after directory change
+  function continueExecution() {
+    runCLI();
+  }
+
+  // Don't continue execution here - wait for user choice
+  return;
+}
+
+// Normal execution path
+runCLI();
+
+function runCLI() {
+  // check if we're running in dev mode
+  var devMode = require('fs').existsSync(`${__dirname}/../src`);
+  // or want to "force" running the compiled version with --compiled-build
+  var wantsCompiled = process.argv.indexOf('--compiled-build') >= 0;
+
+  if (wantsCompiled || !devMode) {
+    // this runs from the compiled javascript source
+    require(`${__dirname}/../build/cli`).run(process.argv);
+  } else {
+    // this runs from the typescript source (for dev only)
+    // hook into ts-node so we can run typescript on the fly
+    require('ts-node').register({ project: `${__dirname}/../tsconfig.json` });
+    // run the CLI with the current process arguments
+    require(`${__dirname}/../src/cli`).run(process.argv);
+  }
 }
 
 

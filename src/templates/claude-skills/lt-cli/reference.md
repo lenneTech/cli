@@ -1,332 +1,506 @@
+---
+name: lt-cli-reference
+version: 1.0.0
+description: Quick reference for Git operations and Fullstack initialization commands
+---
+
 # LT CLI Quick Reference
+
+⚠️ **Note**: For NestJS server command reference (modules, objects, properties), see the **nest-server-generator skill** instead.
+
+This reference covers:
+- Git operations (`lt git get`, `lt git reset`)
+- Fullstack initialization (`lt fullstack init`)
+
+---
 
 ## Command Cheat Sheet
 
-### Module Commands
+### Git Commands
+
+#### Get Branch (Checkout/Create)
 ```bash
-# Interactive
-lt server module
-lt server m
+# Interactive (prompts for branch name)
+lt git get
+lt git g
 
 # Non-interactive
-lt server module --name <Name> --controller <Rest|GraphQL|Both> [props]
+lt git get <branch-name>
+lt git g <branch-name>
 ```
 
-### Add Property Commands
+**Parameters:**
+- `<branch-name>`: Branch name to checkout/create
+
+**What it does:**
+1. Checks if branch exists locally → switches to it
+2. If not local, checks remote → checks out and tracks
+3. If neither exists → creates new branch from current
+
+**Examples:**
 ```bash
-# Interactive
-lt server addProp
-lt server ap
-
-# Non-interactive
-lt server addProp --type <Module|Object> --element <name> [props]
+lt git get DEV-123
+lt git get feature/new-auth
+lt git g main
 ```
 
-### Object Commands
+#### Reset to Remote
 ```bash
-# Interactive
-lt server object
-lt server o
+# Interactive (prompts for confirmation)
+lt git reset
 
-# Non-interactive
-lt server object --name <Name> [props] [--skipLint]
+# Prompts: "Reset current branch to origin/<branch>? (y/N)"
 ```
+
+**What it does:**
+1. Fetches latest from remote
+2. Resets current branch to `origin/<current-branch>`
+3. Discards ALL local changes and commits
+
+**⚠️ WARNING**: Destructive operation - cannot be undone!
+
+---
 
 ### Fullstack Commands
+
+#### Initialize Fullstack Workspace
 ```bash
-# Interactive
+# Interactive (prompts for all options)
 lt fullstack init
 lt full init
 
 # Non-interactive
-lt fullstack init --name <Name> --frontend <angular|nuxt> --git <true|false> [--git-link <url>]
+lt fullstack init \
+  --name <WorkspaceName> \
+  --frontend <angular|nuxt> \
+  --git <true|false> \
+  [--git-link <GitURL>]
+```
+
+**Required Parameters:**
+- `--name`: Workspace/project name (PascalCase recommended)
+- `--frontend`: Frontend framework (`angular` or `nuxt`)
+- `--git`: Initialize git repository (`true` or `false`)
+
+**Optional Parameters:**
+- `--git-link`: Git repository URL (only when `--git true`)
+
+**Examples:**
+```bash
+# With git and remote
+lt fullstack init \
+  --name MyApp \
+  --frontend angular \
+  --git true \
+  --git-link https://github.com/user/myapp.git
+
+# Without git
+lt fullstack init \
+  --name TestProject \
+  --frontend nuxt \
+  --git false
+
+# With git but no remote (add later)
+lt fullstack init \
+  --name LocalProject \
+  --frontend angular \
+  --git true
 ```
 
 ---
 
-## Property Flag Reference
+## Git Commands Reference
 
-| Flag | Description | Example | Required |
-|------|-------------|---------|----------|
-| `--prop-name-X` | Property name | `--prop-name-0 title` | Yes |
-| `--prop-type-X` | Property type | `--prop-type-0 string` | No (default: string) |
-| `--prop-nullable-X` | Is optional | `--prop-nullable-0 true` | No (default: false) |
-| `--prop-array-X` | Is array | `--prop-array-0 true` | No (default: false) |
-| `--prop-enum-X` | Enum reference | `--prop-enum-0 StatusEnum` | No |
-| `--prop-schema-X` | Object reference | `--prop-schema-0 Address` | No |
-| `--prop-reference-X` | ObjectId reference | `--prop-reference-0 User` | Yes (with ObjectId) |
+### lt git get
 
----
-
-## Type Mapping
-
-### Primitive Types
-| Type | TypeScript | MongoDB | Use Case |
-|------|-----------|---------|----------|
-| `string` | `string` | String | Text, names, descriptions |
-| `number` | `number` | Number | Integers, floats, counts |
-| `boolean` | `boolean` | Boolean | Flags, toggles |
-| `Date` | `Date` | Date | Timestamps, dates |
-| `bigint` | `bigint` | Long | Large integers |
-
-### Special Types
-| Type | Model Type | Input Type | Notes |
-|------|-----------|-----------|--------|
-| `ObjectId` | `Reference` | `ReferenceInput` | Requires `--prop-reference-X` |
-| `Json` | `JSON` | `JSON` | Flexible metadata |
-| Custom Object | `<Name>` | `<Name>Input` | Requires `--prop-schema-X` |
-| Custom Enum | `<Name>Enum` | `<Name>Enum` | Requires `--prop-enum-X` |
-
----
-
-## Decorator Reference
-
-### Model Decorators
-```typescript
-@Prop()                    // MongoDB property
-@UnifiedField()            // GraphQL + REST
-@Restricted(RoleEnum.XXX)  // Access control
+**Syntax:**
+```bash
+lt git get [branch-name]
 ```
 
-### Input Decorators
-```typescript
-@UnifiedField()            // GraphQL + REST
-@IsOptional()              // Validation
-@IsEmail()                 // Email validation
-@IsString()                // String validation
+**Aliases:**
+- `lt git g`
+
+**Behavior:**
+
+| Scenario | Action |
+|----------|--------|
+| Branch exists locally | Switches to branch |
+| Branch exists on remote only | Checks out and tracks remote branch |
+| Branch doesn't exist anywhere | Creates new branch from current |
+
+**Common Usage:**
+```bash
+# Start new feature
+lt git get DEV-456           # Creates if doesn't exist
+
+# Switch to existing branch
+lt git get main              # Switches to main
+
+# Checkout teammate's branch
+lt git get feature/auth      # Checks out from remote if exists
+
+# Short alias
+lt git g DEV-789             # Same as "lt git get DEV-789"
+```
+
+**Equivalent Standard Git:**
+```bash
+# lt git get DEV-123 does:
+git checkout DEV-123 2>/dev/null || \
+  git checkout -b DEV-123 --track origin/DEV-123 2>/dev/null || \
+  git checkout -b DEV-123
 ```
 
 ---
 
-## File Structure Reference
+### lt git reset
 
-### Module Structure
-```
-src/server/modules/<module-name>/
-├── <module-name>.model.ts              # MongoDB schema
-├── <module-name>.service.ts            # Business logic
-├── <module-name>.controller.ts         # REST endpoints
-├── <module-name>.resolver.ts           # GraphQL resolver
-├── <module-name>.module.ts             # NestJS module
-├── inputs/
-│   ├── <module-name>.input.ts          # Update DTO
-│   └── <module-name>-create.input.ts   # Create DTO
-└── outputs/
-    └── find-and-count-<module-name>s-result.output.ts
+**Syntax:**
+```bash
+lt git reset
 ```
 
-### Object Structure
+**No parameters accepted** - always operates on current branch.
+
+**Interactive Prompt:**
 ```
-src/server/common/objects/<object-name>/
-├── <object-name>.object.ts             # Object class
-├── <object-name>.input.ts              # Update DTO
-└── <object-name>-create.input.ts       # Create DTO
+Reset current branch to origin/<branch>?
+This will discard all local changes. (y/N)
+```
+
+**What Gets Discarded:**
+- All uncommitted changes (staged and unstaged)
+- All local commits not pushed to remote
+- All untracked files (if any were added)
+
+**When to Use:**
+- Experimental work failed, want clean slate
+- Merge conflicts too complex
+- Accidentally committed to wrong branch
+- Local branch corrupted
+
+**When NOT to Use:**
+- You want to keep any local changes
+- You haven't pushed but commits are valuable
+- Branch has no remote tracking
+
+**Equivalent Standard Git:**
+```bash
+# lt git reset does:
+git fetch origin
+git reset --hard origin/<current-branch>
+```
+
+**Recovery (if you made a mistake):**
+```bash
+# IMMEDIATELY after reset, if you change your mind:
+git reflog                   # Find commit before reset
+git reset --hard HEAD@{1}    # Restore to that commit
 ```
 
 ---
 
-## Common Command Patterns
+## Fullstack Commands Reference
 
-### Simple Module (No Properties)
+### lt fullstack init
+
+**Syntax:**
 ```bash
-lt server module --name Category --controller Rest
+lt fullstack init \
+  --name <WorkspaceName> \
+  --frontend <angular|nuxt> \
+  --git <true|false> \
+  [--git-link <GitURL>]
 ```
 
-### Module with Basic Properties
-```bash
-lt server module --name Product --controller Both \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 price --prop-type-1 number \
-  --prop-name-2 active --prop-type-2 boolean
+**Aliases:**
+- `lt full init`
+
+**Parameters:**
+
+| Parameter | Type | Required | Options | Description |
+|-----------|------|----------|---------|-------------|
+| `--name` | string | Yes | - | Project name (PascalCase) |
+| `--frontend` | string | Yes | `angular`, `nuxt` | Frontend framework |
+| `--git` | boolean | Yes | `true`, `false` | Initialize git |
+| `--git-link` | string | No | URL | Git repository URL |
+
+**Created Structure:**
+```
+<workspace-name>/
+├── frontend/              # Angular or Nuxt app
+│   ├── src/              # (Angular) or pages/ (Nuxt)
+│   ├── package.json
+│   └── ...
+├── projects/
+│   └── api/              # NestJS backend (@lenne.tech/nest-server)
+│       ├── src/
+│       │   └── server/
+│       │       ├── modules/
+│       │       └── common/
+│       ├── package.json
+│       └── ...
+├── package.json          # Root workspace config
+├── .gitignore           # (if --git true)
+└── .git/                # (if --git true)
 ```
 
-### Module with Nullable Property
+**Post-Creation Setup:**
 ```bash
-lt server module --name Post --controller GraphQL \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 subtitle --prop-type-1 string --prop-nullable-1 true
+cd <workspace-name>
+npm install                        # Install dependencies
+
+# Terminal 1: Start backend
+cd projects/api && npm start       # Runs on port 3000
+
+# Terminal 2: Start frontend
+cd frontend && npm start           # Angular: 4200, Nuxt: 3000/3001
 ```
 
-### Module with Array Property
+**Git Remote Configuration:**
+
+With `--git-link`:
 ```bash
-lt server module --name Article --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 tags --prop-type-1 string --prop-array-1 true
+# Remote automatically configured
+git remote -v
+# origin  https://github.com/user/repo.git (fetch)
+# origin  https://github.com/user/repo.git (push)
 ```
 
-### Module with ObjectId Reference
+Without `--git-link` (add later):
 ```bash
-lt server module --name Comment --controller Rest \
-  --prop-name-0 content --prop-type-0 string \
-  --prop-name-1 author --prop-type-1 ObjectId --prop-reference-1 User
-```
-
-### Module with Schema/Object
-```bash
-lt server module --name Company --controller Both \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 address --prop-schema-1 Address
-```
-
-### Module with Enum
-```bash
-lt server module --name Order --controller Both \
-  --prop-name-0 orderNumber --prop-type-0 string \
-  --prop-name-1 status --prop-enum-1 OrderStatusEnum
-```
-
-### Module with JSON Metadata
-```bash
-lt server module --name Product --controller Both \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 metadata --prop-type-1 Json --prop-nullable-1 true
-```
-
-### Complex Module (Multiple Property Types)
-```bash
-lt server module --name Event --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 organizer --prop-type-2 ObjectId --prop-reference-2 User \
-  --prop-name-3 attendees --prop-type-3 ObjectId --prop-reference-3 User --prop-array-3 true \
-  --prop-name-4 startDate --prop-type-4 Date \
-  --prop-name-5 endDate --prop-type-5 Date --prop-nullable-5 true \
-  --prop-name-6 location --prop-schema-6 Location \
-  --prop-name-7 status --prop-enum-7 EventStatusEnum \
-  --prop-name-8 tags --prop-type-8 string --prop-array-8 true \
-  --prop-name-9 metadata --prop-type-9 Json --prop-nullable-9 true
+cd <workspace-name>
+git remote add origin https://github.com/user/repo.git
+git push -u origin main
 ```
 
 ---
 
-## Troubleshooting Guide
+## Common Patterns
 
-### Error: Cannot read properties of undefined (reading 'getChildIndex')
-**Cause**: Input files have no existing properties (fixed in latest version)
-**Solution**: Update to latest CLI version or ensure files have at least one property
+### Git Workflows
 
-### Error: Module directory already exists
-**Cause**: Trying to create a module that already exists
-**Solution**: Use `lt server addProp` instead
-
-### Error: No src directory found
-**Cause**: Running command outside of project directory
-**Solution**: Navigate to project directory (anywhere inside works)
-
-### TypeScript Errors: Cannot find name 'Reference'
-**Cause**: Missing imports for referenced modules
-**Solution**: Manually add imports:
-```typescript
-import { Reference } from '@lenne.tech/nest-server';
-import { User } from '../../user/user.model';
-```
-
-### Property Index Mismatch
-**Cause**: Using different indices for same property
-**Wrong**:
+#### Feature Development
 ```bash
---prop-name-1 company --prop-type-0 string
+# Start new feature
+git checkout main
+git pull
+lt git get DEV-123
+
+# Work...
+git add .
+git commit -m "Implement feature"
+git push -u origin DEV-123
 ```
-**Correct**:
+
+#### Switch Between Branches
 ```bash
---prop-name-1 company --prop-type-1 string
+# Save current work
+git stash
+
+# Switch branch
+lt git get DEV-456
+
+# Do urgent work...
+
+# Return to original work
+lt git get DEV-123
+git stash pop
 ```
 
-### Boolean Value Errors
-**Wrong**: `--prop-nullable-0 True` or `--prop-nullable-0 TRUE`
-**Correct**: `--prop-nullable-0 true` (lowercase)
+#### Discard Failed Work
+```bash
+# Work didn't go well
+git status                  # See mess
+
+# Start over from remote
+lt git reset               # Clean slate
+```
+
+### Fullstack Initialization
+
+#### Production Project
+```bash
+lt fullstack init \
+  --name ProductionApp \
+  --frontend angular \
+  --git true \
+  --git-link https://github.com/company/production-app.git
+
+cd ProductionApp
+npm install
+# ... setup, create modules, commit, push
+```
+
+#### Local Development
+```bash
+lt fullstack init \
+  --name LocalTest \
+  --frontend nuxt \
+  --git false
+
+cd LocalTest
+npm install
+# ... quick testing without git overhead
+```
 
 ---
 
-## Best Practices Checklist
+## Troubleshooting
 
-- [ ] Plan data model before generating
-- [ ] Create objects for reusable structures first
-- [ ] Use meaningful, descriptive names
-- [ ] Create referenced modules before referencing them
-- [ ] Start with one API type (Rest or GraphQL)
-- [ ] Mark only truly optional fields as nullable
-- [ ] Use arrays for collections
-- [ ] Use JSON for flexible/extensible data
-- [ ] Create enums before using them
-- [ ] Run lint after generation
-- [ ] Test incrementally
-- [ ] Commit after successful generation
-- [ ] Review generated code before modifying
-- [ ] Add custom business logic in services
-- [ ] Document complex relationships
+### Git Commands
+
+#### "Branch not found" Error
+```bash
+# Problem: Typo in branch name
+lt git get DEV-12345
+# Error: Branch not found
+
+# Solution: Check available branches
+git branch -a               # List all branches
+lt git get DEV-123          # Correct name
+```
+
+#### "Cannot reset" Error
+```bash
+# Problem: No remote tracking
+lt git reset
+# Error: No remote tracking branch
+
+# Solution: Set up tracking
+git branch -u origin/main   # Or appropriate branch
+git fetch origin
+lt git reset
+```
+
+#### Uncommitted Changes Block Switch
+```bash
+# Problem: Changes prevent switching
+lt git get DEV-456
+# Error: Your local changes... would be overwritten
+
+# Solution 1: Stash
+git stash
+lt git get DEV-456
+git stash pop
+
+# Solution 2: Commit
+git add .
+git commit -m "WIP"
+lt git get DEV-456
+```
+
+### Fullstack Init
+
+#### Permission Denied
+```bash
+# Problem: No write permissions
+lt fullstack init --name MyApp --frontend angular --git false
+# Error: Permission denied
+
+# Solution: Use writable directory
+cd ~/projects
+lt fullstack init --name MyApp --frontend angular --git false
+```
+
+#### Directory Already Exists
+```bash
+# Problem: Project name already used
+lt fullstack init --name MyApp --frontend angular --git false
+# Error: Directory already exists
+
+# Solution: Use different name or remove directory
+rm -rf MyApp
+lt fullstack init --name MyApp --frontend angular --git false
+```
+
+#### Git Link Invalid
+```bash
+# Problem: Invalid git URL
+lt fullstack init \
+  --name MyApp \
+  --frontend angular \
+  --git true \
+  --git-link invalid-url
+
+# Solution: Use valid HTTPS or SSH URL
+lt fullstack init \
+  --name MyApp \
+  --frontend angular \
+  --git true \
+  --git-link https://github.com/user/repo.git
+```
 
 ---
 
-## Naming Conventions
+## Best Practices
 
-### Modules & Objects
-- **Format**: PascalCase
-- **Examples**: `User`, `BlogPost`, `OrderItem`, `ProductCategory`
+### Git Operations
 
-### Properties
-- **Format**: camelCase
-- **Examples**: `firstName`, `emailAddress`, `isActive`, `createdAt`
+**Branch Management:**
+- ✅ Always run `git status` before switching branches
+- ✅ Commit or stash changes before switching
+- ✅ Use meaningful branch names (DEV-123, feature/xyz)
+- ✅ Pull latest before creating feature branches
+- ❌ Don't leave uncommitted changes when switching
 
-### Enum Names
-- **Format**: PascalCase + "Enum" suffix
-- **Examples**: `UserStatusEnum`, `OrderStatusEnum`, `PriorityEnum`
+**Reset Operations:**
+- ✅ Verify what will be discarded with `git status` first
+- ✅ Only reset when you're certain you want to discard everything
+- ✅ Know that reset is irreversible (unless using reflog immediately)
+- ❌ Don't reset if you have valuable local commits
+- ❌ Don't reset without checking remote exists
 
-### File Names
-- **Format**: kebab-case
-- **Examples**: `user.model.ts`, `blog-post.service.ts`, `order-item.input.ts`
+### Fullstack Initialization
 
----
+**Project Setup:**
+- ✅ Use PascalCase for project names (MyProject, not my-project)
+- ✅ Enable git for all real projects (`--git true`)
+- ✅ Add git remote URL immediately with `--git-link`
+- ✅ Run `npm install` right after creation
+- ✅ Choose Angular for enterprise, Nuxt for flexibility
+- ❌ Don't use git for quick throwaway tests
+- ❌ Don't use spaces in project names
 
-## Controller Type Decision Guide
-
-### Choose REST when:
-- Building traditional CRUD APIs
-- Simple data fetching needs
-- RESTful conventions are preferred
-- Mobile/web clients expect REST
-
-### Choose GraphQL when:
-- Complex data relationships
-- Frontend needs flexible queries
-- Reducing over-fetching/under-fetching
-- Real-time subscriptions needed
-
-### Choose Both when:
-- Supporting multiple client types
-- Gradual migration from REST to GraphQL
-- Maximum flexibility required
-- Unsure about future requirements
-
----
-
-## Related Technologies
-
-### Dependencies
-- **NestJS**: Node.js framework
-- **Mongoose**: MongoDB ODM
-- **GraphQL**: Query language
-- **TypeScript**: Type-safe JavaScript
-- **ts-morph**: TypeScript AST manipulation
-
-### Generated Decorators
-- `@Prop()`: Mongoose schema definition
-- `@UnifiedField()`: GraphQL + REST exposure
-- `@Restricted()`: Access control
-- `@IsOptional()`: Validation
-- `@Field()`: GraphQL field
+**Post-Creation:**
+- ✅ Read generated README.md files
+- ✅ Commit initial setup before making changes
+- ✅ Set up CI/CD early
+- ✅ Configure environment variables
+- ❌ Don't commit .env files
+- ❌ Don't modify generated structure without understanding it
 
 ---
 
 ## Quick Tips
 
-1. **Use indices consistently**: All flags for one property use same index
-2. **ObjectId always needs reference**: `--prop-reference-X` is required
-3. **Quote special characters**: Wrap values with spaces in quotes
-4. **Lowercase booleans**: Use `true`/`false`, not `True`/`FALSE`
-5. **Run from anywhere**: CLI finds `src/` automatically
-6. **Check before creating**: Use `addProp` for existing modules
-7. **Plan relationships**: Create referenced modules first
-8. **Use objects for reuse**: Don't duplicate structures
-9. **Start simple**: Add complexity incrementally
-10. **Commit often**: Save after each successful generation
+1. **Use aliases**: `lt git g` instead of `lt git get`
+2. **Stash is your friend**: `git stash` before branch switches
+3. **Check status often**: `git status` before any git operation
+4. **Reset is destructive**: Only use when certain
+5. **PascalCase names**: `MyProject`, not `my_project` or `myproject`
+6. **Git from start**: Use `--git true` for all real projects
+7. **Track branches**: Let `lt git get` handle remote tracking
+8. **Install immediately**: Run `npm install` after init
+9. **Commit often**: Save work after each logical step
+10. **Read READMEs**: Each generated project has setup instructions
+
+---
+
+## Related Commands
+
+For NestJS server development commands, use the **nest-server-generator skill**:
+- `lt server module` - Create modules
+- `lt server object` - Create objects
+- `lt server addProp` - Add properties
+
+---
+
+## References
+
+- [lenne.tech CLI Documentation](https://github.com/lenneTech/cli)
+- [Git Documentation](https://git-scm.com/doc)
+- [NestJS Documentation](https://docs.nestjs.com)
+- [Angular Documentation](https://angular.io/docs)
+- [Nuxt Documentation](https://nuxt.com/docs)

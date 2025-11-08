@@ -20,7 +20,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       patching,
       print: { error, info, spin, success },
-      prompt: { confirm },
+      prompt: { ask, confirm },
       server,
       strings: { kebabCase },
       system,
@@ -92,9 +92,25 @@ const NewCommand: GluegunCommand = {
       template: 'nest-server-starter/README.md.ejs',
     });
 
-    // Replace secret or private keys and remove `nest-server`
-    await patching.update(`./${projectDir}/src/config.env.ts`, content => server.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, `${projectDir
-       }-`));
+    // Replace secret or private keys and update database names
+    await patching.update(`./${projectDir}/src/config.env.ts`, content => {
+      let updated = server.replaceSecretOrPrivateKeys(content);
+
+      // Replace database names in mongoose URIs (nest-server-ci -> projectName-ci, etc.)
+      updated = updated.replace(/nest-server-(ci|develop|local|prod|production|test)/g, `${projectDir}-$1`);
+
+      // Also replace any remaining nest-server references (without environment suffix)
+      updated = updated.replace(/nest-server/g, projectDir);
+
+      return updated;
+    });
+
+    // Update Swagger configuration in main.ts
+    await patching.update(`./${projectDir}/src/main.ts`, content =>
+      content
+        .replace(/\.setTitle\('.*?'\)/, `.setTitle('${name}')`)
+        .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`)
+    );
 
     // Set package.json
     await patching.update(`./${projectDir}/package.json`, (config) => {
@@ -140,6 +156,63 @@ const NewCommand: GluegunCommand = {
           initGitSpinner.succeed('Git initialized');
         }
       }
+    }
+
+    // Configure default controller type for modules
+    info('');
+    info('📋 Project Configuration');
+    info('');
+    info('To streamline module creation, you can set a default controller type.');
+    info('This will be used for all new modules unless explicitly overridden.');
+    info('');
+
+    const configureDefaults = await confirm('Would you like to configure default settings?', true);
+
+    if (configureDefaults) {
+      const controllerChoice = await ask([{
+        choices: [
+          'Rest - REST controllers only (no GraphQL)',
+          'GraphQL - GraphQL resolvers only (includes subscriptions)',
+          'Both - Both REST and GraphQL (hybrid approach)',
+          'auto - Auto-detect from existing modules',
+        ],
+        initial: 2, // Default to "Both"
+        message: 'Default controller type for new modules?',
+        name: 'controller',
+        type: 'select',
+      }]);
+
+      // Extract the controller type from the choice
+      const controllerType = controllerChoice.controller.split(' - ')[0] as 'auto' | 'Both' | 'GraphQL' | 'Rest';
+
+      // Create lt.config.json
+      const ltConfig = {
+        commands: {
+          server: {
+            module: {
+              controller: controllerType,
+            },
+          },
+        },
+        meta: {
+          version: '1.0.0',
+        },
+      };
+
+      const configPath = filesystem.path(projectDir, 'lt.config.json');
+      filesystem.write(configPath, ltConfig, { jsonIndent: 2 });
+
+      info('');
+      success(`✅ Configuration saved to ${projectDir}/lt.config.json`);
+      info(`   Default controller type: ${controllerType}`);
+      info('');
+      info('💡 You can change this anytime by:');
+      info(`   - Editing ${projectDir}/lt.config.json directly`);
+      info(`   - Running 'lt config init' in the project directory`);
+    } else {
+      info('');
+      info('⏭️  Skipped configuration. You can set it up later with:');
+      info(`   cd ${projectDir} && lt config init`);
     }
 
     // We're done, so show what to do next

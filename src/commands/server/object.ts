@@ -5,7 +5,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import genModule from './module';
 
 /**
- * Create a new server module
+ * Create a new server object
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['o'],
@@ -33,6 +33,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       helper,
       parameters,
@@ -53,6 +54,10 @@ const NewCommand: ExtendedGluegunCommand = {
     } else {
       info('Create a new server object (with inputs)');
     }
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configSkipLint = ltConfig?.commands?.server?.object?.skipLint;
 
     // Parse CLI arguments
     const { name: cliName, skipLint: cliSkipLint } = parameters.options;
@@ -93,10 +98,9 @@ const NewCommand: ExtendedGluegunCommand = {
     const { props, refsSet, schemaSet } = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
 
     const generateSpinner = spin('Generate files');
-    const declare = server.useDefineForClassFieldsActivated();
-    const inputTemplate = server.propsForInput(props, { declare, modelName: name, nullable: true });
-    const createTemplate = server.propsForInput(props, { create: true, declare, modelName: name, nullable: false });
-    const objectTemplate = server.propsForModel(props, { declare, modelName: name });
+    const inputTemplate = server.propsForInput(props, { modelName: name, nullable: true });
+    const createTemplate = server.propsForInput(props, { create: true, modelName: name, nullable: false });
+    const objectTemplate = server.propsForModel(props, { modelName: name });
 
     // nest-server-module/inputs/xxx.input.ts
     await template.generate({
@@ -128,8 +132,14 @@ const NewCommand: ExtendedGluegunCommand = {
 
     generateSpinner.succeed('Files generated');
 
-    // Lint fix
-    if (!cliSkipLint) {
+    // Lint fix with priority: CLI parameter > config > default (false)
+    const skipLint = config.getValue({
+      cliValue: cliSkipLint,
+      configValue: configSkipLint,
+      defaultValue: false,
+    });
+
+    if (!skipLint) {
       if (await confirm('Run lint fix?', true)) {
         await system.run('npm run lint:fix');
       }
@@ -140,18 +150,18 @@ const NewCommand: ExtendedGluegunCommand = {
     success(`Generated ${namePascal}Object in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
 
-    // Add additional objects
-    if (objectsToAdd.length > 0) {
-      divider();
-      const nextObj = objectsToAdd.shift().object;
-      await NewCommand.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
-    }
-
     // Add additional references
     if (referencesToAdd.length > 0) {
       divider();
       const nextRef = referencesToAdd.shift().reference;
       await genModule.run(toolbox, { currentItem: nextRef, objectsToAdd, preventExitProcess: true, referencesToAdd });
+    }
+
+    // Add additional objects
+    if (objectsToAdd.length > 0) {
+      divider();
+      const nextObj = objectsToAdd.shift().object;
+      await NewCommand.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
     }
 
     // We're done, so show what to do next

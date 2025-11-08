@@ -164,7 +164,7 @@ lt server addProp --type Module --element Product \
 ```
 
 **What it does:**
-- Adds properties to `.model.ts` with `@Prop()` and `@UnifiedField()` decorators
+- Adds properties to `.model.ts` with `@UnifiedField({ mongoose: ... })` decorator
 - Updates `.input.ts` with `@UnifiedField()` decorator for updates
 - Updates `-create.input.ts` with `@UnifiedField()` decorator for creation
 - Handles TypeScript typing with proper generics and suffixes
@@ -269,7 +269,7 @@ src/
 ## What the Tool Does
 1. Parses arguments or runs interactive prompts
 2. Locates target files (model, input, create-input)
-3. Adds properties with proper TypeScript decorators (@Prop, @UnifiedField)
+3. Adds properties with proper TypeScript decorators (@UnifiedField with mongoose option)
 4. Updates all relevant files maintaining proper structure
 5. Formats code automatically
 6. Optionally runs lint fixes

@@ -1,7 +1,9 @@
 import { ConfigService } from '@lenne.tech/nest-server';
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+<% if ((props.controller === 'GraphQL') || (props.controller === 'Both')) { -%>
 import { PubSub } from 'graphql-subscriptions';
+<% } -%>
 
 import { UserModule } from '../user/user.module';
 import { <%= props.namePascal %>, <%= props.namePascal %>Schema } from './<%= props.nameKebab %>.model';
@@ -28,10 +30,12 @@ import { <%= props.namePascal %>Controller } from './<%= props.nameKebab %>.cont
   <%= props.namePascal %>Resolver,
 <% } -%>
   <%= props.namePascal %>Service,
+<% if ((props.controller === 'GraphQL') || (props.controller === 'Both')) { -%>
     {
       provide: 'PUB_SUB',
       useValue: new PubSub(),
     },
+<% } -%>
   ],
 })
 export class <%= props.namePascal %>Module {}

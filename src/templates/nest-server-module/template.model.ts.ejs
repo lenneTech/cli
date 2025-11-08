@@ -1,8 +1,8 @@
-import { Restricted, RoleEnum, equalIds, mapClasses , UnifiedField} from '@lenne.tech/nest-server';
+import { Restricted, RoleEnum, equalIds<% if (props.mappings.includes('mapClasses')) { %>, mapClasses<% } %>, UnifiedField} from '@lenne.tech/nest-server';
 <% if (props.isGql) { %>
 import { ObjectType } from '@nestjs/graphql';
 <% } %>
-import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Schema } from 'mongoose';<%- props.imports %>
 
 import { PersistenceModel } from '../../common/models/persistence.model';

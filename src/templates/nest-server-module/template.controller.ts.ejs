@@ -14,39 +14,50 @@ export class <%= props.namePascal %>Controller {
 
 constructor(protected readonly <%= props.nameCamel %>Service: <%= props.namePascal %>Service) {}
 
-  @Post()
-  @Roles(RoleEnum.ADMIN)
   @ApiOkResponse({ type: <%= props.namePascal %> })
+  @Post()
+  @Roles(RoleEnum.S_USER)
   async create(@Body() input: <%= props.namePascal %>CreateInput): Promise<<%= props.namePascal %>> {
     return await this.<%= props.nameCamel %>Service.create(input);
   }
 
-  @Get()
-  @Roles(RoleEnum.ADMIN)
+  @ApiOkResponse({ description: 'Find and count <%= props.namePascal %>' })
+  @Get('find-and-count')
+  @Roles(RoleEnum.S_USER)
+  async findAndCount(@Body() filterArgs: FilterArgs): Promise<{ items: <%= props.namePascal %>[]; totalCount: number }> {
+    return await this.<%= props.nameCamel %>Service.findAndCount(filterArgs);
+  }
+
   @ApiOkResponse({ isArray: true, type: <%= props.namePascal %> })
+  @Get()
+  @Roles(RoleEnum.S_USER)
   async get(@Body() filterArgs: FilterArgs): Promise<<%= props.namePascal %>[]> {
     return await this.<%= props.nameCamel %>Service.find(filterArgs);
   }
 
+  @ApiOkResponse({ type: <%= props.namePascal %> })
   @Get(':id')
-  @Roles(RoleEnum.ADMIN)
-  @ApiOkResponse({ type: <%= props.namePascal %> })
+  @Roles(RoleEnum.S_USER)
   async getById(@Param('id') id: string): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.findOne({filterQuery: { _id: id }})
+    return await this.<%= props.nameCamel %>Service.findOne({filterQuery: { _id: id }});
   }
 
+  @ApiOkResponse({ type: <%= props.namePascal %> })
   @Put(':id')
-  @Roles(RoleEnum.ADMIN)
-  @ApiOkResponse({ type: <%= props.namePascal %> })
+  @Roles(RoleEnum.S_USER)
   async update(@Param('id') id: string, @Body() input: <%= props.namePascal %>Input): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.update(id, input);
+    return await this.<%= props.nameCamel %>Service.update(id, input, {
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+    });
   }
 
-  @Delete(':id')
-  @Roles(RoleEnum.ADMIN)
   @ApiOkResponse({ type: <%= props.namePascal %> })
+  @Delete(':id')
+  @Roles(RoleEnum.S_USER)
   async delete(@Param('id') id: string): Promise<<%= props.namePascal %>> {
-    return await this.<%= props.nameCamel %>Service.delete(id);
+    return await this.<%= props.nameCamel %>Service.delete(id, {
+      roles: [RoleEnum.ADMIN, RoleEnum.S_CREATOR],
+    });
   }
 
 }

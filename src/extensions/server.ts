@@ -272,13 +272,13 @@ export class Server {
    */
   propsForModel(
     props: Record<string, ServerProps>,
-    options?: { declare?: boolean; modelName?: string; useDefault?: boolean },
+    options?: { modelName?: string; useDefault?: boolean },
   ): { imports: string; mappings: string; props: string } {
     // Preparations
     const config = { useDefault: true, ...options };
     const { modelName, useDefault } = config;
-    const declare = config?.declare ?? this.useDefineForClassFieldsActivated();
-    const undefinedString = declare ? ';' : ' = undefined;';
+    // Only use = undefined when useDefineForClassFieldsActivated is false or override/declare keyword is set
+    const undefinedString = this.useDefineForClassFieldsActivated() ? ';' : ' = undefined;';
     let result = '';
 
     // Check parameters
@@ -298,7 +298,13 @@ export class Server {
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
   @Field(() => [String], { description: 'Properties of ${this.pascalCase(modelName)}', nullable: 'items'})
-  @Prop([String])
+  @UnifiedField({
+    description: 'Properties of ${this.pascalCase(modelName)}',
+    isOptional: false,
+    mongoose: [String],
+    roles: RoleEnum.S_EVERYONE,
+    type: () => [String],
+  })
   properties: string[]${undefinedString}
 
   /**
@@ -307,9 +313,10 @@ export class Server {
   @UnifiedField({
     description: 'User who has tested the ${this.pascalCase(modelName)}',
     isOptional: true,
+    mongoose: { type: Schema.Types.ObjectId, ref: 'User' },
+    roles: RoleEnum.S_EVERYONE,
     type: () => User,
   })
-  @Prop({ type: Schema.Types.ObjectId, ref: 'User' })
   testedBy: User${undefinedString}
   `,
         };
@@ -326,11 +333,15 @@ export class Server {
       const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
       const modelFieldType = enumRef
         ? 'String'
-        : this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+        : schema
+          ? schema
+          : this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
       const isArray = item.isArray;
       const modelClassType
-        = this.modelClassTypes[this.pascalCase(item.type)]
-        || (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
+        = schema
+          ? schema
+          : this.modelClassTypes[this.pascalCase(item.type)]
+            || (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
       if (!this.standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Enum' && type !== 'Json') {
         mappings[propName] = type;
@@ -338,31 +349,47 @@ export class Server {
       if (reference) {
         mappings[propName] = reference;
       }
+      if (schema) {
+        mappings[propName] = schema;
+      }
       if (this.imports[modelClassType]) {
         imports[modelClassType] = this.imports[modelClassType];
       }
+      // For enum arrays, we need both enum config and type
+      const enumConfig = enumRef
+        ? isArray
+          ? `enum: { enum: ${enumRef}, options: { each: true } },\n    `
+          : `enum: { enum: ${enumRef} },\n    `
+        : '';
+
+      // Type is only needed for arrays (even enum arrays need type for array notation)
+      // OR when there's no enum config (references, schemas, standard types)
+      const needsType = reference || schema || isArray || !enumRef;
+      const typeConfig = needsType ? `type: () => ${isArray ? '[' : ''}${reference ? reference : enumRef || modelFieldType}${isArray ? ']' : ''}` : '';
+
+      // Build mongoose configuration
+      const mongooseConfig = reference
+        ? `${isArray ? '[' : ''}{ ref: '${reference}', type: Schema.Types.ObjectId }${isArray ? ']' : ''}`
+        : schema
+          ? `${isArray ? '[' : ''}{ type: ${schema}Schema }${isArray ? ']' : ''}`
+          : enumRef
+            ? `${isArray ? '[' : ''}{ enum: ${item.nullable ? `Object.values(${enumRef}).concat([null])` : enumRef}, type: String }${isArray ? ']' : ''}`
+            : type === 'Json'
+              ? `${isArray ? '[' : ''}{ type: Object }${isArray ? ']' : ''}`
+              : 'true';
+
       result += `
   /**
    * ${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}
    */
-  @Prop(${
-        reference
-          ? `${isArray ? '[' : ''}{ ref: '${reference}', type: Schema.Types.ObjectId }${isArray ? ']' : ''}`
-          : schema
-            ? `${isArray ? '[' : ''}{ type: ${schema}Schema }${isArray ? ']' : ''}`
-            : enumRef
-              ? `${isArray ? '[' : ''}{ enum: ${item.nullable ? `Object.values(${enumRef}).concat([null])` : enumRef}, type: String }${isArray ? ']' : ''}`
-              : type === 'Json'
-                ? `${isArray ? '[' : ''}{ type: Object }${isArray ? ']' : ''}`
-                : ''
-      })
   @UnifiedField({
     description: '${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
-    isOptional: ${item.nullable},
+    ${enumConfig}isOptional: ${item.nullable},
+    mongoose: ${mongooseConfig},
     roles: RoleEnum.S_EVERYONE,
-    type: () => ${reference ? reference : modelFieldType},
+    ${typeConfig}
   })
-  ${propName}: ${(reference ? reference : enumRef || modelClassType) + (isArray ? '[]' : '')}${undefinedString}
+  ${propName}: ${(reference ? reference : schema ? schema : enumRef || modelClassType) + (isArray ? '[]' : '')}${undefinedString}
   `;
     }
 
@@ -391,13 +418,13 @@ export class Server {
    */
   propsForInput(
     props: Record<string, ServerProps>,
-    options?: { create?: boolean; declare?: boolean; modelName?: string; nullable?: boolean },
+    options?: { create?: boolean; modelName?: string; nullable?: boolean },
   ): { imports: string; props: string } {
     // Preparations
     const config = { useDefault: true, ...options };
     const { create, modelName, nullable, useDefault } = config;
-    const declare = config?.declare ?? this.useDefineForClassFieldsActivated();
-    const undefinedString = declare ? ';' : ' = undefined;';
+    // Only use = undefined when useDefineForClassFieldsActivated is false or override keyword is set
+    const undefinedString = this.useDefineForClassFieldsActivated() ? ';' : ' = undefined;';
     let result = '';
 
     // Check parameters
@@ -451,25 +478,42 @@ export class Server {
               ? this.pascalCase(item.enumRef)
               : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
         const propertySuffix = this.propertySuffixTypes[this.pascalCase(item.type)] || '';
-        const overrideString = this.useDefineForClassFieldsActivated() ? 'declare ' : 'override ';
+        // Use override (not declare) for decorator properties when useDefineForClassFieldsActivated is true
+        const overrideString = this.useDefineForClassFieldsActivated() ? 'override ' : '';
         const overrideFlag = create ? overrideString : '';
+        // When override is set, always use = undefined
+        const propertyUndefinedString = overrideFlag ? ' = undefined;' : undefinedString;
         if (this.imports[inputFieldType]) {
           imports[inputFieldType] = this.imports[inputFieldType];
         }
         if (this.imports[inputClassType]) {
           imports[inputClassType] = this.imports[inputClassType];
         }
+
+        // For enum arrays, we need both enum config and type
+        const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+        const enumConfig = enumRef
+          ? item.isArray
+            ? `enum: { enum: ${enumRef}, options: { each: true } },\n    `
+            : `enum: { enum: ${enumRef} },\n    `
+          : '';
+
+        // Type is only needed for arrays (even enum arrays need type for array notation)
+        // OR when there's no enum config
+        const needsType = item.isArray || !enumRef;
+        const typeConfig = needsType ? `type: () => ${item.isArray ? '[' : ''}${inputFieldType}${item.isArray ? ']' : ''}` : '';
+
         result += `
   /**
    * ${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}
    */
   @UnifiedField({
     description: '${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
-    isOptional: ${nullable},
+    ${enumConfig}isOptional: ${nullable},
     roles: RoleEnum.S_EVERYONE,
-    type: () => ${inputFieldType}
+    ${typeConfig}
   })
-  ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${inputClassType}${item.isArray ? '[]' : ''}${undefinedString}
+  ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${inputClassType}${item.isArray ? '[]' : ''}${propertyUndefinedString}
   `;
       }
 
@@ -491,36 +535,30 @@ export class Server {
    * Replace secret or private keys in string (e.g. for config files)
    */
   replaceSecretOrPrivateKeys(configContent: string): string {
-    // Matches SECRET_OR_PRIVATE_KEY then any amount of anything until there is a '
-    const regex = /SECRET_OR_PRIVATE_KEY[^']*/gm;
+    // Match all occurrences of SECRET_OR_PRIVATE_KEY with optional suffix (e.g., _CI, _DEV_REFRESH)
+    // This regex matches the pattern within quotes: 'SECRET_OR_PRIVATE_KEY...'
+    const regex = /'SECRET_OR_PRIVATE_KEY[^']*'/g;
 
-    const count = (str, pattern) => {
-      const re = new RegExp(pattern, 'gi');
-      return ((str || '').match(re) || []).length;
-    };
+    const matches = configContent.match(regex);
 
-    const secretArr: string[] = [];
-
-    // -1 because we don't need to replace the first occurrence.
-    for (let i = 0; i < count(configContent, regex) - 1; i++) {
-      secretArr.push(crypto.randomBytes(512).toString('base64'));
+    if (!matches || matches.length === 0) {
+      return configContent;
     }
 
-    // Getting the config content and using native ts to replace the content, patching.update doesn't accept regex
-    let secretIndex = 0;
-    let occurrenceCount = 0;
+    // Create a map to store unique secrets for each unique placeholder
+    const secretMap = new Map<string, string>();
 
     return configContent.replace(regex, (match) => {
-      occurrenceCount++;
+      // Remove quotes to get the placeholder
+      const placeholder = match.slice(1, -1);
 
-      // Skip the first occurrence
-      if (occurrenceCount === 1) {
-        return match;
+      // If we haven't generated a secret for this placeholder yet, create one
+      if (!secretMap.has(placeholder)) {
+        secretMap.set(placeholder, crypto.randomBytes(512).toString('base64'));
       }
 
-      const secret = secretArr[secretIndex];
-      secretIndex++;
-      return secret;
+      // Return the secret with quotes
+      return `'${secretMap.get(placeholder)}'`;
     });
   }
 

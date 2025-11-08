@@ -1,291 +1,203 @@
+---
+name: lt-cli-examples
+version: 1.0.0
+description: Real-world examples for Git operations and Fullstack initialization with lenne.tech CLI
+---
+
 # LT CLI Examples
 
-## Real-World Use Cases
+⚠️ **Note**: For NestJS server examples (modules, objects, properties), see the **nest-server-generator skill** instead.
 
-### 1. Blog System
+This file contains examples for:
+- Git operations (`lt git get`, `lt git reset`)
+- Fullstack initialization (`lt fullstack init`)
 
-#### Step 1: Create User Module
+---
+
+## Git Operations
+
+### 1. Branch Management
+
+#### Switching to Existing Branch
 ```bash
-lt server module --name User --controller Both \
-  --prop-name-0 email --prop-type-0 string \
-  --prop-name-1 username --prop-type-1 string \
-  --prop-name-2 firstName --prop-type-2 string \
-  --prop-name-3 lastName --prop-type-3 string \
-  --prop-name-4 bio --prop-type-4 string --prop-nullable-4 true
+# Switch to existing branch DEV-123
+lt git get DEV-123
 ```
 
-#### Step 2: Create Category Module
+**What happens:**
+1. Checks if `DEV-123` exists locally
+2. Switches to branch `DEV-123`
+
+#### Creating New Branch
 ```bash
-lt server module --name Category --controller Rest \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 slug --prop-type-1 string \
-  --prop-name-2 description --prop-type-2 string --prop-nullable-2 true
+# Create and switch to new branch feature/new-authentication
+lt git get feature/new-authentication
 ```
 
-#### Step 3: Create Post Module with References
+**What happens:**
+1. Checks if `feature/new-authentication` exists locally (not found)
+2. Checks if it exists on remote (not found)
+3. Creates new branch `feature/new-authentication` from current branch
+4. Switches to the new branch
+
+#### Checking Out Remote Branch
 ```bash
-lt server module --name Post --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 slug --prop-type-1 string \
-  --prop-name-2 content --prop-type-2 string \
-  --prop-name-3 excerpt --prop-type-3 string --prop-nullable-3 true \
-  --prop-name-4 author --prop-type-4 ObjectId --prop-reference-4 User \
-  --prop-name-5 category --prop-type-5 ObjectId --prop-reference-5 Category \
-  --prop-name-6 tags --prop-type-6 string --prop-array-6 true \
-  --prop-name-7 published --prop-type-7 boolean \
-  --prop-name-8 publishedAt --prop-type-8 Date --prop-nullable-8 true
+# Checkout branch that exists on remote but not locally
+lt git get DEV-456
 ```
 
-#### Step 4: Create Comment Module
+**What happens:**
+1. Checks if `DEV-456` exists locally (not found)
+2. Checks if it exists on remote (found!)
+3. Checks out `DEV-456` and sets up tracking to `origin/DEV-456`
+4. Switches to the branch
+
+#### Using Alias
 ```bash
-lt server module --name Comment --controller GraphQL \
-  --prop-name-0 content --prop-type-0 string \
-  --prop-name-1 author --prop-type-1 ObjectId --prop-reference-1 User \
-  --prop-name-2 post --prop-type-2 ObjectId --prop-reference-2 Post \
-  --prop-name-3 approved --prop-type-3 boolean
+# Same as "lt git get" but shorter
+lt git g DEV-789
 ```
 
 ---
 
-### 2. E-Commerce Platform
+### 2. Workflow Scenarios
 
-#### Step 1: Create Address Object
+#### Start New Feature Development
 ```bash
-lt server object --name Address \
-  --prop-name-0 street --prop-type-0 string \
-  --prop-name-1 city --prop-type-1 string \
-  --prop-name-2 state --prop-type-2 string \
-  --prop-name-3 zipCode --prop-type-3 string \
-  --prop-name-4 country --prop-type-4 string
+# You're on main branch, start working on new ticket
+git status  # Verify clean working tree
+lt git get DEV-234  # Create and switch to new feature branch
+
+# Do your work...
+git add .
+git commit -m "Implement feature"
+git push -u origin DEV-234
 ```
 
-#### Step 2: Create Customer Module
+#### Switch Between Tickets
 ```bash
-lt server module --name Customer --controller Both \
-  --prop-name-0 email --prop-type-0 string \
-  --prop-name-1 firstName --prop-type-1 string \
-  --prop-name-2 lastName --prop-type-2 string \
-  --prop-name-3 phone --prop-type-3 string --prop-nullable-3 true \
-  --prop-name-4 shippingAddress --prop-schema-4 Address \
-  --prop-name-5 billingAddress --prop-schema-5 Address
+# Working on DEV-123, need to switch to urgent DEV-456
+git status  # Check for uncommitted changes
+git stash   # Save work in progress
+lt git get DEV-456  # Switch to urgent ticket
+
+# Fix urgent issue...
+git add .
+git commit -m "Fix urgent bug"
+git push
+
+# Return to original work
+lt git get DEV-123
+git stash pop  # Restore work in progress
 ```
 
-#### Step 3: Create Product Module
+#### Sync with Remote Branch
 ```bash
-lt server module --name Product --controller Both \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 sku --prop-type-1 string \
-  --prop-name-2 description --prop-type-2 string \
-  --prop-name-3 price --prop-type-3 number \
-  --prop-name-4 compareAtPrice --prop-type-4 number --prop-nullable-4 true \
-  --prop-name-5 stock --prop-type-5 number \
-  --prop-name-6 images --prop-type-6 string --prop-array-6 true \
-  --prop-name-7 tags --prop-type-7 string --prop-array-7 true \
-  --prop-name-8 active --prop-type-8 boolean
-```
+# Someone else created branch DEV-789 on remote
+lt git get DEV-789  # Automatically checks out and tracks remote branch
 
-#### Step 4: Create Order Module
-```bash
-lt server module --name Order --controller Both \
-  --prop-name-0 orderNumber --prop-type-0 string \
-  --prop-name-1 customer --prop-type-1 ObjectId --prop-reference-1 Customer \
-  --prop-name-2 items --prop-type-2 Json \
-  --prop-name-3 subtotal --prop-type-3 number \
-  --prop-name-4 tax --prop-type-4 number \
-  --prop-name-5 total --prop-type-5 number \
-  --prop-name-6 status --prop-enum-6 OrderStatusEnum \
-  --prop-name-7 shippingAddress --prop-schema-7 Address
+# Verify tracking
+git status
+# Output: "Your branch is up to date with 'origin/DEV-789'"
 ```
 
 ---
 
-### 3. Project Management System
+### 3. Reset Operations
 
-#### Step 1: Create Team Module
+#### Discard All Local Changes
 ```bash
-lt server module --name Team --controller Rest \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 members --prop-type-2 ObjectId --prop-reference-2 User --prop-array-2 true
+# Your local changes are broken, start fresh from remote
+git status  # See what will be discarded
+
+lt git reset
+# Prompts: "Reset current branch to origin/<branch>? This will discard all local changes. (y/N)"
+# Type: y
+
+# Your branch now matches remote exactly
 ```
 
-#### Step 2: Create Project Module
+**⚠️ WARNING**: This is destructive! All local commits and changes are permanently lost.
+
+#### When to Use Reset
+
+**Use Case 1**: Experimental work failed
 ```bash
-lt server module --name Project --controller Both \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string \
-  --prop-name-2 team --prop-type-2 ObjectId --prop-reference-2 Team \
-  --prop-name-3 owner --prop-type-3 ObjectId --prop-reference-3 User \
-  --prop-name-4 startDate --prop-type-4 Date \
-  --prop-name-5 endDate --prop-type-5 Date --prop-nullable-5 true \
-  --prop-name-6 status --prop-enum-6 ProjectStatusEnum
+# You tried something, it didn't work, want clean slate
+git status  # Shows many broken changes
+lt git reset  # Start over from remote
 ```
 
-#### Step 3: Create Task Module
+**Use Case 2**: Merge conflict too complex
 ```bash
-lt server module --name Task --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 project --prop-type-2 ObjectId --prop-reference-2 Project \
-  --prop-name-3 assignee --prop-type-3 ObjectId --prop-reference-3 User --prop-nullable-3 true \
-  --prop-name-4 priority --prop-enum-4 PriorityEnum \
-  --prop-name-5 status --prop-enum-5 TaskStatusEnum \
-  --prop-name-6 dueDate --prop-type-6 Date --prop-nullable-6 true \
-  --prop-name-7 estimatedHours --prop-type-7 number --prop-nullable-7 true
+# Merge created complex conflicts, easier to start over
+git merge main  # Conflict!
+# ... attempt to resolve, too complicated
+git merge --abort
+lt git reset  # Get clean state
+# Now merge again or use different approach
 ```
 
----
-
-### 4. Social Media Platform
-
-#### Step 1: Create Profile Object
+**Use Case 3**: Accidental commits on wrong branch
 ```bash
-lt server object --name Profile \
-  --prop-name-0 bio --prop-type-0 string --prop-nullable-0 true \
-  --prop-name-1 avatar --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 coverImage --prop-type-2 string --prop-nullable-2 true \
-  --prop-name-3 website --prop-type-3 string --prop-nullable-3 true \
-  --prop-name-4 location --prop-type-4 string --prop-nullable-4 true
-```
-
-#### Step 2: Create User with Profile
-```bash
-lt server module --name User --controller Both \
-  --prop-name-0 username --prop-type-0 string \
-  --prop-name-1 email --prop-type-1 string \
-  --prop-name-2 displayName --prop-type-2 string \
-  --prop-name-3 profile --prop-schema-3 Profile \
-  --prop-name-4 verified --prop-type-4 boolean
-```
-
-#### Step 3: Create Post Module
-```bash
-lt server module --name Post --controller Both \
-  --prop-name-0 content --prop-type-0 string \
-  --prop-name-1 author --prop-type-1 ObjectId --prop-reference-1 User \
-  --prop-name-2 images --prop-type-2 string --prop-array-2 true \
-  --prop-name-3 likes --prop-type-3 ObjectId --prop-reference-3 User --prop-array-3 true \
-  --prop-name-4 hashtags --prop-type-4 string --prop-array-4 true \
-  --prop-name-5 visibility --prop-enum-5 VisibilityEnum
-```
-
-#### Step 4: Add Features to User
-```bash
-lt server addProp --type Module --element User \
-  --prop-name-0 followers --prop-type-0 ObjectId --prop-reference-0 User --prop-array-0 true \
-  --prop-name-1 following --prop-type-1 ObjectId --prop-reference-1 User --prop-array-1 true
+# Made commits on main instead of feature branch
+git log  # See unwanted commits
+lt git reset  # Discard commits, return to clean main
+lt git get DEV-123  # Switch to correct branch
+# Re-do work properly
 ```
 
 ---
 
-### 5. Learning Management System
+### 4. Common Patterns
 
-#### Step 1: Create Course Module
+#### Daily Development Workflow
 ```bash
-lt server module --name Course --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string \
-  --prop-name-2 instructor --prop-type-2 ObjectId --prop-reference-2 User \
-  --prop-name-3 thumbnail --prop-type-3 string --prop-nullable-3 true \
-  --prop-name-4 price --prop-type-4 number \
-  --prop-name-5 duration --prop-type-5 number \
-  --prop-name-6 level --prop-enum-6 CourseLevelEnum \
-  --prop-name-7 tags --prop-type-7 string --prop-array-7 true \
-  --prop-name-8 published --prop-type-8 boolean
+# Morning: Start work on ticket
+lt git get main          # Switch to main
+git pull                 # Get latest changes
+lt git get DEV-567       # Create/switch to ticket branch
+
+# During day: Regular commits
+git add .
+git commit -m "Progress on feature"
+git push -u origin DEV-567  # First push sets upstream
+
+# End of day: Push progress
+git add .
+git commit -m "WIP: End of day checkpoint"
+git push
 ```
 
-#### Step 2: Create Lesson Module
+#### Handling Mistakes
 ```bash
-lt server module --name Lesson --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 content --prop-type-1 string \
-  --prop-name-2 course --prop-type-2 ObjectId --prop-reference-2 Course \
-  --prop-name-3 order --prop-type-3 number \
-  --prop-name-4 duration --prop-type-4 number \
-  --prop-name-5 videoUrl --prop-type-5 string --prop-nullable-5 true \
-  --prop-name-6 resources --prop-type-6 Json --prop-nullable-6 true
+# Scenario: Committed to wrong branch
+git log -1               # See the wrong commit
+git stash                # Stash any uncommitted work
+lt git reset             # Reset to clean state
+lt git get DEV-999       # Switch to correct branch
+git stash pop            # Restore work
+# Now commit on correct branch
 ```
 
-#### Step 3: Create Enrollment Module
+#### Code Review Feedback
 ```bash
-lt server module --name Enrollment --controller Rest \
-  --prop-name-0 student --prop-type-0 ObjectId --prop-reference-0 User \
-  --prop-name-1 course --prop-type-1 ObjectId --prop-reference-1 Course \
-  --prop-name-2 progress --prop-type-2 number \
-  --prop-name-3 completedLessons --prop-type-3 ObjectId --prop-reference-3 Lesson --prop-array-3 true \
-  --prop-name-4 enrolledAt --prop-type-4 Date \
-  --prop-name-5 completedAt --prop-type-5 Date --prop-nullable-5 true
-```
-
----
-
-## Adding Properties to Existing Modules
-
-### Add metadata to Product
-```bash
-lt server addProp --type Module --element Product \
-  --prop-name-0 seo --prop-type-0 Json --prop-nullable-0 true \
-  --prop-name-1 dimensions --prop-type-1 Json --prop-nullable-1 true
-```
-
-### Add timestamps to custom module
-```bash
-lt server addProp --type Module --element CustomModule \
-  --prop-name-0 lastModifiedBy --prop-type-0 ObjectId --prop-reference-0 User \
-  --prop-name-1 archivedAt --prop-type-1 Date --prop-nullable-1 true
-```
-
-### Add social features
-```bash
-lt server addProp --type Module --element Post \
-  --prop-name-0 comments --prop-type-0 ObjectId --prop-reference-0 Comment --prop-array-0 true \
-  --prop-name-1 shares --prop-type-1 number \
-  --prop-name-2 views --prop-type-2 number
-```
-
----
-
-## Common Object Patterns
-
-### Contact Information
-```bash
-lt server object --name ContactInfo \
-  --prop-name-0 email --prop-type-0 string \
-  --prop-name-1 phone --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 mobile --prop-type-2 string --prop-nullable-2 true \
-  --prop-name-3 fax --prop-type-3 string --prop-nullable-3 true
-```
-
-### Price Range
-```bash
-lt server object --name PriceRange \
-  --prop-name-0 min --prop-type-0 number \
-  --prop-name-1 max --prop-type-1 number \
-  --prop-name-2 currency --prop-type-2 string
-```
-
-### Geo Location
-```bash
-lt server object --name GeoLocation \
-  --prop-name-0 latitude --prop-type-0 number \
-  --prop-name-1 longitude --prop-type-1 number \
-  --prop-name-2 address --prop-type-2 string --prop-nullable-2 true
-```
-
-### Media File
-```bash
-lt server object --name MediaFile \
-  --prop-name-0 url --prop-type-0 string \
-  --prop-name-1 filename --prop-type-1 string \
-  --prop-name-2 mimeType --prop-type-2 string \
-  --prop-name-3 size --prop-type-3 number
+# Reviewer asked for changes on PR branch
+lt git get DEV-333       # Switch to PR branch
+git pull                 # Get latest
+# Make requested changes
+git add .
+git commit -m "Address PR feedback"
+git push
 ```
 
 ---
 
 ## Fullstack Project Initialization
 
-### Angular Project
+### 1. Angular Projects
+
+#### Production Angular App with Git
 ```bash
 lt fullstack init \
   --name MyAngularApp \
@@ -294,7 +206,49 @@ lt fullstack init \
   --git-link https://github.com/myorg/my-angular-app.git
 ```
 
-### Nuxt Project
+**Creates:**
+```
+MyAngularApp/
+├── frontend/              # Angular 18+ application
+│   ├── src/
+│   ├── angular.json
+│   └── package.json
+├── projects/
+│   └── api/              # NestJS backend (@lenne.tech/nest-server)
+│       ├── src/
+│       │   └── server/
+│       │       ├── modules/
+│       │       └── common/
+│       └── package.json
+├── package.json          # Root workspace config
+├── .gitignore
+└── .git/                 # Initialized with remote
+```
+
+**Next steps:**
+```bash
+cd MyAngularApp
+npm install              # Install all dependencies
+cd projects/api && npm start  # Start backend (port 3000)
+# In another terminal:
+cd frontend && npm start      # Start frontend (port 4200)
+```
+
+#### Local Development Angular App
+```bash
+lt fullstack init \
+  --name LocalDevApp \
+  --frontend angular \
+  --git false
+```
+
+**Use case:** Quick prototyping, learning, no version control needed
+
+---
+
+### 2. Nuxt Projects
+
+#### Production Nuxt App with Git
 ```bash
 lt fullstack init \
   --name MyNuxtApp \
@@ -303,10 +257,286 @@ lt fullstack init \
   --git-link https://github.com/myorg/my-nuxt-app.git
 ```
 
-### Local Development (No Git)
+**Creates:**
+```
+MyNuxtApp/
+├── frontend/              # Nuxt 3 application
+│   ├── pages/
+│   ├── components/
+│   ├── nuxt.config.ts
+│   └── package.json
+├── projects/
+│   └── api/              # NestJS backend
+│       └── ...
+├── package.json
+├── .gitignore
+└── .git/
+```
+
+#### Nuxt App without Remote
 ```bash
 lt fullstack init \
-  --name LocalDevProject \
+  --name MyNuxtProject \
+  --frontend nuxt \
+  --git true
+  # No --git-link, git initialized but no remote
+```
+
+**Use case:** Start project locally, add remote later
+
+**Add remote later:**
+```bash
+cd MyNuxtProject
+git remote add origin https://github.com/myorg/my-nuxt-project.git
+git push -u origin main
+```
+
+---
+
+### 3. Project Types
+
+#### Client Project (Angular + NestJS)
+```bash
+lt fullstack init \
+  --name ClientPortal \
+  --frontend angular \
+  --git true \
+  --git-link https://github.com/client/portal.git
+
+# After creation:
+cd ClientPortal/projects/api
+
+# Add authentication module
+lt server module --name User --controller Both \
+  --prop-name-0 email --prop-type-0 string \
+  --prop-name-1 password --prop-type-1 string
+
+# Add business logic modules
+# ... (use nest-server-generator skill for this)
+```
+
+#### Internal Tool (Nuxt + NestJS)
+```bash
+lt fullstack init \
+  --name InternalDashboard \
+  --frontend nuxt \
+  --git true \
+  --git-link https://github.com/company/internal-dashboard.git
+
+# Quick setup for internal tools with Nuxt's flexibility
+```
+
+#### Learning/Tutorial Project
+```bash
+lt fullstack init \
+  --name LearningFullstack \
   --frontend angular \
   --git false
+
+# No git overhead, just focus on learning
 ```
+
+---
+
+### 4. Post-Creation Workflows
+
+#### After Angular Fullstack Init
+```bash
+cd MyAngularApp
+npm install
+
+# Terminal 1: Start backend
+cd projects/api
+npm start
+# API runs on http://localhost:3000
+
+# Terminal 2: Start frontend
+cd frontend
+npm start
+# Frontend runs on http://localhost:4200
+# Auto-proxies API calls to backend
+
+# Terminal 3: Development
+cd projects/api
+# Generate server modules using nest-server-generator skill
+```
+
+#### After Nuxt Fullstack Init
+```bash
+cd MyNuxtApp
+npm install
+
+# Terminal 1: Start backend
+cd projects/api
+npm start
+# API runs on http://localhost:3000
+
+# Terminal 2: Start frontend
+cd frontend
+npm run dev
+# Frontend runs on http://localhost:3000 (or 3001 if 3000 taken)
+
+# Configure proxy in nuxt.config.ts if needed
+```
+
+---
+
+### 5. Common Initialization Patterns
+
+#### Team Project Setup
+```bash
+# Lead developer initializes project
+lt fullstack init \
+  --name TeamProject \
+  --frontend angular \
+  --git true \
+  --git-link https://github.com/team/team-project.git
+
+cd TeamProject
+npm install
+# ... initial setup, create base modules
+git add .
+git commit -m "Initial project setup"
+git push -u origin main
+
+# Team members clone
+# git clone https://github.com/team/team-project.git
+# cd team-project
+# npm install
+```
+
+#### Monorepo with Multiple Projects
+```bash
+# Create first project
+lt fullstack init --name ProjectA --frontend angular --git true
+
+# Create second project
+lt fullstack init --name ProjectB --frontend nuxt --git true
+
+# Each has its own git repository, npm workspace, and backend
+```
+
+#### Migration from Existing Backend
+```bash
+# Create fullstack project
+lt fullstack init \
+  --name MigratedApp \
+  --frontend angular \
+  --git true
+
+cd MigratedApp/projects
+
+# Remove generated api
+rm -rf api
+
+# Clone existing backend
+git clone https://github.com/company/existing-api.git api
+
+# Update root package.json workspace paths if needed
+```
+
+---
+
+## Troubleshooting Examples
+
+### Git Branch Issues
+
+#### Branch Exists But Can't Switch
+```bash
+# Problem: Uncommitted changes
+git status
+# Output: "Changes not staged for commit..."
+
+# Solution 1: Stash changes
+git stash
+lt git get DEV-123
+git stash pop
+
+# Solution 2: Commit changes
+git add .
+git commit -m "WIP: Save progress"
+lt git get DEV-123
+```
+
+#### Reset Fails
+```bash
+# Problem: No remote branch
+lt git reset
+# Error: "Remote branch not found"
+
+# Solution: Check remote
+git branch -r  # List remote branches
+git remote -v  # Verify remote URL
+
+# If remote missing, add it
+git remote add origin https://github.com/user/repo.git
+git fetch origin
+lt git reset  # Try again
+```
+
+### Fullstack Init Issues
+
+#### Permission Denied
+```bash
+# Problem: Can't create directory
+lt fullstack init --name MyApp --frontend angular --git false
+# Error: "Permission denied"
+
+# Solution: Check permissions
+ls -la .
+# Create in home directory or with sudo
+cd ~
+lt fullstack init --name MyApp --frontend angular --git false
+```
+
+#### Git Remote Already Exists
+```bash
+# Problem: Directory already has .git
+lt fullstack init --name ExistingDir --frontend nuxt --git true
+# Error: "Directory already initialized with git"
+
+# Solution: Use different directory or remove .git
+rm -rf ExistingDir/.git
+lt fullstack init --name ExistingDir --frontend nuxt --git true
+```
+
+---
+
+## Using Alias Commands
+
+All commands have shorter aliases:
+
+```bash
+# Full commands
+lt git get DEV-123
+lt fullstack init --name MyApp --frontend angular --git true
+
+# With aliases
+lt git g DEV-123
+lt full init --name MyApp --frontend angular --git true
+```
+
+---
+
+## Best Practices
+
+### Git Operations
+1. **Always check status first**: `git status` before switching branches
+2. **Save work before switching**: Commit or stash uncommitted changes
+3. **Be cautious with reset**: It's destructive and irreversible
+4. **Use meaningful branch names**: Follow team conventions (DEV-123, feature/xyz)
+
+### Fullstack Initialization
+1. **Choose frontend wisely**: Angular for enterprise, Nuxt for flexibility
+2. **Enable git from start**: Use `--git true` for all real projects
+3. **Follow naming conventions**: PascalCase for project names
+4. **Read generated READMEs**: Each project has setup instructions
+5. **Install dependencies immediately**: Run `npm install` after creation
+
+---
+
+## Reference
+
+For detailed command syntax and all available options, see [reference.md](reference.md).
+
+For NestJS server development examples, use the **nest-server-generator skill**.

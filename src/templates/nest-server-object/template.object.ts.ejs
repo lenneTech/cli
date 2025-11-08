@@ -1,6 +1,6 @@
-import { CoreModel, Restricted, RoleEnum, UnifiedField } from '@lenne.tech/nest-server';
+import { CoreModel, Restricted, RoleEnum<% if (props.mappings.includes('mapClasses')) { %>, mapClasses<% } %>, UnifiedField } from '@lenne.tech/nest-server';
 import { ObjectType } from '@nestjs/graphql';
-import { Schema as MongooseSchema, Prop, SchemaFactory } from '@nestjs/mongoose';
+import { Schema as MongooseSchema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';<%- props.imports %>
 
 import { User } from '../../../modules/user/user.model';

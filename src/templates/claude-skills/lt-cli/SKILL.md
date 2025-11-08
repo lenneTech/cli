@@ -1,341 +1,272 @@
 ---
 name: lt-cli
-description: Expert assistance with lenne.tech CLI for NestJS/TypeScript backend development. Use when creating server modules, objects, or adding properties to NestJS backends. Generates correct lt server commands with proper --prop-name-X syntax. Helps with lt server module, lt server object, lt server addProp, and lt fullstack init commands.
+version: 1.0.0
+description: Expert assistance with lenne.tech CLI for Git operations and Fullstack initialization. IMPORTANT - For ALL NestJS server development (modules, objects, properties), use the nest-server-generator skill instead, even for simple tasks. This skill handles only lt git commands and lt fullstack init.
 ---
 
-# LT CLI Expert
+# LT CLI Expert - Git & Fullstack
 
-You are an expert in the lenne.tech CLI tool for NestJS/TypeScript backend development. When this skill is active, help users generate correct LT CLI commands and work efficiently with the framework.
+You are an expert in the lenne.tech CLI tool. This skill handles **Git operations and Fullstack initialization ONLY**.
+
+**⚠️ CRITICAL:** For NestJS server development (modules, objects, properties), ALWAYS use the `nest-server-generator` skill instead.
+
+## ⚠️ When to Use Which Skill
+
+### Use the `nest-server-generator` skill for:
+- ✅ Creating server modules (`lt server module`)
+- ✅ Creating server objects (`lt server object`)
+- ✅ Adding properties (`lt server addProp`)
+- ✅ Creating a new server (`lt server create`)
+- ✅ ANY NestJS/nest-server development task
+- ✅ Even simple tasks like adding a single property
+- ✅ Even simple tasks like creating a single module
+
+### Use this `lt-cli` skill ONLY for:
+- ✅ Git commands (`lt git get`, `lt git reset`, etc.)
+- ✅ Fullstack commands (`lt fullstack init`)
+- ✅ General CLI questions (not about server development)
+
+### Example scenarios:
+- "Create a User module with email and username" → Use **nest-server-generator** skill ✅
+- "Add a new property to the User module" → Use **nest-server-generator** skill ✅
+- "Checkout branch DEV-123" → Use this skill (lt-cli) ✅
+- "Initialize a fullstack project" → Use this skill (lt-cli) ✅
+
+**If the user mentions ANYTHING about NestJS server, modules, objects, properties, or models:**
+→ **IMMEDIATELY recommend or use the nest-server-generator skill instead**
+
+---
 
 ## Available Commands
 
-### 1. Create Server Module
-**Command**: `lt server module` (alias: `lt server m`)
+### 1. Git Operations
 
-Creates a complete NestJS module with model, service, controller/resolver, and DTOs.
+#### Get Branch
+**Command**: `lt git get <branch-name>` (alias: `lt git g`)
 
-**Non-interactive syntax**:
-```bash
-lt server module --name <ModuleName> --controller <Rest|GraphQL|Both> [property-flags]
-```
-
-**Property flags** (multiple properties with different indices):
-- `--prop-name-X <name>` - Property name (X = 0, 1, 2...)
-- `--prop-type-X <type>` - string, number, boolean, ObjectId, Json, Date, etc.
-- `--prop-nullable-X <true|false>` - Optional property
-- `--prop-array-X <true|false>` - Array type
-- `--prop-enum-X <EnumName>` - Enum reference
-- `--prop-schema-X <SchemaName>` - Object/schema reference
-- `--prop-reference-X <RefName>` - Reference name for ObjectId
-- `--skipLint` - Skip lint prompt
-
-**Example**:
-```bash
-lt server module --name Post --controller GraphQL \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 content --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 author --prop-type-2 ObjectId --prop-reference-2 User \
-  --prop-name-3 tags --prop-type-3 string --prop-array-3 true
-```
-
-### 2. Add Properties to Existing Module/Object
-**Command**: `lt server addProp` (alias: `lt server ap`)
-
-Adds properties to existing modules or objects, updating model and input files.
+Checks out a branch, creating it if it doesn't exist.
 
 **Non-interactive syntax**:
 ```bash
-lt server addProp --type <Module|Object> --element <name> [property-flags]
+lt git get <branch-name>
 ```
 
-**Example**:
+**Examples**:
 ```bash
-lt server addProp --type Module --element User \
-  --prop-name-0 email --prop-type-0 string \
-  --prop-name-1 age --prop-type-1 number --prop-nullable-1 true
+# Checkout existing or create new branch
+lt git get DEV-123
+
+# Using alias
+lt git g feature/new-feature
 ```
 
-### 3. Create Server Object
-**Command**: `lt server object` (alias: `lt server o`)
+**What it does**:
+1. Checks if branch exists locally
+2. If not, checks if it exists on remote
+3. If remote exists, checks out and tracks remote branch
+4. If neither exists, creates new branch from current branch
+5. Switches to the branch
 
-Creates reusable data structures (objects) for embedding in modules.
+#### Reset to Remote
+**Command**: `lt git reset`
 
-**Non-interactive syntax**:
-```bash
-lt server object --name <ObjectName> [property-flags] [--skipLint]
-```
+Resets current branch to match remote (discards local changes).
 
-**Example**:
-```bash
-lt server object --name Address \
-  --prop-name-0 street --prop-type-0 string \
-  --prop-name-1 city --prop-type-1 string \
-  --prop-name-2 zipCode --prop-type-2 string
-```
+**Interactive**: Prompts for confirmation before resetting.
 
-### 4. Initialize Fullstack Workspace
+**What it does**:
+1. Fetches latest from remote
+2. Resets current branch to origin/<branch>
+3. Discards all local changes and commits
+
+**⚠️ WARNING**: This is destructive! All local changes will be lost.
+
+### 2. Fullstack Initialization
+
+#### Initialize Fullstack Workspace
 **Command**: `lt fullstack init` (alias: `lt full init`)
 
 Creates complete fullstack workspace with frontend and backend.
 
+**Interactive mode**:
+- Prompts for workspace name
+- Prompts for frontend framework (Angular or Nuxt)
+- Prompts for git initialization
+- Prompts for git repository URL (if git enabled)
+
 **Non-interactive syntax**:
 ```bash
-lt fullstack init --name <WorkspaceName> --frontend <angular|nuxt> --git <true|false> --git-link <GitURL>
+lt fullstack init --name <WorkspaceName> --frontend <angular|nuxt> --git <true|false> [--git-link <GitURL>]
 ```
 
-**Example**:
+**Parameters**:
+- `--name` - Workspace/project name (PascalCase recommended)
+- `--frontend` - Frontend framework: `angular` or `nuxt`
+- `--git` - Initialize git repository: `true` or `false`
+- `--git-link` - Git repository URL (optional, only if `--git true`)
+
+**Examples**:
 ```bash
-lt fullstack init --name MyApp --frontend angular --git true --git-link https://github.com/user/repo.git
+# With git and repository
+lt fullstack init --name MyApp --frontend angular --git true --git-link https://github.com/user/myapp.git
+
+# Without git
+lt fullstack init --name MyApp --frontend nuxt --git false
+
+# Using alias
+lt full init --name MyProject --frontend angular --git true
 ```
 
-## Critical Rules for Command Generation
+**What gets created**:
+```
+<workspace-name>/
+  frontend/          # Angular or Nuxt application
+  projects/
+    api/            # NestJS backend (@lenne.tech/nest-server)
+  package.json      # Root workspace configuration
+  .gitignore        # (if git enabled)
+  .git/             # (if git enabled)
+```
 
-### 1. Index-Based Property Flags
-Always use numbered indices for property flags:
+**Post-creation steps**:
+1. `cd <workspace-name>`
+2. Install dependencies: `npm install`
+3. Start backend: `cd projects/api && npm start`
+4. Start frontend: `cd frontend && npm start`
+
+---
+
+## ⚠️ How to Redirect to nest-server-generator
+
+When you detect ANY NestJS server task, immediately inform the user:
+
+**Template response**:
+```
+For NestJS server development tasks, please use the **nest-server-generator skill** instead.
+
+This skill is specifically designed for all NestJS/nest-server work, including:
+- Creating modules, objects, or properties
+- Modifying existing server code
+- Generating complete server structures
+
+You can install it with:
 ```bash
-# CORRECT
---prop-name-0 title --prop-type-0 string \
---prop-name-1 content --prop-type-1 string
-
-# WRONG - Don't use sequential arrays
---prop-name title --prop-type string
+lt claude install-skills nest-server-generator
 ```
 
-### 2. Match Indices Across Flags
-All flags for one property must use the same index:
+Or install all skills:
 ```bash
-# CORRECT
---prop-name-1 company --prop-type-1 string --prop-nullable-1 false
-
-# WRONG - Mixed indices
---prop-name-1 company --prop-type-0 string --prop-nullable-2 false
+lt claude install-skills
 ```
 
-### 3. ObjectId References
-Always include `--prop-reference-X` with ObjectId type:
-```bash
---prop-name-0 author --prop-type-0 ObjectId --prop-reference-0 User
+Then I can help you with your NestJS server task using the nest-server-generator skill.
 ```
 
-### 4. Schema/Object Properties
-Use `--prop-schema-X` for embedding objects:
-```bash
---prop-name-0 address --prop-schema-0 Address
-```
-
-### 5. Boolean Values
-Use lowercase string literals:
-```bash
---prop-nullable-0 true   # CORRECT
---prop-nullable-0 True   # WRONG
---prop-nullable-0 TRUE   # WRONG
-```
-
-## Property Types Reference
-
-### Primitive Types
-- `string` - Text values
-- `number` - Numeric values
-- `boolean` - True/false
-- `bigint` - Large integers
-- `Date` - Date/time values
-
-### Special Types
-- `ObjectId` - MongoDB reference (requires `--prop-reference-X`)
-- `Json` - JSON data for flexible metadata
-- Custom objects (requires `--prop-schema-X`)
-- Custom enums (requires `--prop-enum-X`) - **Note: CLI generates the reference, but you must create the enum file manually afterwards**
-
-### Modifiers
-- `--prop-nullable-X true` - Makes property optional
-- `--prop-array-X true` - Makes property an array type
-
-## Common Patterns
-
-### User Authentication
-```bash
-lt server module --name User --controller Both \
-  --prop-name-0 email --prop-type-0 string \
-  --prop-name-1 username --prop-type-1 string \
-  --prop-name-2 roles --prop-type-2 string --prop-array-2 true \
-  --prop-name-3 verified --prop-type-3 boolean
-```
-
-### Blog Post with Relationships
-```bash
-lt server module --name Post --controller GraphQL \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 content --prop-type-1 string \
-  --prop-name-2 author --prop-type-2 ObjectId --prop-reference-2 User \
-  --prop-name-3 tags --prop-type-3 string --prop-array-3 true \
-  --prop-name-4 published --prop-type-4 boolean
-```
-
-### E-commerce Product
-```bash
-lt server module --name Product --controller Both \
-  --prop-name-0 name --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 price --prop-type-2 number \
-  --prop-name-3 stock --prop-type-3 number \
-  --prop-name-4 category --prop-enum-4 ProductCategoryEnum \
-  --prop-name-5 metadata --prop-type-5 Json --prop-nullable-5 true
-```
-
-### Nested Object Pattern
-```bash
-# First create the object
-lt server object --name Address \
-  --prop-name-0 street --prop-type-0 string \
-  --prop-name-1 city --prop-type-1 string \
-  --prop-name-2 country --prop-type-2 string
-
-# Then use it in a module
-lt server addProp --type Module --element User \
-  --prop-name-0 address --prop-schema-0 Address
-```
-
-## Project Structure
-
-The CLI expects this structure:
-```
-src/
-  server/
-    modules/
-      <module-name>/
-        <module-name>.model.ts          # MongoDB schema
-        <module-name>.service.ts        # Business logic
-        <module-name>.controller.ts     # REST controller
-        <module-name>.resolver.ts       # GraphQL resolver
-        <module-name>.module.ts         # NestJS module
-        inputs/
-          <module-name>.input.ts        # Update DTO
-          <module-name>-create.input.ts # Create DTO
-        outputs/
-          find-and-count-<module-name>s-result.output.ts
-    common/
-      objects/
-        <object-name>/
-          <object-name>.object.ts
-          <object-name>.input.ts
-          <object-name>-create.input.ts
-```
-
-## Generated Code Features
-
-### Model Files (.model.ts)
-- MongoDB schema with `@Prop()` decorator
-- `@UnifiedField()` decorator for GraphQL/REST
-- Mongoose schema definition
-- TypeScript typing with proper suffixes
-
-### Input Files (.input.ts / -create.input.ts)
-- `@UnifiedField()` decorator
-- Validation decorators
-- TypeScript typing
-- Generic support for references
-
-### Service Files (.service.ts)
-- CRUD operations
-- Pagination support
-- Reference handling
-- Business logic structure
-
-### Controller/Resolver Files
-- REST endpoints (controller)
-- GraphQL queries/mutations (resolver)
-- Proper authentication guards
-- DTO validation
-
-## Troubleshooting
-
-### Property Index Mismatch
-**Symptom**: Properties not created correctly or values mixed up
-**Cause**: Using wrong indices (e.g., `--prop-name-1` with `--prop-type-0`)
-**Solution**: Ensure all flags for one property use the same index
-
-### ObjectId Without Reference
-**Symptom**: TypeScript errors about missing reference
-**Cause**: Using `ObjectId` type without `--prop-reference-X`
-**Solution**: Always pair ObjectId with reference:
-```bash
---prop-type-0 ObjectId --prop-reference-0 User
-```
-
-### Module Already Exists
-**Symptom**: Error that module directory exists
-**Solution**: Use `lt server addProp` instead to add to existing modules
-
-### Empty Property Lists
-**Symptom**: "Cannot read properties of undefined"
-**Status**: Fixed in latest version
-**Solution**: Update to latest CLI version
+---
 
 ## Best Practices
 
-1. **Plan relationships first**: Sketch entity relationships before generating
-2. **Create objects for reusable structures**: Don't duplicate data structures
-3. **Use meaningful names**: PascalCase for modules/objects, camelCase for properties
-4. **Start with one API type**: Use Rest or GraphQL, add Both later if needed
-5. **Create enum files after generation**: CLI generates enum references, you create the actual enum files manually afterwards in `src/server/common/enums/`
-6. **Mark truly optional fields**: Only use nullable for genuinely optional data
-7. **Use JSON for extensibility**: Metadata and flexible fields work well as JSON
-8. **Run lint after generation**: Always run lint fix for code quality
-9. **Test incrementally**: Generate one module, test, then continue
-10. **Version control**: Commit after successful generation
+### Git Operations
+1. **Always commit changes before `lt git reset`** - It's destructive!
+2. **Use meaningful branch names** - Follow your team's conventions (e.g., `DEV-123`, `feature/xyz`)
+3. **Check status first** - Run `git status` before reset operations
+
+### Fullstack Init
+1. **Plan your architecture** - Know which frontend framework you need
+2. **Set up git early** - Use `--git true` from the start
+3. **Follow naming conventions** - Use PascalCase for workspace names
+4. **Read the generated README** - Each project has specific setup instructions
+
+---
+
+## Troubleshooting
+
+### Git Reset Not Working
+**Symptom**: Reset command fails or doesn't reset properly
+**Cause**: Remote branch doesn't exist or network issues
+**Solution**:
+- Check if remote branch exists: `git branch -r`
+- Ensure you're connected to remote: `git remote -v`
+- Fetch first: `git fetch origin`
+
+### Fullstack Init Fails
+**Symptom**: Installation errors during `lt fullstack init`
+**Cause**: Network issues, missing dependencies, or permissions
+**Solution**:
+- Check internet connection
+- Ensure Node.js is installed: `node --version`
+- Check npm permissions
+- Try with sudo if permission errors persist
+
+### Branch Already Exists
+**Symptom**: `lt git get` says branch exists but can't switch
+**Cause**: Uncommitted changes in working directory
+**Solution**: Commit, stash, or discard changes first:
+```bash
+git stash        # Save changes temporarily
+lt git get <branch>
+git stash pop    # Restore changes
+```
+
+---
 
 ## Working with This Skill
 
 When helping users:
 
-1. **Clarify requirements**: Ask about API type (REST/GraphQL/Both), relationships, data types
-2. **Suggest architecture**: Recommend objects for shared structures, modules for entities
-3. **Generate complete commands**: Include all necessary flags with correct syntax
-4. **Explain side effects**: Describe what files will be created and where
-5. **Provide next steps**: Suggest related modules, testing, or additional properties
+1. **Clarify intent**: Is this a git operation or fullstack setup?
+2. **Redirect server tasks**: Immediately suggest nest-server-generator for any NestJS work
+3. **Provide complete commands**: Include all necessary flags
+4. **Warn about destructive operations**: Always warn before `lt git reset`
+5. **Explain side effects**: Describe what will happen
 
 ### Example Response Pattern
 
-User: "Create a Task module with title, description, due date, and assignee"
+**User**: "Switch to branch DEV-456"
 
-Your response:
+**Your response**:
 ```bash
-# First ensure User module exists, then create Task module
-lt server module --name Task --controller Both \
-  --prop-name-0 title --prop-type-0 string \
-  --prop-name-1 description --prop-type-1 string --prop-nullable-1 true \
-  --prop-name-2 dueDate --prop-type-2 Date --prop-nullable-2 true \
-  --prop-name-3 assignee --prop-type-3 ObjectId --prop-reference-3 User \
-  --prop-name-4 status --prop-enum-4 TaskStatusEnum
+# Switch to branch DEV-456 (creates if it doesn't exist)
+lt git get DEV-456
 
-# This creates:
-# ✓ Task model with MongoDB schema
-# ✓ Task service with CRUD operations
-# ✓ REST controller and GraphQL resolver
-# ✓ Input DTOs for create/update
-
-# Next steps:
-# 1. Manually create TaskStatusEnum file in src/server/common/enums/task-status.enum.ts
-# 2. Verify User module exists
-# 3. Run lint fix
-# 4. Add custom business logic to TaskService
+# This will:
+# ✓ Check if DEV-456 exists locally
+# ✓ If not, check remote
+# ✓ If remote exists, checkout and track
+# ✓ If neither exists, create new branch
+# ✓ Switch to the branch
 ```
 
-## Integration Details
+**User**: "Create a User module"
 
-- Uses `ts-morph` for AST manipulation
-- Integrates with `@lenne.tech/nest-server` package
-- Generates `@UnifiedField()` decorators for dual REST/GraphQL support
-- Handles `useDefineForClassFields` TypeScript config
-- Automatically adds properties to `.model.ts`, `.input.ts`, and `-create.input.ts`
-- Manages imports and decorators automatically
+**Your response**:
+```
+For creating NestJS modules, please use the **nest-server-generator skill** instead.
+
+That skill is specifically designed for all NestJS/nest-server development tasks.
+
+Install it with:
+```bash
+lt claude install-skills nest-server-generator
+```
+
+Then I can help you create the User module with all necessary files and configurations.
+```
+
+---
 
 ## Important Notes
 
-- CLI works from anywhere in project directory
-- Automatically finds nearest `src/` directory
-- Properties are added with proper TypeScript typing
-- ObjectId properties become Reference/ReferenceInput in generated code
-- The CLI prompts for lint fix after generation (use `--skipLint` to skip)
-- Manual imports may be needed for references and schemas
-- **Enum files must be created manually**: When using `--prop-enum-X`, the CLI generates the reference in your code, but you must create the actual enum file yourself afterwards in `src/server/common/enums/<enum-name>.enum.ts`
+- **CLI works from anywhere** in your project directory
+- **Automatically finds** the nearest git repository for git commands
+- **Creates missing directories** for fullstack init
+- **Validates inputs** before executing destructive operations
+- **Always use nest-server-generator** for NestJS server development
+
+---
+
+## Command Reference
+
+For detailed command syntax and all available options, see [reference.md](reference.md).
+
+For NestJS server commands (`lt server module`, `lt server object`, etc.), use the **nest-server-generator skill**.
