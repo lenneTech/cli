@@ -1,6 +1,6 @@
 ---
 name: nest-server-generator
-version: 1.0.0
+version: 1.0.1
 description: PRIMARY expert for ALL NestJS and @lenne.tech/nest-server tasks. ALWAYS use this skill when working in projects with @lenne.tech/nest-server in package.json dependencies (supports monorepos with projects/*, packages/*, apps/* structure), or when asked about NestJS modules, services, controllers, resolvers, models, objects, tests, server creation, debugging, or any NestJS/nest-server development task. Handles lt server commands, security analysis, test creation, and all backend development. ALWAYS reads CrudService base class before working with Services.
 ---
 
@@ -88,6 +88,173 @@ export class ProductController {
 - Fail-safe protection
 
 **See "CRITICAL: Security & Test Coverage Rules" section for complete details.**
+
+## 🚨 CRITICAL: DESCRIPTION MANAGEMENT - READ BEFORE GENERATING CODE
+
+**⚠️ COMMON MISTAKE:** Descriptions are often applied inconsistently or only partially. You MUST follow this process for EVERY component.
+
+### 🔍 Step 1: ALWAYS Extract Descriptions from User Input
+
+**BEFORE generating ANY code, scan the user's specification for description hints:**
+
+1. **Look for comments after `//`**:
+   ```
+   Module: Product
+   - name: string // Product name
+   - price: number // Produktpreis
+   - stock?: number // Current stock level
+   ```
+
+2. **Extract ALL comments** and store them for each property
+3. **Identify language** (English or German)
+
+### 📝 Step 2: Format Descriptions Correctly
+
+**Rule**: `"ENGLISH_DESCRIPTION (DEUTSCHE_BESCHREIBUNG)"`
+
+**Processing logic**:
+
+| User Input | Language | Formatted Description |
+|------------|----------|----------------------|
+| `// Product name` | English | `'Product name'` |
+| `// Produktname` | German | `'Product name (Produktname)'` |
+| `// Straße` | German | `'Street (Straße)'` |
+| `// Postleizahl` (typo) | German | `'Postal code (Postleitzahl)'` |
+| (no comment) | - | Create meaningful English description |
+
+**⚠️ CRITICAL - Preserving Original Text**:
+
+1. **Fix spelling errors ONLY**:
+   - ✅ Correct typos: `Postleizahl` → `Postleitzahl` (missing 't')
+   - ✅ Fix character errors: `Starße` → `Straße` (wrong character)
+   - ✅ Correct English typos: `Prodcut name` → `Product name`
+
+2. **DO NOT change the wording**:
+   - ❌ NEVER rephrase: `Straße` → `Straßenname` (NO!)
+   - ❌ NEVER expand: `Produkt` → `Produktbezeichnung` (NO!)
+   - ❌ NEVER improve: `Name` → `Full name` (NO!)
+   - ❌ NEVER translate differently: `Name` → `Title` (NO!)
+
+3. **Why this is critical**:
+   - User comments may be **predefined terms** from requirements
+   - External systems may **reference these exact terms**
+   - Changing wording breaks **external integrations**
+
+**Examples**:
+
+```
+✅ CORRECT:
+// Straße → 'Street (Straße)'  (only translated)
+// Starße → 'Street (Straße)'  (typo fixed, then translated)
+// Produkt → 'Product (Produkt)'  (keep original word)
+// Strasse → 'Street (Straße)'  (ss→ß corrected, then translated)
+
+❌ WRONG:
+// Straße → 'Street name (Straßenname)'  (changed wording!)
+// Produkt → 'Product name (Produktname)'  (added word!)
+// Name → 'Full name (Vollständiger Name)'  (rephrased!)
+```
+
+**Rule Summary**: Fix typos, preserve wording, translate accurately.
+
+### ✅ Step 3: Apply Descriptions EVERYWHERE (Most Critical!)
+
+**🚨 YOU MUST apply the SAME description to ALL of these locations:**
+
+#### For Module Properties:
+
+1. **Model file** (`<module>.model.ts`):
+   ```typescript
+   @UnifiedField({ description: 'Product name (Produktname)' })
+   name: string;
+   ```
+
+2. **Create Input** (`<module>-create.input.ts`):
+   ```typescript
+   @UnifiedField({ description: 'Product name (Produktname)' })
+   name: string;
+   ```
+
+3. **Update Input** (`<module>.input.ts`):
+   ```typescript
+   @UnifiedField({ description: 'Product name (Produktname)' })
+   name?: string;
+   ```
+
+#### For SubObject Properties:
+
+1. **Object file** (`<object>.object.ts`):
+   ```typescript
+   @UnifiedField({ description: 'Street (Straße)' })
+   street: string;
+   ```
+
+2. **Object Create Input** (`<object>-create.input.ts`):
+   ```typescript
+   @UnifiedField({ description: 'Street (Straße)' })
+   street: string;
+   ```
+
+3. **Object Update Input** (`<object>.input.ts`):
+   ```typescript
+   @UnifiedField({ description: 'Street (Straße)' })
+   street?: string;
+   ```
+
+#### For Object/Module Type Decorators:
+
+Apply descriptions to the class decorators as well:
+
+```typescript
+@ObjectType({ description: 'Address information (Adressinformationen)' })
+export class Address { ... }
+
+@InputType({ description: 'Address information (Adressinformationen)' })
+export class AddressInput { ... }
+
+@ObjectType({ description: 'Product entity (Produkt-Entität)' })
+export class Product extends CoreModel { ... }
+```
+
+### ⛔ Common Mistakes to AVOID:
+
+1. ❌ **Partial application**: Descriptions only in Models, not in Inputs
+2. ❌ **Inconsistent format**: German-only in some places, English-only in others
+3. ❌ **Missing descriptions**: No descriptions when user provided comments
+4. ❌ **Ignoring Object inputs**: Forgetting to add descriptions to SubObject Input files
+5. ❌ **Wrong format**: Using `(ENGLISH)` instead of `ENGLISH (DEUTSCH)`
+
+### ✅ Verification Checklist
+
+After generating code, ALWAYS verify:
+
+- [ ] All user comments/descriptions extracted from specification
+- [ ] All descriptions follow format: `"ENGLISH (DEUTSCH)"` or `"ENGLISH"`
+- [ ] Model properties have descriptions
+- [ ] Create Input properties have SAME descriptions
+- [ ] Update Input properties have SAME descriptions
+- [ ] Object properties have descriptions
+- [ ] Object Input properties have SAME descriptions
+- [ ] Class-level `@ObjectType()` and `@InputType()` have descriptions
+- [ ] NO German-only descriptions (must be translated)
+- [ ] NO inconsistencies between files
+
+### 🔄 If You Forget
+
+**If you generate code and realize descriptions are missing or inconsistent:**
+
+1. **STOP** - Don't continue with other phases
+2. **Go back** and add/fix ALL descriptions
+3. **Verify** using the checklist above
+4. **Then continue** with remaining phases
+
+**Remember**: Descriptions are NOT optional "nice-to-have" - they are MANDATORY for:
+- API documentation (Swagger/GraphQL)
+- Code maintainability
+- Developer experience
+- Bilingual projects (German/English teams)
+
+---
 
 ## Core Responsibilities
 
@@ -876,29 +1043,177 @@ export class BuyerProfile extends Profile { ... }
 
 ### Phase 5: Description Management
 
-**Rule**: All descriptions follow format: `"ENGLISH_DESCRIPTION (DEUTSCHE_BESCHREIBUNG)"`
+**⚠️ CRITICAL PHASE - Refer to "CRITICAL: DESCRIPTION MANAGEMENT" section at the top of this document!**
 
-**Process for each property**:
+This phase is often done incorrectly. Follow these steps EXACTLY:
+
+#### Step 5.1: Extract Descriptions from User Input
+
+**BEFORE applying any descriptions, review the original specification:**
+
+Go back to the user's original specification and extract ALL comments that appear after `//`:
+
+```
+Module: Product
+- name: string // Product name
+- price: number // Produktpreis
+- description?: string // Produktbeschreibung
+- stock: number // Current inventory
+
+SubObject: Address
+- street: string // Straße
+- city: string // City name
+- zipCode: string // Postleitzahl
+```
+
+**Create a mapping**:
+```
+Product.name → "Product name" (English)
+Product.price → "Produktpreis" (German)
+Product.description → "Produktbeschreibung" (German)
+Product.stock → "Current inventory" (English)
+Address.street → "Straße" (German)
+Address.city → "City name" (English)
+Address.zipCode → "Postleitzahl" (German)
+```
+
+#### Step 5.2: Format Descriptions
+
+**Rule**: `"ENGLISH_DESCRIPTION (DEUTSCHE_BESCHREIBUNG)"`
+
+Apply formatting rules:
 
 1. **If comment is in English**:
    ```
-   // Street name
+   // Product name
    ```
-   → Use as: `description: 'Street name'`
+   → Use as: `description: 'Product name'`
+
+   Fix typos if needed:
+   ```
+   // Prodcut name  (typo)
+   ```
+   → Use as: `description: 'Product name'` (typo corrected)
 
 2. **If comment is in German**:
+   ```
+   // Produktpreis
+   ```
+   → Translate and add original: `description: 'Product price (Produktpreis)'`
+
    ```
    // Straße
    ```
    → Translate and add original: `description: 'Street (Straße)'`
 
-3. **If no comment**:
-   → Create meaningful description: `description: 'User email address'`
+   Fix typos in original:
+   ```
+   // Postleizahl  (typo: missing 't')
+   ```
+   → Translate and add corrected: `description: 'Postal code (Postleitzahl)'`
 
-4. **Apply same description to**:
-   - Model property
-   - Input property (both create and update)
-   - Output property
+3. **If no comment provided**:
+   → Create meaningful English description: `description: 'User email address'`
+
+**⚠️ CRITICAL - Preserve Original Wording**:
+
+- ✅ **DO:** Fix spelling/typos only
+- ❌ **DON'T:** Rephrase, expand, or improve wording
+- ❌ **DON'T:** Change terms (they may be predefined/referenced by external systems)
+
+**Examples**:
+```
+✅ CORRECT:
+// Straße → 'Street (Straße)'  (preserve word)
+// Produkt → 'Product (Produkt)'  (don't add "name")
+// Status → 'Status (Status)'  (same in both languages)
+
+❌ WRONG:
+// Straße → 'Street name (Straßenname)'  (changed word!)
+// Produkt → 'Product name (Produktname)'  (added word!)
+// Status → 'Current status (Aktueller Status)'  (added word!)
+```
+
+#### Step 5.3: Apply Descriptions EVERYWHERE
+
+**🚨 MOST IMPORTANT: Apply SAME description to ALL files!**
+
+For **EVERY property in EVERY Module**:
+
+1. Open `<module>.model.ts` → Add description to property
+2. Open `inputs/<module>-create.input.ts` → Add SAME description to property
+3. Open `inputs/<module>.input.ts` → Add SAME description to property
+
+For **EVERY property in EVERY SubObject**:
+
+1. Open `objects/<object>/<object>.object.ts` → Add description to property
+2. Open `objects/<object>/<object>-create.input.ts` → Add SAME description to property
+3. Open `objects/<object>/<object>.input.ts` → Add SAME description to property
+
+**Example for Module "Product" with property "price"**:
+
+```typescript
+// File: src/server/modules/product/product.model.ts
+@UnifiedField({ description: 'Product price (Produktpreis)' })
+price: number;
+
+// File: src/server/modules/product/inputs/product-create.input.ts
+@UnifiedField({ description: 'Product price (Produktpreis)' })
+price: number;
+
+// File: src/server/modules/product/inputs/product.input.ts
+@UnifiedField({ description: 'Product price (Produktpreis)' })
+price?: number;
+```
+
+**Example for SubObject "Address" with property "street"**:
+
+```typescript
+// File: src/server/common/objects/address/address.object.ts
+@UnifiedField({ description: 'Street (Straße)' })
+street: string;
+
+// File: src/server/common/objects/address/address-create.input.ts
+@UnifiedField({ description: 'Street (Straße)' })
+street: string;
+
+// File: src/server/common/objects/address/address.input.ts
+@UnifiedField({ description: 'Street (Straße)' })
+street?: string;
+```
+
+#### Step 5.4: Add Class-Level Descriptions
+
+Also add descriptions to the `@ObjectType()` and `@InputType()` decorators:
+
+```typescript
+@ObjectType({ description: 'Product entity (Produkt-Entität)' })
+export class Product extends CoreModel { ... }
+
+@InputType({ description: 'Product creation data (Produkt-Erstellungsdaten)' })
+export class ProductCreateInput { ... }
+
+@InputType({ description: 'Product update data (Produkt-Aktualisierungsdaten)' })
+export class ProductInput { ... }
+```
+
+#### Step 5.5: Verify Consistency
+
+After applying all descriptions, verify:
+
+- [ ] All user-provided comments extracted and processed
+- [ ] All German descriptions translated to format: `ENGLISH (DEUTSCH)`
+- [ ] All English descriptions kept as-is
+- [ ] Module Model has descriptions on all properties
+- [ ] Module CreateInput has SAME descriptions on all properties
+- [ ] Module UpdateInput has SAME descriptions on all properties
+- [ ] SubObject has descriptions on all properties
+- [ ] SubObject CreateInput has SAME descriptions on all properties
+- [ ] SubObject UpdateInput has SAME descriptions on all properties
+- [ ] Class-level decorators have descriptions
+- [ ] NO inconsistencies (same property, different descriptions)
+
+**If ANY checkbox is unchecked, STOP and fix before continuing to Phase 6!**
 
 ### Phase 6: Enum File Creation
 
@@ -919,6 +1234,23 @@ export enum StatusEnum {
 - Values: `UPPER_SNAKE_CASE`
 
 ### Phase 7: API Test Creation
+
+**⚠️ CRITICAL: Test Type Requirement**
+
+**ONLY create API tests using TestHelper - NEVER create direct Service tests!**
+
+- ✅ **DO:** Create tests that call REST endpoints or GraphQL queries/mutations using `TestHelper`
+- ✅ **DO:** Test through the API layer (Controller/Resolver → Service → Database)
+- ❌ **DON'T:** Create tests that directly instantiate or call Service methods
+- ❌ **DON'T:** Create unit tests for Services (e.g., `user.service.spec.ts`)
+- ❌ **DON'T:** Mock dependencies or bypass the API layer
+
+**Why API tests only?**
+- API tests validate the complete security model (decorators, guards, permissions)
+- Direct Service tests bypass authentication and authorization checks
+- TestHelper provides all necessary tools for comprehensive API testing
+
+---
 
 **⚠️ CRITICAL: Test Creation Process**
 
@@ -1594,7 +1926,20 @@ After generation, verify:
 - [ ] All Objects created
 - [ ] All Modules created
 - [ ] All properties in alphabetical order
-- [ ] All descriptions follow format: "ENGLISH (DEUTSCH)"
+- [ ] **DESCRIPTIONS (Critical - check thoroughly):**
+  - [ ] All user-provided comments (after `//`) extracted from specification
+  - [ ] All German descriptions translated to format: `ENGLISH (DEUTSCH)`
+  - [ ] All English descriptions kept as-is (spelling corrected)
+  - [ ] ALL Module Models have descriptions on all properties
+  - [ ] ALL Module CreateInputs have SAME descriptions
+  - [ ] ALL Module UpdateInputs have SAME descriptions
+  - [ ] ALL SubObjects have descriptions on all properties
+  - [ ] ALL SubObject CreateInputs have SAME descriptions
+  - [ ] ALL SubObject UpdateInputs have SAME descriptions
+  - [ ] ALL `@ObjectType()` decorators have descriptions
+  - [ ] ALL `@InputType()` decorators have descriptions
+  - [ ] NO inconsistencies (same property, different descriptions in different files)
+  - [ ] NO German-only descriptions (must be translated)
 - [ ] Inheritance properly implemented
 - [ ] Required fields correctly set in CreateInputs
 - [ ] Enum files created in `src/server/common/enums/`

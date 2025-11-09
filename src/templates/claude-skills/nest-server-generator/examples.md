@@ -1,6 +1,6 @@
 ---
 name: nest-server-generator-examples
-version: 1.0.0
+version: 1.0.1
 description: Complete examples for generating NestJS server structures from specifications
 ---
 
@@ -209,17 +209,143 @@ Manually update `book.input.ts` and `book-create.input.ts`:
 
 #### Step 5: Update Descriptions
 
-Update all generated files to follow pattern: `"ENGLISH (DEUTSCH)"`:
+**⚠️ CRITICAL STEP - Extract descriptions from original specification and apply EVERYWHERE!**
+
+**Step 5.1: Extract from specification**
+
+Go back to the original specification and identify ALL comments:
+
+```
+SubObject: Address
+- street: string // Straße
+- city: string // City name
+- zipCode: string // Postleitzahl
+
+Module: Book
+Model: Book
+Extends: BaseItem
+- isbn: string // ISBN-Nummer
+- author: string // Author name
+- publisher?: string // Verlag
+```
+
+**Extracted mapping:**
+- Address.street → "Straße" (German)
+- Address.city → "City name" (English)
+- Address.zipCode → "Postleitzahl" (German)
+- Book.isbn → "ISBN-Nummer" (German)
+- Book.author → "Author name" (English)
+- Book.publisher → "Verlag" (German)
+
+**Step 5.2: Format descriptions**
+
+Apply format rules:
+- German → Translate and add: `ENGLISH (DEUTSCH)`
+- English → Keep as-is
+- **Fix typos only, preserve original wording!**
+
+```
+Address.street → 'Street (Straße)'  (preserve word "Straße", don't change to "Straßenname")
+Address.city → 'City name'
+Address.zipCode → 'Postal code (Postleitzahl)'
+Book.isbn → 'ISBN number (ISBN-Nummer)'
+Book.author → 'Author name'
+Book.publisher → 'Publisher (Verlag)'  (preserve word "Verlag", don't expand)
+```
+
+**⚠️ CRITICAL - Preserve Original Wording:**
+
+User comments may be predefined terms or referenced by external systems.
+
+**Examples of correct handling**:
+```
+✅ CORRECT:
+// Straße → 'Street (Straße)'  (just translate)
+// Postleizahl → 'Postal code (Postleitzahl)'  (fix typo, preserve word)
+// Produkt → 'Product (Produkt)'  (don't add "name")
+// Status → 'Status (Status)'  (same word)
+
+❌ WRONG:
+// Straße → 'Street name (Straßenname)'  (changed word!)
+// Produkt → 'Product name (Produktname)'  (added word!)
+// Titel → 'Product title (Produkttitel)'  (changed "Titel"!)
+```
+
+**Step 5.3: Apply to ALL files**
+
+For Address SubObject (3 files):
 
 ```typescript
-// Before:
-@UnifiedField({ description: 'ISBN number' })
-isbn: string;
+// File: src/server/common/objects/address/address.object.ts
+@UnifiedField({ description: 'Street (Straße)' })
+street: string;
 
-// After:
+@UnifiedField({ description: 'City name' })
+city: string;
+
+@UnifiedField({ description: 'Postal code (Postleitzahl)' })
+zipCode: string;
+
+// File: src/server/common/objects/address/address-create.input.ts
+@UnifiedField({ description: 'Street (Straße)' })
+street: string;
+
+@UnifiedField({ description: 'City name' })
+city: string;
+
+@UnifiedField({ description: 'Postal code (Postleitzahl)' })
+zipCode: string;
+
+// File: src/server/common/objects/address/address.input.ts
+@UnifiedField({ description: 'Street (Straße)' })
+street?: string;
+
+@UnifiedField({ description: 'City name' })
+city?: string;
+
+@UnifiedField({ description: 'Postal code (Postleitzahl)' })
+zipCode?: string;
+```
+
+For Book Module (3 files):
+
+```typescript
+// File: src/server/modules/book/book.model.ts
 @UnifiedField({ description: 'ISBN number (ISBN-Nummer)' })
 isbn: string;
+
+@UnifiedField({ description: 'Author name' })
+author: string;
+
+@UnifiedField({ description: 'Publisher (Verlag)' })
+publisher?: string;
+
+// File: src/server/modules/book/inputs/book-create.input.ts
+@UnifiedField({ description: 'ISBN number (ISBN-Nummer)' })
+isbn: string;
+
+@UnifiedField({ description: 'Author name' })
+author: string;
+
+@UnifiedField({ description: 'Publisher (Verlag)' })
+publisher?: string;
+
+// File: src/server/modules/book/inputs/book.input.ts
+@UnifiedField({ description: 'ISBN number (ISBN-Nummer)' })
+isbn?: string;
+
+@UnifiedField({ description: 'Author name' })
+author?: string;
+
+@UnifiedField({ description: 'Publisher (Verlag)' })
+publisher?: string;
 ```
+
+**Verification:**
+- ✅ Same description in ALL 3 files for each property
+- ✅ All German descriptions translated
+- ✅ All user comments extracted and applied
+- ✅ No inconsistencies
 
 #### Step 6: Create Enum Files
 

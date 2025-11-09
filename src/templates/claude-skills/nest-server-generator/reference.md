@@ -1,6 +1,6 @@
 ---
 name: nest-server-generator-reference
-version: 1.0.0
+version: 1.0.1
 description: Quick reference for ALL NestJS server development - from simple single commands to complex structure generation
 ---
 
@@ -63,7 +63,13 @@ Use this skill for **ANY** NestJS/nest-server work, no matter how simple or comp
 ☐ 4. Create all Objects
 ☐ 5. Create all Modules (dependency order)
 ☐ 6. Handle inheritance (manual edits)
-☐ 7. Update all descriptions (ENGLISH (DEUTSCH))
+☐ 7. Update ALL descriptions EVERYWHERE (CRITICAL!)
+    ☐ 7.1. Extract ALL user comments (after //) from specification
+    ☐ 7.2. Format descriptions: ENGLISH (DEUTSCH)
+    ☐ 7.3. Apply to ALL Module files (Model, CreateInput, UpdateInput)
+    ☐ 7.4. Apply to ALL SubObject files (Object, CreateInput, UpdateInput)
+    ☐ 7.5. Add to ALL class decorators (@ObjectType, @InputType)
+    ☐ 7.6. Verify consistency (same property = same description)
 ☐ 8. Alphabetize all properties
 ☐ 9. Create enum files
 ☐ 10. Create API tests
@@ -140,20 +146,57 @@ lt server addProp --type Module --element <Name> \
 
 ## Description Format
 
+**⚠️ CRITICAL:** Always extract descriptions from user comments (after `//`) and apply EVERYWHERE!
+
 **Rule**: `"ENGLISH_DESCRIPTION (DEUTSCHE_BESCHREIBUNG)"`
 
 ### Processing
 
-| Input Comment | Output Description |
-|---------------|-------------------|
-| `// Street name` | `'Street name'` |
-| `// Straße` | `'Street (Straße)'` |
-| (no comment) | Create meaningful English description |
+| Input Comment | Language | Output Description |
+|---------------|----------|-------------------|
+| `// Product name` | English | `'Product name'` |
+| `// Produktname` | German | `'Product name (Produktname)'` |
+| `// Street name` | English | `'Street name'` |
+| `// Straße` | German | `'Street (Straße)'` |
+| `// Postleizahl` (typo) | German | `'Postal code (Postleitzahl)'` (corrected) |
+| (no comment) | - | Create meaningful English description |
 
-### Apply To
-- Model property `@UnifiedField({ description: '...' })`
-- Input property `@UnifiedField({ description: '...' })`
-- Output property `@UnifiedField({ description: '...' })`
+**⚠️ Preserve Original Wording:**
+- ✅ Fix typos: `Postleizahl` → `Postleitzahl`, `Starße` → `Straße`
+- ❌ DON'T rephrase: `Straße` → `Straßenname` (NO!)
+- ❌ DON'T expand: `Produkt` → `Produktbezeichnung` (NO!)
+- **Reason:** User comments may be predefined terms referenced by external systems
+
+### Apply To ALL Files
+
+**For EVERY Module property** (3 files):
+1. `<module>.model.ts` → Property `@UnifiedField({ description: '...' })`
+2. `inputs/<module>-create.input.ts` → Property `@UnifiedField({ description: '...' })`
+3. `inputs/<module>.input.ts` → Property `@UnifiedField({ description: '...' })`
+
+**For EVERY SubObject property** (3 files):
+1. `objects/<object>/<object>.object.ts` → Property `@UnifiedField({ description: '...' })`
+2. `objects/<object>/<object>-create.input.ts` → Property `@UnifiedField({ description: '...' })`
+3. `objects/<object>/<object>.input.ts` → Property `@UnifiedField({ description: '...' })`
+
+**For class decorators**:
+- `@ObjectType({ description: '...' })` on Models and Objects
+- `@InputType({ description: '...' })` on all Input classes
+
+### Common Mistakes
+
+❌ **WRONG:** Descriptions only in Model, missing in Inputs
+❌ **WRONG:** German-only descriptions without English translation
+❌ **WRONG:** Inconsistent descriptions (different in Model vs Input)
+❌ **WRONG:** Ignoring user-provided comments from specification
+❌ **WRONG:** Changing wording: `Straße` → `Straßenname` (rephrased!)
+❌ **WRONG:** Expanding terms: `Produkt` → `Produktbezeichnung` (added word!)
+
+✅ **CORRECT:** Same description in ALL 3 files (Model, CreateInput, UpdateInput)
+✅ **CORRECT:** Format `ENGLISH (DEUTSCH)` for German comments
+✅ **CORRECT:** All user comments extracted and applied
+✅ **CORRECT:** Fix typos only, preserve original wording: `Postleizahl` → `Postleitzahl`
+✅ **CORRECT:** Keep exact terms: `Straße` → `Street (Straße)` (not "Street name"!)
 
 ## Inheritance Handling
 
@@ -326,7 +369,18 @@ Final checks before completing:
 ☐ All Objects created
 ☐ All Modules created
 ☐ Properties in alphabetical order
-☐ Descriptions: "ENGLISH (DEUTSCH)" format
+☐ DESCRIPTIONS - CRITICAL (check ALL):
+  ☐ User comments extracted from specification
+  ☐ German descriptions → ENGLISH (DEUTSCH) format
+  ☐ English descriptions → kept as-is
+  ☐ Module Models have descriptions
+  ☐ Module CreateInputs have SAME descriptions
+  ☐ Module UpdateInputs have SAME descriptions
+  ☐ SubObjects have descriptions
+  ☐ SubObject CreateInputs have SAME descriptions
+  ☐ SubObject UpdateInputs have SAME descriptions
+  ☐ @ObjectType/@InputType decorators have descriptions
+  ☐ NO inconsistencies between files
 ☐ Inheritance correctly implemented
 ☐ CreateInputs have all required fields (parent + model)
 ☐ Enum files created in src/server/common/enums/
