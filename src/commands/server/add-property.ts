@@ -164,54 +164,27 @@ const NewCommand: ExtendedGluegunCommand = {
         continue;
       }
 
-      const type = ['any', 'bigint', 'boolean', 'never', 'null', 'number', 'string', 'symbol', 'undefined', 'unknown', 'void'].includes(propObj.type) ? propObj.type : pascalCase(propObj.type);
-
       const description = `'${pascalCase(propObj.name)} of ${pascalCase(elementToEdit)}'`;
 
-      const typeString = () => {
-        switch (true) {
-          case type === 'Json':
-            return 'JSON';
-
-          case !!propObj.enumRef:
-            return propObj.enumRef;
-
-          case !!propObj.schema:
-            return propObj.schema;
-
-          case propObj.type === 'ObjectId':
-            return propObj.reference;
-
-          default:
-            return pascalCase(type);
-        }
-      };
-
-      // Get TypeScript type (lowercase for native types, PascalCase for custom types)
-      const standardTypes = ['boolean', 'string', 'number', 'Date'];
-      const tsType = propObj.schema
-        ? propObj.schema
-        : propObj.reference
-          ? propObj.reference
-          : standardTypes.includes(propObj.type)
-            ? propObj.type
-            : pascalCase(propObj.type);
+      // Use utility function to determine TypeScript type for Model
+      const tsType = server.getModelClassType(propObj);
 
       // Build @UnifiedField options; types vary and can't go in standardDeclaration
       function constructUnifiedFieldOptions(type: 'create' | 'input' | 'model'): string {
-        // For enum arrays, we need both enum config and type
-        const enumConfig = propObj.enumRef
-          ? propObj.isArray
-            ? `enum: { enum: ${propObj.enumRef}, options: { each: true } },\n`
-            : `enum: { enum: ${propObj.enumRef} },\n`
-          : '';
+        // Use utility functions from server helper
+        const enumConfig = server.getEnumConfig(propObj);
 
-        // Type is only needed for arrays (even enum arrays need type for array notation)
-        // OR when there's no enum config
-        const needsType = propObj.isArray || !propObj.enumRef;
-        const typeConfig = needsType
-          ? `type: () => ${propObj.isArray ? '[' : ''}${typeString()}${propObj.type === 'ObjectId' || propObj.schema ? (type === 'create' ? 'CreateInput' : type === 'input' ? 'Input' : '') : ''}${propObj.isArray ? ']' : ''}`
-          : '';
+        // Determine field type based on context
+        let fieldType: string;
+        if (type === 'model') {
+          fieldType = server.getModelFieldType(propObj);
+        } else {
+          // Input or CreateInput
+          fieldType = server.getInputFieldType(propObj, { create: type === 'create' });
+        }
+
+        // Use utility function for type config
+        const typeConfig = server.getTypeConfig(fieldType, propObj.isArray);
 
         // Build mongoose configuration for model type
         let mongooseConfig = '';
@@ -280,8 +253,10 @@ const NewCommand: ExtendedGluegunCommand = {
       // Patch input
       const newInputProperty: OptionalKind<PropertyDeclarationStructure> = structuredClone(standardDeclaration);
       newInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('input')], name: 'UnifiedField' });
-      const inputSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'Input' : '';
-      newInputProperty.type = `${typeString()}${inputSuffix}${propObj.isArray ? '[]' : ''}`;
+
+      // Use utility function to determine TypeScript type for Input
+      const inputTsType = server.getInputClassType(propObj, { create: false });
+      newInputProperty.type = `${inputTsType}${propObj.isArray ? '[]' : ''}`;
 
       let insertedInputProp;
       if (inputProperties.length > 0) {
@@ -301,8 +276,10 @@ const NewCommand: ExtendedGluegunCommand = {
         newCreateInputProperty.initializer = 'undefined'; // Override requires = undefined
       }
       newCreateInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('create')], name: 'UnifiedField' });
-      const createSuffix = propObj.type === 'ObjectId' || propObj.schema ? 'CreateInput' : '';
-      newCreateInputProperty.type = `${typeString()}${createSuffix}${propObj.isArray ? '[]' : ''}`;
+
+      // Use utility function to determine TypeScript type for CreateInput
+      const createTsType = server.getInputClassType(propObj, { create: true });
+      newCreateInputProperty.type = `${createTsType}${propObj.isArray ? '[]' : ''}`;
 
       let insertedCreateInputProp;
       if (createInputProperties.length > 0) {

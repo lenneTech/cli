@@ -1,6 +1,6 @@
 ---
 name: nest-server-generator
-version: 1.0.1
+version: 1.0.3
 description: PRIMARY expert for ALL NestJS and @lenne.tech/nest-server tasks. ALWAYS use this skill when working in projects with @lenne.tech/nest-server in package.json dependencies (supports monorepos with projects/*, packages/*, apps/* structure), or when asked about NestJS modules, services, controllers, resolvers, models, objects, tests, server creation, debugging, or any NestJS/nest-server development task. Handles lt server commands, security analysis, test creation, and all backend development. ALWAYS reads CrudService base class before working with Services.
 ---
 
@@ -88,6 +88,62 @@ export class ProductController {
 - Fail-safe protection
 
 **See "CRITICAL: Security & Test Coverage Rules" section for complete details.**
+
+## 🚨 CRITICAL: NEVER USE `declare` KEYWORD FOR PROPERTIES
+
+**⚠️ IMPORTANT RULE: DO NOT use the `declare` keyword when defining properties in classes!**
+
+The `declare` keyword in TypeScript signals that a property is only a type declaration without a runtime value. This prevents decorators from being properly applied and overridden.
+
+### ❌ WRONG - Using `declare`:
+
+```typescript
+export class ProductCreateInput extends ProductInput {
+  declare name: string;  // ❌ WRONG - Decorator won't be applied!
+  declare price: number; // ❌ WRONG - Decorator won't be applied!
+}
+```
+
+### ✅ CORRECT - Without `declare`:
+
+```typescript
+export class ProductCreateInput extends ProductInput {
+  @UnifiedField({ description: 'Product name' })
+  name: string;  // ✅ CORRECT - Decorator works properly
+
+  @UnifiedField({ description: 'Product price' })
+  price: number; // ✅ CORRECT - Decorator works properly
+}
+```
+
+### Why this matters:
+
+1. **Decorators require actual properties**: `@UnifiedField()`, `@Restricted()`, and other decorators need actual property declarations to attach metadata
+2. **Override behavior**: When extending classes, using `declare` prevents decorators from being properly overridden
+3. **Runtime behavior**: `declare` properties don't exist at runtime, breaking the decorator system
+
+### When you might be tempted to use `declare`:
+
+- ❌ When extending a class and wanting to change a decorator
+- ❌ When TypeScript shows "property is declared but never used"
+- ❌ When dealing with inheritance and property redefinition
+
+### Correct approach instead:
+
+Use the `override` keyword (when appropriate) but NEVER `declare`:
+
+```typescript
+export class ProductCreateInput extends ProductInput {
+  // ✅ Use override when useDefineForClassFields is enabled
+  override name: string;
+
+  // ✅ Apply decorators directly - they will override parent decorators
+  @UnifiedField({ description: 'Product name', isOptional: false })
+  override price: number;
+}
+```
+
+**Remember: `declare` = no decorators = broken functionality!**
 
 ## 🚨 CRITICAL: DESCRIPTION MANAGEMENT - READ BEFORE GENERATING CODE
 
@@ -1249,6 +1305,82 @@ export enum StatusEnum {
 - API tests validate the complete security model (decorators, guards, permissions)
 - Direct Service tests bypass authentication and authorization checks
 - TestHelper provides all necessary tools for comprehensive API testing
+
+**Exception: Direct database/service access for test setup/cleanup ONLY**
+
+Direct database or service access is ONLY allowed for:
+
+- ✅ **Test Setup (beforeAll/beforeEach)**:
+  - Setting user roles in database: `await db.collection('users').updateOne({ _id: userId }, { $set: { roles: ['admin'] } })`
+  - Setting verified flag: `await db.collection('users').updateOne({ _id: userId }, { $set: { verified: true } })`
+  - Creating prerequisite test data that can't be created via API
+
+- ✅ **Test Cleanup (afterAll/afterEach)**:
+  - Deleting test objects: `await db.collection('products').deleteMany({ createdBy: testUserId })`
+  - Cleaning up test data: `await db.collection('users').deleteOne({ email: 'test@example.com' })`
+
+- ❌ **NEVER for testing functionality**:
+  - Don't call `userService.create()` to test user creation - use API endpoint!
+  - Don't call `productService.update()` to test updates - use API endpoint!
+  - Don't access database to verify results - query via API instead!
+
+**Example of correct usage:**
+
+```typescript
+describe('Product Tests', () => {
+  let adminToken: string;
+  let userId: string;
+
+  beforeAll(async () => {
+    // ✅ ALLOWED: Direct DB access for setup
+    const user = await testHelper.rest('/auth/signup', {
+      method: 'POST',
+      payload: { email: 'admin@test.com', password: 'password' }
+    });
+    userId = user.id;
+
+    // ✅ ALLOWED: Direct DB manipulation for test setup
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { roles: ['admin'], verified: true } }
+    );
+
+    // Get token via API
+    const auth = await testHelper.rest('/auth/signin', {
+      method: 'POST',
+      payload: { email: 'admin@test.com', password: 'password' }
+    });
+    adminToken = auth.token;
+  });
+
+  it('should create product', async () => {
+    // ✅ CORRECT: Test via API
+    const result = await testHelper.rest('/api/products', {
+      method: 'POST',
+      payload: { name: 'Test Product' },
+      token: adminToken
+    });
+
+    expect(result.name).toBe('Test Product');
+
+    // ❌ WRONG: Don't verify via DB
+    // const dbProduct = await db.collection('products').findOne({ _id: result.id });
+
+    // ✅ CORRECT: Verify via API
+    const fetched = await testHelper.rest(`/api/products/${result.id}`, {
+      method: 'GET',
+      token: adminToken
+    });
+    expect(fetched.name).toBe('Test Product');
+  });
+
+  afterAll(async () => {
+    // ✅ ALLOWED: Direct DB access for cleanup
+    await db.collection('products').deleteMany({ createdBy: userId });
+    await db.collection('users').deleteOne({ _id: new ObjectId(userId) });
+  });
+});
+```
 
 ---
 

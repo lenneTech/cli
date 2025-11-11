@@ -1,6 +1,6 @@
 ---
 name: story-tdd
-version: 1.0.0
+version: 1.0.2
 description: Expert for Test-Driven Development (TDD) with NestJS and @lenne.tech/nest-server. Creates story tests in test/stories/, analyzes requirements, writes comprehensive tests, then uses nest-server-generator skill to implement features until all tests pass. Ensures high code quality and security compliance. Use in projects with @lenne.tech/nest-server in package.json dependencies (supports monorepos with projects/*, packages/*, apps/* structure).
 ---
 
@@ -70,6 +70,96 @@ This skill follows a rigorous 5-step iterative process:
 - API tests validate the complete security model (decorators, guards, permissions)
 - Direct Service tests bypass authentication and authorization checks
 - TestHelper provides all necessary tools for comprehensive API testing
+
+**Exception: Direct database/service access for test setup/cleanup ONLY**
+
+Direct database or service access is ONLY allowed for:
+
+- ✅ **Test Setup (beforeAll/beforeEach)**:
+  - Setting user roles in database: `await db.collection('users').updateOne({ _id: userId }, { $set: { roles: ['admin'] } })`
+  - Setting verified flag: `await db.collection('users').updateOne({ _id: userId }, { $set: { verified: true } })`
+  - Creating prerequisite test data that can't be created via API
+
+- ✅ **Test Cleanup (afterAll/afterEach)**:
+  - Deleting test objects: `await db.collection('products').deleteMany({ createdBy: testUserId })`
+  - Cleaning up test data: `await db.collection('users').deleteOne({ email: 'test@example.com' })`
+
+- ❌ **NEVER for testing functionality**:
+  - Don't call `userService.create()` to test user creation - use API endpoint!
+  - Don't call `productService.update()` to test updates - use API endpoint!
+  - Don't access database to verify results - query via API instead!
+
+**Example of correct usage:**
+
+```typescript
+describe('User Registration Story', () => {
+  let testHelper: TestHelper;
+  let db: Db;
+  let createdUserId: string;
+
+  beforeAll(async () => {
+    testHelper = new TestHelper(app);
+    db = app.get<Connection>(getConnectionToken()).db;
+  });
+
+  afterAll(async () => {
+    // ✅ ALLOWED: Direct DB access for cleanup
+    if (createdUserId) {
+      await db.collection('users').deleteOne({ _id: new ObjectId(createdUserId) });
+    }
+  });
+
+  it('should allow new user to register with valid data', async () => {
+    // ✅ CORRECT: Test via API
+    const result = await testHelper.rest('/auth/signup', {
+      method: 'POST',
+      payload: {
+        email: 'newuser@test.com',
+        password: 'SecurePass123!',
+        firstName: 'John',
+        lastName: 'Doe'
+      },
+      statusCode: 201
+    });
+
+    expect(result.id).toBeDefined();
+    expect(result.email).toBe('newuser@test.com');
+    createdUserId = result.id;
+
+    // ✅ ALLOWED: Set verified flag for subsequent tests
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(createdUserId) },
+      { $set: { verified: true } }
+    );
+  });
+
+  it('should allow verified user to sign in', async () => {
+    // ✅ CORRECT: Test via API
+    const result = await testHelper.rest('/auth/signin', {
+      method: 'POST',
+      payload: {
+        email: 'newuser@test.com',
+        password: 'SecurePass123!'
+      },
+      statusCode: 201
+    });
+
+    expect(result.token).toBeDefined();
+    expect(result.user.email).toBe('newuser@test.com');
+
+    // ❌ WRONG: Don't verify via direct DB access
+    // const dbUser = await db.collection('users').findOne({ email: 'newuser@test.com' });
+
+    // ✅ CORRECT: Verify via API
+    const profile = await testHelper.rest('/api/users/me', {
+      method: 'GET',
+      token: result.token,
+      statusCode: 200
+    });
+    expect(profile.email).toBe('newuser@test.com');
+  });
+});
+```
 
 ---
 
@@ -203,7 +293,7 @@ See **reference.md** for detailed debugging instructions and examples.
    - Study @lenne.tech/nest-server patterns (in `node_modules/@lenne.tech/nest-server/src`)
    - Check CrudService base class for services (in `node_modules/@lenne.tech/nest-server/src/core/common/services/crud.service.ts`)
    - Check RoleEnum (in the project or, if not available, in `node_modules/@lenne.tech/nest-server/src/core/common/enums/role.enum.ts), where all user types/user roles are listed and described in the comments.
-   - The @Roles, @Restricted, and @UnifiedField decorators, together with the checkSecurity method in the models, controllers, and other mechanisms, regulate what is permitted and what is returned.
+   - The decorators @Roles, @Restricted, and @UnifiedField, together with the checkSecurity method in the models, data preparation in MapAndValidatePipe (node_modules/@lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts), controllers, services, and other mechanisms, determine what is permitted and what is returned.
    - Review existing similar implementations
 
 3. **Implement equivalently to existing code:**
@@ -544,6 +634,56 @@ const result = testHelper.rest('/api/products', {
 3. **Independence:** Tests should not depend on each other
 4. **Repeatability:** Tests should produce consistent results
 5. **Speed:** Tests should run reasonably fast
+
+### 🚨 CRITICAL: NEVER USE `declare` KEYWORD FOR PROPERTIES
+
+**⚠️ IMPORTANT RULE: DO NOT use the `declare` keyword when defining properties in classes!**
+
+The `declare` keyword in TypeScript signals that a property is only a type declaration without a runtime value. This prevents decorators from being properly applied and overridden.
+
+**❌ WRONG - Using `declare`:**
+
+```typescript
+export class ProductCreateInput extends ProductInput {
+  declare name: string;  // ❌ WRONG - Decorator won't be applied!
+  declare price: number; // ❌ WRONG - Decorator won't be applied!
+}
+```
+
+**✅ CORRECT - Without `declare`:**
+
+```typescript
+export class ProductCreateInput extends ProductInput {
+  @UnifiedField({ description: 'Product name' })
+  name: string;  // ✅ CORRECT - Decorator works properly
+
+  @UnifiedField({ description: 'Product price' })
+  price: number; // ✅ CORRECT - Decorator works properly
+}
+```
+
+**Why this matters:**
+
+1. **Decorators require actual properties**: `@UnifiedField()`, `@Restricted()`, and other decorators need actual property declarations to attach metadata
+2. **Override behavior**: When extending classes, using `declare` prevents decorators from being properly overridden
+3. **Runtime behavior**: `declare` properties don't exist at runtime, breaking the decorator system
+
+**Correct approach:**
+
+Use the `override` keyword (when appropriate) but NEVER `declare`:
+
+```typescript
+export class ProductCreateInput extends ProductInput {
+  // ✅ Use override when useDefineForClassFields is enabled
+  override name: string;
+
+  // ✅ Apply decorators directly - they will override parent decorators
+  @UnifiedField({ description: 'Product name', isOptional: false })
+  override price: number;
+}
+```
+
+**Remember: `declare` = no decorators = broken functionality!**
 
 ## Autonomous Execution
 
