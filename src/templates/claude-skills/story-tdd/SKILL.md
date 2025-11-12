@@ -22,9 +22,9 @@ You are an expert in Test-Driven Development (TDD) for NestJS applications using
 - Existing test suites for understanding patterns
 - API documentation (Swagger/Controllers) for interface design
 
-## Core TDD Workflow - The Five Steps
+## Core TDD Workflow - The Seven Steps
 
-This skill follows a rigorous 5-step iterative process:
+This skill follows a rigorous 7-step iterative process (with Steps 5, 5a, 5b for final validation and refactoring):
 
 ### Step 1: Story Analysis & Validation
 
@@ -207,17 +207,33 @@ mkdir -p test/stories
 **Example test structure:**
 ```typescript
 describe('User Registration Story', () => {
+  let createdUserIds: string[] = [];
+  let createdProductIds: string[] = [];
+
   // Setup
   beforeAll(async () => {
     // Initialize test environment
   });
 
   afterAll(async () => {
-    // Cleanup
+    // 🧹 CLEANUP: Delete ALL test data created during tests
+    // This prevents side effects on subsequent test runs
+    if (createdUserIds.length > 0) {
+      await db.collection('users').deleteMany({
+        _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+      });
+    }
+    if (createdProductIds.length > 0) {
+      await db.collection('products').deleteMany({
+        _id: { $in: createdProductIds.map(id => new ObjectId(id)) }
+      });
+    }
   });
 
   it('should allow new user to register with valid data', async () => {
     // Test implementation
+    const user = await createUser(...);
+    createdUserIds.push(user.id); // Track for cleanup
   });
 
   it('should reject registration with invalid email', async () => {
@@ -229,6 +245,98 @@ describe('User Registration Story', () => {
   });
 });
 ```
+
+**🚨 CRITICAL: Test Data Cleanup**
+
+**ALWAYS implement comprehensive cleanup in your story tests!**
+
+Test data that remains in the database can cause side effects in subsequent test runs, leading to:
+- False positives/negatives in tests
+- Flaky tests that pass/fail randomly
+- Contaminated test database
+- Hard-to-debug test failures
+
+**Cleanup Strategy:**
+
+1. **Track all created entities:**
+   ```typescript
+   let createdUserIds: string[] = [];
+   let createdProductIds: string[] = [];
+   let createdOrderIds: string[] = [];
+   ```
+
+2. **Add IDs immediately after creation:**
+   ```typescript
+   const user = await testHelper.rest('/api/users', {
+     method: 'POST',
+     payload: userData,
+     token: adminToken,
+   });
+   createdUserIds.push(user.id); // ✅ Track for cleanup
+   ```
+
+3. **Delete ALL created entities in afterAll:**
+   ```typescript
+   afterAll(async () => {
+     // Clean up all test data
+     if (createdOrderIds.length > 0) {
+       await db.collection('orders').deleteMany({
+         _id: { $in: createdOrderIds.map(id => new ObjectId(id)) }
+       });
+     }
+     if (createdProductIds.length > 0) {
+       await db.collection('products').deleteMany({
+         _id: { $in: createdProductIds.map(id => new ObjectId(id)) }
+       });
+     }
+     if (createdUserIds.length > 0) {
+       await db.collection('users').deleteMany({
+         _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+       });
+     }
+
+     await connection.close();
+     await app.close();
+   });
+   ```
+
+4. **Clean up in correct order:**
+   - Delete child entities first (e.g., Orders before Products)
+   - Delete parent entities last (e.g., Users last)
+   - Consider foreign key relationships
+
+5. **Handle cleanup errors gracefully:**
+   ```typescript
+   afterAll(async () => {
+     try {
+       // Cleanup operations
+       if (createdUserIds.length > 0) {
+         await db.collection('users').deleteMany({
+           _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+         });
+       }
+     } catch (error) {
+       console.error('Cleanup failed:', error);
+       // Don't throw - cleanup failures shouldn't fail the test suite
+     }
+
+     await connection.close();
+     await app.close();
+   });
+   ```
+
+**What to clean up:**
+- ✅ Users created during tests
+- ✅ Products/Resources created during tests
+- ✅ Orders/Transactions created during tests
+- ✅ Any relationships (comments, reviews, etc.)
+- ✅ Files uploaded during tests
+- ✅ Any other test data that persists
+
+**What NOT to clean up:**
+- ❌ Global test users created in `beforeAll` that are reused (clean these once at the end)
+- ❌ Database connections (close these separately)
+- ❌ The app instance (close this separately)
 
 ### Step 3: Run Tests & Analyze Failures
 
@@ -303,7 +411,19 @@ See **reference.md** for detailed debugging instructions and examples.
    - Follow established conventions
    - Reuse existing utilities
 
-4. **Prefer existing packages:**
+4. **🔍 IMPORTANT: Database Indexes**
+
+   **Always define indexes directly in the @UnifiedField decorator via mongoose option!**
+
+   **Quick Guidelines:**
+   - Fields used in queries → Add `mongoose: { index: true, type: String }`
+   - Foreign keys → Add index
+   - Unique fields → Add `mongoose: { index: true, unique: true, type: String }`
+   - ⚠️ NEVER define indexes separately in schema files
+
+   **📖 For detailed index patterns and examples, see: `database-indexes.md`**
+
+5. **Prefer existing packages:**
    - Check if @lenne.tech/nest-server provides needed functionality
    - Only add new npm packages as last resort
    - If new package needed, verify:
@@ -323,13 +443,160 @@ npm test
 **Check results:**
 
 ✅ **All tests pass?**
-- Verify test coverage is adequate
-- Generate final report for developer
-- YOU'RE DONE!
+- Continue to Step 5a (Code Quality Check)
 
 ❌ **Some tests still fail?**
 - Return to Step 3 (analyze failures)
 - Continue iteration
+
+### Step 5a: Code Quality & Refactoring Check
+
+**BEFORE marking the task as complete, perform a code quality review!**
+
+Once all tests are passing, analyze your implementation for code quality issues:
+
+#### 1-3. Code Quality Review
+
+**Check for:**
+- Code duplication (extract to private methods if used 2+ times)
+- Common functionality (create helper functions)
+- Similar code paths (consolidate with flexible parameters)
+- Consistency with existing patterns
+
+**📖 For detailed refactoring patterns and examples, see: `code-quality.md`**
+
+#### 4. Review for Consistency
+
+**Ensure consistent patterns throughout your implementation:**
+- Naming conventions match existing codebase
+- Error handling follows project patterns
+- Return types are consistent
+- Similar operations use similar approaches
+
+#### 4a. Check Database Indexes
+
+**Verify that indexes are defined where needed:**
+
+**Quick check:**
+- Fields used in find/filter → Has index?
+- Foreign keys (userId, productId, etc.) → Has index?
+- Unique fields (email, username) → Has unique: true?
+- Fields used in sorting → Has index?
+
+**If indexes are missing:**
+- Add to @UnifiedField decorator (mongoose option)
+- Re-run tests
+- Document query pattern
+
+**📖 For detailed verification checklist, see: `database-indexes.md`**
+
+#### 4b. Security Review
+
+**🔐 CRITICAL: Perform security review before final testing!**
+
+**ALWAYS review all code changes for security vulnerabilities.**
+
+**Quick Security Check:**
+- [ ] @Restricted/@Roles decorators NOT removed or weakened
+- [ ] Ownership checks in place (users can only access own data)
+- [ ] All inputs validated with proper DTOs
+- [ ] Sensitive fields marked with hideField: true
+- [ ] No injection vulnerabilities
+- [ ] Error messages don't expose sensitive data
+- [ ] Authorization tests pass
+
+**Red Flags (STOP if found):**
+- 🚩 @Restricted decorator removed
+- 🚩 @Roles changed to more permissive
+- 🚩 Missing ownership checks
+- 🚩 Sensitive fields exposed
+- 🚩 'any' type instead of DTO
+
+**If ANY red flag found:**
+1. STOP implementation
+2. Fix security issue immediately
+3. Re-run security checklist
+4. Update tests to verify security
+
+**📖 For complete security checklist with examples, see: `security-review.md`**
+
+#### 5. Refactoring Decision Tree
+
+```
+Code duplication detected?
+    │
+    ├─► Used in 2+ places?
+    │   │
+    │   ├─► YES: Extract to private method
+    │   │   │
+    │   │   └─► Used across multiple services?
+    │   │       │
+    │   │       ├─► YES: Consider utility class/function
+    │   │       └─► NO: Keep as private method
+    │   │
+    │   └─► NO: Leave as-is (don't over-engineer)
+    │
+    └─► Complex logic block?
+        │
+        ├─► Hard to understand?
+        │   └─► Extract to well-named method
+        │
+        └─► Simple and clear?
+            └─► Leave as-is
+```
+
+#### 6. Run Tests After Refactoring & Security Review
+
+**CRITICAL: After any refactoring, adding indexes, or security fixes:**
+
+```bash
+npm test
+```
+
+**Ensure:**
+- ✅ All tests still pass
+- ✅ No new failures introduced
+- ✅ Code is more maintainable
+- ✅ No functionality changed
+- ✅ Indexes properly applied
+- ✅ **Security checks still working (authorization tests pass)**
+
+#### 7. When to Skip Refactoring
+
+**Don't refactor if:**
+- Code is used in only ONE place
+- Extraction would make code harder to understand
+- The duplication is coincidental, not conceptual
+- Time constraints don't allow for safe refactoring
+
+**Remember:**
+- **Working code > Perfect code**
+- **Refactor only if it improves maintainability**
+- **Always run tests after refactoring**
+- **Always add indexes where queries are performed**
+
+### Step 5b: Final Validation
+
+**After refactoring (or deciding not to refactor):**
+
+1. **Run ALL tests one final time:**
+   ```bash
+   npm test
+   ```
+
+2. **Verify:**
+   - ✅ All tests pass
+   - ✅ Test coverage is adequate
+   - ✅ Code follows project patterns
+   - ✅ No obvious duplication
+   - ✅ Clean and maintainable
+   - ✅ **Security review completed**
+   - ✅ **No security vulnerabilities introduced**
+   - ✅ **Authorization tests pass**
+
+3. **Generate final report for developer**
+
+4. **YOU'RE DONE!** 🎉
 
 ## 🔄 Handling Existing Tests When Modifying Code
 
@@ -733,6 +1000,24 @@ When all tests pass, provide a comprehensive report:
 - Followed existing patterns: ✅
 - Security preserved: ✅
 - No new dependencies added: ✅ (or list new dependencies with justification)
+- Code duplication checked: ✅
+- Refactoring performed: [Yes/No - describe if yes]
+- Database indexes added: ✅
+
+### Security Review
+- Authentication/Authorization: ✅ All decorators intact
+- Input validation: ✅ All inputs validated
+- Data exposure: ✅ Sensitive fields hidden
+- Ownership checks: ✅ Proper authorization in services
+- Injection prevention: ✅ No SQL/NoSQL injection risks
+- Error handling: ✅ No data leakage in errors
+- Security tests: ✅ All authorization tests pass
+
+### Refactoring (if performed)
+- Extracted helper functions: [list with brief description]
+- Consolidated code paths: [describe]
+- Removed duplication: [describe]
+- Tests still passing after refactoring: ✅
 
 ### Files Modified
 1. [file path] - [what changed]
@@ -876,10 +1161,13 @@ During Step 4 (Implementation), you should use the `nest-server-generator` skill
 
 1. **Tests first, code second** - Always write tests before implementation
 2. **Iterate until green** - Don't stop until all tests pass
-3. **Security is sacred** - Never compromise security for passing tests
-4. **Quality over speed** - Take time to write good tests and clean code
-5. **Ask when uncertain** - Clarify early to avoid wasted effort
-6. **Autonomous execution** - Work independently, report comprehensively
-7. **Equivalent implementation** - Match existing patterns and style
+3. **Security review mandatory** - ALWAYS perform security check before final tests
+4. **Refactor before done** - Check for duplication and extract common functionality
+5. **Security is sacred** - Never compromise security for passing tests
+6. **Quality over speed** - Take time to write good tests and clean code
+7. **Ask when uncertain** - Clarify early to avoid wasted effort
+8. **Autonomous execution** - Work independently, report comprehensively
+9. **Equivalent implementation** - Match existing patterns and style
+10. **Clean up test data** - Always implement comprehensive cleanup in afterAll
 
-Your goal is to deliver fully tested, high-quality features that integrate seamlessly with the existing codebase while maintaining all security standards.
+Your goal is to deliver fully tested, high-quality, maintainable, **and secure** features that integrate seamlessly with the existing codebase while maintaining all security standards.

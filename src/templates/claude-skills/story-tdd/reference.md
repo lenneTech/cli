@@ -6,7 +6,7 @@ description: Quick reference guide for Test-Driven Development workflow
 
 # Story-Based TDD Quick Reference
 
-## The 5-Step Workflow
+## The 7-Step Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -47,8 +47,25 @@ description: Quick reference guide for Test-Driven Development workflow
 ┌─────────────────────────────────────────────────────────┐
 │ Step 5: Validate                                        │
 │ - Run ALL tests                                         │
-│ - All pass? → Generate report → DONE!                  │
+│ - All pass? → Go to Step 5a                            │
 │ - Some fail? → Back to Step 3                          │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│ Step 5a: Code Quality, Security & Refactoring Check    │
+│ - Check for code duplication                            │
+│ - Extract common functionality                          │
+│ - Consolidate similar code paths                        │
+│ - Review for consistency                                │
+│ - Check database indexes                                │
+│ - 🔐 SECURITY REVIEW (CRITICAL)                         │
+│ - Run tests after refactoring                           │
+└─────────────────────────────────────────────────────────┘
+                          ↓
+┌─────────────────────────────────────────────────────────┐
+│ Step 5b: Final Validation                               │
+│ - Run ALL tests one final time                          │
+│ - Generate report → DONE! 🎉                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -122,6 +139,9 @@ describe('[Feature Name] Story', () => {
   let gUserToken: string;
   let gUserId: string;
 
+  // Track created entities for cleanup
+  let createdEntityIds: string[] = [];
+
   beforeAll(async () => {
     // Start server for testing
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -168,6 +188,22 @@ describe('[Feature Name] Story', () => {
   });
 
   afterAll(async () => {
+    // 🧹 CLEANUP: Delete all test data created during tests
+    try {
+      if (createdEntityIds.length > 0) {
+        await db.collection('entities').deleteMany({
+          _id: { $in: createdEntityIds.map(id => new ObjectId(id)) }
+        });
+      }
+
+      // Delete test user
+      if (gUserId) {
+        await db.collection('users').deleteOne({ _id: new ObjectId(gUserId) });
+      }
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+    }
+
     await connection.close();
     await app.close();
   });
@@ -188,6 +224,9 @@ describe('[Feature Name] Story', () => {
       expect(result).toMatchObject({
         // expected properties
       });
+
+      // Track for cleanup
+      createdEntityIds.push(result.id);
     });
   });
 
@@ -211,6 +250,90 @@ describe('[Feature Name] Story', () => {
   });
 });
 ```
+
+## Database Indexes with @UnifiedField
+
+### When to Add Indexes
+
+**🔍 ALWAYS define indexes in @UnifiedField decorator via mongoose option!**
+
+```typescript
+// ✅ CORRECT: Index in decorator mongoose option
+@UnifiedField({
+  description: 'User email',
+  mongoose: { index: true, unique: true, type: String }
+})
+email: string;
+
+// ❌ WRONG: Separate schema index (hard to find)
+UserSchema.index({ email: 1 }, { unique: true });
+```
+
+### Common Index Patterns
+
+**Single Field Index:**
+```typescript
+@UnifiedField({
+  description: 'Product category',
+  mongoose: { index: true, type: String }  // For queries like: find({ category: 'electronics' })
+})
+category: string;
+```
+
+**Unique Index:**
+```typescript
+@UnifiedField({
+  description: 'Username',
+  mongoose: { index: true, unique: true, type: String }  // Prevents duplicates
+})
+username: string;
+```
+
+**Foreign Key Index:**
+```typescript
+@UnifiedField({
+  description: 'User who created this',
+  mongoose: { index: true, type: String }  // For JOIN/population operations
+})
+createdBy: string;
+```
+
+**Multiple Indexed Fields:**
+```typescript
+@UnifiedField({
+  description: 'Customer reference',
+  mongoose: { index: true, type: String }  // Indexed individually
+})
+customerId: string;
+
+@UnifiedField({
+  description: 'Order status',
+  mongoose: { index: true, type: String }  // Indexed individually
+})
+status: string;
+
+// Both indexed for flexible querying
+```
+
+**Text Search Index:**
+```typescript
+@UnifiedField({
+  description: 'Product name',
+  mongoose: { type: String, text: true }  // For full-text search
+})
+name: string;
+```
+
+### Index Checklist
+
+Before marking complete, verify:
+
+- [ ] Fields used in `find()` queries have indexes
+- [ ] Foreign keys (userId, productId, etc.) have indexes
+- [ ] Unique fields (email, username) marked with `unique: true`
+- [ ] Fields used in sorting have indexes
+- [ ] Compound queries use compound indexes
+- [ ] All indexes in @UnifiedField decorator (NOT separate schema)
 
 ## REST API Testing Patterns (using TestHelper)
 
@@ -534,18 +657,78 @@ Test fails
             └─► Ask developer
 ```
 
-## Code Quality Checklist
+## Code Quality, Security & Refactoring Check
+
+### Quick Review Guide
+
+**Before marking complete, check for:**
+
+1. **Code Duplication:**
+   - Repeated validation logic → Extract to private method
+   - Similar calculations in multiple places → Create helper function
+   - Duplicated query patterns → Consolidate into flexible method
+
+2. **Common Functionality:**
+   - Extract repeated data transformations
+   - Create shared validation helpers
+   - Consolidate similar query builders
+
+3. **Database Indexes:**
+   - Fields used in queries → Add `mongoose: { index: true, type: String }` to @UnifiedField
+   - Foreign keys → Add index via mongoose option
+   - Unique fields → Add `mongoose: { index: true, unique: true, type: String }`
+   - Multiple query fields → Index each individually
+
+4. **🔐 Security Review (CRITICAL):**
+   - @Restricted/@Roles decorators NOT removed or weakened
+   - Ownership checks in place for user data
+   - All inputs validated with DTOs
+   - Sensitive fields marked with `hideField: true`
+   - No injection vulnerabilities
+   - Error messages don't leak sensitive data
+   - Authorization tests pass
+
+5. **Refactoring Decision:**
+   ```
+   Used in 2+ places? → Extract to private method
+   Used across services? → Consider utility class
+   Only 1 usage? → Leave as-is (don't over-engineer)
+   ```
+
+6. **After Refactoring & Security Review:**
+   ```bash
+   npm test  # MUST still pass!
+   ```
+
+### Code Quality Checklist
 
 Before marking complete:
 
 - [ ] All tests passing
+- [ ] **No obvious code duplication**
+- [ ] **Common functionality extracted to helpers**
+- [ ] **Consistent patterns throughout**
+- [ ] **Database indexes added to @UnifiedField decorators**
+- [ ] **Indexes match query patterns in services**
 - [ ] Test coverage adequate (80%+)
-- [ ] Security decorators preserved
 - [ ] Code follows existing patterns
 - [ ] No unnecessary dependencies added
 - [ ] Proper error handling
 - [ ] Input validation implemented
 - [ ] Documentation/comments where needed
+- [ ] **Tests still pass after refactoring**
+
+**🔐 Security Checklist:**
+
+- [ ] **@Restricted/@Roles decorators NOT removed or weakened**
+- [ ] **Ownership checks in place (users can only access own data)**
+- [ ] **All inputs validated with proper DTOs**
+- [ ] **Sensitive fields marked with hideField: true**
+- [ ] **No SQL/NoSQL injection vulnerabilities**
+- [ ] **Error messages don't expose sensitive data**
+- [ ] **checkSecurity methods implemented in models**
+- [ ] **Authorization tests pass**
+- [ ] **No hardcoded secrets or credentials**
 
 ## Final Report Template
 
@@ -568,14 +751,31 @@ Before marking complete:
 ### Test Results
 ✅ All X tests passing
 
-### Files Modified
-1. path/to/file.ts - description
-2. path/to/file.ts - description
-
 ### Code Quality
 - Patterns followed: ✅
 - Security preserved: ✅
 - Dependencies: None added ✅
+- Code duplication checked: ✅
+- Database indexes added: ✅
+- Refactoring performed: [Yes/No]
+
+### Security Review
+- Authentication/Authorization: ✅
+- Input validation: ✅
+- Data exposure prevented: ✅
+- Ownership checks: ✅
+- Injection prevention: ✅
+- Authorization tests pass: ✅
+
+### Refactoring (if performed)
+- Extracted helper functions: [list]
+- Consolidated code paths: [describe]
+- Removed duplication: [describe]
+- Tests still passing: ✅
+
+### Files Modified
+1. path/to/file.ts - description
+2. path/to/file.ts - description
 ```
 
 ## 🔄 Handling Existing Tests
@@ -652,22 +852,90 @@ git log -p --follow path/to/file.ts
 - ✅ Provide comprehensive report
 - ❌ Never commit to git (unless explicitly requested)
 
-## Database Cleanup & Test Isolation
+## 🚨 CRITICAL: Database Cleanup & Test Isolation
 
-### Between Test Suites
+**ALWAYS implement comprehensive cleanup in your story tests!**
 
-Clean up test data in `afterAll`:
+Test data that remains in the database can cause:
+- False positives/negatives in tests
+- Flaky tests that pass/fail randomly
+- Contaminated test database
+- Hard-to-debug test failures
+
+### Between Test Suites - RECOMMENDED APPROACH
+
+**Track all created entities and delete them explicitly:**
+
+```typescript
+describe('Feature Story', () => {
+  // Track created entities
+  let createdUserIds: string[] = [];
+  let createdProductIds: string[] = [];
+  let createdOrderIds: string[] = [];
+
+  // In your tests, track IDs immediately after creation
+  it('should create product', async () => {
+    const product = await testHelper.rest('/api/products', {
+      method: 'POST',
+      payload: productData,
+      token: adminToken,
+    });
+
+    // ✅ Track for cleanup
+    createdProductIds.push(product.id);
+  });
+
+  afterAll(async () => {
+    // 🧹 CLEANUP: Delete ALL test data created during tests
+    try {
+      // Delete in correct order (child entities first)
+      if (createdOrderIds.length > 0) {
+        await db.collection('orders').deleteMany({
+          _id: { $in: createdOrderIds.map(id => new ObjectId(id)) }
+        });
+      }
+
+      if (createdProductIds.length > 0) {
+        await db.collection('products').deleteMany({
+          _id: { $in: createdProductIds.map(id => new ObjectId(id)) }
+        });
+      }
+
+      if (createdUserIds.length > 0) {
+        await db.collection('users').deleteMany({
+          _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+        });
+      }
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+      // Don't throw - cleanup failures shouldn't fail the test suite
+    }
+
+    await connection.close();
+    await app.close();
+  });
+});
+```
+
+### Alternative: Pattern-Based Cleanup (Less Reliable)
+
+Only use this if you can't track IDs:
 
 ```typescript
 afterAll(async () => {
-  // Clean up test data by pattern
+  // Clean up test data by pattern (less reliable)
   await db.collection('users').deleteMany({ email: /@test\.com$/ });
-  await db.collection('products').deleteMany({ name: /Test/ });
+  await db.collection('products').deleteMany({ name: /^Test/ });
 
   await connection.close();
   await app.close();
 });
 ```
+
+**⚠️ Warning:** Pattern-based cleanup can:
+- Miss entities that don't match the pattern
+- Delete unintended entities if pattern is too broad
+- Be harder to debug when cleanup fails
 
 ### Between Individual Tests
 
@@ -839,7 +1107,9 @@ await testHelper.rest('/api/resource', {
 ❌ **Don't:**
 - Write code before tests
 - Skip test analysis step
-- Weaken security for passing tests
+- **Weaken security for passing tests**
+- **Remove or weaken @Restricted/@Roles decorators**
+- **Skip security review before marking complete**
 - Add dependencies without checking existing
 - Ignore existing code patterns
 - Batch test completions (mark complete immediately)
@@ -847,12 +1117,25 @@ await testHelper.rest('/api/resource', {
 - **Create git commits without explicit request**
 - Forget `await` on async calls
 - Create test interdependencies
+- **Forget to implement cleanup in afterAll**
+- **Forget to track created entity IDs for cleanup**
 - Clean up too aggressively (breaking other tests)
+- Use pattern-based cleanup when ID tracking is possible
+- **Skip code quality check before marking complete**
+- **Leave obvious code duplication in place**
+- Over-engineer by extracting single-use code
+- **Define indexes separately in schema files**
+- **Forget to add indexes for queried fields**
+- Add indexes to fields that are never queried
+- **Expose sensitive fields without hideField**
+- **Allow users to access others' data without checks**
+- **Use 'any' type instead of proper DTOs**
 
 ✅ **Do:**
-- Follow the 5-step process strictly
+- Follow the 7-step process strictly (including Step 5a security & refactoring check)
 - Ask for clarification early
-- Preserve all security mechanisms
+- **Preserve all security mechanisms (CRITICAL)**
+- **Perform security review before marking complete**
 - Study existing code first
 - Match existing patterns
 - Mark todos complete as you finish them
@@ -862,6 +1145,16 @@ await testHelper.rest('/api/resource', {
 - Make tests independent
 - Use `beforeEach`/`afterEach` for test isolation
 - Use Promise.all() for parallel operations
+- **ALWAYS implement comprehensive cleanup in afterAll**
+- **Track all created entity IDs immediately after creation**
+- Delete entities in correct order (children before parents)
+- **Check for code duplication before marking complete**
+- **Extract common functionality to helpers when used 2+ times**
+- **Run tests again after refactoring**
+- **Verify ownership checks for user data access**
+- **Mark sensitive fields with hideField: true**
+- **Use proper DTOs with validation decorators**
+- **Ensure authorization tests pass**
 
 ## Integration Points
 
@@ -884,4 +1177,4 @@ await testHelper.rest('/api/resource', {
 
 ---
 
-**Remember:** Tests first, code second. Iterate until green. Quality over speed.
+**Remember:** Tests first, code second. Iterate until green. **Security review mandatory.** Refactor before done. Quality over speed.

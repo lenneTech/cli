@@ -79,6 +79,9 @@ describe('Product Review Story', () => {
   let gUserId: string;
   let gProductId: string;
 
+  // Track created entities for cleanup
+  let createdReviewIds: string[] = [];
+
   beforeAll(async () => {
     // Start server for testing
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -161,6 +164,31 @@ describe('Product Review Story', () => {
   });
 
   afterAll(async () => {
+    // 🧹 CLEANUP: Delete all test data created during tests
+    try {
+      // Delete all created reviews
+      if (createdReviewIds.length > 0) {
+        await db.collection('reviews').deleteMany({
+          _id: { $in: createdReviewIds.map(id => new ObjectId(id)) }
+        });
+      }
+
+      // Delete test product
+      if (gProductId) {
+        await db.collection('products').deleteOne({ _id: new ObjectId(gProductId) });
+      }
+
+      // Delete test users
+      if (gUserId) {
+        await db.collection('users').deleteOne({ _id: new ObjectId(gUserId) });
+      }
+      if (gAdminId) {
+        await db.collection('users').deleteOne({ _id: new ObjectId(gAdminId) });
+      }
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+    }
+
     await connection.close();
     await app.close();
   });
@@ -184,6 +212,9 @@ describe('Product Review Story', () => {
       });
       expect(review.id).toBeDefined();
       expect(review.createdAt).toBeDefined();
+
+      // Track for cleanup
+      createdReviewIds.push(review.id);
     });
 
     it('should allow review with rating only (no comment)', async () => {
@@ -198,6 +229,9 @@ describe('Product Review Story', () => {
 
       expect(review.rating).toBe(4);
       expect(review.comment).toBeUndefined();
+
+      // Track for cleanup
+      createdReviewIds.push(review.id);
     });
 
     it('should reject review without rating', async () => {
@@ -252,6 +286,9 @@ describe('Product Review Story', () => {
         token: gUserToken,
       });
       createdReviewId = review.id;
+
+      // Track for cleanup
+      createdReviewIds.push(review.id);
     });
 
     it('should allow anyone to view product reviews', async () => {
@@ -396,6 +433,10 @@ describe('Order Processing Story', () => {
   let gProduct1Stock: number;
   let gProduct2Id: string;
 
+  // Track created entities for cleanup
+  let createdOrderIds: string[] = [];
+  let createdProductIds: string[] = [];
+
   beforeAll(async () => {
     // Start server for testing
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -488,9 +529,39 @@ describe('Order Processing Story', () => {
       token: gAdminToken,
     });
     gProduct2Id = product2.id;
+
+    // Track products for cleanup
+    createdProductIds.push(gProduct1Id, gProduct2Id);
   });
 
   afterAll(async () => {
+    // 🧹 CLEANUP: Delete all test data created during tests
+    try {
+      // Delete all created orders first (child entities)
+      if (createdOrderIds.length > 0) {
+        await db.collection('orders').deleteMany({
+          _id: { $in: createdOrderIds.map(id => new ObjectId(id)) }
+        });
+      }
+
+      // Delete all created products
+      if (createdProductIds.length > 0) {
+        await db.collection('products').deleteMany({
+          _id: { $in: createdProductIds.map(id => new ObjectId(id)) }
+        });
+      }
+
+      // Delete test users
+      if (gCustomerId) {
+        await db.collection('users').deleteOne({ _id: new ObjectId(gCustomerId) });
+      }
+      if (gAdminId) {
+        await db.collection('users').deleteOne({ _id: new ObjectId(gAdminId) });
+      }
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+    }
+
     await connection.close();
     await app.close();
   });
@@ -529,6 +600,9 @@ describe('Order Processing Story', () => {
         quantity: 2,
         priceAtOrder: 10.00,
       });
+
+      // Track for cleanup
+      createdOrderIds.push(order.id);
     });
 
     it('should create order with single product', async () => {
@@ -551,6 +625,9 @@ describe('Order Processing Story', () => {
       });
 
       expect(order.totalPrice).toBe(10.00);
+
+      // Track for cleanup
+      createdOrderIds.push(order.id);
     });
   });
 
@@ -624,6 +701,9 @@ describe('Order Processing Story', () => {
         token: gAdminToken,
       });
 
+      // Track for cleanup
+      createdProductIds.push(limitedProduct.id);
+
       const orderData = {
         items: [
           { productId: limitedProduct.id, quantity: 10 }, // More than available
@@ -661,11 +741,14 @@ describe('Order Processing Story', () => {
         },
       };
 
-      await testHelper.rest('/api/orders', {
+      const order = await testHelper.rest('/api/orders', {
         method: 'POST',
         payload: orderData,
         token: gCustomerToken,
       });
+
+      // Track for cleanup
+      createdOrderIds.push(order.id);
 
       // Check product stock was reduced
       const updatedProduct = await testHelper.rest(`/api/products/${gProduct1Id}`, {
@@ -712,16 +795,68 @@ describe('Order Processing Story', () => {
 
 @SubObjectType()
 export class OrderItem {
-  @Field()
+  @UnifiedField({
+    description: 'Reference to product',
+    mongoose: { index: true, type: String }  // ✅ Index for queries by product
+  })
   productId: string;
 
-  @Field()
+  @UnifiedField({
+    description: 'Quantity ordered',
+    mongoose: { type: Number }
+  })
   quantity: number;
 
-  @Field()
-  priceAtOrder: number; // Price when order was placed
+  @UnifiedField({
+    description: 'Price when order was placed',
+    mongoose: { type: Number }
+  })
+  priceAtOrder: number;
 }
 ```
+
+**Model with indexes:**
+```typescript
+// File: src/server/modules/order/order.model.ts
+
+@Schema()
+export class Order {
+  @UnifiedField({
+    description: 'Customer who placed the order',
+    mongoose: { index: true, type: String }  // ✅ Frequent queries by customer
+  })
+  customerId: string;
+
+  @UnifiedField({
+    description: 'Order status',
+    mongoose: { index: true, type: String }  // ✅ Filtering by status
+  })
+  status: string;
+
+  @UnifiedField({
+    description: 'Order items',
+    mongoose: { type: [OrderItem] }
+  })
+  items: OrderItem[];
+
+  @UnifiedField({
+    description: 'Total price calculated from items',
+    mongoose: { type: Number }
+  })
+  totalPrice: number;
+
+  @UnifiedField({
+    description: 'Delivery address',
+    mongoose: { type: Object }
+  })
+  deliveryAddress: Address;
+}
+```
+
+**Why these indexes?**
+- `customerId`: Service queries orders by customer → needs index
+- `status`: Service filters by status (pending, completed) → needs index
+- Both indexed individually for flexible querying
 
 **Service logic for total calculation and stock validation:**
 ```typescript
@@ -834,6 +969,9 @@ describe('Profile Update Story (GraphQL)', () => {
   let gAdminUserId: string;
   let gAdminUserToken: string;
 
+  // Track created entities for cleanup
+  let createdUserIds: string[] = [];
+
   beforeAll(async () => {
     // Start server for testing
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -879,6 +1017,9 @@ describe('Profile Update Story (GraphQL)', () => {
     gNormalUserId = normalSignUp.user.id;
     gNormalUserToken = normalSignUp.token;
 
+    // Track for cleanup
+    createdUserIds.push(gNormalUserId);
+
     // Create other user
     const otherPassword = Math.random().toString(36).substring(7);
     const otherEmail = `other-${otherPassword}@test.com`;
@@ -896,6 +1037,9 @@ describe('Profile Update Story (GraphQL)', () => {
     });
     gOtherUserId = otherSignUp.user.id;
     gOtherUserToken = otherSignUp.token;
+
+    // Track for cleanup
+    createdUserIds.push(gOtherUserId);
 
     // Create admin user
     const adminPassword = Math.random().toString(36).substring(7);
@@ -915,11 +1059,26 @@ describe('Profile Update Story (GraphQL)', () => {
     gAdminUserId = adminSignUp.user.id;
     gAdminUserToken = adminSignUp.token;
 
+    // Track for cleanup
+    createdUserIds.push(gAdminUserId);
+
     // Set admin role
     await userService.update(gAdminUserId, { roles: [RoleEnum.ADMIN] }, gAdminUserId);
   });
 
   afterAll(async () => {
+    // 🧹 CLEANUP: Delete all test data created during tests
+    try {
+      // Delete all created users
+      if (createdUserIds.length > 0) {
+        await db.collection('users').deleteMany({
+          _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+        });
+      }
+    } catch (error) {
+      console.error('Cleanup failed:', error);
+    }
+
     await connection.close();
     await app.close();
   });
