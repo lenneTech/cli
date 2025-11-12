@@ -14,6 +14,10 @@ const SKILL_PERMISSIONS: Record<string, string[]> = {
   'nest-server-generator': [
     'Bash(lt server:*)',
   ],
+  'story-tdd': [
+    'Bash(npm test:*)',
+    'Bash(npm run test:*)',
+  ],
 };
 
 /**

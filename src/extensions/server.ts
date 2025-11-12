@@ -268,6 +268,124 @@ export class Server {
   }
 
   /**
+   * Determine GraphQL Field type for UnifiedField decorator
+   * Used for Model, Input, and CreateInput
+   */
+  getInputFieldType(item: ServerProps, options?: { create?: boolean }): string {
+    const { create } = { create: false, ...options };
+    const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+    const schema = item.schema?.trim() ? this.pascalCase(item.schema.trim()) : '';
+    const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+
+    if (schema) {
+      // SubObject → Schema + Input/CreateInput suffix
+      return schema + (create ? 'CreateInput' : 'Input');
+    } else if (reference) {
+      // ObjectId/Reference → always String for IDs
+      return 'String';
+    } else if (enumRef) {
+      // Enum → use enum name
+      return enumRef;
+    } else {
+      // Standard types or custom types
+      let fieldType = this.inputFieldTypes[this.pascalCase(item.type)]
+        || this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input');
+      fieldType = this.modelFieldTypes[item.type]
+        ? this.modelFieldTypes[item.type]
+        : fieldType;
+      return fieldType;
+    }
+  }
+
+  /**
+   * Determine TypeScript property type for Input/CreateInput classes
+   */
+  getInputClassType(item: ServerProps, options?: { create?: boolean }): string {
+    const { create } = { create: false, ...options };
+    const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+    const schema = item.schema?.trim() ? this.pascalCase(item.schema.trim()) : '';
+    const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+
+    if (schema) {
+      // SubObject → Schema + Input/CreateInput suffix
+      return schema + (create ? 'CreateInput' : 'Input');
+    } else if (reference) {
+      // ObjectId/Reference → string for IDs
+      return 'string';
+    } else if (enumRef) {
+      // Enum → use enum name
+      return enumRef;
+    } else {
+      // Standard types or custom types
+      return this.inputClassTypes[this.pascalCase(item.type)]
+        || (this.standardTypes.includes(item.type)
+          ? item.type
+          : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
+    }
+  }
+
+  /**
+   * Determine GraphQL Field type for UnifiedField decorator in Model
+   */
+  getModelFieldType(item: ServerProps): string {
+    const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+    const schema = item.schema?.trim() ? this.pascalCase(item.schema.trim()) : '';
+    const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+
+    if (reference) {
+      return reference;
+    } else if (schema) {
+      return schema;
+    } else if (enumRef) {
+      return enumRef;
+    } else {
+      return this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+    }
+  }
+
+  /**
+   * Determine TypeScript property type for Model class
+   */
+  getModelClassType(item: ServerProps): string {
+    const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
+    const schema = item.schema?.trim() ? this.pascalCase(item.schema.trim()) : '';
+    const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+
+    if (reference) {
+      return reference;
+    } else if (schema) {
+      return schema;
+    } else if (enumRef) {
+      return enumRef;
+    } else {
+      return this.modelClassTypes[this.pascalCase(item.type)]
+        || (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
+    }
+  }
+
+  /**
+   * Generate enum configuration for UnifiedField decorator
+   */
+  getEnumConfig(item: ServerProps): string {
+    const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
+    if (!enumRef) {
+      return '';
+    }
+
+    return item.isArray
+      ? `enum: { enum: ${enumRef}, options: { each: true } },\n    `
+      : `enum: { enum: ${enumRef} },\n    `;
+  }
+
+  /**
+   * Generate type configuration for UnifiedField decorator
+   */
+  getTypeConfig(fieldType: string, isArray: boolean): string {
+    // Type is always needed for all properties
+    return `type: () => ${isArray ? '[' : ''}${fieldType}${isArray ? ']' : ''}`;
+  }
+
+  /**
    * Create template string for properties in model
    */
   propsForModel(
@@ -331,17 +449,12 @@ export class Server {
       const reference = item.reference?.trim() ? this.pascalCase(item.reference.trim()) : '';
       const schema = item.schema?.trim() ? this.pascalCase(item.schema.trim()) : '';
       const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
-      const modelFieldType = enumRef
-        ? 'String'
-        : schema
-          ? schema
-          : this.modelFieldTypes[this.pascalCase(item.type)] || this.pascalCase(item.type);
+
+      // Use utility functions to determine types
+      const modelFieldType = this.getModelFieldType(item);
+      const modelClassType = this.getModelClassType(item);
       const isArray = item.isArray;
-      const modelClassType
-        = schema
-          ? schema
-          : this.modelClassTypes[this.pascalCase(item.type)]
-            || (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
+
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
       if (!this.standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Enum' && type !== 'Json') {
         mappings[propName] = type;
@@ -355,17 +468,10 @@ export class Server {
       if (this.imports[modelClassType]) {
         imports[modelClassType] = this.imports[modelClassType];
       }
-      // For enum arrays, we need both enum config and type
-      const enumConfig = enumRef
-        ? isArray
-          ? `enum: { enum: ${enumRef}, options: { each: true } },\n    `
-          : `enum: { enum: ${enumRef} },\n    `
-        : '';
 
-      // Type is only needed for arrays (even enum arrays need type for array notation)
-      // OR when there's no enum config (references, schemas, standard types)
-      const needsType = reference || schema || isArray || !enumRef;
-      const typeConfig = needsType ? `type: () => ${isArray ? '[' : ''}${reference ? reference : enumRef || modelFieldType}${isArray ? ']' : ''}` : '';
+      // Use utility functions for enum and type config
+      const enumConfig = this.getEnumConfig(item);
+      const typeConfig = this.getTypeConfig(modelFieldType, isArray);
 
       // Build mongoose configuration
       const mongooseConfig = reference
@@ -462,27 +568,22 @@ export class Server {
       // Process configuration
       const imports = {};
       for (const [name, item] of Object.entries<ServerProps>(props)) {
-        let inputFieldType
-          = this.inputFieldTypes[this.pascalCase(item.type)]
-          || (item.enumRef
-            ? this.pascalCase(item.enumRef)
-            : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
-        inputFieldType = this.modelFieldTypes[item.type]
-          ? this.modelFieldTypes[item.type]
-          : inputFieldType;
-        const inputClassType
-          = this.inputClassTypes[this.pascalCase(item.type)]
-          || (this.standardTypes.includes(item.type)
-            ? item.type
-            : item.enumRef
-              ? this.pascalCase(item.enumRef)
-              : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
+        // Skip optional properties in CreateInput (they are inherited from Input)
+        if (create && item.nullable) {
+          continue;
+        }
+
+        // Use utility functions to determine types
+        const inputFieldType = this.getInputFieldType(item, { create });
+        const inputClassType = this.getInputClassType(item, { create });
         const propertySuffix = this.propertySuffixTypes[this.pascalCase(item.type)] || '';
+
         // Use override (not declare) for decorator properties when useDefineForClassFieldsActivated is true
         const overrideString = this.useDefineForClassFieldsActivated() ? 'override ' : '';
         const overrideFlag = create ? overrideString : '';
         // When override is set, always use = undefined
         const propertyUndefinedString = overrideFlag ? ' = undefined;' : undefinedString;
+
         if (this.imports[inputFieldType]) {
           imports[inputFieldType] = this.imports[inputFieldType];
         }
@@ -490,18 +591,9 @@ export class Server {
           imports[inputClassType] = this.imports[inputClassType];
         }
 
-        // For enum arrays, we need both enum config and type
-        const enumRef = item.enumRef?.trim() ? this.pascalCase(item.enumRef.trim()) : '';
-        const enumConfig = enumRef
-          ? item.isArray
-            ? `enum: { enum: ${enumRef}, options: { each: true } },\n    `
-            : `enum: { enum: ${enumRef} },\n    `
-          : '';
-
-        // Type is only needed for arrays (even enum arrays need type for array notation)
-        // OR when there's no enum config
-        const needsType = item.isArray || !enumRef;
-        const typeConfig = needsType ? `type: () => ${item.isArray ? '[' : ''}${inputFieldType}${item.isArray ? ']' : ''}` : '';
+        // Use utility functions for enum and type config
+        const enumConfig = this.getEnumConfig(item);
+        const typeConfig = this.getTypeConfig(inputFieldType, item.isArray);
 
         result += `
   /**
@@ -509,7 +601,7 @@ export class Server {
    */
   @UnifiedField({
     description: '${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
-    ${enumConfig}isOptional: ${nullable},
+    ${enumConfig}isOptional: ${nullable || item.nullable},
     roles: RoleEnum.S_EVERYONE,
     ${typeConfig}
   })
