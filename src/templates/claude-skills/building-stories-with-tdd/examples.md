@@ -1,10 +1,17 @@
 ---
 name: story-tdd-examples
-version: 1.0.0
+version: 1.0.1
 description: Complete examples for Test-Driven Development workflow with NestJS story tests
 ---
 
 # Story-Based TDD Examples
+
+## Table of Contents
+- [Example 1: Simple CRUD Feature - Product Reviews](#example-1-simple-crud-feature---product-reviews)
+- [Example 2: Complex Business Logic - Order Processing](#example-2-complex-business-logic---order-processing)
+- [Example 3: GraphQL Mutation - User Profile Update](#example-3-graphql-mutation---user-profile-update)
+- [Debugging Test Failures](#debugging-test-failures)
+- [Key Takeaways from Examples](#key-takeaways-from-examples)
 
 This document provides complete examples of the TDD workflow for different types of user stories.
 
@@ -36,13 +43,36 @@ Acceptance Criteria:
 - Can users review a product multiple times? (Assuming NO)
 - What validation for rating? (Assuming 1-5 integer)
 
+**🔍 Verification of existing API (CRITICAL - Do this BEFORE writing tests!):**
+
+1. **Check Product endpoints:**
+   ```
+   ✅ Read src/server/modules/product/product.controller.ts
+   ✅ Verified: GET /api/products exists (line 23)
+   ✅ Verified: POST /api/products exists (line 45)
+   ✅ Verified: Returns Product with id, name, price
+   ```
+
+2. **Check Review endpoints:**
+   ```
+   ❌ Review module does NOT exist yet
+   ❌ POST /api/reviews needs to be implemented
+   ❌ GET /api/products/:id/reviews needs to be implemented
+   ```
+
+3. **Plan implementation:**
+   - Need to create Review module (service, controller, model)
+   - Need to add POST /api/reviews endpoint
+   - Need to add GET /api/products/:id/reviews endpoint
+
 ### Step 2: Create Story Test
 
-**File:** `test/stories/product-review.story.test.ts`
+**File:** `tests/stories/product-review.story.test.ts`
 
 ```typescript
 import {
   ConfigService,
+  getObjectIds,
   HttpExceptionLogFilter,
   TestGraphQLType,
   TestHelper,
@@ -53,10 +83,10 @@ import { MongoClient, ObjectId } from 'mongodb';
 
 import envConfig from '../../src/config.env';
 import { RoleEnum } from '../../src/server/common/enums/role.enum';
-import { ProductService } from '../../src/server/modules/product/product.service';
-import { ReviewService } from '../../src/server/modules/review/review.service';
-import { UserService } from '../../src/server/modules/user/user.service';
 import { imports, ServerModule } from '../../src/server/server.module';
+
+// ⚠️ NOTE: No Service imports! Tests must use API endpoints only.
+// Services are only accessed indirectly through Controllers/Resolvers.
 
 describe('Product Review Story', () => {
   // Test environment properties
@@ -66,11 +96,6 @@ describe('Product Review Story', () => {
   // Database
   let connection;
   let db;
-
-  // Services
-  let userService: UserService;
-  let productService: ProductService;
-  let reviewService: ReviewService;
 
   // Global test data
   let gAdminToken: string;
@@ -87,9 +112,6 @@ describe('Product Review Story', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [...imports, ServerModule],
       providers: [
-        UserService,
-        ProductService,
-        ReviewService,
         {
           provide: 'PUB_SUB',
           useValue: new PubSub(),
@@ -104,15 +126,12 @@ describe('Product Review Story', () => {
     await app.init();
 
     testHelper = new TestHelper(app);
-    userService = moduleFixture.get(UserService);
-    productService = moduleFixture.get(ProductService);
-    reviewService = moduleFixture.get(ReviewService);
 
     // Connection to database
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = await connection.db();
 
-    // Create admin user
+    // Create admin user via API
     const adminPassword = Math.random().toString(36).substring(7);
     const adminEmail = `admin-${adminPassword}@test.com`;
     const adminSignUp = await testHelper.graphQl({
@@ -130,8 +149,11 @@ describe('Product Review Story', () => {
     gAdminId = adminSignUp.user.id;
     gAdminToken = adminSignUp.token;
 
-    // Set admin role
-    await userService.update(gAdminId, { roles: [RoleEnum.ADMIN] }, gAdminId);
+    // ✅ ALLOWED EXCEPTION: Set admin role via direct DB access (no API endpoint for this)
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(gAdminId) },
+      { $set: { roles: [RoleEnum.ADMIN] } }
+    );
 
     // Create normal user
     const userPassword = Math.random().toString(36).substring(7);
@@ -166,24 +188,24 @@ describe('Product Review Story', () => {
   afterAll(async () => {
     // 🧹 CLEANUP: Delete all test data created during tests
     try {
-      // Delete all created reviews
+      // Delete all created reviews (using getObjectIds for array conversion)
       if (createdReviewIds.length > 0) {
         await db.collection('reviews').deleteMany({
-          _id: { $in: createdReviewIds.map(id => new ObjectId(id)) }
+          _id: { $in: getObjectIds(createdReviewIds) }
         });
       }
 
-      // Delete test product
+      // Delete test product (using getObjectIds for single value - no array needed!)
       if (gProductId) {
-        await db.collection('products').deleteOne({ _id: new ObjectId(gProductId) });
+        await db.collection('products').deleteOne({ _id: getObjectIds(gProductId) });
       }
 
-      // Delete test users
+      // Delete test users (using getObjectIds for single values)
       if (gUserId) {
-        await db.collection('users').deleteOne({ _id: new ObjectId(gUserId) });
+        await db.collection('users').deleteOne({ _id: getObjectIds(gUserId) });
       }
       if (gAdminId) {
-        await db.collection('users').deleteOne({ _id: new ObjectId(gAdminId) });
+        await db.collection('users').deleteOne({ _id: getObjectIds(gAdminId) });
       }
     } catch (error) {
       console.error('Cleanup failed:', error);
@@ -390,11 +412,12 @@ Acceptance Criteria:
 
 ### Step 2: Create Story Test
 
-**File:** `test/stories/order-processing.story.test.ts`
+**File:** `tests/stories/order-processing.story.test.ts`
 
 ```typescript
 import {
   ConfigService,
+  getObjectIds,
   HttpExceptionLogFilter,
   TestGraphQLType,
   TestHelper,
@@ -405,10 +428,10 @@ import { MongoClient, ObjectId } from 'mongodb';
 
 import envConfig from '../../src/config.env';
 import { RoleEnum } from '../../src/server/common/enums/role.enum';
-import { OrderService } from '../../src/server/modules/order/order.service';
-import { ProductService } from '../../src/server/modules/product/product.service';
-import { UserService } from '../../src/server/modules/user/user.service';
 import { imports, ServerModule } from '../../src/server/server.module';
+
+// ⚠️ NOTE: No Service imports! Tests must use API endpoints only.
+// Services are only accessed indirectly through Controllers/Resolvers.
 
 describe('Order Processing Story', () => {
   // Test environment properties
@@ -418,11 +441,6 @@ describe('Order Processing Story', () => {
   // Database
   let connection;
   let db;
-
-  // Services
-  let userService: UserService;
-  let productService: ProductService;
-  let orderService: OrderService;
 
   // Global test data
   let gAdminToken: string;
@@ -442,9 +460,6 @@ describe('Order Processing Story', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [...imports, ServerModule],
       providers: [
-        UserService,
-        ProductService,
-        OrderService,
         {
           provide: 'PUB_SUB',
           useValue: new PubSub(),
@@ -459,15 +474,12 @@ describe('Order Processing Story', () => {
     await app.init();
 
     testHelper = new TestHelper(app);
-    userService = moduleFixture.get(UserService);
-    productService = moduleFixture.get(ProductService);
-    orderService = moduleFixture.get(OrderService);
 
     // Connection to database
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = await connection.db();
 
-    // Create admin user
+    // Create admin user via API
     const adminPassword = Math.random().toString(36).substring(7);
     const adminEmail = `admin-${adminPassword}@test.com`;
     const adminSignUp = await testHelper.graphQl({
@@ -485,8 +497,11 @@ describe('Order Processing Story', () => {
     gAdminId = adminSignUp.user.id;
     gAdminToken = adminSignUp.token;
 
-    // Set admin role
-    await userService.update(gAdminId, { roles: [RoleEnum.ADMIN] }, gAdminId);
+    // ✅ ALLOWED EXCEPTION: Set admin role via direct DB access (no API endpoint for this)
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(gAdminId) },
+      { $set: { roles: [RoleEnum.ADMIN] } }
+    );
 
     // Create customer user
     const customerPassword = Math.random().toString(36).substring(7);
@@ -537,26 +552,26 @@ describe('Order Processing Story', () => {
   afterAll(async () => {
     // 🧹 CLEANUP: Delete all test data created during tests
     try {
-      // Delete all created orders first (child entities)
+      // Delete all created orders first (child entities) - using getObjectIds for arrays
       if (createdOrderIds.length > 0) {
         await db.collection('orders').deleteMany({
-          _id: { $in: createdOrderIds.map(id => new ObjectId(id)) }
+          _id: { $in: getObjectIds(createdOrderIds) }
         });
       }
 
-      // Delete all created products
+      // Delete all created products - using getObjectIds for arrays
       if (createdProductIds.length > 0) {
         await db.collection('products').deleteMany({
-          _id: { $in: createdProductIds.map(id => new ObjectId(id)) }
+          _id: { $in: getObjectIds(createdProductIds) }
         });
       }
 
-      // Delete test users
+      // Delete test users - using getObjectIds for single values (no array needed!)
       if (gCustomerId) {
-        await db.collection('users').deleteOne({ _id: new ObjectId(gCustomerId) });
+        await db.collection('users').deleteOne({ _id: getObjectIds(gCustomerId) });
       }
       if (gAdminId) {
-        await db.collection('users').deleteOne({ _id: new ObjectId(gAdminId) });
+        await db.collection('users').deleteOne({ _id: getObjectIds(gAdminId) });
       }
     } catch (error) {
       console.error('Cleanup failed:', error);
@@ -930,23 +945,26 @@ Acceptance Criteria:
 
 ### Step 2: Create Story Test (GraphQL)
 
-**File:** `test/stories/profile-update.story.test.ts`
+**File:** `tests/stories/profile-update.story.test.ts`
 
 ```typescript
 import {
   ConfigService,
+  getObjectIds,
   HttpExceptionLogFilter,
   TestGraphQLType,
   TestHelper,
 } from '@lenne.tech/nest-server';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 import envConfig from '../../src/config.env';
 import { RoleEnum } from '../../src/server/common/enums/role.enum';
-import { UserService } from '../../src/server/modules/user/user.service';
 import { imports, ServerModule } from '../../src/server/server.module';
+
+// ⚠️ NOTE: No Service imports! Tests must use API endpoints only.
+// Services are only accessed indirectly through Controllers/Resolvers.
 
 describe('Profile Update Story (GraphQL)', () => {
   // Test environment properties
@@ -956,9 +974,6 @@ describe('Profile Update Story (GraphQL)', () => {
   // Database
   let connection;
   let db;
-
-  // Services
-  let userService: UserService;
 
   // Global test data
   let gNormalUserId: string;
@@ -977,7 +992,6 @@ describe('Profile Update Story (GraphQL)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [...imports, ServerModule],
       providers: [
-        UserService,
         {
           provide: 'PUB_SUB',
           useValue: new PubSub(),
@@ -992,7 +1006,6 @@ describe('Profile Update Story (GraphQL)', () => {
     await app.init();
 
     testHelper = new TestHelper(app);
-    userService = moduleFixture.get(UserService);
 
     // Connection to database
     connection = await MongoClient.connect(envConfig.mongoose.uri);
@@ -1062,17 +1075,20 @@ describe('Profile Update Story (GraphQL)', () => {
     // Track for cleanup
     createdUserIds.push(gAdminUserId);
 
-    // Set admin role
-    await userService.update(gAdminUserId, { roles: [RoleEnum.ADMIN] }, gAdminUserId);
+    // ✅ ALLOWED EXCEPTION: Set admin role via direct DB access (no API endpoint for this)
+    await db.collection('users').updateOne(
+      { _id: new ObjectId(gAdminUserId) },
+      { $set: { roles: [RoleEnum.ADMIN] } }
+    );
   });
 
   afterAll(async () => {
     // 🧹 CLEANUP: Delete all test data created during tests
     try {
-      // Delete all created users
+      // Delete all created users - using getObjectIds
       if (createdUserIds.length > 0) {
         await db.collection('users').deleteMany({
-          _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+          _id: { $in: getObjectIds(createdUserIds) }
         });
       }
     } catch (error) {
@@ -1211,6 +1227,14 @@ describe('Profile Update Story (GraphQL)', () => {
 
 When your tests fail and error messages are unclear, enable debugging:
 
+**🔍 TIP: For all TestHelper options, read the source file:**
+
+```
+node_modules/@lenne.tech/nest-server/src/test/test.helper.ts
+```
+
+This file documents all capabilities including `log`, `logError`, file uploads via `attachments`, and more.
+
 ### TestHelper Debugging Options
 
 ```typescript
@@ -1262,7 +1286,7 @@ beforeAll(async () => {
 });
 ```
 
-This enables detailed console.debug output from MapAndValidatePipe (`node_modules/@lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts`).
+This enables detailed console.debug output from MapAndValidatePipe (automatically activated via CoreModule - see `node_modules/@lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts`).
 
 ### Full Debugging Setup Example
 
@@ -1287,6 +1311,33 @@ describe('My Story Test', () => {
 ```
 
 **Remember to disable debugging logs before committing** to keep test output clean in CI/CD.
+
+### File Upload Testing
+
+TestHelper supports file uploads via the `attachments` option:
+
+```typescript
+// Upload a single file
+const result = await testHelper.rest('/api/upload', {
+  method: 'POST',
+  attachments: [
+    { name: 'document', path: '/path/to/document.pdf' },
+  ],
+  token: userToken,
+});
+
+// Upload multiple files
+const result = await testHelper.rest('/api/upload-multiple', {
+  method: 'POST',
+  attachments: [
+    { name: 'avatar', path: '/path/to/avatar.png' },
+    { name: 'resume', path: '/path/to/resume.pdf' },
+  ],
+  token: userToken,
+});
+```
+
+**See `node_modules/@lenne.tech/nest-server/src/test/test.helper.ts` for all available options.**
 
 ---
 

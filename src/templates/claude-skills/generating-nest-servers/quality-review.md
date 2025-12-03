@@ -6,6 +6,15 @@ description: Comprehensive quality review guidelines before creating final repor
 
 # Phase 8: Pre-Report Quality Review
 
+## Table of Contents
+- [Step 1: Identify All Changes](#step-1-identify-all-changes)
+- [Step 2: Test Management](#step-2-test-management)
+- [Step 3: Compare with Existing Code](#step-3-compare-with-existing-code)
+- [Step 4: Critical Analysis](#step-4-critical-analysis)
+- [Step 5: Automated Optimizations](#step-5-automated-optimizations)
+- [Step 6: Pre-Report Testing](#step-6-pre-report-testing)
+- [Step 7: Final Verification](#step-7-final-verification)
+
 **CRITICAL**: Before creating the final report, you MUST perform a comprehensive quality review:
 
 ## Step 1: Identify All Changes

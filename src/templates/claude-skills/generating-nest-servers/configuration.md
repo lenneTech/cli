@@ -4,6 +4,12 @@ version: 1.0.0
 description: Complete guide to lt.config.json configuration file
 ---
 
+# Configuration Guide
+
+## Table of Contents
+- [Configuration File (lt.config.json)](#configuration-file-ltconfigjson)
+- [Command Syntax Reference](#command-syntax-reference)
+
 ## Configuration File (lt.config.json)
 
 The lenne.tech CLI supports project-level configuration via `lt.config.json` files. This allows you to set default values for commands, eliminating the need for repeated CLI parameters or interactive prompts.

@@ -8,9 +8,13 @@ description: Real-world examples for Git operations and Fullstack initialization
 
 ⚠️ **Note**: For NestJS server examples (modules, objects, properties), see the **nest-server-generator skill** instead.
 
-This file contains examples for:
-- Git operations (`lt git get`, `lt git reset`)
-- Fullstack initialization (`lt fullstack init`)
+## Table of Contents
+- [Git Operations](#git-operations)
+- [Fullstack Project Initialization](#fullstack-project-initialization)
+- [Troubleshooting Examples](#troubleshooting-examples)
+- [Using Alias Commands](#using-alias-commands)
+- [Best Practices](#best-practices)
+- [Reference](#reference)
 
 ---
 

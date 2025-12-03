@@ -8,9 +8,16 @@ description: Quick reference for Git operations and Fullstack initialization com
 
 ⚠️ **Note**: For NestJS server command reference (modules, objects, properties), see the **nest-server-generator skill** instead.
 
-This reference covers:
-- Git operations (`lt git get`, `lt git reset`)
-- Fullstack initialization (`lt fullstack init`)
+## Table of Contents
+- [Command Cheat Sheet](#command-cheat-sheet)
+- [Git Commands Reference](#git-commands-reference)
+- [Fullstack Commands Reference](#fullstack-commands-reference)
+- [Common Patterns](#common-patterns)
+- [Troubleshooting](#troubleshooting)
+- [Best Practices](#best-practices)
+- [Quick Tips](#quick-tips)
+- [Related Commands](#related-commands)
+- [References](#references)
 
 ---
 

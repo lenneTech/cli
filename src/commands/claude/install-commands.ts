@@ -142,7 +142,7 @@ const NewCommand: GluegunCommand = {
           info(`Detected project at: ${searchDir}`);
           const installToProject = await prompt.confirm(
             'Install commands to this project only? (No = install globally for all projects)',
-            true
+            false
           );
 
           scope = installToProject ? 'project' : 'global';
@@ -362,11 +362,16 @@ const NewCommand: GluegunCommand = {
       info('  • Ensure .claude directory exists and is writable');
       info('  • Check file permissions');
       info('  • Try running with sudo if permission issues persist');
-      return;
+      // IMPORTANT: Must call process.exit() to properly close readline stream and terminate the process
+      // Without this, the command will hang after completion
+      process.exit(1);
     }
 
-    // For tests
-    return `claude install-commands`;
+    // IMPORTANT: Must call process.exit() to properly close readline stream and terminate the process
+    // This is required when the command doesn't have additional prompts at the end
+    // (like install-skills does). Without this explicit exit, the readline stream remains open
+    // and the process hangs indefinitely.
+    process.exit(0);
   },
 };
 

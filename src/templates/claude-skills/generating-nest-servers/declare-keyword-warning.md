@@ -6,6 +6,15 @@ description: Critical warning about using the declare keyword in TypeScript clas
 
 # 🚨 CRITICAL: NEVER USE `declare` KEYWORD FOR PROPERTIES
 
+## Table of Contents
+- [WRONG - Using `declare`](#-wrong---using-declare)
+- [CORRECT - Without `declare`](#-correct---without-declare)
+- [Why This Matters](#why-this-matters)
+- [When You Might Be Tempted to Use `declare`](#when-you-might-be-tempted-to-use-declare)
+- [Correct Approach Instead](#correct-approach-instead)
+- [Examples](#examples)
+- [Remember](#remember)
+
 **⚠️ IMPORTANT RULE: DO NOT use the `declare` keyword when defining properties in classes!**
 
 The `declare` keyword in TypeScript signals that a property is only a type declaration without a runtime value. This prevents decorators from being properly applied and overridden.

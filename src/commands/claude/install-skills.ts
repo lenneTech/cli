@@ -8,17 +8,90 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Skill-specific permissions mapping
  */
 const SKILL_PERMISSIONS: Record<string, string[]> = {
-  'lt-cli': [
-    'Bash(lt:*)',
-  ],
-  'nest-server-generator': [
-    'Bash(lt server:*)',
-  ],
-  'story-tdd': [
+  'building-stories-with-tdd': [
     'Bash(npm test:*)',
     'Bash(npm run test:*)',
   ],
+  'generating-nest-servers': [
+    'Bash(lt server:*)',
+  ],
+  'using-lt-cli': [
+    'Bash(lt:*)',
+  ],
 };
+
+/**
+ * Mapping of old skill names to new names (for cleanup of renamed skills)
+ */
+const LEGACY_SKILL_NAMES: Record<string, string> = {
+  'lt-cli': 'using-lt-cli',
+  'nest-server-generator': 'generating-nest-servers',
+  'story-tdd': 'building-stories-with-tdd',
+};
+
+/**
+ * Check for and optionally remove legacy skill directories
+ * Returns list of deleted legacy skills
+ */
+async function cleanupLegacySkills(
+  filesystem: any,
+  info: any,
+  prompt: any,
+  skipInteractive: boolean,
+): Promise<string[]> {
+  const skillsBaseDir = join(homedir(), '.claude', 'skills');
+  const deletedSkills: string[] = [];
+
+  // Check if skills directory exists
+  if (!filesystem.exists(skillsBaseDir)) {
+    return deletedSkills;
+  }
+
+  // Find existing legacy skill directories
+  const existingLegacySkills: Array<{ newName: string; oldName: string; path: string }> = [];
+
+  for (const [oldName, newName] of Object.entries(LEGACY_SKILL_NAMES)) {
+    const legacyPath = join(skillsBaseDir, oldName);
+    if (filesystem.exists(legacyPath) && filesystem.isDirectory(legacyPath)) {
+      existingLegacySkills.push({ newName, oldName, path: legacyPath });
+    }
+  }
+
+  if (existingLegacySkills.length === 0) {
+    return deletedSkills;
+  }
+
+  // Show found legacy skills
+  info('');
+  info('Found legacy skill directories (renamed skills):');
+  existingLegacySkills.forEach(({ newName, oldName }) => {
+    info(`  • ${oldName} → ${newName}`);
+  });
+  info('');
+
+  // Ask if user wants to delete them (default: yes)
+  const shouldDelete = skipInteractive ? true : await prompt.confirm(
+    'Delete these old skill directories?',
+    true
+  );
+
+  if (shouldDelete) {
+    for (const { oldName, path } of existingLegacySkills) {
+      try {
+        filesystem.remove(path);
+        deletedSkills.push(oldName);
+        info(`  ✓ Deleted ${oldName}`);
+      } catch (err) {
+        info(`  ✗ Could not delete ${oldName}: ${err.message}`);
+      }
+    }
+    if (deletedSkills.length > 0) {
+      info('');
+    }
+  }
+
+  return deletedSkills;
+}
 
 /**
  * Get skill descriptions from SKILL.md frontmatter
@@ -263,10 +336,10 @@ async function setupProjectDetectionHook(
       settings.hooks = [];
     }
 
-    // Check if hook already exists
+    // Check if hook already exists (check both old and new names for backward compatibility)
     const hookExists = settings.hooks.some((hook: any) =>
       hook.event === 'user-prompt-submit' &&
-      hook.name === 'nest-server-detector'
+      (hook.name === 'nest-server-detector' || hook.name === 'generating-nest-servers-detector')
     );
 
     if (hookExists) {
@@ -281,7 +354,7 @@ async function setupProjectDetectionHook(
     // Create the hook configuration
     const hook = {
       command: `
-# Detect @lenne.tech/nest-server in package.json and suggest using nest-server-generator skill
+# Detect @lenne.tech/nest-server in package.json and suggest using generating-nest-servers skill
 # Supports both single projects and monorepos
 
 # Check if the prompt mentions NestJS-related tasks first
@@ -304,7 +377,7 @@ check_package_json() {
 if check_package_json "$CLAUDE_PROJECT_DIR/package.json"; then
   cat << 'EOF'
 {
-  "contextToAppend": "\\n\\n📦 Detected @lenne.tech/nest-server in this project. Consider using the nest-server-generator skill for this task."
+  "contextToAppend": "\\n\\n📦 Detected @lenne.tech/nest-server in this project. Consider using the generating-nest-servers skill for this task."
 }
 EOF
   exit 0
@@ -316,7 +389,7 @@ for pattern in "projects/*/package.json" "packages/*/package.json" "apps/*/packa
     if check_package_json "$pkg_json"; then
       cat << 'EOF'
 {
-  "contextToAppend": "\\n\\n📦 Detected @lenne.tech/nest-server in this monorepo. Consider using the nest-server-generator skill for this task."
+  "contextToAppend": "\\n\\n📦 Detected @lenne.tech/nest-server in this monorepo. Consider using the generating-nest-servers skill for this task."
 }
 EOF
       exit 0
@@ -328,9 +401,9 @@ done
 echo '{}'
 exit 0
 `.trim(),
-      description: 'Detects projects using @lenne.tech/nest-server and suggests using nest-server-generator skill',
+      description: 'Detects projects using @lenne.tech/nest-server and suggests using generating-nest-servers skill',
       event: 'user-prompt-submit',
-      name: 'nest-server-detector',
+      name: 'generating-nest-servers-detector',
       type: 'command',
     };
 
@@ -479,8 +552,12 @@ const NewCommand: GluegunCommand = {
         return;
       }
 
-      let skillsToInstall: string[] = [];
       const skipInteractive = parameters.options.y || parameters.options.yes || parameters.options['no-interactive'];
+
+      // Check for and cleanup legacy skill directories before installation
+      await cleanupLegacySkills(filesystem, info, prompt, skipInteractive);
+
+      let skillsToInstall: string[] = [];
 
       // Check if specific skills provided as parameters
       if (parameters.first && parameters.first !== 'all') {
@@ -606,10 +683,11 @@ const NewCommand: GluegunCommand = {
       info('Claude will automatically use them when appropriate.');
       info('');
       info('Examples:');
-      if (skillsToInstall.includes('lt-cli')) {
-        info('  • "Create a User module with email and username"');
+      if (skillsToInstall.includes('using-lt-cli')) {
+        info('  • "Checkout branch DEV-123"');
       }
-      if (skillsToInstall.includes('nest-server-generator')) {
+      if (skillsToInstall.includes('generating-nest-servers')) {
+        info('  • "Create a User module with email and username"');
         info('  • "Generate the complete server structure from this specification"');
       }
       info('');
@@ -664,11 +742,11 @@ const NewCommand: GluegunCommand = {
         }
       }
 
-      // Ask about setting up project detection hook for nest-server-generator
-      if (skillsToInstall.includes('nest-server-generator')) {
+      // Ask about setting up project detection hook for generating-nest-servers
+      if (skillsToInstall.includes('generating-nest-servers')) {
         info('');
         const setupHook = skipInteractive ? false : await prompt.confirm(
-          'Set up automatic project detection for @lenne.tech/nest-server? (Recommended - suggests nest-server-generator skill when detected)',
+          'Set up automatic project detection for @lenne.tech/nest-server? (Recommended - suggests generating-nest-servers skill when detected)',
           false
         );
 
@@ -684,7 +762,7 @@ const NewCommand: GluegunCommand = {
               info('How it works:');
               info('  • Detects @lenne.tech/nest-server in package.json');
               info('  • Supports monorepos: searches projects/*, packages/*, apps/* directories');
-              info('  • Suggests using nest-server-generator skill for NestJS tasks');
+              info('  • Suggests using generating-nest-servers skill for NestJS tasks');
               info('  • Works from any directory in the project');
               info('');
               info(`Location: ${hookResult.scope === 'global' ? '~/.claude/settings.json' : '.claude/settings.json'}`);
@@ -708,10 +786,16 @@ const NewCommand: GluegunCommand = {
       info('  • Ensure ~/.claude directory exists and is writable');
       info('  • Check file permissions');
       info('  • Try running with sudo if permission issues persist');
+      // NOTE: Using return instead of process.exit() here because error can occur
+      // before any prompts, and we want to let the process clean up naturally
       return;
     }
 
-    // For tests
+    // NOTE: This command ends naturally without process.exit() because it has additional
+    // prompts at the end (setupPermissions and setupHook) that properly close the readline
+    // stream. If you create a new install command without such trailing prompts, you MUST
+    // call process.exit(0) explicitly, otherwise the process will hang indefinitely.
+    // See install-commands.ts for an example.
     return `claude install-skills`;
   },
 };

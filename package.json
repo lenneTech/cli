@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -54,7 +54,7 @@
     "@types/lodash": "4.17.20",
     "bcrypt": "6.0.0",
     "find-file-up": "2.0.1",
-    "glob": "11.0.3",
+    "glob": "11.1.0",
     "gluegun": "5.2.0",
     "js-sha256": "0.11.1",
     "lodash": "4.17.21",

@@ -6,6 +6,15 @@ description: Database index guidelines for @UnifiedField decorator - keep indexe
 
 # 🔍 Database Indexes with @UnifiedField
 
+## Table of Contents
+- [When to Add Indexes](#when-to-add-indexes)
+- [Example Patterns](#example-patterns)
+- [DON'T Create Indexes Separately!](#-dont-create-indexes-separately)
+- [Benefits of Decorator-Based Indexes](#benefits-of-decorator-based-indexes)
+- [Index Verification Checklist](#index-verification-checklist)
+- [Red Flags - Missing Indexes](#red-flags---missing-indexes)
+- [Quick Index Checklist](#quick-index-checklist)
+
 **IMPORTANT: Always define indexes directly in the @UnifiedField decorator!**
 
 This keeps indexes visible right where properties are defined, making them easy to spot during code reviews.

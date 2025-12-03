@@ -6,6 +6,15 @@ description: Guidelines for consistent description management across all generat
 
 # 🚨 CRITICAL: Description Management
 
+## Table of Contents
+- [Step 1: ALWAYS Extract Descriptions from User Input](#-step-1-always-extract-descriptions-from-user-input)
+- [Step 2: Format Descriptions Correctly](#-step-2-format-descriptions-correctly)
+- [Step 3: Apply Descriptions EVERYWHERE (Most Critical!)](#-step-3-apply-descriptions-everywhere-most-critical)
+- [Common Mistakes to AVOID](#-common-mistakes-to-avoid)
+- [Verification Checklist](#-verification-checklist)
+- [If You Forget](#-if-you-forget)
+- [Quick Reference](#quick-reference)
+
 **⚠️ COMMON MISTAKE:** Descriptions are often applied inconsistently or only partially. You MUST follow this process for EVERY component.
 
 ---

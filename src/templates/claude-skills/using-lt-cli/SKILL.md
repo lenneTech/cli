@@ -1,18 +1,18 @@
 ---
-name: lt-cli
+name: using-lt-cli
 version: 1.0.0
-description: Expert assistance with lenne.tech CLI for Git operations and Fullstack initialization. IMPORTANT - For ALL NestJS server development (modules, objects, properties), use the nest-server-generator skill instead, even for simple tasks. This skill handles only lt git commands and lt fullstack init.
+description: Expert assistance with lenne.tech CLI for Git operations and Fullstack initialization. IMPORTANT - For ALL NestJS server development (modules, objects, properties), use the generating-nest-servers skill instead, even for simple tasks. This skill handles only lt git commands and lt fullstack init.
 ---
 
 # LT CLI Expert - Git & Fullstack
 
 You are an expert in the lenne.tech CLI tool. This skill handles **Git operations and Fullstack initialization ONLY**.
 
-**⚠️ CRITICAL:** For NestJS server development (modules, objects, properties), ALWAYS use the `nest-server-generator` skill instead.
+**⚠️ CRITICAL:** For NestJS server development (modules, objects, properties), ALWAYS use the `generating-nest-servers` skill instead.
 
 ## ⚠️ When to Use Which Skill
 
-### Use the `nest-server-generator` skill for:
+### Use the `generating-nest-servers` skill for:
 - ✅ Creating server modules (`lt server module`)
 - ✅ Creating server objects (`lt server object`)
 - ✅ Adding properties (`lt server addProp`)
@@ -21,19 +21,31 @@ You are an expert in the lenne.tech CLI tool. This skill handles **Git operation
 - ✅ Even simple tasks like adding a single property
 - ✅ Even simple tasks like creating a single module
 
-### Use this `lt-cli` skill ONLY for:
+### Use this `using-lt-cli` skill ONLY for:
 - ✅ Git commands (`lt git get`, `lt git reset`, etc.)
 - ✅ Fullstack commands (`lt fullstack init`)
 - ✅ General CLI questions (not about server development)
 
 ### Example scenarios:
-- "Create a User module with email and username" → Use **nest-server-generator** skill ✅
-- "Add a new property to the User module" → Use **nest-server-generator** skill ✅
-- "Checkout branch DEV-123" → Use this skill (lt-cli) ✅
-- "Initialize a fullstack project" → Use this skill (lt-cli) ✅
+- "Create a User module with email and username" → Use **generating-nest-servers** skill ✅
+- "Add a new property to the User module" → Use **generating-nest-servers** skill ✅
+- "Checkout branch DEV-123" → Use this skill (using-lt-cli) ✅
+- "Initialize a fullstack project" → Use this skill (using-lt-cli) ✅
 
 **If the user mentions ANYTHING about NestJS server, modules, objects, properties, or models:**
-→ **IMMEDIATELY recommend or use the nest-server-generator skill instead**
+→ **IMMEDIATELY recommend or use the generating-nest-servers skill instead**
+
+## Related Skills
+
+**🔄 Works closely with:**
+- `nest-server-generator` skill - For ALL NestJS server development
+- `story-tdd` skill - For Test-Driven Development with NestJS
+
+**When to use which:**
+- Git operations (`lt git`)? → Use this skill (lt-cli)
+- Fullstack init? → Use this skill (lt-cli)
+- NestJS development? → Use `nest-server-generator` skill
+- TDD approach? → Use `story-tdd` skill
 
 ---
 

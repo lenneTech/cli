@@ -1,10 +1,33 @@
 ---
 name: story-tdd-reference
-version: 1.0.0
+version: 1.0.1
 description: Quick reference guide for Test-Driven Development workflow
 ---
 
 # Story-Based TDD Quick Reference
+
+## Table of Contents
+- [The 7-Step Workflow](#the-7-step-workflow)
+- [Commands Cheatsheet](#commands-cheatsheet)
+- [Test File Organization](#test-file-organization)
+- [Test File Template](#test-file-template)
+- [Database Indexes with @UnifiedField](#database-indexes-with-unifiedfield)
+- [REST API Testing Patterns](#rest-api-testing-patterns-using-testhelper)
+- [GraphQL Testing Patterns](#graphql-testing-patterns-using-testhelper)
+- [Common Test Assertions](#common-test-assertions)
+- [ObjectId Conversion Utilities](#objectid-conversion-utilities)
+- [Security Testing Checklist](#security-testing-checklist)
+- [When to Ask Developer](#when-to-ask-developer)
+- [Debugging Failed Tests](#debugging-failed-tests)
+- [Decision Tree: Test Failure Analysis](#decision-tree-test-failure-analysis)
+- [Code Quality, Security & Refactoring Check](#code-quality-security--refactoring-check)
+- [Final Report Template](#final-report-template)
+- [Handling Existing Tests](#-handling-existing-tests)
+- [CRITICAL: Git Commits](#-critical-git-commits)
+- [CRITICAL: Database Cleanup & Test Isolation](#-critical-database-cleanup--test-isolation)
+- [User Authentication: signUp vs signIn](#user-authentication-signup-vs-signin)
+- [Avoiding Test Interdependencies](#avoiding-test-interdependencies)
+- [Async/Await Best Practices](#asyncawait-best-practices)
 
 ## The 7-Step Workflow
 
@@ -19,7 +42,7 @@ description: Quick reference guide for Test-Driven Development workflow
                           ↓
 ┌─────────────────────────────────────────────────────────┐
 │ Step 2: Create Story Test                               │
-│ - Location: test/stories/feature-name.story.test.ts     │
+│ - Location: tests/stories/feature-name.story.test.ts     │
 │ - Study existing test patterns                          │
 │ - Write comprehensive test scenarios                    │
 │ - Cover happy path, errors, edge cases                  │
@@ -78,7 +101,7 @@ description: Quick reference guide for Test-Driven Development workflow
 npm test
 
 # Run specific story test
-npm test -- test/stories/feature-name.story.test.ts
+npm test -- tests/stories/feature-name.story.test.ts
 
 # Run tests with coverage
 npm run test:cov
@@ -105,6 +128,44 @@ lt server addProp Review rating:number --no-interactive
 lt server addProp Review comment:string? --no-interactive
 ```
 
+## Test File Organization
+
+### Structuring Tests with Subfolders
+
+When many test files accumulate in `tests/stories/`, consider organizing them into subfolders for better clarity:
+
+**✅ DO use subfolders when:**
+- Multiple tests can be logically grouped (e.g., by feature, module, or domain)
+- Each subfolder contains at least 3-5 related test files
+- The grouping improves discoverability and navigation
+
+**❌ DON'T use subfolders when:**
+- Only 1-2 files would end up in each subfolder (defeats the purpose)
+- The grouping is arbitrary or unclear
+- Tests are already easy to find
+
+**Example folder structure:**
+
+```
+tests/stories/
+├── user-management/           # ✅ Good: 4 related tests
+│   ├── user-registration.story.test.ts
+│   ├── user-profile.story.test.ts
+│   ├── user-roles.story.test.ts
+│   └── user-deletion.story.test.ts
+├── orders/                    # ✅ Good: 3 related tests
+│   ├── order-creation.story.test.ts
+│   ├── order-fulfillment.story.test.ts
+│   └── order-cancellation.story.test.ts
+├── auth/                      # ❌ Bad: Only 1 file, should stay in root
+│   └── login.story.test.ts
+└── simple-feature.story.test.ts  # ✅ OK: Single file stays in root
+```
+
+**Rule of thumb:** If you can't fill a subfolder with at least 3 thematically related test files, keep them in the root `tests/stories/` directory.
+
+---
+
 ## Test File Template
 
 ```typescript
@@ -116,24 +177,24 @@ import {
 } from '@lenne.tech/nest-server';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PubSub } from 'graphql-subscriptions';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 import envConfig from '../../src/config.env';
 import { RoleEnum } from '../../src/server/common/enums/role.enum';
-import { YourService } from '../../src/server/modules/your-module/your.service';
 import { imports, ServerModule } from '../../src/server/server.module';
+
+// ⚠️ IMPORTANT: Do NOT import Services!
+// Tests must ONLY use API endpoints via TestHelper.
+// Services are accessed indirectly through Controllers/Resolvers.
 
 describe('[Feature Name] Story', () => {
   // Test environment properties
   let app;
   let testHelper: TestHelper;
 
-  // Database
+  // Database (only for setup/cleanup and setting roles/verified status)
   let connection;
   let db;
-
-  // Services
-  let yourService: YourService;
 
   // Global test data
   let gUserToken: string;
@@ -147,7 +208,6 @@ describe('[Feature Name] Story', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [...imports, ServerModule],
       providers: [
-        YourService,
         {
           provide: 'PUB_SUB',
           useValue: new PubSub(),
@@ -162,15 +222,16 @@ describe('[Feature Name] Story', () => {
     await app.init();
 
     testHelper = new TestHelper(app);
-    yourService = moduleFixture.get(YourService);
 
-    // Connection to database
+    // Connection to database (ONLY for cleanup and setting roles/verified)
     connection = await MongoClient.connect(envConfig.mongoose.uri);
     db = await connection.db();
 
-    // Create test user
+    // 🚨 CRITICAL: Create test user with @test.com email
     const password = Math.random().toString(36).substring(7);
-    const email = `test-${password}@example.com`;
+    // ✅ MUST end with @test.com for e2e.brevo.exclude filtering
+    // Use timestamp + random suffix for guaranteed uniqueness
+    const email = `test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
     const signUp = await testHelper.graphQl({
       arguments: {
         input: {
@@ -211,7 +272,11 @@ describe('[Feature Name] Story', () => {
   describe('Happy Path', () => {
     it('should [expected behavior]', async () => {
       // Arrange
-      const data = { /* test data */ };
+      // 🚨 IMPORTANT: Make data unique per test file to avoid conflicts
+      const data = {
+        email: `entity-feature-test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`,  // ✅ @test.com + unique
+        name: `Entity-FeatureTest-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,  // ✅ Unique per test file
+      };
 
       // Act - Using REST
       const result = await testHelper.rest('/api/endpoint', {
@@ -225,7 +290,7 @@ describe('[Feature Name] Story', () => {
         // expected properties
       });
 
-      // Track for cleanup
+      // ✅ Track for cleanup (CRITICAL for parallel-safe tests)
       createdEntityIds.push(result.id);
     });
   });
@@ -337,6 +402,17 @@ Before marking complete, verify:
 
 ## REST API Testing Patterns (using TestHelper)
 
+**🔍 IMPORTANT: Before writing tests, read the TestHelper source file to understand all available features:**
+
+```
+node_modules/@lenne.tech/nest-server/src/test/test.helper.ts
+```
+
+This file documents all TestHelper capabilities including:
+- File uploads via `attachments` option
+- Debugging with `log` and `logError` options in `TestRestOptions`
+- Custom headers, status code validation, and more
+
 ```typescript
 // GET request
 const result = await testHelper.rest('/api/resource/123', {
@@ -380,6 +456,16 @@ const result = await testHelper.rest('/api/resource', {
     'Content-Type': 'application/json',
     'X-Custom-Header': 'value',
   },
+  token: userToken,
+});
+
+// File upload via attachments
+const result = await testHelper.rest('/api/upload', {
+  method: 'POST',
+  attachments: [
+    { name: 'file', path: '/path/to/file.pdf' },
+    { name: 'image', path: '/path/to/image.png' },
+  ],
   token: userToken,
 });
 ```
@@ -485,6 +571,54 @@ expect(string).toMatch(/regex/);
 expect(() => fn()).toThrow();
 expect(() => fn()).toThrow('error message');
 ```
+
+## ObjectId Conversion Utilities
+
+**Use the utility functions from @lenne.tech/nest-server for ObjectId conversions:**
+
+```typescript
+import { getStringIds, getObjectIds } from '@lenne.tech/nest-server';
+
+// Convert ObjectIds to strings (works with arrays OR single values)
+const stringIds = getStringIds(objectIds);     // ObjectId[] → string[]
+const stringId = getStringIds(singleObjectId); // ObjectId → string
+
+// Convert strings to ObjectIds (works with arrays OR single values)
+const objectIds = getObjectIds(stringIds);     // string[] → ObjectId[]
+const objectId = getObjectIds(singleStringId); // string → ObjectId
+
+// Pass objects directly - the functions extract IDs automatically!
+const stringIds = getStringIds(documents);     // Extracts _id from each document
+const objectIds = getObjectIds(documents);     // Extracts _id/id and converts
+```
+
+**✅ ALWAYS use these utilities instead of manual conversion:**
+
+```typescript
+// ✅ CORRECT: Use utility functions
+import { getStringIds, getObjectIds } from '@lenne.tech/nest-server';
+
+// For arrays of objects (no mapping needed - IDs are extracted automatically!)
+const stringIds = getStringIds(documents);
+const objectIds = getObjectIds(users);
+
+// For single values (no array needed!)
+const objectId = getObjectIds(userId);
+const stringId = getStringIds(document);
+
+// ❌ WRONG: Manual conversion
+const stringIds = documents.map(d => d._id.toString());
+const objectIds = inputIds.map(id => new ObjectId(id));
+const objectId = new ObjectId(userId);
+```
+
+**Why use these utilities:**
+- Consistent behavior across the codebase
+- Works with both arrays and single values
+- Extracts IDs from objects automatically (no `.map()` needed)
+- Handles edge cases (null, undefined, invalid IDs)
+- Type-safe conversions
+- Easier to maintain and test
 
 ## Security Testing Checklist
 
@@ -611,7 +745,7 @@ DEBUG_VALIDATION=true npm test
 process.env.DEBUG_VALIDATION = 'true';
 ```
 
-This activates console.debug statements in MapAndValidatePipe (`node_modules/@lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts`) to show detailed validation errors.
+This activates console.debug statements in MapAndValidatePipe (automatically activated via CoreModule - see `node_modules/@lenne.tech/nest-server/src/core/common/pipes/map-and-validate.pipe.ts`) to show detailed validation errors.
 
 ### 4. Combined Debugging Setup
 
@@ -672,6 +806,24 @@ Test fails
    - Extract repeated data transformations
    - Create shared validation helpers
    - Consolidate similar query builders
+
+2a. **🔐 Guards in Controllers:**
+   - DO NOT add `@UseGuards(AuthGuard(AuthGuardStrategy.JWT))` manually
+   - `@Roles()` decorator automatically activates JWT authentication
+   - `@Restricted()` decorator also activates guards automatically
+   - Manual guards are redundant and create duplicates
+   ```typescript
+   // ✅ CORRECT
+   @Roles(RoleEnum.ADMIN)
+   @Get()
+   async findAll() { ... }
+
+   // ❌ WRONG: Redundant guard
+   @UseGuards(AuthGuard(AuthGuardStrategy.JWT))
+   @Roles(RoleEnum.ADMIN)
+   @Get()
+   async findAll() { ... }
+   ```
 
 3. **Database Indexes:**
    - Fields used in queries → Add `mongoose: { index: true, type: String }` to @UnifiedField
@@ -738,7 +890,7 @@ Before marking complete:
 ## Story: [Name]
 
 ### Tests Created
-- Location: test/stories/[filename].story.test.ts
+- Location: tests/stories/[filename].story.test.ts
 - Test cases: X scenarios
 - Coverage: X%
 
@@ -856,11 +1008,75 @@ git log -p --follow path/to/file.ts
 
 **ALWAYS implement comprehensive cleanup in your story tests!**
 
-Test data that remains in the database can cause:
+Tests run in parallel, so improper test data management causes:
+- Conflicts between parallel tests (duplicate keys, race conditions)
 - False positives/negatives in tests
 - Flaky tests that pass/fail randomly
 - Contaminated test database
 - Hard-to-debug test failures
+
+**📋 GOLDEN RULES for Parallel-Safe Test Data:**
+
+1. **Email Addresses Must End with @test.com**
+   - Configuration in `src/config.env.ts` uses `e2e.brevo.exclude` to filter @test.com
+   - External services (email, etc.) will exclude these addresses
+   - Use timestamp + random suffix for guaranteed uniqueness
+   ```typescript
+   // ✅ CORRECT: Timestamp + 6-char random suffix
+   const email = `user-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
+
+   // ⚠️ LESS SAFE: Only timestamp (collision risk in same millisecond)
+   const email = `user-${Date.now()}@test.com`;
+
+   // ❌ WRONG: No @test.com suffix
+   const email = 'testuser@example.com';
+   ```
+
+2. **NEVER Reuse Same Data Across Test Files**
+   - Tests run in parallel = same data causes conflicts
+   - Make ALL data unique (emails, usernames, product names, etc.)
+   - Always use timestamp + random suffix
+   ```typescript
+   // ✅ CORRECT: Unique per test file with timestamp + random suffix
+   const email = `admin-product-test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`;
+
+   // ⚠️ LESS SAFE: Only timestamp
+   const email = `admin-product-test-${Date.now()}@test.com`;
+
+   // ❌ WRONG: Reused across multiple test files
+   const email = 'admin@test.com';
+   ```
+
+3. **ONLY Delete Entities Created in This Test File**
+   - Track created IDs explicitly
+   - Delete ONLY tracked entities, not by pattern
+   ```typescript
+   // ✅ CORRECT: Only delete what we created
+   await db.collection('users').deleteMany({
+     _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+   });
+
+   // ❌ WRONG: Deletes ALL test users (breaks parallel tests)
+   await db.collection('users').deleteMany({ email: /@test\.com$/ });
+   ```
+
+4. **ALL Created Entities Must Be Cleaned Up**
+   - Track every created entity ID immediately
+   - Clean up in correct order (children before parents)
+   - Prevents side effects on future test runs
+
+5. **NEVER Use Fixed Port Numbers**
+   - NestJS assigns random ports automatically for parallel execution
+   - Always use TestHelper - it abstracts port handling
+   ```typescript
+   // ✅ CORRECT: No port specified, TestHelper handles it
+   await app.init();
+   const result = await testHelper.rest('/api/users', { ... });
+
+   // ❌ WRONG: Fixed port causes conflicts
+   await app.listen(3000);
+   const response = await fetch('http://localhost:3000/api/users');
+   ```
 
 ### Between Test Suites - RECOMMENDED APPROACH
 
@@ -875,13 +1091,19 @@ describe('Feature Story', () => {
 
   // In your tests, track IDs immediately after creation
   it('should create product', async () => {
+    // 🚨 IMPORTANT: Use unique data per test file + @test.com for emails
+    const productData = {
+      name: `Product-FeatureStory-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,  // ✅ Unique per test file
+      ownerEmail: `owner-feature-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`,  // ✅ @test.com + unique
+    };
+
     const product = await testHelper.rest('/api/products', {
       method: 'POST',
       payload: productData,
       token: adminToken,
     });
 
-    // ✅ Track for cleanup
+    // ✅ Track for cleanup (ONLY delete what we created)
     createdProductIds.push(product.id);
   });
 
@@ -917,13 +1139,13 @@ describe('Feature Story', () => {
 });
 ```
 
-### Alternative: Pattern-Based Cleanup (Less Reliable)
+### Alternative: Pattern-Based Cleanup (AVOID - Not Parallel-Safe!)
 
-Only use this if you can't track IDs:
+**❌ DO NOT USE pattern-based cleanup - it breaks parallel test execution!**
 
 ```typescript
+// ❌ WRONG: Deletes ALL test users, even from parallel tests!
 afterAll(async () => {
-  // Clean up test data by pattern (less reliable)
   await db.collection('users').deleteMany({ email: /@test\.com$/ });
   await db.collection('products').deleteMany({ name: /^Test/ });
 
@@ -932,10 +1154,21 @@ afterAll(async () => {
 });
 ```
 
-**⚠️ Warning:** Pattern-based cleanup can:
-- Miss entities that don't match the pattern
-- Delete unintended entities if pattern is too broad
-- Be harder to debug when cleanup fails
+**⚠️ Why This is Dangerous:**
+- **Breaks parallel tests:** Deletes entities from other tests that are still running
+- **Race conditions:** Unpredictable failures when tests run simultaneously
+- **Flaky tests:** Tests pass/fail randomly depending on execution order
+- **Hard to debug:** Unclear why tests fail intermittently
+
+**✅ ALWAYS use ID-based cleanup instead:**
+```typescript
+// ✅ CORRECT: Only deletes entities created in THIS test file
+if (createdUserIds.length > 0) {
+  await db.collection('users').deleteMany({
+    _id: { $in: createdUserIds.map(id => new ObjectId(id)) }
+  });
+}
+```
 
 ### Between Individual Tests
 
@@ -970,7 +1203,9 @@ describe('Feature Tests', () => {
 const signUp = await testHelper.graphQl({
   arguments: {
     input: {
-      email: `test-${Date.now()}@example.com`,  // Unique email
+      // 🚨 CRITICAL: MUST end with @test.com for e2e.brevo.exclude
+      // Use timestamp + random suffix for guaranteed uniqueness
+      email: `test-${Date.now()}-${Math.random().toString(36).substring(2, 8)}@test.com`,  // ✅ Unique + @test.com
       password: 'testpass123',
       firstName: 'Test',
     },
@@ -980,6 +1215,9 @@ const signUp = await testHelper.graphQl({
   type: TestGraphQLType.MUTATION,
 });
 const token = signUp.token;
+
+// ✅ Track for cleanup
+createdUserIds.push(signUp.user.id);
 ```
 
 ### When to use signIn
@@ -1109,6 +1347,7 @@ await testHelper.rest('/api/resource', {
 - Skip test analysis step
 - **Weaken security for passing tests**
 - **Remove or weaken @Restricted/@Roles decorators**
+- **Add @UseGuards(AuthGuard(...)) manually (redundant with @Roles)**
 - **Skip security review before marking complete**
 - Add dependencies without checking existing
 - Ignore existing code patterns
@@ -1119,8 +1358,11 @@ await testHelper.rest('/api/resource', {
 - Create test interdependencies
 - **Forget to implement cleanup in afterAll**
 - **Forget to track created entity IDs for cleanup**
+- **Use pattern-based cleanup (deletes entities from parallel tests!)**
+- **Reuse same test data across test files (causes parallel conflicts)**
+- **Use emails without @test.com suffix (won't be excluded from external services)**
+- **Use fixed port numbers (breaks parallel test execution)**
 - Clean up too aggressively (breaking other tests)
-- Use pattern-based cleanup when ID tracking is possible
 - **Skip code quality check before marking complete**
 - **Leave obvious code duplication in place**
 - Over-engineer by extracting single-use code
@@ -1147,6 +1389,11 @@ await testHelper.rest('/api/resource', {
 - Use Promise.all() for parallel operations
 - **ALWAYS implement comprehensive cleanup in afterAll**
 - **Track all created entity IDs immediately after creation**
+- **ONLY delete entities created in THIS test file (parallel-safe)**
+- **Use @test.com suffix for ALL test emails (e2e.brevo.exclude)**
+- **Make ALL test data unique per test file (avoid parallel conflicts)**
+- **NEVER use fixed ports - let NestJS assign random ports automatically**
+- **Always use TestHelper for API calls (handles ports automatically)**
 - Delete entities in correct order (children before parents)
 - **Check for code duplication before marking complete**
 - **Extract common functionality to helpers when used 2+ times**

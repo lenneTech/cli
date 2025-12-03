@@ -6,6 +6,22 @@ description: Quick reference for ALL NestJS server development - from simple sin
 
 # NestJS Server Development Quick Reference
 
+## Table of Contents
+- [Scope](#scope)
+- [Specification Syntax](#specification-syntax)
+- [Execution Workflow](#execution-workflow)
+- [Command Quick Reference](#command-quick-reference)
+- [Description Format](#description-format)
+- [Inheritance Handling](#inheritance-handling)
+- [Enum File Template](#enum-file-template)
+- [API Test Template](#api-test-template)
+- [Common Patterns](#common-patterns)
+- [Troubleshooting](#troubleshooting)
+- [Verification Checklist](#verification-checklist)
+- [File Structure](#file-structure)
+- [Best Practices Summary](#best-practices-summary)
+- [Quick Start](#quick-start)
+
 ## Scope
 
 **This skill handles ALL NestJS server development tasks:**

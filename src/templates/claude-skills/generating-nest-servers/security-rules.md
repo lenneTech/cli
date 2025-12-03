@@ -6,6 +6,19 @@ description: Critical security and test coverage rules for NestJS development
 
 # 🚨 CRITICAL SECURITY RULES
 
+## Table of Contents
+- [NEVER Do This](#-never-do-this)
+- [ALWAYS Do This](#-always-do-this)
+- [Permission Hierarchy (Specific Overrides General)](#-permission-hierarchy-specific-overrides-general)
+- [Rule 1: NEVER Weaken Security for Test Convenience](#rule-1-never-weaken-security-for-test-convenience)
+- [Rule 2: Understanding Permission Hierarchy](#rule-2-understanding-permission-hierarchy)
+- [Rule 3: Adapt Tests to Security, Not Vice Versa](#rule-3-adapt-tests-to-security-not-vice-versa)
+- [Rule 4: Test with Least Privileged User](#rule-4-test-with-least-privileged-user)
+- [Rule 5: Create Appropriate Test Users](#rule-5-create-appropriate-test-users)
+- [Rule 6: Comprehensive Test Coverage](#rule-6-comprehensive-test-coverage)
+- [Quick Security Checklist](#quick-security-checklist)
+- [Security Decision Protocol](#security-decision-protocol)
+
 **Before you start ANY work, understand these NON-NEGOTIABLE rules.**
 
 ---

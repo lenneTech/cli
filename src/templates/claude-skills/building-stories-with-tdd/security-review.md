@@ -6,6 +6,14 @@ description: Security review checklist for Test-Driven Development - ensures no 
 
 # 🔐 Security Review Checklist
 
+## Table of Contents
+- [Security Checklist](#security-checklist)
+- [Security Decision Tree](#security-decision-tree)
+- [Red Flags - STOP and Review](#red-flags---stop-and-review)
+- [If ANY Red Flag Found](#if-any-red-flag-found)
+- [Remember](#remember)
+- [Quick Security Checklist](#quick-security-checklist)
+
 **CRITICAL: Perform security review before final testing!**
 
 **ALWAYS review all code changes for security vulnerabilities before marking complete.**

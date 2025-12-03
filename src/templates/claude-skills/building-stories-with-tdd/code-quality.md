@@ -6,6 +6,16 @@ description: Code quality and refactoring guidelines for Test-Driven Development
 
 # Code Quality & Refactoring Check
 
+## Table of Contents
+- [1. Check for Code Duplication](#1-check-for-code-duplication)
+- [2. Extract Common Functionality](#2-extract-common-functionality)
+- [3. Consolidate Similar Code Paths](#3-consolidate-similar-code-paths)
+- [4. Review for Consistency](#4-review-for-consistency)
+- [5. Refactoring Decision Tree](#5-refactoring-decision-tree)
+- [6. Run Tests After Refactoring](#6-run-tests-after-refactoring)
+- [7. When to Skip Refactoring](#7-when-to-skip-refactoring)
+- [Quick Code Quality Checklist](#quick-code-quality-checklist)
+
 **BEFORE marking the task as complete, perform a code quality review!**
 
 Once all tests are passing, analyze your implementation for code quality issues.

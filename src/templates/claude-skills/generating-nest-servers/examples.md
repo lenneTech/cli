@@ -6,6 +6,13 @@ description: Complete examples for generating NestJS server structures from spec
 
 # NestJS Server Generator Examples
 
+## Table of Contents
+- [Example 1: Library Management System](#example-1-library-management-system)
+- [Example 2: Hotel Booking System (Minimal)](#example-2-hotel-booking-system-minimal)
+- [Key Patterns Demonstrated](#key-patterns-demonstrated)
+- [Best Practices from Examples](#best-practices-from-examples)
+- [Quality Review Workflow Example](#quality-review-workflow-example)
+
 ## Example 1: Library Management System
 
 This example demonstrates all features:
