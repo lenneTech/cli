@@ -21,8 +21,10 @@ export interface McpEntry {
   id: string;
   /** Display name for the MCP */
   name: string;
-  /** The npm package name */
-  npmPackage: string;
+  /** The npm package name (optional for remote MCPs) */
+  npmPackage?: string;
+  /** Transport type for remote MCPs ('http' or 'sse') */
+  transport?: 'http' | 'sse';
   /** URL for more information */
   url?: string;
 }
@@ -40,6 +42,15 @@ export const MCP_REGISTRY: McpEntry[] = [
     name: 'Chrome DevTools',
     npmPackage: 'chrome-devtools-mcp',
     url: 'https://www.npmjs.com/package/chrome-devtools-mcp',
+  },
+  {
+    category: 'project-management',
+    command: 'linear https://mcp.linear.app/mcp',
+    description: 'Linear integration for issue tracking and project management',
+    id: 'linear',
+    name: 'Linear',
+    transport: 'http',
+    url: 'https://linear.app/docs/mcp',
   },
   // Add more MCPs here as needed:
   // {

@@ -60,7 +60,9 @@ function installMcp(mcp: McpEntry): { error?: string; success: boolean } {
   }
 
   try {
-    const command = `"${cli}" mcp add ${mcp.command}`;
+    // Build the command with optional transport flag for remote MCPs
+    const transportFlag = mcp.transport ? `--transport ${mcp.transport} ` : '';
+    const command = `"${cli}" mcp add ${transportFlag}${mcp.command}`;
     execSync(command, { encoding: 'utf-8', shell: '/bin/bash', stdio: 'inherit' });
     return { success: true };
   } catch (err) {
