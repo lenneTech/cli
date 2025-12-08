@@ -64,6 +64,7 @@ The story should convey the **user's emotional experience**, not just technical 
 
 ### Properties
 
+- **Only include if user explicitly specifies them** - do not auto-generate
 - Use camelCase for property names
 - Provide BOTH English AND German descriptions
 - Specify relationships clearly (e.g., "Referenz auf User-Entität")
@@ -156,10 +157,49 @@ For each missing or unclear element, formulate a **specific question in German**
 
 **If user refuses or skips questions:**
 - Accept the decision without pushing further
-- Use sensible defaults or common patterns
-- Make reasonable assumptions based on context
-- Proceed with available information
-- Document any assumptions made in the story's "Hinweise" section
+- **Proactively suggest reasonable completions** based on context and common patterns
+- Present suggestions to the user for confirmation before including them
+- Proceed with available information after user confirmation
+
+### Proactive Suggestion Strategy
+
+When the user doesn't provide information for certain areas, **don't just leave gaps** - actively suggest sensible completions:
+
+**For missing Role:**
+- Analyze the feature context to infer the most likely user role
+- Suggest: "Da es um Verwaltungsfunktionen geht, nehme ich an, dass ein **Admin** diese nutzen soll. Passt das?"
+
+**For missing Reason/Benefit:**
+- Derive the benefit from the feature's purpose
+- Suggest: "Der Nutzen könnte sein: **damit Besucher schnell Antworten auf häufige Fragen finden**. Soll ich das so übernehmen?"
+
+**For missing Properties:**
+- **Do NOT automatically suggest properties** if the user hasn't specified any
+- Only include properties in the story if the user explicitly provides them
+- If the user mentions data fields vaguely, ask for clarification: "Du hast [Datenfeld] erwähnt. Möchtest du die Properties genauer spezifizieren, oder soll das der Implementierung überlassen werden?"
+- If the user declines to specify properties, omit the Properties section entirely - the implementation agent will determine appropriate properties based on the requirements
+
+**For missing Acceptance Criteria:**
+- Generate standard criteria based on the feature type (CRUD → list, create, read, update, delete permissions)
+- Suggest: "Ich schlage folgende Akzeptanzkriterien vor: [Liste]. Möchtest du welche anpassen oder ergänzen?"
+
+**For missing Security/Permissions:**
+- Suggest common permission patterns based on the role
+- Suggest: "Ich würde vorschlagen: **Admins haben vollen Zugriff, Gäste können nur lesen**. Ist das korrekt?"
+
+**For missing Edge Cases:**
+- Suggest typical edge cases for the feature type
+- Suggest: "Mögliche Edge Cases wären: Was passiert bei leeren Eingaben? Bei Duplikaten? Bei Löschung referenzierter Daten?"
+
+**Suggestion Format (in German):**
+"Für [Bereich] schlage ich vor: **[konkreter Vorschlag]**. Passt das so, oder möchtest du etwas ändern?"
+
+**Important:**
+- Always present suggestions as proposals, not decisions
+- Let the user confirm, modify, or reject each suggestion
+- If the user confirms with just "ja", "ok", "passt", accept the suggestion and proceed
+- **Integrate confirmed suggestions directly into the story** - the final story should only contain definitive requirements, not assumptions or proposals
+- The user should be able to review the complete story and request changes before finalizing
 
 ---
 
@@ -230,16 +270,16 @@ After presenting the story, ask (in German): "Ist die Story so in Ordnung, oder 
 ### Anforderungen
 [Liste der spezifischen Anforderungen]
 
-### Properties (optional, nur wenn das Feature Datenentitäten betrifft)
+### Properties (optional - nur wenn vom Nutzer explizit angegeben)
 
 | Property   | Type   | Required | Description (EN)   | Beschreibung (DE)    |
 |------------|--------|----------|--------------------|----------------------|
 | example    | string | yes      | Example property   | Beispiel-Eigenschaft |
 
-[Properties-Tabelle falls relevant - Abschnitt weglassen wenn nicht benötigt]
+[Diesen Abschnitt komplett weglassen, wenn der Nutzer keine Properties angegeben hat]
 
 ### Hinweise (optional)
-[Technische Hinweise, Einschränkungen, spezielle Logik]
+[Technische Hinweise, Einschränkungen, spezielle Logik - nur wenn relevant]
 
 ## Akzeptanzkriterien
 
@@ -329,7 +369,13 @@ Here is an example of a well-structured user story:
 **User's initial input:**
 > "Ich brauche FAQs die der Admin verwalten kann und die auf der Website angezeigt werden. Die sollen eine Reihenfolge haben."
 
-**After gap analysis and clarification, the resulting story:**
+**Gap analysis question (in German):**
+> "Du hast erwähnt, dass FAQs eine Reihenfolge haben sollen. Möchtest du die Properties (z.B. `question`, `answer`, `position`) genauer spezifizieren, oder soll das der Implementierung überlassen werden?"
+
+**User response:**
+> "Nein, das kann die Implementierung machen."
+
+**Resulting story (suggestions integrated as definitive requirements):**
 
 ```markdown
 # Admin möchte FAQs verwalten, damit sie auf der Website verfügbar sind
@@ -347,43 +393,25 @@ Es soll ein Modul für FAQs erstellt werden, in dem der Admin FAQs sehen, anlege
 ### Anforderungen
 - Admins können vollständige CRUD-Operationen auf FAQs durchführen
 - Alle Nutzer (auch Gäste) können FAQs lesen
-- FAQs müssen eine bestimmte Reihenfolge über das position-Feld haben
-- Die Positionsverwaltung muss automatisch und effizient erfolgen
-
-### Properties
-
-| Property | Type   | Required | Description (EN)        | Beschreibung (DE)     |
-|----------|--------|----------|-------------------------|-----------------------|
-| question | string | yes      | Question of the FAQ     | Frage der FAQ         |
-| answer   | string | yes      | Answer of the FAQ       | Antwort der FAQ       |
-| position | number | no       | Position of the element | Position des Elements |
-
-### Hinweise
-- FAQs haben eine bestimmte Reihenfolge, die durch das `position`-Feld bestimmt wird
-- Beim Anlegen oder Bearbeiten einer FAQ muss geprüft werden, ob die Positionen anderer FAQs angepasst werden müssen
-- Wird bei einer neuen FAQ keine position explizit mitgegeben, wird automatisch die höchste Position + 1 vergeben
-- Positionsaktualisierungen müssen effizient erfolgen (möglichst wenige Datenbankrequests)
-- Wenn eine FAQ ihre Position ändert, müssen die anderen Elemente entsprechend der alten und neuen Position neu positioniert werden
+- FAQs müssen eine bestimmte Reihenfolge haben
+- Die Reihenfolgeverwaltung muss automatisch und effizient erfolgen
 
 ## Akzeptanzkriterien
 
 - [ ] Administratoren können FAQs vollständig verwalten (GET, POST, DELETE, PUT)
-- [ ] Alle Nutzer (auch nicht eingeloggte) können die komplette Liste der FAQs sortiert nach position (aufsteigend) abrufen
-- [ ] Beim Anlegen einer neuen FAQ ohne position wird automatisch die höchste Position + 1 vergeben
-- [ ] Beim Anlegen einer neuen FAQ mit einer bestimmten position werden die anderen FAQs entsprechend neu positioniert
-- [ ] Beim Bearbeiten der position einer FAQ werden die anderen FAQs effizient neu positioniert
+- [ ] Alle Nutzer (auch nicht eingeloggte) können die komplette Liste der FAQs sortiert nach Reihenfolge abrufen
+- [ ] Beim Anlegen einer neuen FAQ wird automatisch die nächste Position in der Reihenfolge vergeben
+- [ ] Die Reihenfolge der FAQs kann angepasst werden
 - [ ] Nicht-Admin-Nutzer können keine FAQs erstellen, bearbeiten oder löschen
-- [ ] Position-Werte sind immer positive Ganzzahlen ab 1
 ```
 
 **Beispiel eines Akzeptanzkriteriums im Gherkin-Format:**
 
 ```gherkin
-Gegeben eine FAQ mit position 2 existiert bereits
-Wenn ein Admin eine neue FAQ mit position 2 anlegt
-Dann wird die neue FAQ an Position 2 eingefügt
-Und die bisherige FAQ an Position 2 rückt auf Position 3
-Und alle weiteren FAQs rücken entsprechend nach
+Gegeben es existieren bereits 3 FAQs in der Reihenfolge A, B, C
+Wenn ein Admin eine neue FAQ D an Position 2 einfügt
+Dann ist die neue Reihenfolge A, D, B, C
+Und alle anderen FAQs werden entsprechend neu positioniert
 ```
 
 ---
