@@ -12,7 +12,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 const PLUGIN_CONFIG = {
   marketplaceName: 'lenne-tech',
   marketplaceRepo: 'lenneTech/claude-code',
-  pluginName: 'core',
+  pluginName: 'lt',
 };
 
 /**
@@ -89,7 +89,7 @@ function findMarkdownFiles(dir: string, basePath = ''): string[] {
 /**
  * Read plugin contents (skills, commands, hooks, permissions, mcpServers)
  */
-function readPluginContents(marketplaceName: string): {
+function readPluginContents(marketplaceName: string, pluginName: string): {
   commands: string[];
   hooks: number;
   mcpServers: string[];
@@ -103,7 +103,7 @@ function readPluginContents(marketplaceName: string): {
     'marketplaces',
     marketplaceName,
     'plugins',
-    'core'
+    pluginName
   );
 
   const result = {
@@ -321,7 +321,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Step 3: Read plugin contents
-    const pluginContents = readPluginContents(PLUGIN_CONFIG.marketplaceName);
+    const pluginContents = readPluginContents(PLUGIN_CONFIG.marketplaceName, PLUGIN_CONFIG.pluginName);
 
     // Warn if plugin seems empty
     if (pluginContents.skills.length === 0 && pluginContents.commands.length === 0) {
