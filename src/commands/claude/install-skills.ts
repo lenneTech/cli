@@ -139,8 +139,14 @@ async function installSingleSkill(
     filesystem.dir(skillsDir);
   }
 
-  // Copy all skill files with version checking
-  const skillFiles = ['SKILL.md', 'examples.md', 'reference.md'];
+  // Dynamically get all files from the skill template directory
+  const allItems = filesystem.list(templatesDir) || [];
+  const skillFiles = allItems.filter((item: string) => {
+    const itemPath = join(templatesDir, item);
+    // Only include files (not directories)
+    return !filesystem.isDirectory(itemPath);
+  });
+
   let copiedCount = 0;
   let skippedCount = 0;
   let updatedCount = 0;
@@ -151,11 +157,6 @@ async function installSingleSkill(
   for (const file of skillFiles) {
     const sourcePath = join(templatesDir, file);
     const targetPath = join(skillsDir, file);
-
-    if (!filesystem.exists(sourcePath)) {
-      info(`  Warning: ${file} not found in templates, skipping...`);
-      continue;
-    }
 
     const sourceContent = filesystem.read(sourcePath);
 
