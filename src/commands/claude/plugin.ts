@@ -256,13 +256,13 @@ function setupPermissions(
 }
 
 /**
- * Install lenne.tech Claude Code Plugin
+ * Install/update lenne.tech Claude Code Plugin
  */
 const NewCommand: GluegunCommand = {
-  alias: ['plugin', 'ip'],
-  description: 'Installs/updates the lenne.tech Claude Code Plugin with skills, commands, and hooks',
+  alias: ['p'],
+  description: 'Installs/updates the lenne.tech Claude Code Plugin with skills, commands, hooks and MCP servers',
   hidden: false,
-  name: 'install-plugin',
+  name: 'plugin',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       helper,
@@ -273,7 +273,7 @@ const NewCommand: GluegunCommand = {
     // Start timer
     const timer = system.startTimer();
 
-    info('Install lenne.tech Claude Code Plugin');
+    info('lenne.tech Claude Code Plugin');
 
     // Check if claude CLI is available
     const cli = findClaudeCli();
