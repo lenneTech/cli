@@ -262,11 +262,12 @@ function printPluginSummary(
   contents: ReturnType<typeof readPluginContents>,
   info: (msg: string) => void,
 ): void {
-  if (contents.skills.length > 0 || contents.commands.length > 0) {
+  if (contents.skills.length > 0 || contents.commands.length > 0 || contents.agents.length > 0) {
     info('');
     info(`${pluginName}:`);
-    if (contents.skills.length > 0) {
-      info(`  Skills (${contents.skills.length}): ${contents.skills.join(', ')}`);
+    // Alphabetical order: Agents, Commands, Hooks, MCP Servers, Skills
+    if (contents.agents.length > 0) {
+      info(`  Agents (${contents.agents.length}): ${contents.agents.join(', ')}`);
     }
     if (contents.commands.length > 0) {
       const maxShow = 5;
@@ -283,13 +284,17 @@ function printPluginSummary(
     if (contents.mcpServers.length > 0) {
       info(`  MCP Servers (${contents.mcpServers.length}): ${contents.mcpServers.join(', ')}`);
     }
+    if (contents.skills.length > 0) {
+      info(`  Skills (${contents.skills.length}): ${contents.skills.join(', ')}`);
+    }
   }
 }
 
 /**
- * Read plugin contents (skills, commands, hooks, permissions, mcpServers)
+ * Read plugin contents (skills, commands, hooks, agents, permissions, mcpServers)
  */
 function readPluginContents(marketplaceName: string, pluginName: string): {
+  agents: string[];
   commands: string[];
   hooks: number;
   mcpServers: string[];
@@ -307,6 +312,7 @@ function readPluginContents(marketplaceName: string, pluginName: string): {
   );
 
   const result = {
+    agents: [] as string[],
     commands: [] as string[],
     hooks: 0,
     mcpServers: [] as string[],
@@ -321,6 +327,18 @@ function readPluginContents(marketplaceName: string, pluginName: string): {
       result.skills = readdirSync(skillsDir, { withFileTypes: true })
         .filter(dirent => dirent.isDirectory())
         .map(dirent => dirent.name);
+    } catch {
+      // Ignore
+    }
+  }
+
+  // Read agents
+  const agentsDir = join(pluginDir, 'agents');
+  if (existsSync(agentsDir)) {
+    try {
+      result.agents = readdirSync(agentsDir, { withFileTypes: true })
+        .filter(dirent => dirent.isFile() && dirent.name.endsWith('.md'))
+        .map(dirent => dirent.name.replace(/\.md$/, ''));
     } catch {
       // Ignore
     }
