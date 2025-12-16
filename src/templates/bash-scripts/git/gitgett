@@ -1,0 +1,12 @@
+#!/bin/bash
+
+runIfScriptExists() {
+  local script="$1"
+  if node -e "process.exit(Number(!require('./package.json').scripts?.['$script']))"; then
+    npm run "$script"
+  else
+    echo "Script '$script' nicht gefunden."
+  fi
+}
+
+lt git get "$@" && runIfScriptExists lint && runIfScriptExists test && runIfScriptExists test:e2e
