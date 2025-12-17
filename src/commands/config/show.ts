@@ -2,25 +2,27 @@ import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-comman
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
- * Show current configuration (merged from all lt.config.json files)
+ * Show current configuration (merged from all lt.config files)
  */
 const ShowCommand: ExtendedGluegunCommand = {
   alias: ['s'],
-  description: 'Show current configuration (merged from all lt.config.json files in hierarchy)',
+  description: 'Show merged configuration',
   hidden: false,
   name: 'show',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
       config,
-      filesystem,
-      print: { divider, info },
+      parameters,
+      print: { colors, divider, info },
     } = toolbox;
 
-    info('Loading configuration from lt.config.json files...');
+    const showOrigins = parameters.options.origins || parameters.options.o;
+
+    info('Loading configuration from lt.config files...');
     info('');
 
-    // Load merged configuration
-    const mergedConfig = config.loadConfig();
+    // Load merged configuration with origins
+    const { config: mergedConfig, files, origins } = config.loadConfigWithOrigins();
 
     if (!mergedConfig || Object.keys(mergedConfig).length === 0) {
       info('No configuration found.');
@@ -39,37 +41,61 @@ const ShowCommand: ExtendedGluegunCommand = {
     info('');
 
     // Show which config files were found
-    info('Configuration files in hierarchy:');
-    let currentPath = filesystem.cwd();
-    const root = filesystem.separator === '/' ? '/' : /^[A-Z]:\\$/i;
-    const foundConfigs: string[] = [];
+    info('Configuration files in hierarchy (from root to current):');
 
-    while (true) {
-      const configPath = filesystem.path(currentPath, 'lt.config.json');
-      if (filesystem.exists(configPath)) {
-        foundConfigs.push(configPath);
-      }
-
-      const parent = filesystem.path(currentPath, '..');
-      if (parent === currentPath || (typeof root !== 'string' && root.test(currentPath))) {
-        break;
-      }
-      currentPath = parent;
-    }
-
-    if (foundConfigs.length > 0) {
-      foundConfigs.reverse(); // Show from root to current
-      foundConfigs.forEach((path, index) => {
-        info(`  ${index + 1}. ${path}`);
+    if (files.length > 0) {
+      files.forEach((file, index) => {
+        const priority = index === files.length - 1 ? ' (highest priority)' : '';
+        info(`  ${index + 1}. ${file.path}${priority}`);
       });
     } else {
       info('  (none)');
     }
 
+    // Show value origins if requested
+    if (showOrigins && origins.size > 0) {
+      info('');
+      divider();
+      info('Value Origins:');
+      divider();
+
+      // Sort origins by key path for readable output
+      const sortedOrigins = Array.from(origins.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+      for (const [keyPath, filePath] of sortedOrigins) {
+        // Get the actual value from merged config
+        const value = getValueByPath(mergedConfig, keyPath);
+        const valueStr = typeof value === 'string' ? `"${value}"` : JSON.stringify(value);
+        info(`  ${colors.cyan(keyPath)}: ${valueStr}`);
+        info(`    ${colors.muted('from')} ${filePath}`);
+      }
+    }
+
+    info('');
+    info('Priority: CLI parameters > config files > interactive input');
+    if (!showOrigins) {
+      info('');
+      info(`Tip: Use ${colors.cyan('--origins')} to see where each value comes from.`);
+    }
     info('');
 
     return 'config show';
   },
 };
+
+/**
+ * Get a value from an object by dot-separated path
+ */
+function getValueByPath(obj: any, path: string): any {
+  const parts = path.split('.');
+  let current = obj;
+  for (const part of parts) {
+    if (current === undefined || current === null) {
+      return undefined;
+    }
+    current = current[part];
+  }
+  return current;
+}
 
 export default ShowCommand;

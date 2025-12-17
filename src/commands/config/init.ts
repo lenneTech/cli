@@ -3,11 +3,11 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { LtConfig } from '../../interfaces/lt-config.interface';
 
 /**
- * Initialize a new lt.config.json file
+ * Initialize a new lt.config file
  */
 const InitCommand: ExtendedGluegunCommand = {
   alias: ['i'],
-  description: 'Initialize a new lt.config.json file in the current directory',
+  description: 'Initialize lt.config file',
   hidden: false,
   name: 'init',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -19,18 +19,23 @@ const InitCommand: ExtendedGluegunCommand = {
       prompt: { ask, confirm },
     } = toolbox;
 
-    // Check if config already exists
-    const configPath = filesystem.path(filesystem.cwd(), 'lt.config.json');
-    if (filesystem.exists(configPath)) {
-      const overwrite = await confirm('lt.config.json already exists. Overwrite?', false);
+    // Check for existing config files
+    const cwd = filesystem.cwd();
+    const configFiles = ['lt.config.json', 'lt.config.yaml', 'lt.config'];
+    const existingConfig = configFiles.find((f) => filesystem.exists(filesystem.path(cwd, f)));
+
+    if (existingConfig) {
+      const overwrite = await confirm(`${existingConfig} already exists. Overwrite?`, false);
       if (!overwrite) {
         info('Configuration initialization cancelled.');
         return;
       }
+      // Remove existing config file before creating new one
+      filesystem.remove(filesystem.path(cwd, existingConfig));
     }
 
     // Get configuration options from CLI or interactive mode
-    const { controller, frontend, git: initGit, interactive = true } = parameters.options;
+    const { controller, format: cliFormat, frontend, git: initGit, interactive = true } = parameters.options;
 
     const newConfig: LtConfig = {
       commands: {},
@@ -39,10 +44,24 @@ const InitCommand: ExtendedGluegunCommand = {
       },
     };
 
+    let format: 'json' | 'yaml' = 'json';
+
     if (interactive) {
       // Interactive mode - ask for configuration
-      info('Creating lt.config.json configuration...');
+      info('Creating lt.config configuration...');
       info('');
+
+      // Ask for file format
+      const formatChoice = await ask([
+        {
+          choices: ['json', 'yaml'],
+          initial: 0,
+          message: 'Configuration file format?',
+          name: 'format',
+          type: 'select',
+        },
+      ]);
+      format = formatChoice.format as 'json' | 'yaml';
 
       // Ask for server module configuration
       const serverConfig = await ask([
@@ -99,13 +118,13 @@ const InitCommand: ExtendedGluegunCommand = {
         const fullstackOptions = await ask([
           {
             choices: ['angular', 'nuxt'],
-            initial: 0,
+            initial: 1, // nuxt
             message: 'Default frontend framework?',
             name: 'frontend',
             type: 'select',
           },
           {
-            initial: true,
+            initial: false,
             message: 'Initialize git by default?',
             name: 'git',
             type: 'confirm',
@@ -119,6 +138,8 @@ const InitCommand: ExtendedGluegunCommand = {
       }
     } else {
       // Non-interactive mode - use CLI parameters
+      format = cliFormat === 'yaml' ? 'yaml' : 'json';
+
       if (controller) {
         newConfig.commands.server = {
           module: {
@@ -137,13 +158,16 @@ const InitCommand: ExtendedGluegunCommand = {
 
     // Save configuration
     try {
-      config.saveConfig(newConfig);
+      config.saveConfig(newConfig, cwd, { format });
+      const fileName = format === 'yaml' ? 'lt.config.yaml' : 'lt.config.json';
+      const configPath = filesystem.path(cwd, fileName);
+
       info('');
-      success('lt.config.json created successfully!');
+      success(`${fileName} created successfully!`);
       info('');
-      info(`Configuration saved to: ${  configPath}`);
+      info(`Configuration saved to: ${configPath}`);
     } catch (e) {
-      error(`Failed to create configuration file: ${  e.message}`);
+      error(`Failed to create configuration file: ${e.message}`);
     }
 
     return 'config init';

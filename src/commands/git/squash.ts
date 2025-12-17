@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['s'],
-  description: 'Squash branch',
+  description: 'Squash commits',
   hidden: false,
   name: 'squash',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       git,
       helper,
       parameters,
@@ -20,6 +21,28 @@ const NewCommand: GluegunCommand = {
       prompt: { ask, confirm },
       system: { run, startTimer },
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configNoConfirm = ltConfig?.commands?.git?.squash?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
+    const configBase = ltConfig?.commands?.git?.squash?.base;
+    const configAuthor = ltConfig?.commands?.git?.squash?.author;
+
+    // Load global defaults
+    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
+    const globalBaseBranch = config.getGlobalDefault<string>(ltConfig, 'baseBranch');
+    const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
+
+    // Parse CLI arguments
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getValue({
+      cliValue: cliNoConfirm,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    });
 
     // Check git
     if (!(await git.gitInstalled())) {
@@ -41,19 +64,31 @@ const NewCommand: GluegunCommand = {
     }
 
     // Ask to squash the branch
-    if (!parameters.options.noConfirm && !(await confirm(`Squash branch ${branch}?`))) {
+    if (!noConfirm && !(await confirm(`Squash branch ${branch}?`))) {
       return;
     }
-    
+
     // Start timer
     const timer = startTimer();
 
-    // Get description
-    const base = await helper.getInput(parameters.first, {
-      initial: 'dev',
-      name: 'Base branche',
-      showError: false,
-    });
+    // Determine base branch with priority: CLI > config > global > interactive
+    const cliBase = parameters.first;
+    let base: string;
+    if (cliBase) {
+      base = cliBase;
+    } else if (configBase) {
+      base = configBase;
+      info(`Using base branch from lt.config commands.git.squash: ${configBase}`);
+    } else if (globalBaseBranch) {
+      base = globalBaseBranch;
+      info(`Using base branch from lt.config defaults: ${globalBaseBranch}`);
+    } else {
+      base = await helper.getInput('', {
+        initial: 'dev',
+        name: 'Base branch',
+        showError: false,
+      });
+    }
 
     // Merge base
     const mergeBaseSpin = spin(`Get merge ${base}`);
@@ -78,16 +113,28 @@ const NewCommand: GluegunCommand = {
     // Ask to go on
     info(`You are now on commit ${mergeBase}, with following changes:`);
     info(status);
-    if (!parameters.options.noConfirm && !(await confirm('Continue?'))) {
+    if (!noConfirm && !(await confirm('Continue?'))) {
       return;
     }
 
     // Get git user
     const user = await git.getUser();
 
-    // Ask for author
-    let author = parameters.options.author;
-    if (!author) {
+    // Determine author with priority: CLI > config > global > interactive
+    const cliAuthor = parameters.options.author;
+    let author: string;
+    if (cliAuthor) {
+      author = cliAuthor;
+    } else if (configAuthor) {
+      author = configAuthor;
+      info(`Using author from lt.config commands.git.squash: ${configAuthor}`);
+    } else if (globalAuthor) {
+      author = globalAuthor;
+      info(`Using author from lt.config defaults: ${globalAuthor}`);
+    } else if (noConfirm) {
+      // In noConfirm mode, use git user as default
+      author = `${user.name} <${user.email}>`;
+    } else {
       author = (
         await ask({
           initial: `${user.name} <${user.email}>`,
@@ -100,7 +147,7 @@ const NewCommand: GluegunCommand = {
 
     // Ask for message
     let message = parameters.options.message;
-    if (!message) {
+    if (!message && !noConfirm) {
       message = (
         await ask({
           initial: squashMessage,
@@ -109,12 +156,15 @@ const NewCommand: GluegunCommand = {
           type: 'input',
         })
       ).message;
+    } else if (!message) {
+      // In noConfirm mode without message, use the first commit message
+      message = squashMessage;
     }
 
     // Confirm inputs
     info(author);
     info(message);
-    if (!parameters.options.noConfirm && !(await confirm('Commit?'))) {
+    if (!noConfirm && !(await confirm('Commit?'))) {
       return;
     }
 
@@ -125,7 +175,7 @@ const NewCommand: GluegunCommand = {
     await run(`git commit -am "${message}" --author="${author}"`);
     commitSpin.succeed();
     
-    if (!parameters.options.noConfirm && !(await confirm('Push force?'))) {
+    if (!noConfirm && !(await confirm('Push force?'))) {
       return;
     }
     

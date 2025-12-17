@@ -9,7 +9,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['is'],
-  description: 'Install git helper scripts (gitget, gitgets, gitgett) to /usr/local/bin',
+  description: 'Install git helper scripts',
   hidden: false,
   name: 'install-scripts',
   run: async (toolbox: ExtendedGluegunToolbox) => {

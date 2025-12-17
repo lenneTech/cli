@@ -8,16 +8,17 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['r'],
-  description: 'Reinitialize npm packages',
+  description: 'Reinstall npm packages',
   hidden: false,
   name: 'reinit',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       helper,
       npm,
       parameters,
-      print: { spin, success },
+      print: { info, spin, success },
       prompt,
       system,
     } = toolbox;
@@ -25,17 +26,52 @@ const NewCommand: GluegunCommand = {
     // Start timer
     const timer = system.startTimer();
 
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configUpdate = ltConfig?.commands?.npm?.reinit?.update;
+    const configNoConfirm = ltConfig?.commands?.npm?.reinit?.noConfirm;
+
+    // Load global defaults
+    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
+
+    // Parse CLI arguments
+    const cliUpdate = parameters.options.update || parameters.options.u;
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getValue({
+      cliValue: cliNoConfirm,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    });
+
     // Check
     const { data, path } = await npm.getPackageJson({ showError: true });
     if (!path) {
       return;
     }
 
-    // Update packages
-    let update = parameters.options.update || parameters.options.u;
-    if (!update && !parameters.options.noConfirm) {
+    // Determine update with priority: CLI > config > interactive
+    let update: boolean;
+
+    if (cliUpdate !== undefined) {
+      // CLI parameter provided
+      update = cliUpdate === true || cliUpdate === 'true';
+    } else if (configUpdate !== undefined) {
+      // Config value provided
+      update = configUpdate;
+      if (update) {
+        info('Using update setting from lt.config: true');
+      }
+    } else if (noConfirm) {
+      // noConfirm mode without explicit update setting
+      update = false;
+    } else {
+      // Interactive mode
       update = await prompt.confirm('Update package.json before reinitialization?');
     }
+
     if (update) {
       if (!system.which('ncu')) {
         const installSpin = spin('Install ncu');
@@ -48,7 +84,6 @@ const NewCommand: GluegunCommand = {
     }
 
     // Reinitialize
-
     if (data.scripts && data.scripts.reinit) {
       const ownReinitSpin = spin('Reinitialize npm packages');
       await system.run(`cd ${dirname(path)} && npm run reinit`);

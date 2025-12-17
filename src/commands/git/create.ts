@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['c'],
-  description: 'Create a new branch',
+  description: 'Create new branch',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       git,
       helper,
       npm,
@@ -26,10 +27,20 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configBaseBranch = ltConfig?.commands?.git?.baseBranch;
+
+    // Load global defaults
+    const globalBaseBranch = config.getGlobalDefault<string>(ltConfig, 'baseBranch');
+
+    // Parse CLI arguments
+    const { base: cliBaseBranch } = parameters.options;
+
     // Check changes in current branch (reset optional)
     await git.askForReset();
 
-    // Get branch
+    // Get branch name
     const branch = await helper.getInput(parameters.first, {
       name: 'branch name',
       showError: true,
@@ -41,12 +52,58 @@ const NewCommand: GluegunCommand = {
     // Check if branch already exists
     if (await git.getBranch(branch)) {
       error(`Branch ${branch} already exists!`);
+      return;
     }
 
-    // Select base branch
-    let baseBranch = parameters.second;
-    if (!baseBranch || !(await git.getBranch(baseBranch))) {
-      baseBranch = await git.selectBranch({ text: 'Select base branch' });
+    // Determine base branch with priority: CLI > config > global > interactive
+    let baseBranch: string | undefined;
+
+    // Helper function to validate and use a branch
+    const tryUseBranch = async (branch: string, source: string): Promise<boolean> => {
+      if (await git.getBranch(branch)) {
+        baseBranch = branch;
+        info(`Using base branch from ${source}: ${branch}`);
+        return true;
+      }
+      info(`Configured base branch "${branch}" not found (${source}), trying next source...`);
+      return false;
+    };
+
+    if (cliBaseBranch) {
+      // CLI parameter provided
+      if (await git.getBranch(cliBaseBranch)) {
+        baseBranch = cliBaseBranch;
+      } else {
+        error(`Base branch ${cliBaseBranch} does not exist!`);
+        return;
+      }
+    } else if (configBaseBranch) {
+      // Command-specific config value provided
+      if (!(await tryUseBranch(configBaseBranch, 'lt.config commands.git'))) {
+        // Fall through to global or interactive
+        if (globalBaseBranch && globalBaseBranch !== configBaseBranch) {
+          await tryUseBranch(globalBaseBranch, 'lt.config defaults');
+        }
+      }
+    } else if (globalBaseBranch) {
+      // Global default value provided
+      await tryUseBranch(globalBaseBranch, 'lt.config defaults');
+    }
+
+    // If no baseBranch yet, check parameters or go interactive
+    if (!baseBranch) {
+      const paramBaseBranch = parameters.second;
+      if (paramBaseBranch && (await git.getBranch(paramBaseBranch))) {
+        baseBranch = paramBaseBranch;
+      } else {
+        // Interactive mode
+        baseBranch = await git.selectBranch({ text: 'Select base branch' });
+      }
+    }
+
+    if (!baseBranch) {
+      error('No base branch selected!');
+      return;
     }
 
     // Start timer
@@ -61,7 +118,7 @@ const NewCommand: GluegunCommand = {
     await npm.install();
 
     // Success info
-    success(`Branch ${branch} was created in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    success(`Branch ${branch} was created from ${baseBranch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
 
     // For tests

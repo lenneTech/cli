@@ -69,7 +69,7 @@ function detectControllerType(filesystem: any, path: string): 'Both' | 'GraphQL'
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['m'],
-  description: 'Creates a new server module. Use --name <ModuleName>, --controller (Rest|GraphQL|Both|auto), and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode. Use "auto" to auto-detect controller type from existing modules.',
+  description: 'Create server module',
   hidden: false,
   name: 'module',
   run: async (
@@ -120,6 +120,10 @@ const NewCommand: ExtendedGluegunCommand = {
     const configController = ltConfig?.commands?.server?.module?.controller;
     const configSkipLint = ltConfig?.commands?.server?.module?.skipLint;
 
+    // Load global defaults
+    const globalController = config.getGlobalDefault<string>(ltConfig, 'controller');
+    const globalSkipLint = config.getGlobalDefault<boolean>(ltConfig, 'skipLint');
+
     // Parse CLI arguments
     const { controller: cliController, name: cliName, skipLint: cliSkipLint } = parameters.options;
 
@@ -143,34 +147,33 @@ const NewCommand: ExtendedGluegunCommand = {
       return undefined;
     }
 
-    // Determine controller type with priority: CLI > config > auto-detect > interactive
+    // Determine controller type with priority: CLI > config > global > auto-detect > interactive
     let controller: string;
     const detected = detectControllerType(filesystem, path);
 
+    // Helper function to handle 'auto' controller value
+    const resolveController = (value: string, source: string): string => {
+      if (value.toLowerCase() === 'auto') {
+        info(`Auto-detected controller pattern: ${detected} (based on existing modules, ${source})`);
+        return detected;
+      }
+      info(`Using controller type from ${source}: ${value}`);
+      return value;
+    };
+
     // Priority 1: CLI parameter
     if (cliController) {
-      if (cliController.toLowerCase() === 'auto') {
-        // Auto-detect without interactive prompt
-        info(`Auto-detected controller pattern: ${detected} (based on existing modules)`);
-        controller = detected;
-      } else {
-        // Explicit controller type provided via CLI
-        controller = cliController;
-      }
+      controller = resolveController(cliController, 'CLI');
     }
-    // Priority 2: Config file
+    // Priority 2: Command-specific config
     else if (configController) {
-      if (configController.toLowerCase() === 'auto') {
-        // Auto-detect from config
-        info(`Auto-detected controller pattern: ${detected} (based on existing modules, configured via lt.config.json)`);
-        controller = detected;
-      } else {
-        // Use config value
-        info(`Using controller type from lt.config.json: ${configController}`);
-        controller = configController;
-      }
+      controller = resolveController(configController, 'lt.config commands.server.module');
     }
-    // Priority 3: Interactive mode with auto-detection
+    // Priority 3: Global defaults
+    else if (globalController) {
+      controller = resolveController(globalController, 'lt.config defaults');
+    }
+    // Priority 4: Interactive mode with auto-detection
     else {
       // Map detected value to index for initial selection
       const choices = ['Rest', 'GraphQL', 'Both'];
@@ -352,11 +355,12 @@ const NewCommand: ExtendedGluegunCommand = {
       await genObject.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
     }
 
-    // Lint fix with priority: CLI parameter > config > default (false)
+    // Lint fix with priority: CLI > config > global > default (false)
     const skipLint = config.getValue({
       cliValue: cliSkipLint,
       configValue: configSkipLint,
       defaultValue: false,
+      globalValue: globalSkipLint,
     });
 
     if (!skipLint) {

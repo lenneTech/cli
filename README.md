@@ -36,6 +36,33 @@ or
 $ lt
 ```
 
+## Documentation
+
+- [Command Reference](docs/commands.md) - Complete list of all commands with options
+- [Configuration Guide](docs/lt.config.md) - Configuration file documentation
+- [Plugin Guide](docs/plugins.md) - How to create plugins
+
+## Configuration
+
+The CLI supports project-specific configuration via `lt.config` files. This allows you to set default values for commands, reducing repetitive input.
+
+```bash
+# Create a configuration file interactively
+$ lt config init
+
+# Show current configuration (merged from hierarchy)
+$ lt config show
+```
+
+Supported formats:
+- `lt.config.json` - JSON format (recommended)
+- `lt.config.yaml` - YAML format
+- `lt.config` - Auto-detected format
+
+Configuration files are searched from the current directory up to root and merged hierarchically.
+
+For detailed documentation, see [docs/lt.config.md](docs/lt.config.md).
+
 ## Examples
 
 ```

@@ -9,7 +9,7 @@ import genModule from './module';
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['o'],
-  description: 'Creates a new server object (with inputs). Use --name <ObjectName> and property flags --prop-name-X, --prop-type-X, etc. for non-interactive mode.',
+  description: 'Create embedded object',
   hidden: false,
   name: 'object',
   run: async (
@@ -58,6 +58,9 @@ const NewCommand: ExtendedGluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configSkipLint = ltConfig?.commands?.server?.object?.skipLint;
+
+    // Load global defaults
+    const globalSkipLint = config.getGlobalDefault<boolean>(ltConfig, 'skipLint');
 
     // Parse CLI arguments
     const { name: cliName, skipLint: cliSkipLint } = parameters.options;
@@ -132,11 +135,12 @@ const NewCommand: ExtendedGluegunCommand = {
 
     generateSpinner.succeed('Files generated');
 
-    // Lint fix with priority: CLI parameter > config > default (false)
+    // Lint fix with priority: CLI > config > global > default (false)
     const skipLint = config.getValue({
       cliValue: cliSkipLint,
       configValue: configSkipLint,
       defaultValue: false,
+      globalValue: globalSkipLint,
     });
 
     if (!skipLint) {

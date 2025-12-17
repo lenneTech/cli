@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['g'],
-  description: 'Checkout git branch',
+  description: 'Checkout branch',
   hidden: false,
   name: 'get',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       git,
       helper,
@@ -22,6 +23,26 @@ const NewCommand: GluegunCommand = {
       prompt,
       system,
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configNoConfirm = ltConfig?.commands?.git?.get?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
+    const configMode = ltConfig?.commands?.git?.get?.mode;
+
+    // Load global defaults
+    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
+
+    // Parse CLI arguments
+    const cliNoConfirm = parameters.options.noConfirm;
+    const cliMode = parameters.options.mode;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getValue({
+      cliValue: cliNoConfirm,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    });
 
     // Start timer
     const timer = system.startTimer();
@@ -63,7 +84,7 @@ const NewCommand: GluegunCommand = {
     // Ask for checkout branch
     if (branchName !== branch) {
       if (
-        !parameters.options.noConfirm
+        !noConfirm
         && !(await prompt.confirm(`Checkout ${remoteBranch ? 'remote' : 'local'} branch ${branch}`))
       ) {
         process.exit(1);
@@ -83,11 +104,15 @@ const NewCommand: GluegunCommand = {
       const checkSpin = spin('Check status');
       if (branch !== 'main' && branch && (await git.diffFiles(branch, { noDiffResult: '' })).length) {
         checkSpin.succeed();
-        let mode = parameters.options.mode;
-        if (!mode) {
+        // Determine mode with priority: CLI > config > interactive
+        let mode = cliMode || configMode;
+        if (!mode && !noConfirm) {
           if (await prompt.confirm(`Remove local commits of ${branch}`)) {
             mode = 'hard';
           }
+        } else if (!mode && noConfirm) {
+          // In noConfirm mode without explicit mode, default to not removing
+          mode = undefined;
         }
         if (mode === 'hard') {
           const prepareSpin = spin(`Refresh ${branch}`);

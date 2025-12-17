@@ -17,7 +17,7 @@ import genObject from './object';
  */
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['ap'],
-  description: 'Adds a property to a module. Use --type (Module|Object), --element <name>, --prop-name-X <name>, --prop-type-X <type>, --prop-nullable-X (true|false), --prop-array-X (true|false), --prop-enum-X <EnumName>, --prop-schema-X <SchemaName>, --prop-reference-X <ReferenceName> for non-interactive mode.',
+  description: 'Add property to module/object',
   hidden: false,
   name: 'addProp',
   run: async (
@@ -66,6 +66,9 @@ const NewCommand: ExtendedGluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configSkipLint = ltConfig?.commands?.server?.addProp?.skipLint;
+
+    // Load global defaults
+    const globalSkipLint = config.getGlobalDefault<boolean>(ltConfig, 'skipLint');
 
     // Parse CLI arguments
     const { element: cliElement, skipLint: cliSkipLint, type: cliType } = parameters.options;
@@ -410,11 +413,12 @@ const NewCommand: ExtendedGluegunCommand = {
       await genObject.run(toolbox, { currentItem: nextObj, objectsToAdd, preventExitProcess: true, referencesToAdd });
     }
 
-    // Lint fix with priority: CLI parameter > config > default (false)
+    // Lint fix with priority: CLI > config > global > default (false)
     const skipLint = config.getValue({
       cliValue: cliSkipLint,
       configValue: configSkipLint,
       defaultValue: false,
+      globalValue: globalSkipLint,
     });
 
     if (!skipLint) {

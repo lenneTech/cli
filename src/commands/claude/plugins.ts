@@ -478,7 +478,7 @@ function setupPermissions(
  */
 const NewCommand: GluegunCommand = {
   alias: ['p'],
-  description: 'Installs/updates Claude Code Plugins (all or specific by name)',
+  description: 'Install Claude Code plugins',
   hidden: false,
   name: 'plugins',
   run: async (toolbox: ExtendedGluegunToolbox) => {

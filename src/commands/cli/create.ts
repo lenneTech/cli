@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['c'],
-  description: 'Creates a new CLI',
+  description: 'Create new CLI project',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       git,
       helper,
@@ -23,6 +24,13 @@ const NewCommand: GluegunCommand = {
       strings: { kebabCase },
       system,
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configAuthor = ltConfig?.commands?.cli?.create?.author;
+
+    // Load global defaults
+    const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
 
     // Info
     info('Create a new CLI');
@@ -41,11 +49,26 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Get author
-    const author = await helper.getInput(parameters.options.author, {
-      name: 'Author',
-      showError: true,
-    });
+    // Determine author with priority: CLI > config > global > interactive
+    const cliAuthor = parameters.options.author;
+    let author: string;
+    if (cliAuthor) {
+      author = cliAuthor;
+    } else if (configAuthor) {
+      author = configAuthor;
+      info(`Using author from lt.config commands.cli.create: ${configAuthor}`);
+    } else if (globalAuthor) {
+      author = globalAuthor;
+      info(`Using author from lt.config defaults: ${globalAuthor}`);
+    } else {
+      author = await helper.getInput(null, {
+        name: 'Author',
+        showError: true,
+      });
+    }
+    if (!author) {
+      return;
+    }
 
     // Link
     let link = parameters.options.link && !parameters.options.nolink;

@@ -1,6 +1,22 @@
 /**
  * Configuration for lenne.tech CLI
- * Can be stored in lt.config.json in project root or parent directories
+ * Can be stored in lt.config, lt.config.json, or lt.config.yaml in project root or parent directories
+ *
+ * Supported file formats (in priority order):
+ * 1. lt.config.json - explicit JSON format
+ * 2. lt.config.yaml - explicit YAML format
+ * 3. lt.config - auto-detected format (tries JSON first, then YAML)
+ *
+ * Configuration files are searched from the current directory up to the root.
+ * Configurations are merged hierarchically, with closer configs taking precedence.
+ *
+ * Priority (lowest to highest):
+ * 1. Code default values
+ * 2. Global defaults (from 'defaults' section)
+ * 3. Config from parent directories
+ * 4. Config from current directory (commands section)
+ * 5. CLI parameters
+ * 6. Interactive user input
  */
 export interface LtConfig {
   /**
@@ -8,17 +24,74 @@ export interface LtConfig {
    */
   commands?: {
     /**
-     * Fullstack-related configuration
+     * CLI-related configuration
+     */
+    cli?: {
+      /**
+       * Configuration for 'lt cli create' command
+       */
+      create?: {
+        /**
+         * Default author for new CLI projects
+         * @example "John Doe <john@example.com>"
+         */
+        author?: string;
+      };
+    };
+
+    /**
+     * Deployment-related configuration for 'lt deployment create'
+     */
+    deployment?: {
+      /**
+       * Default domain for deployments
+       * @example "myproject.lenne.tech"
+       */
+      domain?: string;
+
+      /**
+       * Enable GitHub pipeline by default
+       */
+      gitHub?: boolean;
+
+      /**
+       * Enable GitLab pipeline by default
+       */
+      gitLab?: boolean;
+
+      /**
+       * Default GitLab production runner tag
+       * @example "docker-landing"
+       */
+      prodRunner?: string;
+
+      /**
+       * Default GitLab test runner tag
+       * @example "docker-swarm"
+       */
+      testRunner?: string;
+    };
+
+    /**
+     * Fullstack-related configuration for 'lt fullstack init'
      */
     fullstack?: {
       /**
        * Default frontend framework
+       * @example "angular" | "nuxt"
        */
       frontend?: 'angular' | 'nuxt';
+
       /**
        * Initialize git by default
        */
       git?: boolean;
+
+      /**
+       * Default git repository link
+       * Only used when git is true
+       */
+      gitLink?: string;
     };
 
     /**
@@ -26,9 +99,147 @@ export interface LtConfig {
      */
     git?: {
       /**
+       * Default base branch for new feature branches
+       * Used in 'lt git create'
+       * @example "develop"
+       */
+      baseBranch?: string;
+
+      /**
+       * Configuration for 'lt git clear' command
+       */
+      clear?: {
+        /**
+         * Skip confirmation prompts when clearing changes
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
        * Default branch name for new repositories
+       * @example "main" | "develop"
        */
       defaultBranch?: string;
+
+      /**
+       * Configuration for 'lt git force-pull' command
+       */
+      forcePull?: {
+        /**
+         * Skip confirmation prompts when force pulling
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt git get' command
+       */
+      get?: {
+        /**
+         * Default mode for handling local commits
+         * 'hard' will delete local commits without asking
+         * @example "hard"
+         */
+        mode?: 'hard';
+
+        /**
+         * Skip confirmation prompts when checking out branches
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Skip confirmation prompts
+       */
+      noConfirm?: boolean;
+
+      /**
+       * Configuration for 'lt git rebase' command
+       */
+      rebase?: {
+        /**
+         * Default base branch for rebase operations
+         * @example "dev" | "develop" | "main"
+         */
+        base?: string;
+
+        /**
+         * Skip confirmation prompts during rebase
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt git rename' command
+       */
+      rename?: {
+        /**
+         * Skip confirmation prompts when renaming branches
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt git reset' command
+       */
+      reset?: {
+        /**
+         * Skip confirmation prompts when resetting
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt git squash' command
+       */
+      squash?: {
+        /**
+         * Default author for squash commits
+         * @example "John Doe <john@example.com>"
+         */
+        author?: string;
+
+        /**
+         * Default base branch for squash operations
+         * @example "dev" | "develop" | "main"
+         */
+        base?: string;
+
+        /**
+         * Skip confirmation prompts during squash
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt git undo' command
+       */
+      undo?: {
+        /**
+         * Skip confirmation prompts when undoing commits
+         */
+        noConfirm?: boolean;
+      };
+    };
+
+    /**
+     * NPM-related configuration
+     */
+    npm?: {
+      /**
+       * Configuration for 'lt npm reinit'
+       */
+      reinit?: {
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+
+        /**
+         * Update package.json before reinitializing
+         */
+        update?: boolean;
+      };
     };
 
     /**
@@ -46,6 +257,33 @@ export interface LtConfig {
       };
 
       /**
+       * Configuration for 'lt server create' command
+       */
+      create?: {
+        /**
+         * Default author for new server projects
+         * @example "John Doe <john@example.com>"
+         */
+        author?: string;
+
+        /**
+         * Default controller type for new server projects
+         * @example "Rest" | "GraphQL" | "Both" | "auto"
+         */
+        controller?: 'auto' | 'Both' | 'GraphQL' | 'Rest';
+
+        /**
+         * Default description for new server projects
+         */
+        description?: string;
+
+        /**
+         * Initialize git for new server projects
+         */
+        git?: boolean;
+      };
+
+      /**
        * Configuration for 'lt server module' command
        */
       module?: {
@@ -54,6 +292,7 @@ export interface LtConfig {
          * @example "Rest" | "GraphQL" | "Both" | "auto"
          */
         controller?: 'auto' | 'Both' | 'GraphQL' | 'Rest';
+
         /**
          * Skip lint after module creation
          */
@@ -71,6 +310,52 @@ export interface LtConfig {
       };
     };
   };
+  /**
+   * Global default settings that apply across multiple commands
+   * These are overridden by command-specific settings in the 'commands' section
+   */
+  defaults?: {
+    /**
+     * Default author for commits and project creation
+     * Used by: git/squash, server/create, cli/create
+     * @example "John Doe <john@example.com>"
+     */
+    author?: string;
+
+    /**
+     * Default base branch for git operations
+     * Used by: git/create, git/squash, git/rebase
+     * @example "develop"
+     */
+    baseBranch?: string;
+
+    /**
+     * Default controller type for server modules and projects
+     * Used by: server/module, server/create
+     * @example "Rest" | "GraphQL" | "Both" | "auto"
+     */
+    controller?: 'auto' | 'Both' | 'GraphQL' | 'Rest';
+
+    /**
+     * Default domain pattern for deployments
+     * Use {name} as placeholder for project name
+     * Used by: deployment/create
+     * @example "{name}.lenne.tech"
+     */
+    domain?: string;
+
+    /**
+     * Skip confirmation prompts globally
+     * Used by: git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit
+     */
+    noConfirm?: boolean;
+
+    /**
+     * Skip lint operations globally
+     * Used by: server/module, server/object, server/addProp
+     */
+    skipLint?: boolean;
+  };
 
   /**
    * Metadata for the configuration file and project
@@ -80,14 +365,22 @@ export interface LtConfig {
      * Any additional metadata
      */
     [key: string]: any;
+
     /**
      * Project description
      */
     description?: string;
+
     /**
      * Project name
      */
     name?: string;
+
+    /**
+     * Tags for categorization
+     */
+    tags?: string[];
+
     /**
      * Configuration file version
      */

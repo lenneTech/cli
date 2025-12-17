@@ -84,7 +84,7 @@ function getPromptMetadata(promptPath: string, filesystem: any): { description: 
  */
 const LlmCommand: GluegunCommand = {
   alias: ['llm', 'prompts'],
-  description: 'Get LLM prompt templates (e.g., for ChatGPT, Gemini, etc.)',
+  description: 'Get LLM prompt templates',
   hidden: false,
   name: 'llm',
   run: async (toolbox: ExtendedGluegunToolbox) => {

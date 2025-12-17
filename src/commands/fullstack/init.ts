@@ -4,16 +4,17 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 
 
 /**
- * Create a new server
+ * Create a new fullstack workspace
  */
 const NewCommand: GluegunCommand = {
   alias: ['init'],
-  description: 'Creates a new fullstack workspace. Use --name <WorkspaceName>, --frontend (angular|nuxt), --git (true|false), --git-link <GitURL> for non-interactive mode.',
+  description: 'Create fullstack workspace',
   hidden: false,
   name: 'init',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       git,
       helper,
@@ -35,6 +36,12 @@ const NewCommand: GluegunCommand = {
     if (!(await git.gitInstalled())) {
       return;
     }
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configFrontend = ltConfig?.commands?.fullstack?.frontend;
+    const configGit = ltConfig?.commands?.fullstack?.git;
+    const configGitLink = ltConfig?.commands?.fullstack?.gitLink;
 
     // Parse CLI arguments
     const { frontend: cliFrontend, git: cliGit, 'git-link': cliGitLink, name: cliName } = parameters.options;
@@ -58,48 +65,73 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
-    let frontend;
+    // Determine frontend with priority: CLI > config > interactive
+    let frontend: string | undefined;
     if (cliFrontend) {
       frontend = cliFrontend === 'angular' ? 'angular' : cliFrontend === 'nuxt' ? 'nuxt' : null;
       if (!frontend) {
         error('Invalid frontend option. Use "angular" or "nuxt".');
         return;
       }
+    } else if (configFrontend) {
+      frontend = configFrontend;
+      info(`Using frontend from lt.config: ${frontend}`);
     } else {
+      // Interactive mode with sensible default
+      const choices = ['angular', 'nuxt'];
       frontend = (
         await ask({
-          message: 'Angular (a) or Nuxt 3 (n)',
+          choices,
+          initial: 1, // Default to nuxt
+          message: 'Which frontend framework?',
           name: 'frontend',
-          type: 'input',
+          type: 'select',
         })
       ).frontend;
 
-      if (frontend === 'a') {
-        frontend = 'angular';
-      } else if (frontend === 'n') {
-        frontend = 'nuxt';
-      } else {
-        process.exit();
+      if (!frontend) {
+        return;
       }
     }
 
+    // Determine git settings with priority: CLI > config > interactive
     let addToGit = false;
-    let gitLink;
+    let gitLink: string | undefined;
+
     if (cliGit !== undefined) {
+      // CLI parameter provided
       addToGit = cliGit === 'true' || cliGit === true;
-      if (addToGit && cliGitLink) {
-        gitLink = cliGitLink;
-      } else if (addToGit) {
-        error('--git-link is required when --git is true');
-        return;
+      if (addToGit) {
+        gitLink = cliGitLink || configGitLink;
+        if (!gitLink) {
+          error('--git-link is required when --git is true (or configure gitLink in lt.config)');
+          return;
+        }
+      }
+    } else if (configGit !== undefined) {
+      // Config value provided
+      addToGit = configGit;
+      if (addToGit) {
+        gitLink = cliGitLink || configGitLink;
+        if (!gitLink) {
+          // Ask for git link interactively
+          gitLink = await helper.getInput(null, {
+            name: 'git repository link',
+            showError: true,
+          });
+          if (!gitLink) {
+            addToGit = false;
+          }
+        } else {
+          info(`Using git configuration from lt.config`);
+        }
       }
     } else if (parameters.third !== 'false') {
+      // Interactive mode
       addToGit = parameters.third === 'true' || (await confirm('Add workspace to a new git repository?'));
 
-      // Check if git init is active
       if (addToGit) {
-        // Get name of the app
-        gitLink = await helper.getInput(null, {
+        gitLink = configGitLink || await helper.getInput(null, {
           name: 'git repository link',
           showError: true,
         });

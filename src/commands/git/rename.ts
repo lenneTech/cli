@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['rn'],
-  description: 'Rename branch',
+  description: 'Rename current branch',
   hidden: false,
   name: 'rename',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       git,
       helper,
       parameters,
@@ -20,6 +21,24 @@ const NewCommand: GluegunCommand = {
       prompt: { confirm },
       system: { run, startTimer },
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configNoConfirm = ltConfig?.commands?.git?.rename?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
+
+    // Load global defaults
+    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
+
+    // Parse CLI arguments
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getValue({
+      cliValue: cliNoConfirm,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    });
 
     // Check git
     if (!(await git.gitInstalled())) {
@@ -51,7 +70,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Ask to rename branch
-    if (!parameters.options.noConfirm && !(await confirm(`Rename branch ${branch} into ${name}?`))) {
+    if (!noConfirm && !(await confirm(`Rename branch ${branch} into ${name}?`))) {
       return;
     }
 
@@ -66,7 +85,7 @@ const NewCommand: GluegunCommand = {
     await run(`git branch -m ${name}`);
 
     // Ask to push branch
-    if (remote && (parameters.options.noConfirm || (await confirm(`Push ${name} to remote?`)))) {
+    if (remote && (noConfirm || (await confirm(`Push ${name} to remote?`)))) {
       await run(`git push origin ${name}`);
     }
     renameSpin.succeed();
@@ -78,7 +97,7 @@ const NewCommand: GluegunCommand = {
     if (
       remote
       && (parameters.options.deleteRemote
-        || (!parameters.options.noConfirm && (await confirm(`Delete remote branch ${branch}?`))))
+        || (!noConfirm && (await confirm(`Delete remote branch ${branch}?`))))
     ) {
       timer = startTimer();
       const deleteSpin = spin(`Delete remote branch ${branch}`);

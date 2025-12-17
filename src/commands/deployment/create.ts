@@ -4,16 +4,17 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
- * Create a new server module
+ * Create a new deployment for mono repository
  */
 const NewCommand: GluegunCommand = {
   alias: ['dc'],
-  description: 'Creates a new deployment for mono repository',
+  description: 'Create deployment configuration',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       helper,
       parameters,
@@ -25,6 +26,24 @@ const NewCommand: GluegunCommand = {
       template,
     } = toolbox;
 
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configDomain = ltConfig?.commands?.deployment?.domain;
+    const configGitHub = ltConfig?.commands?.deployment?.gitHub;
+    const configGitLab = ltConfig?.commands?.deployment?.gitLab;
+    const configTestRunner = ltConfig?.commands?.deployment?.testRunner;
+    const configProdRunner = ltConfig?.commands?.deployment?.prodRunner;
+
+    // Load global defaults
+    const globalDomain = config.getGlobalDefault<string>(ltConfig, 'domain');
+
+    // Parse CLI arguments
+    const cliDomain = parameters.options.domain;
+    const cliGitHub = parameters.options.gitHub;
+    const cliGitLab = parameters.options.gitLab;
+    const cliTestRunner = parameters.options.testRunner;
+    const cliProdRunner = parameters.options.prodRunner;
+
     // Start timer
     const timer = system.startTimer();
 
@@ -33,8 +52,8 @@ const NewCommand: GluegunCommand = {
 
     // Get default project name
     let projectName = '';
-    const config = await filesystem.exists('lt.json');
-    if (config) {
+    const hasLtJson = await filesystem.exists('lt.json');
+    if (hasLtJson) {
       await patching.update('lt.json', (data: Record<string, any>) => {
         projectName = data.name;
         return data;
@@ -58,34 +77,85 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Get domain
-    const domain = await helper.getInput(parameters.second, {
-      initial: `${kebabCase(name)}.lenne.tech`,
-      name: `main domain of the project (e.g. ${kebabCase(name)}.lenne.tech)`,
-    });
+    // Determine domain with priority: CLI > config > global > interactive
+    let domain: string;
+    if (cliDomain) {
+      domain = cliDomain;
+    } else if (configDomain) {
+      domain = configDomain.replace('{name}', kebabCase(name));
+      info(`Using domain from lt.config commands.deployment: ${domain}`);
+    } else if (globalDomain) {
+      domain = globalDomain.replace('{name}', kebabCase(name));
+      info(`Using domain from lt.config defaults: ${domain}`);
+    } else {
+      domain = await helper.getInput(parameters.second, {
+        initial: `${kebabCase(name)}.lenne.tech`,
+        name: `main domain of the project (e.g. ${kebabCase(name)}.lenne.tech)`,
+      });
+    }
 
-    if (!name) {
+    if (!domain) {
       return;
     }
 
-    const gitHub = await confirm('Add GitHub pipeline?');
-    const gitLab = await confirm('Add GitLab pipeline?');
+    // Determine gitHub with priority: CLI > config > interactive
+    let gitHub: boolean;
+    if (cliGitHub !== undefined) {
+      gitHub = cliGitHub === true || cliGitHub === 'true';
+    } else if (configGitHub !== undefined) {
+      gitHub = configGitHub;
+      if (gitHub) {
+        info('Using GitHub pipeline setting from lt.config: enabled');
+      }
+    } else {
+      gitHub = await confirm('Add GitHub pipeline?');
+    }
+
+    // Determine gitLab with priority: CLI > config > interactive
+    let gitLab: boolean;
+    if (cliGitLab !== undefined) {
+      gitLab = cliGitLab === true || cliGitLab === 'true';
+    } else if (configGitLab !== undefined) {
+      gitLab = configGitLab;
+      if (gitLab) {
+        info('Using GitLab pipeline setting from lt.config: enabled');
+      }
+    } else {
+      gitLab = await confirm('Add GitLab pipeline?');
+    }
 
     // GitLab test runner
-    let testRunner;
-    let prodRunner;
+    let testRunner: string | undefined;
+    let prodRunner: string | undefined;
     if (gitLab) {
-      testRunner = await helper.getInput('', {
-        initial: 'docker-swarm',
-        name: 'runner for test (tag in .gitlab-ci.yml, e.g. docker-swarm)',
-      });
+      // Determine testRunner with priority: CLI > config > interactive
+      if (cliTestRunner) {
+        testRunner = cliTestRunner;
+      } else if (configTestRunner) {
+        testRunner = configTestRunner;
+        info(`Using test runner from lt.config: ${testRunner}`);
+      } else {
+        testRunner = await helper.getInput('', {
+          initial: 'docker-swarm',
+          name: 'runner for test (tag in .gitlab-ci.yml, e.g. docker-swarm)',
+        });
+      }
       if (!testRunner) {
         return;
       }
-      prodRunner = await helper.getInput('', {
-        initial: 'docker-landing',
-        name: 'runner for production (tag in .gitlab-ci.yml, e.g. docker-landing)',
-      });
+
+      // Determine prodRunner with priority: CLI > config > interactive
+      if (cliProdRunner) {
+        prodRunner = cliProdRunner;
+      } else if (configProdRunner) {
+        prodRunner = configProdRunner;
+        info(`Using prod runner from lt.config: ${prodRunner}`);
+      } else {
+        prodRunner = await helper.getInput('', {
+          initial: 'docker-landing',
+          name: 'runner for production (tag in .gitlab-ci.yml, e.g. docker-landing)',
+        });
+      }
       if (!prodRunner) {
         return;
       }

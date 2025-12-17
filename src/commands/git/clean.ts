@@ -7,7 +7,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['rm'],
-  description: 'Removed local merged branches',
+  description: 'Remove merged branches',
   hidden: false,
   name: 'clean',
   run: async (toolbox: ExtendedGluegunToolbox) => {

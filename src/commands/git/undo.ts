@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['un'],
-  description: 'Undo last commit (without loosing files)',
+  description: 'Undo last commit',
   hidden: false,
   name: 'undo',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       git,
       helper,
       parameters,
@@ -20,6 +21,24 @@ const NewCommand: GluegunCommand = {
       prompt: { confirm },
       system: { run, startTimer },
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configNoConfirm = ltConfig?.commands?.git?.undo?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
+
+    // Load global defaults
+    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
+
+    // Parse CLI arguments
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getValue({
+      cliValue: cliNoConfirm,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    });
 
     // Check git
     if (!(await git.gitInstalled())) {
@@ -29,8 +48,8 @@ const NewCommand: GluegunCommand = {
     // Last commit message
     const lastCommitMessage = await git.lastCommitMessage();
 
-    // Ask to squash the branch
-    if (!parameters.options.noConfirm && !(await confirm(`Undo last commit "${lastCommitMessage}"?`))) {
+    // Ask to undo the commit
+    if (!noConfirm && !(await confirm(`Undo last commit "${lastCommitMessage}"?`))) {
       return;
     }
 

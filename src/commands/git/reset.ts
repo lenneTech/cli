@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['rs'],
-  description: 'Reset current branch',
+  description: 'Reset to remote state',
   hidden: false,
   name: 'reset',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       git,
       helper,
       npm,
@@ -21,6 +22,24 @@ const NewCommand: GluegunCommand = {
       prompt,
       system,
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configNoConfirm = ltConfig?.commands?.git?.reset?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
+
+    // Load global defaults
+    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
+
+    // Parse CLI arguments
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getValue({
+      cliValue: cliNoConfirm,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    });
 
     // Start timer
     const timer = system.startTimer();
@@ -45,7 +64,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Ask for reset
-    if (!parameters.options.noConfirm && !(await prompt.confirm(`Reset branch ${branch} to the remote state`))) {
+    if (!noConfirm && !(await prompt.confirm(`Reset branch ${branch} to the remote state`))) {
       return;
     }
 

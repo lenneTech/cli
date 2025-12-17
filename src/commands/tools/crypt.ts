@@ -9,7 +9,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['c', 'p', 'bcrypt', 'password'],
-  description: 'Generate a password hash with bcrypt as in nest-server',
+  description: 'Generate bcrypt hash',
   hidden: false,
   name: 'crypt',
   run: async (toolbox: ExtendedGluegunToolbox) => {

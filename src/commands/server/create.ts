@@ -7,12 +7,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['c'],
-  description: 'Creates a new server',
+  description: 'Create new server',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       git,
       helper,
@@ -26,6 +27,20 @@ const NewCommand: GluegunCommand = {
       system,
       template,
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configGit = ltConfig?.commands?.server?.create?.git;
+    const configAuthor = ltConfig?.commands?.server?.create?.author;
+    const configDescription = ltConfig?.commands?.server?.create?.description;
+
+    // Load global defaults
+    const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
+
+    // Parse CLI arguments
+    const cliGit = parameters.options.git;
+    const cliAuthor = parameters.options.author;
+    const cliDescription = parameters.options.description;
 
     // Start timer
     const timer = system.startTimer();
@@ -71,17 +86,36 @@ const NewCommand: GluegunCommand = {
       return undefined;
     }
 
-    // Get description
-    const description = await helper.getInput(parameters.second, {
-      name: 'Description',
-      showError: false,
-    });
+    // Determine description with priority: CLI > config > interactive
+    let description: string;
+    if (cliDescription) {
+      description = cliDescription;
+    } else if (configDescription) {
+      description = configDescription.replace('{name}', name);
+      info(`Using description from lt.config: ${description}`);
+    } else {
+      description = await helper.getInput(parameters.second, {
+        name: 'Description',
+        showError: false,
+      });
+    }
 
-    // Get author
-    const author = await helper.getInput(parameters.second, {
-      name: 'Author',
-      showError: false,
-    });
+    // Determine author with priority: CLI > config > global > interactive
+    let author: string;
+    if (cliAuthor) {
+      author = cliAuthor;
+    } else if (configAuthor) {
+      author = configAuthor;
+      info(`Using author from lt.config commands.server.create: ${author}`);
+    } else if (globalAuthor) {
+      author = globalAuthor;
+      info(`Using author from lt.config defaults: ${author}`);
+    } else {
+      author = await helper.getInput('', {
+        name: 'Author',
+        showError: false,
+      });
+    }
 
     const prepareSpinner = spin('Prepare files');
 
@@ -147,7 +181,18 @@ const NewCommand: GluegunCommand = {
     if (git) {
       const inGit = (await system.run('git rev-parse --is-inside-work-tree'))?.trim();
       if (inGit !== 'true') {
-        const initializeGit = await confirm('Initialize git?', true);
+        // Determine initGit with priority: CLI > config > interactive
+        let initializeGit: boolean;
+        if (cliGit !== undefined) {
+          initializeGit = cliGit === true || cliGit === 'true';
+        } else if (configGit !== undefined) {
+          initializeGit = configGit;
+          if (initializeGit) {
+            info('Using git initialization setting from lt.config: enabled');
+          }
+        } else {
+          initializeGit = await confirm('Initialize git?', true);
+        }
         if (initializeGit) {
           const initGitSpinner = spin('Initialize git');
           await system.run(

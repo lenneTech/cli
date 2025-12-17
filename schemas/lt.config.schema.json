@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "$id": "https://lenne.tech/schemas/lt.config.schema.json",
+  "title": "lenne.tech CLI Configuration",
+  "description": "Configuration schema for lt.config.json, lt.config.yaml, or lt.config files",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference for IDE support"
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Global default settings that apply across multiple commands. These are overridden by command-specific settings.",
+      "properties": {
+        "author": {
+          "type": "string",
+          "description": "Default author for commits and project creation. Used by: git/squash, server/create, cli/create",
+          "examples": ["John Doe <john@example.com>"]
+        },
+        "baseBranch": {
+          "type": "string",
+          "description": "Default base branch for git operations. Used by: git/create, git/squash, git/rebase",
+          "examples": ["develop", "main"]
+        },
+        "controller": {
+          "type": "string",
+          "enum": ["Rest", "GraphQL", "Both", "auto"],
+          "description": "Default controller type for server modules. Used by: server/module, server/create"
+        },
+        "domain": {
+          "type": "string",
+          "description": "Default domain pattern for deployments. Use {name} as placeholder. Used by: deployment/create",
+          "examples": ["{name}.lenne.tech"]
+        },
+        "noConfirm": {
+          "type": "boolean",
+          "description": "Skip confirmation prompts globally. Used by: git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit",
+          "default": false
+        },
+        "skipLint": {
+          "type": "boolean",
+          "description": "Skip lint operations globally. Used by: server/module, server/object, server/addProp",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "commands": {
+      "type": "object",
+      "description": "Command-specific configuration",
+      "properties": {
+        "cli": {
+          "type": "object",
+          "description": "CLI-related configuration",
+          "properties": {
+            "create": {
+              "type": "object",
+              "description": "Configuration for 'lt cli create' command",
+              "properties": {
+                "author": {
+                  "type": "string",
+                  "description": "Default author for new CLI projects",
+                  "examples": ["John Doe <john@example.com>"]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "deployment": {
+          "type": "object",
+          "description": "Configuration for 'lt deployment create' command",
+          "properties": {
+            "domain": {
+              "type": "string",
+              "description": "Default domain for deployments",
+              "examples": ["myproject.lenne.tech"]
+            },
+            "gitHub": {
+              "type": "boolean",
+              "description": "Enable GitHub pipeline by default"
+            },
+            "gitLab": {
+              "type": "boolean",
+              "description": "Enable GitLab pipeline by default"
+            },
+            "testRunner": {
+              "type": "string",
+              "description": "Default GitLab test runner tag",
+              "examples": ["docker-swarm"]
+            },
+            "prodRunner": {
+              "type": "string",
+              "description": "Default GitLab production runner tag",
+              "examples": ["docker-landing"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "fullstack": {
+          "type": "object",
+          "description": "Configuration for 'lt fullstack init' command",
+          "properties": {
+            "frontend": {
+              "type": "string",
+              "enum": ["angular", "nuxt"],
+              "description": "Default frontend framework"
+            },
+            "git": {
+              "type": "boolean",
+              "description": "Initialize git by default"
+            },
+            "gitLink": {
+              "type": "string",
+              "description": "Default git repository link (only used when git is true)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "git": {
+          "type": "object",
+          "description": "Git-related configuration",
+          "properties": {
+            "defaultBranch": {
+              "type": "string",
+              "description": "Default branch name for new repositories",
+              "examples": ["main", "develop"]
+            },
+            "baseBranch": {
+              "type": "string",
+              "description": "Default base branch for new feature branches",
+              "examples": ["develop"]
+            },
+            "noConfirm": {
+              "type": "boolean",
+              "description": "Skip confirmation prompts for all git commands",
+              "default": false
+            },
+            "clear": {
+              "type": "object",
+              "description": "Configuration for 'lt git clear' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when clearing changes"
+                }
+              },
+              "additionalProperties": false
+            },
+            "create": {
+              "type": "object",
+              "description": "Configuration for 'lt git create' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when creating branches"
+                },
+                "base": {
+                  "type": "string",
+                  "description": "Default base branch for new feature branches"
+                }
+              },
+              "additionalProperties": false
+            },
+            "forcePull": {
+              "type": "object",
+              "description": "Configuration for 'lt git force-pull' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when force pulling"
+                }
+              },
+              "additionalProperties": false
+            },
+            "get": {
+              "type": "object",
+              "description": "Configuration for 'lt git get' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when checking out branches"
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": ["hard"],
+                  "description": "Default mode for handling local commits. 'hard' will delete local commits without asking"
+                }
+              },
+              "additionalProperties": false
+            },
+            "rebase": {
+              "type": "object",
+              "description": "Configuration for 'lt git rebase' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts during rebase"
+                },
+                "base": {
+                  "type": "string",
+                  "description": "Default base branch for rebase operations",
+                  "examples": ["develop", "main"]
+                }
+              },
+              "additionalProperties": false
+            },
+            "rename": {
+              "type": "object",
+              "description": "Configuration for 'lt git rename' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when renaming branches"
+                }
+              },
+              "additionalProperties": false
+            },
+            "reset": {
+              "type": "object",
+              "description": "Configuration for 'lt git reset' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when resetting"
+                }
+              },
+              "additionalProperties": false
+            },
+            "squash": {
+              "type": "object",
+              "description": "Configuration for 'lt git squash' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts during squash"
+                },
+                "base": {
+                  "type": "string",
+                  "description": "Default base branch for squash operations",
+                  "examples": ["develop", "main"]
+                },
+                "author": {
+                  "type": "string",
+                  "description": "Default author for squash commits"
+                }
+              },
+              "additionalProperties": false
+            },
+            "undo": {
+              "type": "object",
+              "description": "Configuration for 'lt git undo' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when undoing commits"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "npm": {
+          "type": "object",
+          "description": "NPM-related configuration",
+          "properties": {
+            "reinit": {
+              "type": "object",
+              "description": "Configuration for 'lt npm reinit' command",
+              "properties": {
+                "update": {
+                  "type": "boolean",
+                  "description": "Update package.json before reinitializing"
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "server": {
+          "type": "object",
+          "description": "Server-related configuration",
+          "properties": {
+            "addProp": {
+              "type": "object",
+              "description": "Configuration for 'lt server addProp' command",
+              "properties": {
+                "skipLint": {
+                  "type": "boolean",
+                  "description": "Skip lint after adding property"
+                }
+              },
+              "additionalProperties": false
+            },
+            "create": {
+              "type": "object",
+              "description": "Configuration for 'lt server create' command",
+              "properties": {
+                "controller": {
+                  "type": "string",
+                  "enum": ["Rest", "GraphQL", "Both", "auto"],
+                  "description": "Default controller type for new server projects"
+                },
+                "git": {
+                  "type": "boolean",
+                  "description": "Initialize git for new server projects"
+                },
+                "author": {
+                  "type": "string",
+                  "description": "Default author for new server projects"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Default description for new server projects"
+                }
+              },
+              "additionalProperties": false
+            },
+            "module": {
+              "type": "object",
+              "description": "Configuration for 'lt server module' command",
+              "properties": {
+                "controller": {
+                  "type": "string",
+                  "enum": ["Rest", "GraphQL", "Both", "auto"],
+                  "description": "Default controller type for new modules"
+                },
+                "skipLint": {
+                  "type": "boolean",
+                  "description": "Skip lint after module creation"
+                }
+              },
+              "additionalProperties": false
+            },
+            "object": {
+              "type": "object",
+              "description": "Configuration for 'lt server object' command",
+              "properties": {
+                "skipLint": {
+                  "type": "boolean",
+                  "description": "Skip lint after object creation"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "meta": {
+      "type": "object",
+      "description": "Metadata for the configuration file and project",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Project description"
+        },
+        "version": {
+          "type": "string",
+          "description": "Configuration file version",
+          "examples": ["1.0.0"]
+        },
+        "tags": {
+          "type": "array",
+          "description": "Tags for categorization",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
