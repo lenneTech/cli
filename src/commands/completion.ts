@@ -93,49 +93,28 @@ function discoverCommandTree(dir: string = __dirname, parentPath: string = ''): 
 
 /**
  * Extract command info from a command file
+ * Uses require() for both .js and .ts files (ts-node handles .ts in dev mode)
  */
 function extractCommandInfo(filePath: string): CommandInfo | null {
   try {
-    // For compiled JS files, require them directly
-    if (filePath.endsWith('.js')) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const cmd = require(filePath);
+    const command = cmd.default || cmd;
 
-      const cmd = require(filePath);
-      const command = cmd.default || cmd;
-      return {
-        description: command.description || '',
-        hidden: command.hidden || false,
-        name: command.name || basename(filePath, '.js'),
-      };
+    // Validate that we got a proper command object
+    if (!command || typeof command.name !== 'string') {
+      return null;
     }
 
-    // For TS files (during development), parse with regex
-    const content = readFileSync(filePath, 'utf-8');
-
-    const nameMatch = content.match(/name:\s*['"`]([^'"`]+)['"`]/);
-    const hiddenMatch = content.match(/hidden:\s*(true|false)/);
-
-    // Find all description matches and use the first one that doesn't contain ${ (template literal expression)
-    const descMatches = content.matchAll(/description:\s*['"`]([^'"`]+)['"`]/g);
-    let description = '';
-    for (const match of descMatches) {
-      if (!match[1].includes('${')) {
-        description = match[1];
-        break;
-      }
-    }
-
-    if (nameMatch) {
-      return {
-        description,
-        hidden: hiddenMatch ? hiddenMatch[1] === 'true' : false,
-        name: nameMatch[1],
-      };
-    }
+    return {
+      description: command.description || '',
+      hidden: command.hidden || false,
+      name: command.name,
+    };
   } catch {
-    // Ignore errors for individual files
+    // Ignore errors for individual files (missing dependencies, syntax errors, etc.)
+    return null;
   }
-
-  return null;
 }
 
 /**
