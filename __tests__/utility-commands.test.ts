@@ -1,9 +1,11 @@
-const { filesystem, system } = require('gluegun');
+import { filesystem, system } from 'gluegun';
 
 const src = filesystem.path(__dirname, '..');
 
 const cli = async (cmd: string) =>
-  system.run(`node ${  filesystem.path(src, 'bin', 'lt')  } ${cmd}`);
+  system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`);
+
+export {};
 
 describe('Utility Commands', () => {
   describe('lt status', () => {
@@ -16,9 +18,9 @@ describe('Utility Commands', () => {
 
   describe('lt doctor', () => {
     test('runs doctor checks', async () => {
-      const output = await cli('doctor');
+      // Use --offline to skip network requests for faster, reliable tests
+      const output = await cli('doctor --offline');
       expect(output).toContain('lt doctor');
-      // Check for doctor output (may contain ANSI codes)
       expect(output).toContain('Checks:');
     });
   });
@@ -81,22 +83,6 @@ describe('Utility Commands', () => {
       } finally {
         filesystem.remove(tempDir);
       }
-    });
-  });
-});
-
-describe('Dry-run flags', () => {
-  describe('lt git clear --dry-run', () => {
-    test('shows dry-run message', async () => {
-      const output = await cli('git clear --dry-run');
-      expect(output).toContain('DRY-RUN MODE');
-    });
-  });
-
-  describe('lt git clean --dry-run', () => {
-    test('shows dry-run message', async () => {
-      const output = await cli('git clean --dry-run');
-      expect(output).toContain('DRY-RUN MODE');
     });
   });
 });

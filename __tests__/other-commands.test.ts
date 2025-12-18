@@ -1,9 +1,11 @@
-const { filesystem, system } = require('gluegun');
+import { filesystem, system } from 'gluegun';
 
 const src = filesystem.path(__dirname, '..');
 
 const cli = async (cmd: string) =>
   system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`);
+
+export {};
 
 describe('Tools Commands', () => {
   describe('lt tools crypt', () => {

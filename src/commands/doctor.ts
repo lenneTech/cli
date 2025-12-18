@@ -70,6 +70,7 @@ const DoctorCommand: GluegunCommand = {
     } = toolbox;
 
     const fix = parameters.options.fix || parameters.options.f;
+    const offline = parameters.options.offline || parameters.options.o;
     const checks: CheckResult[] = [];
 
     info('');
@@ -84,8 +85,8 @@ const DoctorCommand: GluegunCommand = {
       const version = nodeVersion?.trim().replace('v', '');
       const major = parseInt(version?.split('.')[0] || '0', 10);
 
-      // Fetch current LTS version (fallback to 22 if API fails)
-      const ltsInfo = await fetchCurrentLtsVersion();
+      // Fetch current LTS version (fallback to 22 if API fails or offline)
+      const ltsInfo = offline ? null : await fetchCurrentLtsVersion();
       const ltsVersion = ltsInfo?.major || 22;
       const ltsCodename = ltsInfo?.codename || 'LTS';
       const minSupported = ltsVersion - 4; // Previous LTS (e.g., 22 -> 18)
@@ -168,24 +169,29 @@ const DoctorCommand: GluegunCommand = {
       const packageJson = JSON.parse(filesystem.read(packageJsonPath) || '{}');
       const currentVersion = packageJson.version;
 
-      // Check for updates
-      try {
-        const latestVersion = await system.run('npm view @lenne.tech/cli version 2>/dev/null');
-        if (latestVersion?.trim() && latestVersion.trim() !== currentVersion) {
-          ltSpinner.warn(`lt CLI v${currentVersion} (v${latestVersion.trim()} available)`);
-          checks.push({
-            details: `Current: v${currentVersion}, Latest: v${latestVersion.trim()}`,
-            fix: 'Run: lt update',
-            name: 'lt CLI',
-            status: 'warning',
-          });
-        } else {
+      // Check for updates (skip in offline mode)
+      if (offline) {
+        ltSpinner.succeed(`lt CLI v${currentVersion}`);
+        checks.push({ name: 'lt CLI', status: 'ok' });
+      } else {
+        try {
+          const latestVersion = await system.run('npm view @lenne.tech/cli version 2>/dev/null');
+          if (latestVersion?.trim() && latestVersion.trim() !== currentVersion) {
+            ltSpinner.warn(`lt CLI v${currentVersion} (v${latestVersion.trim()} available)`);
+            checks.push({
+              details: `Current: v${currentVersion}, Latest: v${latestVersion.trim()}`,
+              fix: 'Run: lt update',
+              name: 'lt CLI',
+              status: 'warning',
+            });
+          } else {
+            ltSpinner.succeed(`lt CLI v${currentVersion}`);
+            checks.push({ name: 'lt CLI', status: 'ok' });
+          }
+        } catch {
           ltSpinner.succeed(`lt CLI v${currentVersion}`);
           checks.push({ name: 'lt CLI', status: 'ok' });
         }
-      } catch {
-        ltSpinner.succeed(`lt CLI v${currentVersion}`);
-        checks.push({ name: 'lt CLI', status: 'ok' });
       }
     } catch {
       ltSpinner.warn('Could not determine lt CLI version');
