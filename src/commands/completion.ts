@@ -97,7 +97,7 @@ function discoverCommandTree(dir: string = __dirname, parentPath: string = ''): 
  */
 function extractCommandInfo(filePath: string): CommandInfo | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+     
     const cmd = require(filePath);
     const command = cmd.default || cmd;
 
