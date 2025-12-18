@@ -16,27 +16,35 @@ const NewCommand: GluegunCommand = {
     const {
       npm,
       parameters,
-      print: { error },
+      print: { error, info },
       system,
     } = toolbox;
+
+    // Info
+    info('Rename current CLI');
 
     // Get root path
     const { path: packagePath } = await npm.getPackageJson();
     if (!packagePath) {
       error('The path to the root directory could not be found.');
-      return undefined;
+      return;
     }
     const rootPath = dirname(packagePath);
     if (!rootPath) {
       error('The path to the root directory could not be found.');
-      return undefined;
+      return;
     }
 
     // Run rename script
     await system.run(`cd ${rootPath} && npm run rename -- ${parameters.string}`);
 
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
-    return 'Rename current CLI';
+    return `renamed cli in ${rootPath}`;
   },
 };
 

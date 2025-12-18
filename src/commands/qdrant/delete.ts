@@ -85,8 +85,13 @@ const command: GluegunCommand = {
 
     spinner.succeed(`Successfully deleted collection "${collectionToDelete}".`);
 
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
-    return process.exit(0);
+    return `qdrant deleted ${collectionToDelete}`;
   },
 };
 

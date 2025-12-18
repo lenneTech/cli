@@ -4,7 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Blocks commands
  */
 module.exports = {
-    alias: ['n'],
+    alias: ['bl'],
     description: 'Base blocks for Nuxt',
     hidden: true,
     name: 'blocks',

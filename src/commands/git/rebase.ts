@@ -17,30 +17,28 @@ const NewCommand: GluegunCommand = {
       git,
       helper,
       parameters,
-      print: { error, info, spin, success },
+      print: { error, info, spin, success, warning },
       prompt: { confirm },
       system: { run, startTimer },
     } = toolbox;
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configNoConfirm = ltConfig?.commands?.git?.rebase?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
     const configBaseBranch = ltConfig?.commands?.git?.rebase?.base ?? ltConfig?.commands?.git?.baseBranch;
 
     // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
     const globalBaseBranch = config.getGlobalDefault<string>(ltConfig, 'baseBranch');
 
     // Parse CLI arguments
-    const cliNoConfirm = parameters.options.noConfirm;
     const cliBaseBranch = parameters.options.base;
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.rebase,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
     });
 
     // Check git
@@ -55,6 +53,36 @@ const NewCommand: GluegunCommand = {
     if (branch === 'main' || branch === 'release' || branch === 'dev') {
       error(`Rebase of branch ${branch} is not allowed!`);
       return;
+    }
+
+    // Determine base branch early for dry-run
+    const baseBranchPreview = cliBaseBranch || parameters.first || configBaseBranch || globalBaseBranch || 'dev';
+
+    // Dry-run mode: show what would be affected
+    if (dryRun) {
+      warning('DRY-RUN MODE - No changes will be made');
+      info('');
+
+      // Show commits that would be rebased
+      const commitsToRebase = await run(`git log ${baseBranchPreview}..HEAD --oneline 2>/dev/null || echo ""`);
+      if (commitsToRebase?.trim()) {
+        const commitCount = commitsToRebase.trim().split('\n').length;
+        info(`Would rebase ${commitCount} commit(s) from branch "${branch}" onto "${baseBranchPreview}":`);
+        info('');
+        info('Commits to be rebased:');
+        commitsToRebase.trim().split('\n').forEach(line => info(`  ${line}`));
+      } else {
+        info(`No commits to rebase on branch "${branch}" (already up to date with "${baseBranchPreview}")`);
+      }
+
+      info('');
+      info('Actions that would be performed:');
+      info(`  1. Fetch latest changes`);
+      info(`  2. Checkout and pull ${baseBranchPreview}`);
+      info(`  3. Checkout ${branch}`);
+      info(`  4. Rebase onto ${baseBranchPreview}`);
+
+      return `dry-run rebase branch ${branch}`;
     }
 
     // Ask to Rebase the branch
@@ -122,6 +150,11 @@ const NewCommand: GluegunCommand = {
     // Success
     success(`Rebased ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `rebased ${branch}`;

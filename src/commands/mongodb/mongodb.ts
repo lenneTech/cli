@@ -5,7 +5,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const command = {
   alias: ['mdb'],
-  description: 'MongoDB operations (export, restore, etc.)',
+  description: 'MongoDB commands',
   hidden: false,
   name: 'mongodb',
   run: async (toolbox: ExtendedGluegunToolbox) => {

@@ -38,6 +38,11 @@
           "description": "Skip confirmation prompts globally. Used by: git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit",
           "default": false
         },
+        "skipInstall": {
+          "type": "boolean",
+          "description": "Skip npm install operations globally. Used by: git/update",
+          "default": false
+        },
         "skipLint": {
           "type": "boolean",
           "description": "Skip lint operations globally. Used by: server/module, server/object, server/addProp",
@@ -50,6 +55,24 @@
       "type": "object",
       "description": "Command-specific configuration",
       "properties": {
+        "blocks": {
+          "type": "object",
+          "description": "Blocks-related configuration",
+          "properties": {
+            "add": {
+              "type": "object",
+              "description": "Configuration for 'lt blocks add' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when adding blocks"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "cli": {
           "type": "object",
           "description": "CLI-related configuration",
@@ -62,6 +85,50 @@
                   "type": "string",
                   "description": "Default author for new CLI projects",
                   "examples": ["John Doe <john@example.com>"]
+                },
+                "link": {
+                  "type": "boolean",
+                  "description": "Link the CLI after creation"
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "components": {
+          "type": "object",
+          "description": "Components-related configuration",
+          "properties": {
+            "add": {
+              "type": "object",
+              "description": "Configuration for 'lt components add' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when adding components"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "config": {
+          "type": "object",
+          "description": "Config command configuration",
+          "properties": {
+            "init": {
+              "type": "object",
+              "description": "Configuration for 'lt config init' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when initializing config"
                 }
               },
               "additionalProperties": false
@@ -95,6 +162,32 @@
               "type": "string",
               "description": "Default GitLab production runner tag",
               "examples": ["docker-landing"]
+            },
+            "noConfirm": {
+              "type": "boolean",
+              "description": "Skip confirmation prompts"
+            }
+          },
+          "additionalProperties": false
+        },
+        "frontend": {
+          "type": "object",
+          "description": "Frontend-related configuration",
+          "properties": {
+            "angular": {
+              "type": "object",
+              "description": "Configuration for 'lt frontend angular' command",
+              "properties": {
+                "localize": {
+                  "type": "boolean",
+                  "description": "Enable Angular localize by default"
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -115,6 +208,10 @@
             "gitLink": {
               "type": "string",
               "description": "Default git repository link (only used when git is true)"
+            },
+            "noConfirm": {
+              "type": "boolean",
+              "description": "Skip confirmation prompts"
             }
           },
           "additionalProperties": false
@@ -137,6 +234,17 @@
               "type": "boolean",
               "description": "Skip confirmation prompts for all git commands",
               "default": false
+            },
+            "clean": {
+              "type": "object",
+              "description": "Configuration for 'lt git clean' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts when cleaning merged branches"
+                }
+              },
+              "additionalProperties": false
             },
             "clear": {
               "type": "object",
@@ -259,6 +367,17 @@
                 }
               },
               "additionalProperties": false
+            },
+            "update": {
+              "type": "object",
+              "description": "Configuration for 'lt git update' command",
+              "properties": {
+                "skipInstall": {
+                  "type": "boolean",
+                  "description": "Skip npm install after update"
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -304,22 +423,26 @@
               "type": "object",
               "description": "Configuration for 'lt server create' command",
               "properties": {
+                "author": {
+                  "type": "string",
+                  "description": "Default author for new server projects"
+                },
                 "controller": {
                   "type": "string",
                   "enum": ["Rest", "GraphQL", "Both", "auto"],
                   "description": "Default controller type for new server projects"
                 },
+                "description": {
+                  "type": "string",
+                  "description": "Default description for new server projects"
+                },
                 "git": {
                   "type": "boolean",
                   "description": "Initialize git for new server projects"
                 },
-                "author": {
-                  "type": "string",
-                  "description": "Default author for new server projects"
-                },
-                "description": {
-                  "type": "string",
-                  "description": "Default description for new server projects"
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
                 }
               },
               "additionalProperties": false
@@ -332,6 +455,10 @@
                   "type": "string",
                   "enum": ["Rest", "GraphQL", "Both", "auto"],
                   "description": "Default controller type for new modules"
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
                 },
                 "skipLint": {
                   "type": "boolean",
@@ -347,6 +474,33 @@
                 "skipLint": {
                   "type": "boolean",
                   "description": "Skip lint after object creation"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "typescript": {
+          "type": "object",
+          "description": "TypeScript-related configuration",
+          "properties": {
+            "create": {
+              "type": "object",
+              "description": "Configuration for 'lt typescript create' command",
+              "properties": {
+                "author": {
+                  "type": "string",
+                  "description": "Default author for new TypeScript projects",
+                  "examples": ["John Doe <john@example.com>"]
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                },
+                "updatePackages": {
+                  "type": "boolean",
+                  "description": "Update packages to latest versions during creation"
                 }
               },
               "additionalProperties": false

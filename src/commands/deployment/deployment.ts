@@ -4,7 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Deployment commands
  */
 module.exports = {
-  alias: ['d'],
+  alias: ['dp'],
   description: 'Server commands',
   hidden: true,
   name: 'deployment',

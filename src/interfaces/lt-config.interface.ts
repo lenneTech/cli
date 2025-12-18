@@ -24,6 +24,21 @@ export interface LtConfig {
    */
   commands?: {
     /**
+     * Blocks-related configuration
+     */
+    blocks?: {
+      /**
+       * Configuration for 'lt blocks add' command
+       */
+      add?: {
+        /**
+         * Skip confirmation prompts when adding blocks
+         */
+        noConfirm?: boolean;
+      };
+    };
+
+    /**
      * CLI-related configuration
      */
     cli?: {
@@ -36,6 +51,46 @@ export interface LtConfig {
          * @example "John Doe <john@example.com>"
          */
         author?: string;
+
+        /**
+         * Link the CLI after creation
+         */
+        link?: boolean;
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+      };
+    };
+
+    /**
+     * Components-related configuration
+     */
+    components?: {
+      /**
+       * Configuration for 'lt components add' command
+       */
+      add?: {
+        /**
+         * Skip confirmation prompts when adding components
+         */
+        noConfirm?: boolean;
+      };
+    };
+
+    /**
+     * Config command configuration
+     */
+    config?: {
+      /**
+       * Configuration for 'lt config init' command
+       */
+      init?: {
+        /**
+         * Skip confirmation prompts when initializing config
+         */
+        noConfirm?: boolean;
       };
     };
 
@@ -60,6 +115,11 @@ export interface LtConfig {
       gitLab?: boolean;
 
       /**
+       * Skip confirmation prompts
+       */
+      noConfirm?: boolean;
+
+      /**
        * Default GitLab production runner tag
        * @example "docker-landing"
        */
@@ -70,6 +130,26 @@ export interface LtConfig {
        * @example "docker-swarm"
        */
       testRunner?: string;
+    };
+
+    /**
+     * Frontend-related configuration
+     */
+    frontend?: {
+      /**
+       * Configuration for 'lt frontend angular' command
+       */
+      angular?: {
+        /**
+         * Enable Angular localize by default
+         */
+        localize?: boolean;
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+      };
     };
 
     /**
@@ -92,6 +172,11 @@ export interface LtConfig {
        * Only used when git is true
        */
       gitLink?: string;
+
+      /**
+       * Skip confirmation prompts
+       */
+      noConfirm?: boolean;
     };
 
     /**
@@ -106,11 +191,38 @@ export interface LtConfig {
       baseBranch?: string;
 
       /**
+       * Configuration for 'lt git clean' command
+       */
+      clean?: {
+        /**
+         * Skip confirmation prompts when cleaning merged branches
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
        * Configuration for 'lt git clear' command
        */
       clear?: {
         /**
          * Skip confirmation prompts when clearing changes
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt git create' command
+       */
+      create?: {
+        /**
+         * Default base branch for new feature branches
+         * Overrides git.baseBranch for this specific command
+         * @example "develop"
+         */
+        base?: string;
+
+        /**
+         * Skip confirmation prompts when creating branches
          */
         noConfirm?: boolean;
       };
@@ -220,6 +332,16 @@ export interface LtConfig {
          */
         noConfirm?: boolean;
       };
+
+      /**
+       * Configuration for 'lt git update' command
+       */
+      update?: {
+        /**
+         * Skip npm install after update
+         */
+        skipInstall?: boolean;
+      };
     };
 
     /**
@@ -240,6 +362,7 @@ export interface LtConfig {
          */
         update?: boolean;
       };
+
     };
 
     /**
@@ -281,6 +404,11 @@ export interface LtConfig {
          * Initialize git for new server projects
          */
         git?: boolean;
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
       };
 
       /**
@@ -292,6 +420,11 @@ export interface LtConfig {
          * @example "Rest" | "GraphQL" | "Both" | "auto"
          */
         controller?: 'auto' | 'Both' | 'GraphQL' | 'Rest';
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
 
         /**
          * Skip lint after module creation
@@ -307,6 +440,32 @@ export interface LtConfig {
          * Skip lint after object creation
          */
         skipLint?: boolean;
+      };
+    };
+
+    /**
+     * TypeScript-related configuration
+     */
+    typescript?: {
+      /**
+       * Configuration for 'lt typescript create' command
+       */
+      create?: {
+        /**
+         * Default author for new TypeScript projects
+         * @example "John Doe <john@example.com>"
+         */
+        author?: string;
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+
+        /**
+         * Update packages to latest versions during creation
+         */
+        updatePackages?: boolean;
       };
     };
   };
@@ -346,9 +505,15 @@ export interface LtConfig {
 
     /**
      * Skip confirmation prompts globally
-     * Used by: git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit
+     * Used by: blocks/add, components/add, config/init, git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit
      */
     noConfirm?: boolean;
+
+    /**
+     * Skip npm install operations globally
+     * Used by: git/update
+     */
+    skipInstall?: boolean;
 
     /**
      * Skip lint operations globally

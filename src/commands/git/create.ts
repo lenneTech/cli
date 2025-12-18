@@ -18,9 +18,12 @@ const NewCommand: GluegunCommand = {
       helper,
       npm,
       parameters,
-      print: { error, info, spin, success },
+      print: { error, info, spin, success, warning },
       system,
     } = toolbox;
+
+    // Parse dry-run flag early
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Check git
     if (!(await git.gitInstalled())) {
@@ -29,7 +32,8 @@ const NewCommand: GluegunCommand = {
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configBaseBranch = ltConfig?.commands?.git?.baseBranch;
+    const commandBaseBranch = ltConfig?.commands?.git?.create?.base;
+    const categoryBaseBranch = ltConfig?.commands?.git?.baseBranch;
 
     // Load global defaults
     const globalBaseBranch = config.getGlobalDefault<string>(ltConfig, 'baseBranch');
@@ -37,8 +41,10 @@ const NewCommand: GluegunCommand = {
     // Parse CLI arguments
     const { base: cliBaseBranch } = parameters.options;
 
-    // Check changes in current branch (reset optional)
-    await git.askForReset();
+    // Check changes in current branch (reset optional) - skip in dry-run mode
+    if (!dryRun) {
+      await git.askForReset();
+    }
 
     // Get branch name
     const branch = await helper.getInput(parameters.first, {
@@ -77,11 +83,25 @@ const NewCommand: GluegunCommand = {
         error(`Base branch ${cliBaseBranch} does not exist!`);
         return;
       }
-    } else if (configBaseBranch) {
-      // Command-specific config value provided
-      if (!(await tryUseBranch(configBaseBranch, 'lt.config commands.git'))) {
+    } else if (commandBaseBranch) {
+      // Command-specific config value provided (git.create.base)
+      if (!(await tryUseBranch(commandBaseBranch, 'lt.config commands.git.create'))) {
+        // Fall through to category-level or global
+        if (categoryBaseBranch && categoryBaseBranch !== commandBaseBranch) {
+          if (!(await tryUseBranch(categoryBaseBranch, 'lt.config commands.git'))) {
+            if (globalBaseBranch && globalBaseBranch !== categoryBaseBranch) {
+              await tryUseBranch(globalBaseBranch, 'lt.config defaults');
+            }
+          }
+        } else if (globalBaseBranch && globalBaseBranch !== commandBaseBranch) {
+          await tryUseBranch(globalBaseBranch, 'lt.config defaults');
+        }
+      }
+    } else if (categoryBaseBranch) {
+      // Category-level config value provided (git.baseBranch)
+      if (!(await tryUseBranch(categoryBaseBranch, 'lt.config commands.git'))) {
         // Fall through to global or interactive
-        if (globalBaseBranch && globalBaseBranch !== configBaseBranch) {
+        if (globalBaseBranch && globalBaseBranch !== categoryBaseBranch) {
           await tryUseBranch(globalBaseBranch, 'lt.config defaults');
         }
       }
@@ -106,6 +126,23 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Dry-run mode: show what would happen
+    if (dryRun) {
+      warning('DRY-RUN MODE - No changes will be made');
+      info('');
+      info('Would create branch:');
+      info(`  - New branch: ${branch}`);
+      info(`  - Base branch: ${baseBranch}`);
+      info('');
+      info('Steps that would be executed:');
+      info('  1. git fetch');
+      info(`  2. git checkout ${baseBranch}`);
+      info('  3. git pull');
+      info(`  4. git checkout -b ${branch}`);
+      info('  5. npm install');
+      return `dry-run create branch ${branch} from ${baseBranch}`;
+    }
+
     // Start timer
     const timer = system.startTimer();
 
@@ -120,6 +157,11 @@ const NewCommand: GluegunCommand = {
     // Success info
     success(`Branch ${branch} was created from ${baseBranch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `created branch ${branch}`;

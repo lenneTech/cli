@@ -42,6 +42,19 @@ $ lt
 - [Configuration Guide](docs/lt.config.md) - Configuration file documentation
 - [Plugin Guide](docs/plugins.md) - How to create plugins
 
+## Quick Start
+
+```bash
+# Check your environment
+$ lt doctor
+
+# Show project status
+$ lt status
+
+# Enable shell completions
+$ lt completion install
+```
+
 ## Configuration
 
 The CLI supports project-specific configuration via `lt.config` files. This allows you to set default values for commands, reducing repetitive input.
@@ -90,6 +103,23 @@ $ lt npm u
 $ lt git get <branch-name or part-of-branch-name>
 or
 $ lt git g <branch-name or part-of-branch-name>
+
+// Preview what a command would do (dry-run)
+$ lt git clear --dry-run
+$ lt git reset --dry-run
+$ lt git squash --dry-run
+$ lt git rebase --dry-run
+
+// Skip confirmation prompts (noConfirm)
+$ lt git get feature --noConfirm
+$ lt git squash dev --noConfirm
+
+// Combine flags for CI/CD pipelines
+$ lt git clean --noConfirm
+$ lt server module User --noConfirm
+
+// View command history
+$ lt history
 
 ...
 

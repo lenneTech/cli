@@ -24,20 +24,16 @@ const NewCommand: GluegunCommand = {
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configNoConfirm = ltConfig?.commands?.git?.clear?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
-
-    // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
 
     // Parse CLI arguments
-    const cliNoConfirm = parameters.options.noConfirm;
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.clear,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
     });
 
     // Check git
@@ -47,6 +43,12 @@ const NewCommand: GluegunCommand = {
 
     // Get current branch
     const branch = await git.currentBranch();
+
+    // Dry-run mode: show what would be affected
+    if (dryRun) {
+      const result = await git.showDryRunInfo({ branch, operation: 'discard' });
+      return result || `dry-run clear branch ${branch}`;
+    }
 
     // Ask to clear the branch
     if (!noConfirm && !(await confirm(`Clear "${branch}"?`))) {
@@ -64,6 +66,11 @@ const NewCommand: GluegunCommand = {
     // Success
     success(`Clear ${branch} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `clear branch ${branch}`;

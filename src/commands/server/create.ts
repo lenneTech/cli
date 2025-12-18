@@ -41,6 +41,14 @@ const NewCommand: GluegunCommand = {
     const cliGit = parameters.options.git;
     const cliAuthor = parameters.options.author;
     const cliDescription = parameters.options.description;
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getNoConfirm({
+      cliValue: cliNoConfirm,
+      commandConfig: ltConfig?.commands?.server?.create,
+      config: ltConfig,
+    });
 
     // Start timer
     const timer = system.startTimer();
@@ -69,7 +77,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(projectDir)) {
       info('');
       error(`There's already a folder named "${projectDir}" here.`);
-      return undefined;
+      return;
     }
 
     // Clone git repository
@@ -83,7 +91,7 @@ const NewCommand: GluegunCommand = {
     // Check directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
       error(`The directory "${projectDir}" could not be created.`);
-      return undefined;
+      return;
     }
 
     // Determine description with priority: CLI > config > interactive
@@ -190,6 +198,8 @@ const NewCommand: GluegunCommand = {
           if (initializeGit) {
             info('Using git initialization setting from lt.config: enabled');
           }
+        } else if (noConfirm) {
+          initializeGit = false; // Default to false when noConfirm (avoid unexpected side effects)
         } else {
           initializeGit = await confirm('Initialize git?', true);
         }
@@ -211,24 +221,31 @@ const NewCommand: GluegunCommand = {
     info('This will be used for all new modules unless explicitly overridden.');
     info('');
 
-    const configureDefaults = await confirm('Would you like to configure default settings?', true);
+    const configureDefaults = noConfirm ? true : await confirm('Would you like to configure default settings?', true);
 
     if (configureDefaults) {
-      const controllerChoice = await ask([{
-        choices: [
-          'Rest - REST controllers only (no GraphQL)',
-          'GraphQL - GraphQL resolvers only (includes subscriptions)',
-          'Both - Both REST and GraphQL (hybrid approach)',
-          'auto - Auto-detect from existing modules',
-        ],
-        initial: 2, // Default to "Both"
-        message: 'Default controller type for new modules?',
-        name: 'controller',
-        type: 'select',
-      }]);
+      // Determine controller type - use default when noConfirm, otherwise ask
+      let controllerType: 'auto' | 'Both' | 'GraphQL' | 'Rest';
+      if (noConfirm) {
+        controllerType = 'Both'; // Default to Both when noConfirm
+        info('Using default controller type: Both');
+      } else {
+        const controllerChoice = await ask([{
+          choices: [
+            'Rest - REST controllers only (no GraphQL)',
+            'GraphQL - GraphQL resolvers only (includes subscriptions)',
+            'Both - Both REST and GraphQL (hybrid approach)',
+            'auto - Auto-detect from existing modules',
+          ],
+          initial: 2, // Default to "Both"
+          message: 'Default controller type for new modules?',
+          name: 'controller',
+          type: 'select',
+        }]);
 
-      // Extract the controller type from the choice
-      const controllerType = controllerChoice.controller.split(' - ')[0] as 'auto' | 'Both' | 'GraphQL' | 'Rest';
+        // Extract the controller type from the choice
+        controllerType = controllerChoice.controller.split(' - ')[0] as 'auto' | 'Both' | 'GraphQL' | 'Rest';
+      }
 
       // Create lt.config.json
       const ltConfig = {
@@ -279,7 +296,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // For tests
-    return `new server ${name}`;
+    return `created server ${name}`;
   },
 };
 

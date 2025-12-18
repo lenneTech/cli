@@ -28,9 +28,17 @@ const NewCommand: GluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configAuthor = ltConfig?.commands?.cli?.create?.author;
+    const configLink = ltConfig?.commands?.cli?.create?.link;
 
     // Load global defaults
     const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
+
+    // Determine noConfirm with priority: CLI > command > global > default
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm || parameters.options.y,
+      commandConfig: ltConfig?.commands?.cli?.create,
+      config: ltConfig,
+    });
 
     // Info
     info('Create a new CLI');
@@ -70,9 +78,18 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Link
-    let link = parameters.options.link && !parameters.options.nolink;
-    if (!parameters.options.link && !parameters.options.nolink) {
+    // Determine link with priority: CLI > config > interactive
+    let link: boolean;
+    if (parameters.options.link) {
+      link = true;
+    } else if (parameters.options.nolink) {
+      link = false;
+    } else if (configLink !== undefined) {
+      link = configLink;
+      info(`Using link from lt.config commands.cli.create: ${link}`);
+    } else if (noConfirm) {
+      link = false; // Default to false when noConfirm is set
+    } else {
       link = !!(await ask({
         message: 'Link when finished?',
         name: 'link',
@@ -90,47 +107,72 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(projectDir)) {
       info('');
       error(`There's already a folder named "${projectDir}" here.`);
-      return undefined;
+      return;
     }
 
     // Clone git repository
     const cloneSpinner = spin('Clone https://github.com/lenneTech/cli-starter.git');
-    await system.run(`git clone https://github.com/lenneTech/cli-starter.git ${projectDir}`);
-    if (filesystem.isDirectory(`./${projectDir}`)) {
-      filesystem.remove(`./${projectDir}/.git`);
-      cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/cli-starter.git');
-    } else {
-      cloneSpinner.fail(`The directory "${projectDir}" could not be created.`);
-      return undefined;
+    try {
+      await system.run(`git clone https://github.com/lenneTech/cli-starter.git ${projectDir}`);
+      if (filesystem.isDirectory(`./${projectDir}`)) {
+        filesystem.remove(`./${projectDir}/.git`);
+        cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/cli-starter.git');
+      } else {
+        cloneSpinner.fail(`The directory "${projectDir}" could not be created.`);
+        return;
+      }
+    } catch (err) {
+      cloneSpinner.fail(`Failed to clone repository: ${err.message}`);
+      return;
     }
 
     // Install packages
     const installSpinner = spin('Install npm packages');
-    await system.run(`cd ${projectDir} && npm i`);
-    installSpinner.succeed('NPM packages installed');
+    try {
+      await system.run(`cd ${projectDir} && npm i`);
+      installSpinner.succeed('NPM packages installed');
+    } catch (err) {
+      installSpinner.fail(`Failed to install npm packages: ${err.message}`);
+      return;
+    }
 
     // Rename files and data
     const renameSpinner = spin(`Rename files & data ${link ? ' and link' : ''}`);
-    await system.run(
-      `cd ${projectDir} && npm run rename -- "${name}" --author "${author}" --${link ? 'link' : 'nolink'}`,
-    );
-    renameSpinner.succeed(`Files & data renamed${link ? ' and linked' : ''}`);
+    try {
+      await system.run(
+        `cd ${projectDir} && npm run rename -- "${name}" --author "${author}" --${link ? 'link' : 'nolink'}`,
+      );
+      renameSpinner.succeed(`Files & data renamed${link ? ' and linked' : ''}`);
+    } catch (err) {
+      renameSpinner.fail(`Failed to rename files: ${err.message}`);
+      return;
+    }
 
     // Init git
     const initGitSpinner = spin('Initialize git');
-    await system.run(
-      `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
-    );
-    initGitSpinner.succeed('Git initialized');
+    try {
+      await system.run(
+        `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
+      );
+      initGitSpinner.succeed('Git initialized');
+    } catch (err) {
+      initGitSpinner.fail(`Failed to initialize git: ${err.message}`);
+      return;
+    }
 
     // We're done, so show what to do next
     info('');
     success(
-      `Generated ${name} server with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`,
+      `Generated ${name} CLI with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`,
     );
 
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
-    return `new cli ${name}`;
+    return `created cli ${name}`;
   },
 };
 

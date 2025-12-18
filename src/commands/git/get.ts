@@ -26,22 +26,17 @@ const NewCommand: GluegunCommand = {
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configNoConfirm = ltConfig?.commands?.git?.get?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
     const configMode = ltConfig?.commands?.git?.get?.mode;
 
-    // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
-
     // Parse CLI arguments
-    const cliNoConfirm = parameters.options.noConfirm;
     const cliMode = parameters.options.mode;
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.get,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
     });
 
     // Start timer
@@ -75,7 +70,7 @@ const NewCommand: GluegunCommand = {
     });
 
     if (!branch) {
-      process.exit(1);
+      return;
     }
 
     // Get remote branch
@@ -87,7 +82,7 @@ const NewCommand: GluegunCommand = {
         !noConfirm
         && !(await prompt.confirm(`Checkout ${remoteBranch ? 'remote' : 'local'} branch ${branch}`))
       ) {
-        process.exit(1);
+        return;
       }
     } else {
       success(`Branch ${branchName} found`);
@@ -106,6 +101,9 @@ const NewCommand: GluegunCommand = {
         checkSpin.succeed();
         // Determine mode with priority: CLI > config > interactive
         let mode = cliMode || configMode;
+        if (!cliMode && configMode) {
+          info(`Using mode from lt.config commands.git.get: ${configMode}`);
+        }
         if (!mode && !noConfirm) {
           if (await prompt.confirm(`Remove local commits of ${branch}`)) {
             mode = 'hard';
@@ -172,7 +170,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // For tests
-    return `get branch ${branch}`;
+    return `checked out branch ${branch}`;
   },
 };
 

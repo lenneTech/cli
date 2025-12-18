@@ -12,7 +12,7 @@ const execAsync = promisify(require('child_process').exec);
  */
 const command: GluegunCommand = {
   alias: ['ce'],
-  description: 'Export MongoDB collection to JSON file',
+  description: 'Export collection to JSON',
   name: 'collection-export',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {

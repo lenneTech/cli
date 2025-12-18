@@ -58,6 +58,10 @@ const NewCommand: GluegunCommand = {
       }
     }
 
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
     return 'docs open';
   },

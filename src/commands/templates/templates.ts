@@ -5,7 +5,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 module.exports = {
   alias: ['tpl'],
-  description: 'Template commands for LLM prompts and more',
+  description: 'Template commands',
   hidden: false,
   name: 'templates',
   run: async (toolbox: ExtendedGluegunToolbox) => {

@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -8,7 +8,7 @@
     "lt"
   ],
   "author": "Kai Haase",
-  "homepage": "http://lenne.tech",
+  "homepage": "https://lenne.tech",
   "license": "MIT",
   "repository": "https://github.com/lenneTech/cli.git",
   "bugs": {
@@ -18,6 +18,7 @@
     "lt": "bin/lt"
   },
   "scripts": {
+    "postinstall": "node bin/postinstall.js 2>/dev/null || true",
     "build": "npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
     "clean-build": "npx rimraf ./build",
     "compile": "tsc -p .",
@@ -49,17 +50,17 @@
     "bin"
   ],
   "dependencies": {
-    "@aws-sdk/client-s3": "3.926.0",
+    "@aws-sdk/client-s3": "3.954.0",
     "@lenne.tech/cli-plugin-helper": "0.0.14",
-    "@types/lodash": "4.17.20",
+    "@types/lodash": "4.17.21",
     "bcrypt": "6.0.0",
     "find-file-up": "2.0.1",
-    "glob": "11.1.0",
-    "gluegun": "5.2.0",
+    "glob": "13.0.0",
+    "gluegun": "5.2.2",
     "js-sha256": "0.11.1",
     "js-yaml": "4.1.1",
     "lodash": "4.17.21",
-    "open": "10.2.0",
+    "open": "11.0.0",
     "ts-morph": "27.0.2",
     "ts-node": "10.9.2",
     "typescript": "5.9.3"
@@ -67,21 +68,22 @@
   "devDependencies": {
     "@lenne.tech/eslint-config-ts": "2.1.4",
     "@lenne.tech/npm-package-helper": "0.0.12",
+    "@types/ejs": "^3.1.5",
     "@types/jest": "30.0.0",
     "@types/js-yaml": "4.0.9",
-    "@types/node": "24.10.0",
-    "@typescript-eslint/eslint-plugin": "8.46.3",
-    "@typescript-eslint/parser": "8.46.3",
-    "eslint": "9.39.1",
+    "@types/node": "25.0.3",
+    "@typescript-eslint/eslint-plugin": "8.50.0",
+    "@typescript-eslint/parser": "8.50.0",
+    "eslint": "9.39.2",
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jest": "30.2.0",
     "path-exists-cli": "2.0.0",
-    "prettier": "3.6.2",
+    "prettier": "3.7.4",
     "pretty-quick": "4.2.2",
-    "rimraf": "6.1.0",
+    "rimraf": "6.1.2",
     "standard-version": "9.5.0",
-    "ts-jest": "29.4.5"
+    "ts-jest": "29.4.6"
   },
   "overrides": {
     "apisauce@*": "3.1.1",

@@ -4,7 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Components commands
  */
 module.exports = {
-    alias: ['n'],
+    alias: ['cp'],
     description: 'Base components for Nuxt',
     hidden: true,
     name: 'components',

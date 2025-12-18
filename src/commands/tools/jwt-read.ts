@@ -7,7 +7,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['jr'],
-  description: 'Parse a JWT and show the payload',
+  description: 'Parse and show JWT payload',
   hidden: false,
   name: 'jwt-read',
   run: async (toolbox: ExtendedGluegunToolbox) => {

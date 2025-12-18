@@ -46,6 +46,13 @@ const NewCommand: GluegunCommand = {
     // Parse CLI arguments
     const { frontend: cliFrontend, git: cliGit, 'git-link': cliGitLink, name: cliName } = parameters.options;
 
+    // Determine noConfirm with priority: CLI > command > parent > global > default
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.fullstack,
+      config: ltConfig,
+    });
+
     // Get name of the workspace
     const name = cliName || await helper.getInput(parameters.first, {
       name: 'workspace name',
@@ -62,7 +69,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(projectDir)) {
       info('');
       error(`There's already a folder named "${projectDir}" here.`);
-      return undefined;
+      return;
     }
 
     // Determine frontend with priority: CLI > config > interactive
@@ -76,6 +83,10 @@ const NewCommand: GluegunCommand = {
     } else if (configFrontend) {
       frontend = configFrontend;
       info(`Using frontend from lt.config: ${frontend}`);
+    } else if (noConfirm) {
+      // Use default when noConfirm
+      frontend = 'nuxt';
+      info('Using default frontend: nuxt (noConfirm mode)');
     } else {
       // Interactive mode with sensible default
       const choices = ['angular', 'nuxt'];
@@ -126,6 +137,9 @@ const NewCommand: GluegunCommand = {
           info(`Using git configuration from lt.config`);
         }
       }
+    } else if (noConfirm) {
+      // Don't add to git when noConfirm (would require gitLink)
+      addToGit = false;
     } else if (parameters.third !== 'false') {
       // Interactive mode
       addToGit = parameters.third === 'true' || (await confirm('Add workspace to a new git repository?'));
@@ -144,12 +158,17 @@ const NewCommand: GluegunCommand = {
     const workspaceSpinner = spin(`Create fullstack workspace with ${frontend} in ${projectDir} with ${name} app`);
 
     // Clone monorepo
-    await system.run(`git clone https://github.com/lenneTech/lt-monorepo.git ${projectDir}`);
+    try {
+      await system.run(`git clone https://github.com/lenneTech/lt-monorepo.git ${projectDir}`);
+    } catch (err) {
+      workspaceSpinner.fail(`Failed to clone monorepo: ${err.message}`);
+      return;
+    }
 
     // Check for directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
-      error(`The directory "${projectDir}" could not be created.`);
-      return undefined;
+      workspaceSpinner.fail(`The directory "${projectDir}" could not be created.`);
+      return;
     }
 
     workspaceSpinner.succeed(`Create fullstack workspace with ${frontend} in ${projectDir} for ${name} created`);
@@ -162,19 +181,29 @@ const NewCommand: GluegunCommand = {
 
     // Check if git init is active
     if (addToGit) {
-      await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
-      await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
-      await system.run(`cd ${projectDir} && git add .`);
-      await system.run(`cd ${projectDir} && git commit -m "Initial commit"`);
-      await system.run(`cd ${projectDir} && git push -u origin dev`);
+      try {
+        await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
+        await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
+        await system.run(`cd ${projectDir} && git add .`);
+        await system.run(`cd ${projectDir} && git commit -m "Initial commit"`);
+        await system.run(`cd ${projectDir} && git push -u origin dev`);
+      } catch (err) {
+        error(`Failed to initialize git: ${err.message}`);
+        return;
+      }
     }
 
-    if (frontend === 'angular') {
-      // Clone ng-base-starter
-      await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
-    } else {
-      await system.run('npm i -g create-nuxt-base');
-      await system.run(`cd ${projectDir}/projects && create-nuxt-base app`);
+    try {
+      if (frontend === 'angular') {
+        // Clone ng-base-starter
+        await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
+      } else {
+        await system.run('npm i -g create-nuxt-base');
+        await system.run(`cd ${projectDir}/projects && create-nuxt-base app`);
+      }
+    } catch (err) {
+      error(`Failed to set up ${frontend} frontend: ${err.message}`);
+      return;
     }
 
     // Remove gitkeep file
@@ -236,8 +265,13 @@ const NewCommand: GluegunCommand = {
 
       // Install all packages
       const installSpinner = spin('Install all packages');
-      await system.run(`cd ${projectDir} && npm i && npm run init`);
-      installSpinner.succeed('Successfull installed all packages');
+      try {
+        await system.run(`cd ${projectDir} && npm i && npm run init`);
+        installSpinner.succeed('Successfully installed all packages');
+      } catch (err) {
+        installSpinner.fail(`Failed to install packages: ${err.message}`);
+        return;
+      }
 
       // We're done, so show what to do next
       info('');

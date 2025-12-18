@@ -7,7 +7,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['scs'],
-  description: 'Set secrets for the server configuration',
+  description: 'Set server secrets',
   hidden: false,
   name: 'setConfigSecrets',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -25,13 +25,17 @@ const NewCommand: GluegunCommand = {
     if (!filesystem.exists(filePath)) {
       info('');
       error(`There's no file named "${filePath}"`);
-      return undefined;
+      return;
     }
 
     // Set secrets
     const prepareSpinner = spin(`Setting secrets in server configuration: ${filePath}`);
     await patching.update(filePath, content => server.replaceSecretOrPrivateKeys(content));
     prepareSpinner.succeed(`Secrets set in server configuration ${filePath}`);
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return 'secrets in server configuration set';

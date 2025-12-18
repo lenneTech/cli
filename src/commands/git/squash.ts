@@ -17,31 +17,29 @@ const NewCommand: GluegunCommand = {
       git,
       helper,
       parameters,
-      print: { error, info, spin, success },
+      print: { error, info, spin, success, warning },
       prompt: { ask, confirm },
       system: { run, startTimer },
     } = toolbox;
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configNoConfirm = ltConfig?.commands?.git?.squash?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
     const configBase = ltConfig?.commands?.git?.squash?.base;
     const configAuthor = ltConfig?.commands?.git?.squash?.author;
 
     // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
     const globalBaseBranch = config.getGlobalDefault<string>(ltConfig, 'baseBranch');
     const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
 
     // Parse CLI arguments
-    const cliNoConfirm = parameters.options.noConfirm;
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.squash,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
     });
 
     // Check git
@@ -58,6 +56,59 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Determine base branch with priority: CLI > config > global > default
+    const cliBase = parameters.first;
+    let base: string;
+    if (cliBase) {
+      base = cliBase;
+    } else if (configBase) {
+      base = configBase;
+    } else if (globalBaseBranch) {
+      base = globalBaseBranch;
+    } else {
+      base = 'dev'; // Default for dry-run preview
+    }
+
+    // Dry-run mode: show what would be affected
+    if (dryRun) {
+      warning('DRY-RUN MODE - No changes will be made');
+      info('');
+
+      // Get merge base for preview
+      const mergeBase = await git.getMergeBase(base);
+      if (!mergeBase) {
+        error(`No merge base found with ${base}!`);
+        return `dry-run squash branch ${branch} (no merge base)`;
+      }
+
+      // Show commits that would be squashed
+      const commitsToSquash = await run(`git log ${mergeBase}..HEAD --oneline`);
+      if (commitsToSquash?.trim()) {
+        const commitCount = commitsToSquash.trim().split('\n').length;
+        info(`Would squash ${commitCount} commit(s) on branch "${branch}" into base "${base}":`);
+        info('');
+        info('Commits to be squashed:');
+        commitsToSquash.trim().split('\n').forEach(line => info(`  ${line}`));
+      } else {
+        info(`No commits to squash on branch "${branch}" (already up to date with "${base}")`);
+      }
+
+      // Show the first commit message that would be used
+      const squashMessage = await git.getFirstBranchCommit(branch, base);
+      if (squashMessage) {
+        info('');
+        info(`Default squash message: "${squashMessage}"`);
+      }
+
+      info('');
+      info('Actions that would be performed:');
+      info(`  1. Soft reset to merge base (${mergeBase})`);
+      info('  2. Commit all changes with squash message');
+      info('  3. Force push to origin');
+
+      return `dry-run squash branch ${branch}`;
+    }
+
     // Check for changes
     if (await git.changes({ showError: true })) {
       return;
@@ -71,23 +122,17 @@ const NewCommand: GluegunCommand = {
     // Start timer
     const timer = startTimer();
 
-    // Determine base branch with priority: CLI > config > global > interactive
-    const cliBase = parameters.first;
-    let base: string;
-    if (cliBase) {
-      base = cliBase;
-    } else if (configBase) {
-      base = configBase;
-      info(`Using base branch from lt.config commands.git.squash: ${configBase}`);
-    } else if (globalBaseBranch) {
-      base = globalBaseBranch;
-      info(`Using base branch from lt.config defaults: ${globalBaseBranch}`);
-    } else {
+    // If base was not determined from CLI/config/global, ask interactively
+    if (!cliBase && !configBase && !globalBaseBranch) {
       base = await helper.getInput('', {
         initial: 'dev',
         name: 'Base branch',
         showError: false,
       });
+    } else if (configBase && !cliBase) {
+      info(`Using base branch from lt.config commands.git.squash: ${configBase}`);
+    } else if (globalBaseBranch && !cliBase && !configBase) {
+      info(`Using base branch from lt.config defaults: ${globalBaseBranch}`);
     }
 
     // Merge base

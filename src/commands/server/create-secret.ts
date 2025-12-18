@@ -8,14 +8,19 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['cs'],
-  description: 'Create a new secret string (for JWT config)',
+  description: 'Generate secret string',
   hidden: false,
   name: 'createSecret',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
+      parameters,
       print: { success },
     } = toolbox;
     success(crypto.randomBytes(512).toString('base64'));
+
+    if (!parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return 'secret created';

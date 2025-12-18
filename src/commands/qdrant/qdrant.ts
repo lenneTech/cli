@@ -1,7 +1,7 @@
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 const command = {
-  description: 'Commands for interacting with Qdrant',
+  description: 'Qdrant commands',
   name: 'qdrant',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     await toolbox.helper.showMenu('qdrant', {

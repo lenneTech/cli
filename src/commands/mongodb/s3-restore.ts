@@ -20,7 +20,7 @@ interface S3BackupFile {
  */
 const command: GluegunCommand = {
   alias: ['s3r'],
-  description: 'Restore MongoDB database from S3 backup',
+  description: 'Restore database from S3',
   name: 's3-restore',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {

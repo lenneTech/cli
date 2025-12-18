@@ -4,7 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * CLI commands
  */
 module.exports = {
-  alias: ['c'],
+  alias: ['cl'],
   description: 'Commands to create a CLI',
   hidden: true,
   name: 'cli',

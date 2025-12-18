@@ -57,10 +57,6 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configSkipLint = ltConfig?.commands?.server?.object?.skipLint;
-
-    // Load global defaults
-    const globalSkipLint = config.getGlobalDefault<boolean>(ltConfig, 'skipLint');
 
     // Parse CLI arguments
     const { name: cliName, skipLint: cliSkipLint } = parameters.options;
@@ -88,13 +84,13 @@ const NewCommand: ExtendedGluegunCommand = {
     if (!filesystem.exists(join(path, 'src'))) {
       info('');
       error(`No src directory in "${path}".`);
-      return undefined;
+      return;
     }
     const directory = join(path, 'src', 'server', 'common', 'objects', nameKebab);
     if (filesystem.exists(directory)) {
       info('');
       error(`Module directory "${directory}" already exists.`);
-      return undefined;
+      return;
     }
 
     // Parse properties from CLI or interactive mode
@@ -136,11 +132,10 @@ const NewCommand: ExtendedGluegunCommand = {
     generateSpinner.succeed('Files generated');
 
     // Lint fix with priority: CLI > config > global > default (false)
-    const skipLint = config.getValue({
+    const skipLint = config.getSkipLint({
       cliValue: cliSkipLint,
-      configValue: configSkipLint,
-      defaultValue: false,
-      globalValue: globalSkipLint,
+      commandConfig: ltConfig?.commands?.server?.object,
+      config: ltConfig,
     });
 
     if (!skipLint) {

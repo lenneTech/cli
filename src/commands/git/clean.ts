@@ -13,22 +13,79 @@ const NewCommand: GluegunCommand = {
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       git,
       helper,
-      print: { info, spin, success },
+      parameters,
+      print: { info, spin, success, warning },
+      prompt: { confirm },
       system: { run, startTimer },
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+
+    // Parse CLI arguments
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.clean,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
+    });
 
     // Check git
     if (!(await git.gitInstalled())) {
       return;
     }
 
+    const excludedBranches = ['main', 'test', 'dev', 'develop'];
+
+    // Dry-run mode: show what would be deleted (without side effects)
+    if (dryRun) {
+      warning('DRY-RUN MODE - No changes will be made');
+      info('');
+
+      // Get current merged branches without fetching
+      const result = await system.run('git branch --merged');
+      const branches = result
+        .split('\n')
+        .map(b => b.trim().replace(/^\* /, ''))
+        .filter(b => b && !excludedBranches.includes(b));
+
+      if (branches.length === 0) {
+        info('No merged branches to delete.');
+        info('');
+        info('Note: Run without --dry-run to fetch latest from remote first.');
+        return 'dry-run clean: no branches';
+      }
+
+      info(`Would delete ${branches.length} merged branch(es):`);
+      branches.forEach(b => info(`  - ${b}`));
+      info('');
+      info(`Excluded branches: ${excludedBranches.join(', ')}`);
+      info('');
+      info('Actions that would be performed:');
+      info('  1. Checkout dev/main branch');
+      info('  2. Fetch and prune remote');
+      info('  3. Pull latest changes');
+      info('  4. Delete merged branches');
+
+      return `dry-run clean: ${branches.length} branches`;
+    }
+
     // Get current branch
     const currentBranch = await git.currentBranch();
 
+    // Ask for confirmation before cleaning
+    if (!noConfirm && !(await confirm('Remove all merged branches?'))) {
+      return;
+    }
+
     let branch;
-    if (currentBranch !== 'dev' || currentBranch !== 'main') {
+    if (currentBranch !== 'dev' && currentBranch !== 'main') {
       // Search for branch, which includes branch name
       branch = await git.getBranch('dev', {
         error: false,
@@ -63,15 +120,15 @@ const NewCommand: GluegunCommand = {
     info(resultpull);
 
     const result = await system.run('git branch --merged');
-    const excludedBranches = ['main', 'dev', 'develop', 'beta', 'intern', 'release'];
 
     // Local Branches into Array
     const branches = result
       .split('\n')
-      .map(branch => branch.trim().replace(/^\* /, '')) // Remove '* '
-      .filter(branch => branch && !excludedBranches.includes(branch));
+      .map(b => b.trim().replace(/^\* /, '')) // Remove '* '
+      .filter(b => b && !excludedBranches.includes(b));
 
     if (branches.length === 0) {
+      undoSpinner.succeed();
       info('No branches to delete.');
       return;
     }
@@ -79,19 +136,24 @@ const NewCommand: GluegunCommand = {
     info(`Deleting branches: ${branches.join(', ')}`);
 
     // Delete branches
-    for (const branch of branches) {
-      await system.run(`git branch -d ${branch}`);
-      success(`Deleted branch: ${branch}`);
+    for (const branchToDelete of branches) {
+      await system.run(`git branch -d ${branchToDelete}`);
+      success(`Deleted branch: ${branchToDelete}`);
     }
 
     undoSpinner.succeed();
 
     // Success
-    success(`Successfull cleaned in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    success(`Successfully cleaned in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
 
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
-    return 'cleaned local';
+    return 'cleaned branches';
   },
 };
 

@@ -7,7 +7,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['pg'],
-  description: 'Create a new typescript playground',
+  description: 'Create TS playground',
   hidden: false,
   name: 'playground',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -45,6 +45,10 @@ const NewCommand: GluegunCommand = {
         error(`No option selected!${type}`);
         return;
       }
+    }
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
     }
 
     // For tests

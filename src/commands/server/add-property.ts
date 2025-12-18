@@ -65,10 +65,6 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configSkipLint = ltConfig?.commands?.server?.addProp?.skipLint;
-
-    // Load global defaults
-    const globalSkipLint = config.getGlobalDefault<boolean>(ltConfig, 'skipLint');
 
     // Parse CLI arguments
     const { element: cliElement, skipLint: cliSkipLint, type: cliType } = parameters.options;
@@ -102,7 +98,7 @@ const NewCommand: ExtendedGluegunCommand = {
     if (!filesystem.exists(join(path, 'src'))) {
       info('');
       error(`No src directory in "${path}".`);
-      return undefined;
+      return;
     }
 
     const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet }
@@ -414,11 +410,10 @@ const NewCommand: ExtendedGluegunCommand = {
     }
 
     // Lint fix with priority: CLI > config > global > default (false)
-    const skipLint = config.getValue({
+    const skipLint = config.getSkipLint({
       cliValue: cliSkipLint,
-      configValue: configSkipLint,
-      defaultValue: false,
-      globalValue: globalSkipLint,
+      commandConfig: ltConfig?.commands?.server?.addProp,
+      config: ltConfig,
     });
 
     if (!skipLint) {

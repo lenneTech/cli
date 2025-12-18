@@ -29,21 +29,15 @@ const NewCommand: GluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configUpdate = ltConfig?.commands?.npm?.reinit?.update;
-    const configNoConfirm = ltConfig?.commands?.npm?.reinit?.noConfirm;
-
-    // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
 
     // Parse CLI arguments
     const cliUpdate = parameters.options.update || parameters.options.u;
-    const cliNoConfirm = parameters.options.noConfirm;
 
-    // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    // Determine noConfirm with priority: CLI > command > global > default
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.npm?.reinit,
+      config: ltConfig,
     });
 
     // Check
@@ -110,6 +104,11 @@ const NewCommand: GluegunCommand = {
 
     // Success info
     success(`Reinitialized npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`);
+
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return 'npm reinit';

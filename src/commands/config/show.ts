@@ -79,6 +79,10 @@ const ShowCommand: ExtendedGluegunCommand = {
     }
     info('');
 
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     return 'config show';
   },
 };

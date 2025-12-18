@@ -8,7 +8,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['dc'],
-  description: 'Create deployment configuration',
+  description: 'Create deployment config',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -43,6 +43,14 @@ const NewCommand: GluegunCommand = {
     const cliGitLab = parameters.options.gitLab;
     const cliTestRunner = parameters.options.testRunner;
     const cliProdRunner = parameters.options.prodRunner;
+    const cliNoConfirm = parameters.options.noConfirm;
+
+    // Determine noConfirm with priority: CLI > command > parent > global > default
+    const noConfirm = config.getNoConfirm({
+      cliValue: cliNoConfirm,
+      commandConfig: ltConfig?.commands?.deployment,
+      config: ltConfig,
+    });
 
     // Start timer
     const timer = system.startTimer();
@@ -98,7 +106,7 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Determine gitHub with priority: CLI > config > interactive
+    // Determine gitHub with priority: CLI > config > noConfirm > interactive
     let gitHub: boolean;
     if (cliGitHub !== undefined) {
       gitHub = cliGitHub === true || cliGitHub === 'true';
@@ -107,11 +115,13 @@ const NewCommand: GluegunCommand = {
       if (gitHub) {
         info('Using GitHub pipeline setting from lt.config: enabled');
       }
+    } else if (noConfirm) {
+      gitHub = false; // Default to false when noConfirm
     } else {
       gitHub = await confirm('Add GitHub pipeline?');
     }
 
-    // Determine gitLab with priority: CLI > config > interactive
+    // Determine gitLab with priority: CLI > config > noConfirm > interactive
     let gitLab: boolean;
     if (cliGitLab !== undefined) {
       gitLab = cliGitLab === true || cliGitLab === 'true';
@@ -120,6 +130,8 @@ const NewCommand: GluegunCommand = {
       if (gitLab) {
         info('Using GitLab pipeline setting from lt.config: enabled');
       }
+    } else if (noConfirm) {
+      gitLab = false; // Default to false when noConfirm
     } else {
       gitLab = await confirm('Add GitLab pipeline?');
     }

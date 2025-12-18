@@ -17,27 +17,23 @@ const NewCommand: GluegunCommand = {
       git,
       helper,
       parameters,
-      print: { error, info, spin, success },
+      print: { error, info, spin, success, warning },
       prompt: { confirm },
       system: { run, startTimer },
     } = toolbox;
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configNoConfirm = ltConfig?.commands?.git?.rename?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
-
-    // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
 
     // Parse CLI arguments
-    const cliNoConfirm = parameters.options.noConfirm;
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.rename,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
     });
 
     // Check git
@@ -53,7 +49,7 @@ const NewCommand: GluegunCommand = {
       name: 'new name',
       showError: true,
     });
-    if (!branch) {
+    if (!name) {
       return;
     }
 
@@ -67,6 +63,28 @@ const NewCommand: GluegunCommand = {
     if (await git.getBranch(name, { exact: true })) {
       error(`Branch with name ${name} already exists`);
       return;
+    }
+
+    // Dry-run mode: show what would be affected
+    if (dryRun) {
+      warning('DRY-RUN MODE - No changes will be made');
+      info('');
+
+      // Check for remote branch
+      const remote = await git.getBranch(branch, { exact: true, remote: true });
+
+      info(`Would rename branch "${branch}" to "${name}"`);
+      info('');
+      info('Actions that would be performed:');
+      info(`  1. Rename local branch (git branch -m ${name})`);
+      if (remote) {
+        info(`  2. Push new branch name to remote (git push origin ${name})`);
+        info(`  3. Delete old remote branch (git push origin :${branch})`);
+      } else {
+        info('  (No remote branch to update)');
+      }
+
+      return `dry-run rename branch ${branch} to ${name}`;
     }
 
     // Ask to rename branch
@@ -109,6 +127,11 @@ const NewCommand: GluegunCommand = {
     // Success
     success(`Renamed ${branch} to ${name} in ${helper.msToMinutesAndSeconds(time)}m.`);
     info('');
+
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `renamed ${branch} to ${name}`;

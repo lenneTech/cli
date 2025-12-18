@@ -6,7 +6,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const HelpCommand: ExtendedGluegunCommand = {
   alias: ['h', 'info'],
-  description: 'Show help information about lt.config.json usage',
+  description: 'Show lt.config help',
   hidden: false,
   name: 'help',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -175,6 +175,10 @@ const HelpCommand: ExtendedGluegunCommand = {
     info('For more information, visit:');
     info('https://github.com/lenneTech/cli');
     info('');
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     return 'config help';
   },

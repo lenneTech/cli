@@ -4,7 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Claude commands
  */
 module.exports = {
-  alias: ['c'],
+  alias: ['ai'],
   description: 'Claude commands',
   hidden: true,
   name: 'claude',

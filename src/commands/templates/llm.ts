@@ -296,12 +296,18 @@ ${promptContent}
 
       info('');
 
+      // Exit if not running from menu
+      if (!toolbox.parameters.options.fromGluegunMenu) {
+        process.exit();
+      }
+
+      // For tests
+      return `templates llm ${selectedPrompt.replace('.md', '')}`;
+
     } catch (err) {
       error(`Failed to process prompt: ${err.message}`);
-      process.exit(1);
+      return;
     }
-
-    process.exit(0);
   },
 };
 

@@ -5,6 +5,11 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
  */
 export class Git {
   /**
+   * Cached result of gitInstalled check
+   */
+  private gitInstalledCache: boolean | null = null;
+
+  /**
    * Constructor for integration of toolbox
    */
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
@@ -230,9 +235,18 @@ export class Git {
   }
 
   /**
-   * Check if git is installed
+   * Check if git is installed (cached for performance)
    */
   public async gitInstalled() {
+    // Return cached result if available
+    if (this.gitInstalledCache !== null) {
+      if (!this.gitInstalledCache) {
+        const { print: { error } } = this.toolbox;
+        error('Please install git: https://git-scm.com');
+      }
+      return this.gitInstalledCache;
+    }
+
     // Toolbox features
     const {
       print: { error },
@@ -240,12 +254,21 @@ export class Git {
     } = this.toolbox;
 
     const gitInstalled = !!system.which('git');
+    this.gitInstalledCache = gitInstalled;
+
     if (!gitInstalled) {
       error('Please install git: https://git-scm.com');
       return false;
     }
 
     return true;
+  }
+
+  /**
+   * Clear the gitInstalled cache (useful for testing)
+   */
+  public clearCache() {
+    this.gitInstalledCache = null;
   }
 
   /**
@@ -457,6 +480,49 @@ export class Git {
       system: { run },
     } = this.toolbox;
     return run('git status');
+  }
+
+  /**
+   * Display dry-run information for git operations
+   * Shows what changes would be affected without making changes
+   *
+   * @param options - Configuration options
+   * @returns Formatted dry-run result string or null if no changes
+   */
+  public async showDryRunInfo(options: {
+    branch?: string;
+    operation: string;
+  }): Promise<null | string> {
+    const { branch, operation } = options;
+    const {
+      print: { info, warning },
+      system: { run },
+    } = this.toolbox;
+
+    warning('DRY-RUN MODE - No changes will be made');
+    info('');
+
+    const status = await run('git status --porcelain');
+    if (!status?.trim()) {
+      info('No changes to process.');
+      return null;
+    }
+
+    const lines = status.trim().split('\n');
+    const modified = lines.filter(l => l.startsWith(' M') || l.startsWith('M ')).length;
+    const added = lines.filter(l => l.startsWith('A ') || l.startsWith('??')).length;
+    const deleted = lines.filter(l => l.startsWith(' D') || l.startsWith('D ')).length;
+
+    const branchInfo = branch ? ` on branch "${branch}"` : '';
+    info(`Would ${operation}${branchInfo}:`);
+    if (modified > 0) info(`  - ${modified} modified file(s)`);
+    if (added > 0) info(`  - ${added} untracked/added file(s)`);
+    if (deleted > 0) info(`  - ${deleted} deleted file(s)`);
+    info('');
+    info('Files:');
+    lines.forEach(line => info(`  ${line}`));
+
+    return `dry-run ${operation} ${branch || ''}`.trim();
   }
 }
 

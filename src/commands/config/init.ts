@@ -19,16 +19,28 @@ const InitCommand: ExtendedGluegunCommand = {
       prompt: { ask, confirm },
     } = toolbox;
 
+    // Load configuration
+    const ltConfig = config.loadConfig();
+
+    // Determine noConfirm with priority: CLI > command > global > default
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.config?.init,
+      config: ltConfig,
+    });
+
     // Check for existing config files
     const cwd = filesystem.cwd();
     const configFiles = ['lt.config.json', 'lt.config.yaml', 'lt.config'];
     const existingConfig = configFiles.find((f) => filesystem.exists(filesystem.path(cwd, f)));
 
     if (existingConfig) {
-      const overwrite = await confirm(`${existingConfig} already exists. Overwrite?`, false);
-      if (!overwrite) {
-        info('Configuration initialization cancelled.');
-        return;
+      if (!noConfirm) {
+        const overwrite = await confirm(`${existingConfig} already exists. Overwrite?`, false);
+        if (!overwrite) {
+          info('Configuration initialization cancelled.');
+          return;
+        }
       }
       // Remove existing config file before creating new one
       filesystem.remove(filesystem.path(cwd, existingConfig));
@@ -168,6 +180,11 @@ const InitCommand: ExtendedGluegunCommand = {
       info(`Configuration saved to: ${configPath}`);
     } catch (e) {
       error(`Failed to create configuration file: ${e.message}`);
+      return 'config init: failed';
+    }
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
     }
 
     return 'config init';

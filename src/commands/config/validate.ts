@@ -9,23 +9,38 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const KNOWN_KEYS: Record<string, Record<string, any>> = {
   commands: {
+    blocks: {
+      add: { noConfirm: 'boolean' },
+    },
     cli: {
-      create: { author: 'string' },
+      create: { author: 'string', link: 'boolean', noConfirm: 'boolean' },
+    },
+    components: {
+      add: { noConfirm: 'boolean' },
+    },
+    config: {
+      init: { noConfirm: 'boolean' },
     },
     deployment: {
       domain: 'string',
       gitHub: 'boolean',
       gitLab: 'boolean',
+      noConfirm: 'boolean',
       prodRunner: 'string',
       testRunner: 'string',
+    },
+    frontend: {
+      angular: { localize: 'boolean', noConfirm: 'boolean' },
     },
     fullstack: {
       frontend: ['angular', 'nuxt'],
       git: 'boolean',
       gitLink: 'string',
+      noConfirm: 'boolean',
     },
     git: {
       baseBranch: 'string',
+      clean: { noConfirm: 'boolean' },
       clear: { noConfirm: 'boolean' },
       create: { base: 'string', noConfirm: 'boolean' },
       defaultBranch: 'string',
@@ -37,6 +52,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       reset: { noConfirm: 'boolean' },
       squash: { author: 'string', base: 'string', noConfirm: 'boolean' },
       undo: { noConfirm: 'boolean' },
+      update: { skipInstall: 'boolean' },
     },
     npm: {
       reinit: { noConfirm: 'boolean', update: 'boolean' },
@@ -48,12 +64,17 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
         controller: ['Rest', 'GraphQL', 'Both', 'auto'],
         description: 'string',
         git: 'boolean',
+        noConfirm: 'boolean',
       },
       module: {
         controller: ['Rest', 'GraphQL', 'Both', 'auto'],
+        noConfirm: 'boolean',
         skipLint: 'boolean',
       },
       object: { skipLint: 'boolean' },
+    },
+    typescript: {
+      create: { author: 'string', noConfirm: 'boolean', updatePackages: 'boolean' },
     },
   },
   defaults: {
@@ -62,6 +83,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
     controller: ['Rest', 'GraphQL', 'Both', 'auto'],
     domain: 'string',
     noConfirm: 'boolean',
+    skipInstall: 'boolean',
     skipLint: 'boolean',
   },
   meta: {
@@ -254,6 +276,10 @@ const ValidateCommand: ExtendedGluegunCommand = {
     } else {
       info('  For YAML files, use a JSON Schema-aware editor with:');
       info('  # yaml-language-server: $schema=./node_modules/@lenne.tech/cli/schemas/lt.config.schema.json');
+    }
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
     }
 
     return validation.errors.length === 0 ? 'config validate: valid' : 'config validate: invalid';

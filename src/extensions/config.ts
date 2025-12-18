@@ -365,6 +365,53 @@ export class Config {
   }
 
   /**
+   * Get noConfirm setting with standard priority handling
+   * Simplifies the common pattern used across many commands
+   *
+   * @param options - Configuration options
+   * @returns The resolved noConfirm value
+   */
+  getNoConfirm(options: {
+    cliValue?: boolean | null;
+    commandConfig?: { noConfirm?: boolean };
+    config: LtConfig;
+    parentConfig?: { noConfirm?: boolean };
+  }): boolean {
+    const { cliValue, commandConfig, config, parentConfig } = options;
+    const configNoConfirm = commandConfig?.noConfirm ?? parentConfig?.noConfirm;
+    const globalNoConfirm = this.getGlobalDefault<boolean>(config, 'noConfirm');
+
+    return this.getValue({
+      cliValue,
+      configValue: configNoConfirm,
+      defaultValue: false,
+      globalValue: globalNoConfirm,
+    }) ?? false;
+  }
+
+  /**
+   * Get skipLint setting with standard priority handling
+   *
+   * @param options - Configuration options
+   * @returns The resolved skipLint value
+   */
+  getSkipLint(options: {
+    cliValue?: boolean | null;
+    commandConfig?: { skipLint?: boolean };
+    config: LtConfig;
+  }): boolean {
+    const { cliValue, commandConfig, config } = options;
+    const globalSkipLint = this.getGlobalDefault<boolean>(config, 'skipLint');
+
+    return this.getValue({
+      cliValue,
+      configValue: commandConfig?.skipLint,
+      defaultValue: false,
+      globalValue: globalSkipLint,
+    }) ?? false;
+  }
+
+  /**
    * Save configuration to a file in the specified directory
    *
    * @param config - Configuration to save

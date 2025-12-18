@@ -29,14 +29,14 @@ const NewCommand: GluegunCommand = {
     // Check if source directory exists
     if (!existsSync(sourceDir)) {
       error(`Source directory not found: ${sourceDir}`);
-      return process.exit(1);
+      return 'install-scripts: source not found';
     }
 
     // Check if target directory exists
     if (!existsSync(targetDir)) {
       error(`Target directory not found: ${targetDir}`);
       info('You may need to create it first: sudo mkdir -p /usr/local/bin');
-      return process.exit(1);
+      return 'install-scripts: target not found';
     }
 
     // Get all script files
@@ -44,7 +44,7 @@ const NewCommand: GluegunCommand = {
 
     if (scripts.length === 0) {
       error('No scripts found to install.');
-      return process.exit(1);
+      return 'install-scripts: no scripts';
     }
 
     info(`Installing ${scripts.length} script${scripts.length > 1 ? 's' : ''} to ${targetDir}...`);
@@ -103,10 +103,10 @@ const NewCommand: GluegunCommand = {
     info('');
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
-      process.exit(failed.length > 0 ? 1 : 0);
+      process.exit();
     }
 
-    return 'scripts installed';
+    return failed.length > 0 ? `scripts installed with ${failed.length} failures` : 'scripts installed';
   },
 };
 

@@ -51,7 +51,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(projectDir)) {
       info('');
       error(`There's already a folder named "${projectDir}" here.`);
-      return undefined;
+      return;
     }
 
     // Clone git repository
@@ -65,7 +65,7 @@ const NewCommand: GluegunCommand = {
     // Check directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
       error(`The directory "${projectDir}" could not be created.`);
-      return undefined;
+      return;
     }
 
     // Get author

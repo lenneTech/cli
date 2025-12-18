@@ -18,27 +18,23 @@ const NewCommand: GluegunCommand = {
       helper,
       npm,
       parameters,
-      print: { error, info, spin, success },
+      print: { error, info, spin, success, warning },
       prompt,
       system,
     } = toolbox;
 
     // Load configuration
     const ltConfig = config.loadConfig();
-    const configNoConfirm = ltConfig?.commands?.git?.reset?.noConfirm ?? ltConfig?.commands?.git?.noConfirm;
-
-    // Load global defaults
-    const globalNoConfirm = config.getGlobalDefault<boolean>(ltConfig, 'noConfirm');
 
     // Parse CLI arguments
-    const cliNoConfirm = parameters.options.noConfirm;
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
-    const noConfirm = config.getValue({
-      cliValue: cliNoConfirm,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.git?.reset,
+      config: ltConfig,
+      parentConfig: ltConfig?.commands?.git,
     });
 
     // Start timer
@@ -63,6 +59,44 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Dry-run mode: show what would be affected
+    if (dryRun) {
+      warning('DRY-RUN MODE - No changes will be made');
+      info('');
+
+      // Show local changes that would be lost
+      const status = await system.run('git status --porcelain');
+      if (status?.trim()) {
+        const lines = status.trim().split('\n');
+        info(`Would discard on branch "${branch}":`);
+        info(`  - ${lines.length} file(s) with local changes`);
+        info('');
+        info('Files:');
+        lines.forEach(line => info(`  ${line}`));
+      } else {
+        info('No local changes to discard.');
+      }
+
+      // Show commits that would be lost
+      const localCommits = await system.run(`git log origin/${branch}..HEAD --oneline 2>/dev/null || echo ""`);
+      if (localCommits?.trim()) {
+        info('');
+        info('Local commits that would be lost:');
+        localCommits.trim().split('\n').forEach(line => info(`  ${line}`));
+      }
+
+      info('');
+      info('Actions that would be performed:');
+      info('  1. Clean untracked files (git clean -fd)');
+      info('  2. Reset HEAD (git reset HEAD --hard)');
+      info('  3. Checkout main and pull');
+      info(`  4. Delete local branch "${branch}"`);
+      info(`  5. Checkout "${branch}" from remote`);
+      info('  6. Run npm install');
+
+      return `dry-run reset branch ${branch}`;
+    }
+
     // Ask for reset
     if (!noConfirm && !(await prompt.confirm(`Reset branch ${branch} to the remote state`))) {
       return;
@@ -76,12 +110,8 @@ const NewCommand: GluegunCommand = {
         + 'git checkout main && '
         + 'git fetch && '
         + 'git pull && '
-        + `git branch -D ${ 
-        branch 
-        } && `
-        + `git checkout ${ 
-        branch 
-        } && `
+        + `git branch -D ${branch} && `
+        + `git checkout ${branch} && `
         + 'git pull',
     );
     resetSpin.succeed();
@@ -90,8 +120,13 @@ const NewCommand: GluegunCommand = {
     await npm.install();
 
     // Success info
-    success(`Branch ${branch} was reset in in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    success(`Branch ${branch} was reset in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return `reset branch ${branch}`;

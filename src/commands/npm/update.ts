@@ -28,8 +28,13 @@ const NewCommand: GluegunCommand = {
     // Success info
     success(`Updated npm packages in ${helper.msToMinutesAndSeconds(timer())}m.`);
 
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
-    return 'npm update';
+    return 'updated npm packages';
   },
 };
 

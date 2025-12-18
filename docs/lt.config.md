@@ -75,7 +75,10 @@ When running `lt server module` in `/home/user/projects/my-monorepo/projects/api
 interface LtConfig {
   defaults?: DefaultsConfig;   // Global defaults for multiple commands
   commands?: {
+    blocks?: BlocksConfig;
     cli?: CliConfig;
+    components?: ComponentsConfig;
+    config?: ConfigConfig;
     deployment?: DeploymentConfig;
     fullstack?: FullstackConfig;
     git?: GitConfig;
@@ -96,7 +99,8 @@ The `defaults` section contains settings that apply across multiple commands. Th
 | `defaults.baseBranch` | `string` | - | git/create, git/squash, git/rebase |
 | `defaults.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | server/module, server/create |
 | `defaults.domain` | `string` | - | deployment/create (use `{name}` as placeholder) |
-| `defaults.noConfirm` | `boolean` | `false` | git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit |
+| `defaults.noConfirm` | `boolean` | `false` | blocks/add, components/add, config/init, git/*, server/create, server/module, npm/reinit, cli/create, typescript/create, fullstack/init, deployment/create, frontend/angular |
+| `defaults.skipInstall` | `boolean` | `false` | git/update |
 | `defaults.skipLint` | `boolean` | `false` | server/module, server/object, server/addProp |
 
 **Example:**
@@ -108,6 +112,7 @@ The `defaults` section contains settings that apply across multiple commands. Th
     "controller": "Both",
     "domain": "{name}.lenne.tech",
     "noConfirm": false,
+    "skipInstall": false,
     "skipLint": false
   }
 }
@@ -121,6 +126,7 @@ defaults:
   controller: Both
   domain: "{name}.lenne.tech"
   noConfirm: false
+  skipInstall: false
   skipLint: false
 ```
 
@@ -148,6 +154,96 @@ Global defaults provide a convenient way to set organization-wide preferences. C
 ---
 
 ## Commands Reference
+
+### Blocks Commands
+
+#### `lt blocks add`
+
+Adds code blocks from the lenne.tech component library.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.blocks.add.noConfirm` | `boolean` | `false` | Skip confirmation prompts (auto-install dependencies) |
+
+**Example:**
+```json
+{
+  "commands": {
+    "blocks": {
+      "add": {
+        "noConfirm": true
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt blocks add MyBlock --noConfirm
+```
+
+---
+
+### Components Commands
+
+#### `lt components add`
+
+Adds components from the lenne.tech component library.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.components.add.noConfirm` | `boolean` | `false` | Skip confirmation prompts (auto-install dependencies) |
+
+**Example:**
+```json
+{
+  "commands": {
+    "components": {
+      "add": {
+        "noConfirm": true
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt components add MyComponent --noConfirm
+```
+
+---
+
+### Config Commands
+
+#### `lt config init`
+
+Initializes a new lt.config file.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.config.init.noConfirm` | `boolean` | `false` | Skip confirmation prompts (overwrite existing config) |
+
+**Example:**
+```json
+{
+  "commands": {
+    "config": {
+      "init": {
+        "noConfirm": true
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt config init --noConfirm
+```
+
+---
 
 ### CLI Commands
 
@@ -263,10 +359,11 @@ Creates a new server project.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `commands.server.create.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | Default controller type for new projects |
-| `commands.server.create.git` | `boolean` | - | Initialize git repository |
 | `commands.server.create.author` | `string` | - | Default author for new projects |
+| `commands.server.create.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | Default controller type for new projects |
 | `commands.server.create.description` | `string` | - | Default description (use `{name}` as placeholder) |
+| `commands.server.create.git` | `boolean` | - | Initialize git repository |
+| `commands.server.create.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
 
 **Example:**
 ```json
@@ -367,18 +464,21 @@ Creates a new branch.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `commands.git.defaultBranch` | `string` | `'main'` | Default branch name |
-| `commands.git.baseBranch` | `string` | - | Default base branch for new feature branches |
-| `commands.git.noConfirm` | `boolean` | `false` | Skip confirmation prompts (global) |
+| `commands.git.create.base` | `string` | - | Default base branch for new branches (command-specific) |
+| `commands.git.create.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+| `commands.git.baseBranch` | `string` | - | Default base branch (category-level fallback) |
+| `commands.git.noConfirm` | `boolean` | `false` | Skip confirmation prompts (category-level) |
 
 **Example:**
 ```json
 {
   "commands": {
     "git": {
-      "defaultBranch": "develop",
       "baseBranch": "develop",
-      "noConfirm": false
+      "create": {
+        "base": "develop",
+        "noConfirm": false
+      }
     }
   }
 }
@@ -623,6 +723,34 @@ lt git rename new-name --noConfirm
 
 ---
 
+#### `lt git update`
+
+Updates current branch (fetch + pull + npm install).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.git.update.skipInstall` | `boolean` | `false` | Skip npm install after update |
+
+**Example:**
+```json
+{
+  "commands": {
+    "git": {
+      "update": {
+        "skipInstall": true
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt git update --skipInstall
+```
+
+---
+
 ### NPM Commands
 
 #### `lt npm reinit`
@@ -685,6 +813,7 @@ The `meta` section stores project information.
     "controller": "Both",
     "domain": "{name}.lenne.tech",
     "noConfirm": false,
+    "skipInstall": false,
     "skipLint": false
   },
   "commands": {
@@ -731,6 +860,7 @@ defaults:
   controller: Both
   domain: "{name}.lenne.tech"
   noConfirm: false
+  skipInstall: false
   skipLint: false
 
 commands:

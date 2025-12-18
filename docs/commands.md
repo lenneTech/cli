@@ -12,6 +12,13 @@ This document provides a comprehensive reference for all `lt` CLI commands. For 
 - [NPM Commands](#npm-commands)
 - [Frontend Commands](#frontend-commands)
 - [Config Commands](#config-commands)
+- [Utility Commands](#utility-commands)
+- [Database Commands](#database-commands)
+- [TypeScript Commands](#typescript-commands)
+- [Starter Commands](#starter-commands)
+- [Claude Commands](#claude-commands)
+- [Blocks & Components](#blocks--components)
+- [Template Commands](#template-commands)
 - [Other Commands](#other-commands)
 
 ---
@@ -38,6 +45,17 @@ lt cli create [name] [options]
 
 ---
 
+### `lt cli rename`
+
+Renames the current CLI project.
+
+**Usage:**
+```bash
+lt cli rename <new-name>
+```
+
+---
+
 ## Server Commands
 
 ### `lt server create`
@@ -55,8 +73,9 @@ lt server create [name] [options]
 | `--description <text>` | Project description |
 | `--author <name>` | Author name |
 | `--git` | Initialize git repository |
+| `--noConfirm` | Skip confirmation prompts |
 
-**Configuration:** `commands.server.create.*`, `defaults.author`
+**Configuration:** `commands.server.create.*`, `defaults.author`, `defaults.noConfirm`
 
 ---
 
@@ -74,9 +93,10 @@ lt server module [options]
 |--------|-------------|
 | `--name <name>` | Module name |
 | `--controller <type>` | Controller type: `Rest`, `GraphQL`, `Both`, `auto` |
+| `--noConfirm` | Skip confirmation prompts |
 | `--skipLint` | Skip lint fix after creation |
 
-**Configuration:** `commands.server.module.*`, `defaults.controller`, `defaults.skipLint`
+**Configuration:** `commands.server.module.*`, `defaults.controller`, `defaults.skipLint`, `defaults.noConfirm`
 
 ---
 
@@ -119,9 +139,44 @@ lt server addProp [options]
 
 ---
 
+### `lt server create-secret`
+
+Creates a random secret key.
+
+**Usage:**
+```bash
+lt server create-secret
+```
+
+---
+
+### `lt server set-secrets`
+
+Sets secrets in environment files.
+
+**Usage:**
+```bash
+lt server set-secrets [options]
+```
+
+---
+
+### `lt server test`
+
+Runs server tests.
+
+**Usage:**
+```bash
+lt server test
+```
+
+---
+
 ## Git Commands
 
 All git commands support the `--noConfirm` flag and can be configured via `defaults.noConfirm` or `commands.git.noConfirm`.
+
+**Commands with `--dry-run` support:** create, update, clear, force-pull, reset, undo, clean, squash, rebase, rename - preview changes without executing them.
 
 ### `lt git create`
 
@@ -136,8 +191,10 @@ lt git create <branch-name> [base-branch] [options]
 | Option | Description |
 |--------|-------------|
 | `--base <branch>` | Base branch for the new branch |
+| `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview what would be created without making changes |
 
-**Configuration:** `commands.git.baseBranch`, `defaults.baseBranch`
+**Configuration:** `commands.git.create.base`, `commands.git.baseBranch`, `defaults.baseBranch`
 
 ---
 
@@ -173,6 +230,7 @@ lt git squash [base-branch] [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview commits that would be squashed |
 | `--author <name>` | Author for the squash commit |
 | `--message <text>` | Commit message |
 
@@ -193,6 +251,7 @@ lt git rebase [base-branch] [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview commits that would be rebased |
 | `--base <branch>` | Base branch for rebase |
 
 **Configuration:** `commands.git.rebase.*`, `defaults.noConfirm`, `defaults.baseBranch`
@@ -212,6 +271,7 @@ lt git clear [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview what would be discarded |
 
 **Configuration:** `commands.git.clear.noConfirm`, `defaults.noConfirm`
 
@@ -230,6 +290,7 @@ lt git force-pull [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview what would be lost |
 
 **Configuration:** `commands.git.forcePull.noConfirm`, `defaults.noConfirm`
 
@@ -248,6 +309,7 @@ lt git reset [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview what would be reset |
 
 **Configuration:** `commands.git.reset.noConfirm`, `defaults.noConfirm`
 
@@ -266,6 +328,7 @@ lt git undo [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview the commit that would be undone |
 
 **Configuration:** `commands.git.undo.noConfirm`, `defaults.noConfirm`
 
@@ -284,6 +347,7 @@ lt git rename <new-name> [options]
 | Option | Description |
 |--------|-------------|
 | `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview the rename operation |
 | `--deleteRemote` | Delete remote branch after rename |
 
 **Configuration:** `commands.git.rename.noConfirm`, `defaults.noConfirm`
@@ -292,12 +356,20 @@ lt git rename <new-name> [options]
 
 ### `lt git update`
 
-Updates the current branch (fetch + pull).
+Updates the current branch (fetch + pull + npm install).
 
 **Usage:**
 ```bash
-lt git update
+lt git update [options]
 ```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--skipInstall` | Skip npm install after update |
+| `--dry-run` | Preview incoming commits without making changes |
+
+**Configuration:** `commands.git.update.skipInstall`, `defaults.skipInstall`
 
 ---
 
@@ -307,8 +379,34 @@ Removes local merged branches.
 
 **Usage:**
 ```bash
-lt git clean
+lt git clean [options]
 ```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--noConfirm` | Skip confirmation prompts |
+| `--dry-run` | Preview which branches would be deleted |
+
+**Configuration:** `commands.git.clean.noConfirm`, `defaults.noConfirm`
+
+---
+
+### `lt git install-scripts`
+
+Installs bash scripts for git operations to `~/.local/bin/`.
+
+**Usage:**
+```bash
+lt git install-scripts
+```
+
+Installs helper scripts:
+- `git-squash` - Squash commits
+- `git-rebase` - Rebase branch
+- `git-clear` - Clear changes
+- `git-force-pull` - Force pull
+- etc.
 
 ---
 
@@ -330,8 +428,9 @@ lt fullstack init [options]
 | `--frontend <type>` | Frontend framework: `angular` or `nuxt` |
 | `--git` | Initialize git repository |
 | `--git-link <url>` | Git repository URL |
+| `--noConfirm` | Skip confirmation prompts |
 
-**Configuration:** `commands.fullstack.*`
+**Configuration:** `commands.fullstack.*`, `defaults.noConfirm`
 
 ---
 
@@ -354,8 +453,9 @@ lt deployment create [name] [options]
 | `--gitLab` | Enable GitLab pipeline |
 | `--testRunner <tag>` | GitLab test runner tag |
 | `--prodRunner <tag>` | GitLab production runner tag |
+| `--noConfirm` | Skip confirmation prompts |
 
-**Configuration:** `commands.deployment.*`, `defaults.domain`
+**Configuration:** `commands.deployment.*`, `defaults.domain`, `defaults.noConfirm`
 
 ---
 
@@ -433,6 +533,9 @@ lt config init [options]
 | `--controller <type>` | Default controller type |
 | `--frontend <type>` | Default frontend framework |
 | `--interactive <bool>` | Enable/disable interactive mode |
+| `--noConfirm` | Skip confirmation prompts (overwrite existing) |
+
+**Configuration:** `commands.config.init.noConfirm`, `defaults.noConfirm`
 
 ---
 
@@ -455,6 +558,320 @@ Shows help for the configuration system.
 ```bash
 lt config help
 ```
+
+---
+
+### `lt config validate`
+
+Validates the current `lt.config` file.
+
+**Usage:**
+```bash
+lt config validate
+```
+
+Reports syntax errors, type mismatches, and unknown keys.
+
+---
+
+## Utility Commands
+
+### `lt status`
+
+Shows project status and context.
+
+**Usage:**
+```bash
+lt status
+```
+
+Displays:
+- Project type detection (nest-server, nuxt, angular, etc.)
+- Package information
+- Git branch and repository status
+- Configuration file status
+- Available commands for the project type
+
+---
+
+### `lt doctor`
+
+Diagnoses common development environment issues.
+
+**Usage:**
+```bash
+lt doctor [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--fix` | Attempt automatic fixes |
+
+Checks:
+- Node.js version
+- npm version
+- Git installation
+- lt CLI version and updates
+- Project configuration
+- Dependencies installation
+
+---
+
+### `lt history`
+
+Views and manages command history.
+
+**Usage:**
+```bash
+lt history [count]
+lt history search <pattern>
+lt history clear
+```
+
+**Arguments:**
+- `count` - Number of recent commands to show (default: 20)
+- `search <pattern>` - Search history for matching commands
+- `clear` - Clear command history
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--noConfirm` | Skip confirmation when clearing |
+
+---
+
+### `lt completion`
+
+Generates and installs shell completion scripts.
+
+**Usage:**
+```bash
+lt completion install         # Install completions (recommended)
+lt completion <bash|zsh|fish> # Output completion script
+```
+
+**How it works:**
+- Generates **static completion files** at install time (no runtime overhead)
+- Completions are **auto-updated** when CLI is installed/updated
+- Files are loaded once at shell startup
+
+**Installation:**
+```bash
+# Automatic (recommended)
+lt completion install
+
+# Manual (if needed)
+lt completion bash > ~/.local/share/lt/completions/lt.bash
+lt completion zsh > ~/.local/share/lt/completions/_lt
+lt completion fish > ~/.config/fish/completions/lt.fish
+```
+
+**Completion file locations:**
+- Bash: `~/.local/share/lt/completions/lt.bash`
+- Zsh: `~/.local/share/lt/completions/_lt`
+- Fish: `~/.config/fish/completions/lt.fish`
+
+---
+
+### `lt templates list`
+
+Lists available templates.
+
+**Usage:**
+```bash
+lt templates list
+```
+
+Shows:
+- Built-in templates
+- Custom templates (~/.lt/templates)
+- Project templates (./lt-templates)
+
+---
+
+## Database Commands
+
+### `lt mongodb collection-export`
+
+Exports a MongoDB collection to JSON file.
+
+**Usage:**
+```bash
+lt mongodb collection-export [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--mongoUri <uri>` | MongoDB connection URI |
+| `--database <name>` | Database name |
+| `--collection <name>` | Collection name |
+| `--output <path>` | Output file path |
+
+---
+
+### `lt mongodb s3-restore`
+
+Restores a MongoDB database from an S3 backup.
+
+**Usage:**
+```bash
+lt mongodb s3-restore [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--bucket <name>` | S3 bucket name |
+| `--key <key>` | S3 access key ID |
+| `--secret <secret>` | S3 secret access key |
+| `--url <url>` | S3 endpoint URL |
+| `--region <region>` | S3 region |
+| `--folder <folder>` | S3 folder/prefix |
+| `--mongoUri <uri>` | MongoDB connection URI |
+| `--database <name>` | Target database name |
+
+---
+
+### `lt qdrant stats`
+
+Shows statistics for Qdrant collections.
+
+**Usage:**
+```bash
+lt qdrant stats
+```
+
+---
+
+### `lt qdrant delete`
+
+Deletes a Qdrant collection.
+
+**Usage:**
+```bash
+lt qdrant delete
+```
+
+---
+
+## TypeScript Commands
+
+### `lt typescript create`
+
+Creates a new TypeScript project.
+
+**Usage:**
+```bash
+lt typescript create [name] [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--author <name>` | Author name |
+| `--noConfirm` | Skip confirmation prompts |
+| `--updatePackages` | Update packages to latest versions |
+
+**Configuration:** `commands.typescript.create.*`, `defaults.author`, `defaults.noConfirm`
+
+---
+
+### `lt typescript playground`
+
+Opens TypeScript playground.
+
+**Usage:**
+```bash
+lt typescript playground
+```
+
+---
+
+## Starter Commands
+
+### `lt starter chrome-extension`
+
+Creates a Chrome extension project.
+
+**Usage:**
+```bash
+lt starter chrome-extension [name]
+```
+
+---
+
+## Claude Commands
+
+### `lt claude plugins`
+
+Manages Claude Code plugins.
+
+**Usage:**
+```bash
+lt claude plugins
+```
+
+Lists and manages installed Claude Code plugins.
+
+---
+
+## Blocks & Components
+
+### `lt blocks add`
+
+Adds code blocks to your project from the lenne.tech component library.
+
+**Usage:**
+```bash
+lt blocks add [block-name] [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--noConfirm` | Skip confirmation prompts (auto-install dependencies) |
+
+**Configuration:** `commands.blocks.add.noConfirm`, `defaults.noConfirm`
+
+---
+
+### `lt components add`
+
+Adds components to your project from the lenne.tech component library.
+
+**Usage:**
+```bash
+lt components add [component-name] [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--noConfirm` | Skip confirmation prompts (auto-install dependencies) |
+
+**Configuration:** `commands.components.add.noConfirm`, `defaults.noConfirm`
+
+---
+
+## Template Commands
+
+### `lt templates llm`
+
+Gets LLM prompt templates.
+
+**Usage:**
+```bash
+lt templates llm [prompt-name] [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--output <path>` / `-o` | Save to file |
+| `--clipboard` / `-c` | Copy to clipboard |
+| `--display` / `-d` | Display in terminal |
 
 ---
 
@@ -498,15 +915,48 @@ lt tools crypt [password]
 
 ---
 
+### `lt tools sha256`
+
+Generates a SHA256 hash.
+
+**Usage:**
+```bash
+lt tools sha256 [text]
+```
+
+---
+
+### `lt tools jwt-read`
+
+Reads and decodes a JWT token.
+
+**Usage:**
+```bash
+lt tools jwt-read [token]
+```
+
+---
+
+### `lt tools regex`
+
+Tests regular expressions.
+
+**Usage:**
+```bash
+lt tools regex [pattern] [text]
+```
+
+---
+
 ## Configuration Priority
 
 All configurable commands follow this priority order (highest to lowest):
 
-1. **Interactive user input** (if enabled)
-2. **CLI parameters** (e.g., `--noConfirm`)
-3. **Command-specific config** (e.g., `commands.git.get.noConfirm`)
-4. **Category-level config** (e.g., `commands.git.noConfirm`)
-5. **Global defaults** (e.g., `defaults.noConfirm`)
-6. **Code defaults**
+1. **CLI parameters** (e.g., `--noConfirm`)
+2. **Command-specific config** (e.g., `commands.git.get.noConfirm`)
+3. **Category-level config** (e.g., `commands.git.noConfirm`)
+4. **Global defaults** (e.g., `defaults.noConfirm`)
+5. **Code defaults**
+6. **Interactive user input** (only if no value determined from above)
 
 For detailed configuration options, see [lt.config.md](./lt.config.md).

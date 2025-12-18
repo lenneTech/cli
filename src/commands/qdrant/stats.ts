@@ -26,7 +26,7 @@ interface QdrantCollectionsResponse {
 
 const command: GluegunCommand = {
   alias: ['s'],
-  description: 'Shows statistics for Qdrant collections',
+  description: 'Show collection statistics',
   name: 'stats',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const { http, print } = toolbox;
@@ -92,6 +92,10 @@ const command: GluegunCommand = {
     print.table(tableData, {
       format: 'lean',
     });
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
 
     // For tests
     return 'qdrant stats';

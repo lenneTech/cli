@@ -118,14 +118,19 @@ const NewCommand: ExtendedGluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configController = ltConfig?.commands?.server?.module?.controller;
-    const configSkipLint = ltConfig?.commands?.server?.module?.skipLint;
 
     // Load global defaults
     const globalController = config.getGlobalDefault<string>(ltConfig, 'controller');
-    const globalSkipLint = config.getGlobalDefault<boolean>(ltConfig, 'skipLint');
 
     // Parse CLI arguments
     const { controller: cliController, name: cliName, skipLint: cliSkipLint } = parameters.options;
+
+    // Determine noConfirm with priority: CLI > config > global > default (false)
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm,
+      commandConfig: ltConfig?.commands?.server?.module,
+      config: ltConfig,
+    });
 
     let name = cliName || currentItem || parameters.first;
     if (!name) {
@@ -144,7 +149,7 @@ const NewCommand: ExtendedGluegunCommand = {
     if (!filesystem.exists(join(path, 'src'))) {
       info('');
       error(`No src directory in "${path}".`);
-      return undefined;
+      return;
     }
 
     // Determine controller type with priority: CLI > config > global > auto-detect > interactive
@@ -173,7 +178,12 @@ const NewCommand: ExtendedGluegunCommand = {
     else if (globalController) {
       controller = resolveController(globalController, 'lt.config defaults');
     }
-    // Priority 4: Interactive mode with auto-detection
+    // Priority 4: noConfirm mode - use detected/default
+    else if (noConfirm) {
+      info(`Using auto-detected controller pattern: ${detected} (noConfirm mode)`);
+      controller = detected;
+    }
+    // Priority 5: Interactive mode with auto-detection
     else {
       // Map detected value to index for initial selection
       const choices = ['Rest', 'GraphQL', 'Both'];
@@ -197,7 +207,7 @@ const NewCommand: ExtendedGluegunCommand = {
     if (filesystem.exists(directory)) {
       info('');
       error(`Module directory "${directory}" already exists.`);
-      return undefined;
+      return;
     }
 
     const { objectsToAdd: newObjects, props, referencesToAdd: newReferences, refsSet, schemaSet }
@@ -331,11 +341,6 @@ const NewCommand: ExtendedGluegunCommand = {
       info('Don\'t forget to include the module into your main module.');
     }
 
-    // Linting
-    // if (await confirm('Run lint?', false)) {
-    //   await system.run('npm run lint');
-    // }
-
     // We're done, so show what to do next
     info('');
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
@@ -356,15 +361,16 @@ const NewCommand: ExtendedGluegunCommand = {
     }
 
     // Lint fix with priority: CLI > config > global > default (false)
-    const skipLint = config.getValue({
+    const skipLint = config.getSkipLint({
       cliValue: cliSkipLint,
-      configValue: configSkipLint,
-      defaultValue: false,
-      globalValue: globalSkipLint,
+      commandConfig: ltConfig?.commands?.server?.module,
+      config: ltConfig,
     });
 
     if (!skipLint) {
-      if (await confirm('Run lint fix?', true)) {
+      // Run lint fix - skip confirmation when noConfirm, otherwise ask
+      const runLint = noConfirm || await confirm('Run lint fix?', true);
+      if (runLint) {
         await system.run('npm run lint:fix');
       }
     }

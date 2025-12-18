@@ -48,7 +48,7 @@ const NewCommand: GluegunCommand = {
     if (!filesystem.exists(join(path, 'tests'))) {
       info('');
       error(`No tests directory in "${path}".`);
-      return undefined;
+      return;
     }
     const testsDir = join(path, 'tests');
     const filePath = join(testsDir, `${nameKebab}.e2e-spec.ts`);
@@ -57,7 +57,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(filePath)) {
       info('');
       error(`There's already a file named "${filePath}"`);
-      return undefined;
+      return;
     }
 
     const generateSpinner = spin('Generate test file');

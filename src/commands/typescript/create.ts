@@ -8,12 +8,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  */
 const NewCommand: GluegunCommand = {
   alias: ['c', 'new', 'n'],
-  description: 'Creates a new Typescript project',
+  description: 'Create TypeScript project',
   hidden: false,
   name: 'create',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     // Retrieve the tools we need
     const {
+      config,
       filesystem,
       git,
       helper,
@@ -27,6 +28,21 @@ const NewCommand: GluegunCommand = {
       system,
       template,
     } = toolbox;
+
+    // Load configuration
+    const ltConfig = config.loadConfig();
+    const configUpdatePackages = ltConfig?.commands?.typescript?.create?.updatePackages;
+    const configAuthor = ltConfig?.commands?.typescript?.create?.author;
+
+    // Load global defaults
+    const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
+
+    // Determine noConfirm with priority: CLI > command > global > default
+    const noConfirm = config.getNoConfirm({
+      cliValue: parameters.options.noConfirm || parameters.options.y,
+      commandConfig: ltConfig?.commands?.typescript?.create,
+      config: ltConfig,
+    });
 
     // Start timer
     const timer = system.startTimer();
@@ -55,28 +71,45 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(projectDir)) {
       info('');
       error(`There's already a folder named "${projectDir}" here.`);
-      return undefined;
+      return;
     }
 
     // Clone git repository
     const cloneSpinner = spin('Clone https://github.com/lenneTech/typescript-starter.git');
-    await system.run(`git clone https://github.com/lenneTech/typescript-starter.git ${projectDir}`);
-    if (filesystem.isDirectory(`./${projectDir}`)) {
-      filesystem.remove(`./${projectDir}/.git`);
-      cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/typescript-starter.git');
+    try {
+      await system.run(`git clone https://github.com/lenneTech/typescript-starter.git ${projectDir}`);
+      if (filesystem.isDirectory(`./${projectDir}`)) {
+        filesystem.remove(`./${projectDir}/.git`);
+        cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/typescript-starter.git');
+      }
+    } catch (err) {
+      cloneSpinner.fail(`Failed to clone repository: ${err.message}`);
+      return;
     }
 
     // Check directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
       error(`The directory "${projectDir}" could not be created.`);
-      return undefined;
+      return;
     }
 
-    // Get author
-    const author = await helper.getInput(parameters.second, {
-      name: 'Author',
-      showError: false,
-    });
+    // Determine author with priority: CLI > config > global > interactive
+    const cliAuthor = parameters.second || parameters.options.author;
+    let author: string;
+    if (cliAuthor) {
+      author = cliAuthor;
+    } else if (configAuthor) {
+      author = configAuthor;
+      info(`Using author from lt.config commands.typescript.create: ${configAuthor}`);
+    } else if (globalAuthor) {
+      author = globalAuthor;
+      info(`Using author from lt.config defaults: ${globalAuthor}`);
+    } else {
+      author = await helper.getInput(null, {
+        name: 'Author',
+        showError: false,
+      });
+    }
 
     const prepareSpinner = spin('Prepare files');
 
@@ -118,32 +151,57 @@ const NewCommand: GluegunCommand = {
 
     prepareSpinner.succeed('Files prepared');
 
-    // Install packages
-    const update = await confirm('Do you want to install the latest versions of the included packages?', true);
+    // Determine updatePackages with priority: CLI > config > noConfirm > interactive
+    let update: boolean;
+    if (parameters.options.update !== undefined) {
+      update = parameters.options.update;
+    } else if (configUpdatePackages !== undefined) {
+      update = configUpdatePackages;
+      info(`Using updatePackages from lt.config: ${update}`);
+    } else if (noConfirm) {
+      update = true; // Default to true when noConfirm is set
+    } else {
+      update = await confirm('Do you want to install the latest versions of the included packages?', true);
+    }
     if (update) {
       // Update
       await npm.update({ cwd: join(filesystem.cwd(), projectDir), install: true, showError: true });
     } else {
       // Init npm
       const installSpinner = spin('Install npm packages');
-      await system.run(`cd ${projectDir} && npm i`);
-      installSpinner.succeed('NPM packages installed');
+      try {
+        await system.run(`cd ${projectDir} && npm i`);
+        installSpinner.succeed('NPM packages installed');
+      } catch (err) {
+        installSpinner.fail(`Failed to install npm packages: ${err.message}`);
+        return;
+      }
     }
 
     // Init git
     const initGitSpinner = spin('Initialize git');
-    await system.run(
-      `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
-    );
-    initGitSpinner.succeed('Git initialized');
+    try {
+      await system.run(
+        `cd ${projectDir} && git init && git add . && git commit -am "Init via lenne.Tech CLI ${meta.version()}"`,
+      );
+      initGitSpinner.succeed('Git initialized');
+    } catch (err) {
+      initGitSpinner.fail(`Failed to initialize git: ${err.message}`);
+      return;
+    }
 
     // We're done, so show what to do next
     info('');
     success(`Generated ${name} with lenne.Tech CLI ${meta.version()} in ${helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
 
+    // Exit if not running from menu
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
     // For tests
-    return `project ${name} created`;
+    return `created project ${name}`;
   },
 };
 

@@ -22,6 +22,16 @@ async function run(argv) {
     // Run cli
     const toolbox = await cli.run(argv);
 
+    // Record command in history (if history extension is available)
+    if (toolbox?.history && toolbox.commandName && !['completion', 'history'].includes(toolbox.commandName)) {
+      try {
+        const args = argv.slice(1); // Remove the command name
+        toolbox.history.addEntry(toolbox.commandName, args);
+      } catch {
+        // Ignore history errors
+      }
+    }
+
     // Send it back (for testing, mostly)
     return toolbox;
   } catch (e) {

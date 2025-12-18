@@ -46,6 +46,7 @@ const NewCommand: GluegunCommand = {
       process.exit();
     }
 
+    return `created nuxt workspace ${kebabCase(projName)}`;
   },
 };
 
