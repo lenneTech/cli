@@ -624,6 +624,177 @@ export class Server {
   }
 
   /**
+   * Setup a new server project
+   * Handles template setup and file patching (config.env.ts, package.json, main.ts, meta.json)
+   *
+   * @param dest - Destination directory path
+   * @param options - Setup options
+   * @returns Setup result with success status
+   */
+  async setupServer(
+    dest: string,
+    options: {
+      author?: string;
+      branch?: string;
+      copyPath?: string;
+      description?: string;
+      linkPath?: string;
+      name: string;
+      projectDir: string;
+      skipInstall?: boolean;
+      skipPatching?: boolean;
+    },
+  ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
+    const { patching, system, template, templateHelper } = this.toolbox;
+    const {
+      author = '',
+      branch,
+      copyPath,
+      description = '',
+      linkPath,
+      name,
+      projectDir,
+      skipInstall = false,
+      skipPatching = false,
+    } = options;
+
+    // Setup template
+    const result = await templateHelper.setup(dest, {
+      branch,
+      copyPath,
+      linkPath,
+      repoUrl: 'https://github.com/lenneTech/nest-server-starter.git',
+    });
+
+    if (!result.success) {
+      return { method: result.method, path: result.path, success: false };
+    }
+
+    // Link mode: skip all post-processing
+    if (result.method === 'link') {
+      return { method: 'link', path: result.path, success: true };
+    }
+
+    // Apply patches (config.env.ts, package.json, main.ts, meta.json)
+    if (!skipPatching) {
+      try {
+        // Generate README
+        await template.generate({
+          props: { description, name },
+          target: `${dest}/README.md`,
+          template: 'nest-server-starter/README.md.ejs',
+        });
+
+        // Replace secret or private keys and update database names
+        await patching.update(`${dest}/src/config.env.ts`, (content: string) => {
+          let updated = this.replaceSecretOrPrivateKeys(content);
+          updated = updated.replace(/nest-server-(ci|develop|local|prod|production|test)/g, `${projectDir}-$1`);
+          updated = updated.replace(/nest-server/g, projectDir);
+          return updated;
+        });
+
+        // Update Swagger configuration in main.ts
+        await patching.update(`${dest}/src/main.ts`, (content: string) =>
+          content
+            .replace(/\.setTitle\('.*?'\)/, `.setTitle('${name}')`)
+            .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`)
+        );
+
+        // Update package.json
+        await patching.update(`${dest}/package.json`, (config: Record<string, unknown>) => {
+          config.author = author;
+          config.bugs = { url: '' };
+          config.description = description || name;
+          config.homepage = '';
+          config.name = projectDir;
+          config.repository = { type: 'git', url: '' };
+          config.version = '0.0.1';
+          return config;
+        });
+
+        // Update meta.json if exists
+        if (this.filesystem.exists(`${dest}/src/meta`)) {
+          await patching.update(`${dest}/src/meta`, (config: Record<string, unknown>) => {
+            config.name = name;
+            config.description = description;
+            return config;
+          });
+        }
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
+    }
+
+    // Install packages
+    if (!skipInstall) {
+      try {
+        await system.run(`cd "${dest}" && npm i`);
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
+    }
+
+    return { method: result.method, path: dest, success: true };
+  }
+
+  /**
+   * Setup server for fullstack project (simplified version without package.json/main.ts patching)
+   *
+   * @param dest - Destination directory path
+   * @param options - Setup options
+   * @returns Setup result with success status
+   */
+  async setupServerForFullstack(
+    dest: string,
+    options: {
+      branch?: string;
+      copyPath?: string;
+      linkPath?: string;
+      name: string;
+      projectDir: string;
+    },
+  ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
+    const { patching, templateHelper } = this.toolbox;
+    const { branch, copyPath, linkPath, name, projectDir } = options;
+
+    // Setup template
+    const result = await templateHelper.setup(dest, {
+      branch,
+      copyPath,
+      linkPath,
+      repoUrl: 'https://github.com/lenneTech/nest-server-starter',
+    });
+
+    if (!result.success) {
+      return { method: result.method, path: result.path, success: false };
+    }
+
+    // Link mode: skip all post-processing
+    if (result.method === 'link') {
+      return { method: 'link', path: result.path, success: true };
+    }
+
+    // Apply minimal patches for fullstack
+    try {
+      // Write meta.json
+      this.filesystem.write(`${dest}/src/meta.json`, {
+        description: `API for ${name} app`,
+        name: `${name}-api-server`,
+        version: '0.0.0',
+      });
+
+      // Replace secret or private keys
+      await patching.update(`${dest}/src/config.env.ts`, (content: string) =>
+        this.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, `${projectDir}-`)
+      );
+    } catch (err) {
+      return { method: result.method, path: dest, success: false };
+    }
+
+    return { method: result.method, path: dest, success: true };
+  }
+
+  /**
    * Replace secret or private keys in string (e.g. for config files)
    */
   replaceSecretOrPrivateKeys(configContent: string): string {

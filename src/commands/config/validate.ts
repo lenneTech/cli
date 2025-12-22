@@ -30,10 +30,17 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       testRunner: 'string',
     },
     frontend: {
-      angular: { localize: 'boolean', noConfirm: 'boolean' },
+      angular: { branch: 'string', copy: 'string', link: 'string', localize: 'boolean', noConfirm: 'boolean' },
+      nuxt: { branch: 'string', copy: 'string', link: 'string' },
     },
     fullstack: {
+      apiBranch: 'string',
+      apiCopy: 'string',
+      apiLink: 'string',
       frontend: ['angular', 'nuxt'],
+      frontendBranch: 'string',
+      frontendCopy: 'string',
+      frontendLink: 'string',
       git: 'boolean',
       gitLink: 'string',
       noConfirm: 'boolean',
@@ -61,9 +68,12 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       addProp: { skipLint: 'boolean' },
       create: {
         author: 'string',
+        branch: 'string',
         controller: ['Rest', 'GraphQL', 'Both', 'auto'],
+        copy: 'string',
         description: 'string',
         git: 'boolean',
+        link: 'string',
         noConfirm: 'boolean',
       },
       module: {

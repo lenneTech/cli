@@ -19,13 +19,11 @@ const NewCommand: GluegunCommand = {
       helper,
       meta,
       parameters,
-      patching,
       print: { error, info, spin, success },
       prompt: { ask, confirm },
       server,
       strings: { kebabCase },
       system,
-      template,
     } = toolbox;
 
     // Load configuration
@@ -33,6 +31,9 @@ const NewCommand: GluegunCommand = {
     const configGit = ltConfig?.commands?.server?.create?.git;
     const configAuthor = ltConfig?.commands?.server?.create?.author;
     const configDescription = ltConfig?.commands?.server?.create?.description;
+    const configBranch = ltConfig?.commands?.server?.create?.branch;
+    const configCopy = ltConfig?.commands?.server?.create?.copy;
+    const configLink = ltConfig?.commands?.server?.create?.link;
 
     // Load global defaults
     const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
@@ -42,6 +43,9 @@ const NewCommand: GluegunCommand = {
     const cliAuthor = parameters.options.author;
     const cliDescription = parameters.options.description;
     const cliNoConfirm = parameters.options.noConfirm;
+    const cliBranch = parameters.options.branch || parameters.options.b;
+    const cliCopy = parameters.options.copy || parameters.options.c;
+    const cliLink = parameters.options.link;
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
     const noConfirm = config.getNoConfirm({
@@ -80,19 +84,12 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Clone git repository
-    const cloneSpinner = spin('Clone https://github.com/lenneTech/nest-server-starter.git');
-    await system.run(`git clone https://github.com/lenneTech/nest-server-starter.git ${projectDir}`);
-    if (filesystem.isDirectory(`./${projectDir}`)) {
-      filesystem.remove(`./${projectDir}/.git`);
-      cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/nest-server-starter.git');
-    }
+    // Determine copy/link paths with priority: CLI > config
+    const copyPath = cliCopy || configCopy;
+    const linkPath = cliLink || configLink;
 
-    // Check directory
-    if (!filesystem.isDirectory(`./${projectDir}`)) {
-      error(`The directory "${projectDir}" could not be created.`);
-      return;
-    }
+    // Determine branch with priority: CLI > config
+    const branch = cliBranch || configBranch;
 
     // Determine description with priority: CLI > config > interactive
     let description: string;
@@ -125,67 +122,45 @@ const NewCommand: GluegunCommand = {
       });
     }
 
-    const prepareSpinner = spin('Prepare files');
+    // Setup server using Server extension
+    const setupSpinner = spin(`Setting up server${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`);
 
-    // Set readme
-    await template.generate({
-      props: { description, name },
-      target: `./${projectDir}/README.md`,
-      template: 'nest-server-starter/README.md.ejs',
+    const result = await server.setupServer(`./${projectDir}`, {
+      author,
+      branch,
+      copyPath,
+      description,
+      linkPath,
+      name,
+      projectDir,
     });
 
-    // Replace secret or private keys and update database names
-    await patching.update(`./${projectDir}/src/config.env.ts`, content => {
-      let updated = server.replaceSecretOrPrivateKeys(content);
-
-      // Replace database names in mongoose URIs (nest-server-ci -> projectName-ci, etc.)
-      updated = updated.replace(/nest-server-(ci|develop|local|prod|production|test)/g, `${projectDir}-$1`);
-
-      // Also replace any remaining nest-server references (without environment suffix)
-      updated = updated.replace(/nest-server/g, projectDir);
-
-      return updated;
-    });
-
-    // Update Swagger configuration in main.ts
-    await patching.update(`./${projectDir}/src/main.ts`, content =>
-      content
-        .replace(/\.setTitle\('.*?'\)/, `.setTitle('${name}')`)
-        .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`)
-    );
-
-    // Set package.json
-    await patching.update(`./${projectDir}/package.json`, (config) => {
-      config.author = author;
-      config.bugs = {
-        url: '',
-      };
-      config.description = description || name;
-      config.homepage = '';
-      config.name = projectDir;
-      config.repository = {
-        type: 'git',
-        url: '',
-      };
-      config.version = '0.0.1';
-      return config;
-    });
-
-    // Set package.json
-    if (filesystem.exists(`./${projectDir}/src/meta`)) {
-      await patching.update(`./${projectDir}/src/meta`, (config) => {
-        config.name = name;
-        config.description = description;
-        return config;
-      });
+    if (!result.success) {
+      setupSpinner.fail(`Failed to set up server: ${result.path}`);
+      return;
     }
 
-    prepareSpinner.succeed('Files prepared');
+    setupSpinner.succeed(`Server template set up (${result.method})`);
 
-    // Init
-    const installSpinner = spin('Install npm packages');
-    await system.run(`cd ${projectDir} && npm i`);
-    installSpinner.succeed('NPM packages installed');
+    // For symlinks, skip all post-setup steps
+    if (result.method === 'link') {
+      info('');
+      success(`Created symlink ${projectDir} -> ${result.path}`);
+      info('');
+      info('Note: This is a symlink - changes will affect the original template!');
+      info('');
+      info('Next:');
+      info(`  Go to project directory: cd ${projectDir}`);
+      info('  Start server: npm start');
+      info('');
+
+      if (!toolbox.parameters.options.fromGluegunMenu) {
+        process.exit();
+      }
+      return `created server symlink ${name}`;
+    }
+
+    // Git initialization (after npm install which is done in setupServer)
     if (git) {
       const inGit = (await system.run('git rev-parse --is-inside-work-tree'))?.trim();
       if (inGit !== 'true') {
@@ -215,7 +190,7 @@ const NewCommand: GluegunCommand = {
 
     // Configure default controller type for modules
     info('');
-    info('📋 Project Configuration');
+    info('Project Configuration');
     info('');
     info('To streamline module creation, you can set a default controller type.');
     info('This will be used for all new modules unless explicitly overridden.');
@@ -248,7 +223,7 @@ const NewCommand: GluegunCommand = {
       }
 
       // Create lt.config.json
-      const ltConfig = {
+      const projectConfig = {
         commands: {
           server: {
             module: {
@@ -262,18 +237,18 @@ const NewCommand: GluegunCommand = {
       };
 
       const configPath = filesystem.path(projectDir, 'lt.config.json');
-      filesystem.write(configPath, ltConfig, { jsonIndent: 2 });
+      filesystem.write(configPath, projectConfig, { jsonIndent: 2 });
 
       info('');
-      success(`✅ Configuration saved to ${projectDir}/lt.config.json`);
+      success(`Configuration saved to ${projectDir}/lt.config.json`);
       info(`   Default controller type: ${controllerType}`);
       info('');
-      info('💡 You can change this anytime by:');
+      info('You can change this anytime by:');
       info(`   - Editing ${projectDir}/lt.config.json directly`);
       info(`   - Running 'lt config init' in the project directory`);
     } else {
       info('');
-      info('⏭️  Skipped configuration. You can set it up later with:');
+      info('Skipped configuration. You can set it up later with:');
       info(`   cd ${projectDir} && lt config init`);
     }
 

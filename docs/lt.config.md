@@ -360,9 +360,12 @@ Creates a new server project.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `commands.server.create.author` | `string` | - | Default author for new projects |
+| `commands.server.create.branch` | `string` | - | Branch of nest-server-starter to use as template |
 | `commands.server.create.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | Default controller type for new projects |
+| `commands.server.create.copy` | `string` | - | Path to local template directory to copy instead of cloning |
 | `commands.server.create.description` | `string` | - | Default description (use `{name}` as placeholder) |
 | `commands.server.create.git` | `boolean` | - | Initialize git repository |
+| `commands.server.create.link` | `string` | - | Path to local template directory to symlink (fastest, changes affect original) |
 | `commands.server.create.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
 
 **Example:**
@@ -374,7 +377,9 @@ Creates a new server project.
         "controller": "Both",
         "git": true,
         "author": "lenne.Tech Team <info@lenne.tech>",
-        "description": "{name} Server"
+        "description": "{name} Server",
+        "branch": "feature/new-auth",
+        "copy": "/path/to/local/nest-server-starter"
       }
     }
   }
@@ -383,7 +388,9 @@ Creates a new server project.
 
 **CLI Override:**
 ```bash
-lt server create --name MyServer --git true --author "John Doe" --description "My Server"
+lt server create --name MyServer --git true --author "John Doe" --description "My Server" --branch feature/new-auth
+lt server create --copy /path/to/local/nest-server-starter
+lt server create --link /path/to/local/nest-server-starter  # Fastest, but changes affect original
 ```
 
 ---
@@ -424,6 +431,79 @@ lt deployment create --domain myproject.example.com --gitLab true --testRunner d
 
 ---
 
+### Frontend Commands
+
+#### `lt frontend angular`
+
+Creates a new Angular frontend project using ng-base-starter.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.frontend.angular.branch` | `string` | - | Branch of ng-base-starter to use as template |
+| `commands.frontend.angular.copy` | `string` | - | Path to local template directory to copy instead of cloning |
+| `commands.frontend.angular.link` | `string` | - | Path to local template directory to symlink (fastest, changes affect original) |
+| `commands.frontend.angular.localize` | `boolean` | - | Enable Angular localize by default |
+| `commands.frontend.angular.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+
+**Example:**
+```json
+{
+  "commands": {
+    "frontend": {
+      "angular": {
+        "branch": "feature/new-design",
+        "localize": true,
+        "copy": "/path/to/local/ng-base-starter"
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt frontend angular --branch feature/new-design
+lt frontend angular --copy /path/to/local/ng-base-starter
+lt frontend angular --link /path/to/local/ng-base-starter  # Fastest, changes affect original
+```
+
+---
+
+#### `lt frontend nuxt`
+
+Creates a new Nuxt frontend project using nuxt-base-starter.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.frontend.nuxt.branch` | `string` | - | Branch of nuxt-base-starter to use. When specified, uses git clone instead of create-nuxt-base |
+| `commands.frontend.nuxt.copy` | `string` | - | Path to the `nuxt-base-template/` subdirectory to copy |
+| `commands.frontend.nuxt.link` | `string` | - | Path to the `nuxt-base-template/` subdirectory to symlink (fastest, changes affect original) |
+
+**Note:** For `copy` and `link`, specify the path to the `nuxt-base-template/` subdirectory within the nuxt-base-starter repository, not the repository root.
+
+**Example:**
+```json
+{
+  "commands": {
+    "frontend": {
+      "nuxt": {
+        "branch": "feature/new-design",
+        "copy": "/path/to/nuxt-base-starter/nuxt-base-template"
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt frontend nuxt --branch feature/new-design
+lt frontend nuxt --copy /path/to/nuxt-base-starter/nuxt-base-template
+lt frontend nuxt --link /path/to/nuxt-base-starter/nuxt-base-template  # Fastest, changes affect original
+```
+
+---
+
 ### Fullstack Commands
 
 #### `lt fullstack init`
@@ -432,7 +512,13 @@ Creates a new fullstack workspace with API and frontend.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `commands.fullstack.apiBranch` | `string` | - | Branch of nest-server-starter to use for API |
+| `commands.fullstack.apiCopy` | `string` | - | Path to local API template directory to copy instead of cloning |
+| `commands.fullstack.apiLink` | `string` | - | Path to local API template directory to symlink (fastest, changes affect original) |
 | `commands.fullstack.frontend` | `'angular'` \| `'nuxt'` | - | Default frontend framework |
+| `commands.fullstack.frontendBranch` | `string` | - | Branch of frontend starter to use (ng-base-starter or nuxt-base-starter) |
+| `commands.fullstack.frontendCopy` | `string` | - | Path to local frontend template directory to copy instead of cloning |
+| `commands.fullstack.frontendLink` | `string` | - | Path to local frontend template directory to symlink (fastest, changes affect original) |
 | `commands.fullstack.git` | `boolean` | - | Initialize git repository |
 | `commands.fullstack.gitLink` | `string` | - | Git repository URL |
 
@@ -443,7 +529,11 @@ Creates a new fullstack workspace with API and frontend.
     "fullstack": {
       "frontend": "nuxt",
       "git": true,
-      "gitLink": "https://github.com/myorg/myproject.git"
+      "gitLink": "https://github.com/myorg/myproject.git",
+      "apiBranch": "feature/new-auth",
+      "frontendBranch": "feature/new-design",
+      "apiCopy": "/path/to/local/nest-server-starter",
+      "frontendCopy": "/path/to/local/nuxt-base-starter"
     }
   }
 }
@@ -451,7 +541,9 @@ Creates a new fullstack workspace with API and frontend.
 
 **CLI Override:**
 ```bash
-lt fullstack init --name MyProject --frontend angular --git true --git-link https://...
+lt fullstack init --name MyProject --frontend angular --git true --git-link https://... --api-branch feature/new-auth --frontend-branch feature/new-design
+lt fullstack init --api-copy /path/to/api --frontend-copy /path/to/frontend
+lt fullstack init --api-link /path/to/api --frontend-link /path/to/frontend  # Fastest, changes affect original
 ```
 
 ---

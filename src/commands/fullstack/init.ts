@@ -1,7 +1,6 @@
-import { GluegunCommand, patching } from 'gluegun';
+import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-
 
 /**
  * Create a new fullstack workspace
@@ -16,6 +15,7 @@ const NewCommand: GluegunCommand = {
     const {
       config,
       filesystem,
+      frontendHelper,
       git,
       helper,
       parameters,
@@ -42,9 +42,26 @@ const NewCommand: GluegunCommand = {
     const configFrontend = ltConfig?.commands?.fullstack?.frontend;
     const configGit = ltConfig?.commands?.fullstack?.git;
     const configGitLink = ltConfig?.commands?.fullstack?.gitLink;
+    const configApiBranch = ltConfig?.commands?.fullstack?.apiBranch;
+    const configFrontendBranch = ltConfig?.commands?.fullstack?.frontendBranch;
+    const configApiCopy = ltConfig?.commands?.fullstack?.apiCopy;
+    const configFrontendCopy = ltConfig?.commands?.fullstack?.frontendCopy;
+    const configApiLink = ltConfig?.commands?.fullstack?.apiLink;
+    const configFrontendLink = ltConfig?.commands?.fullstack?.frontendLink;
 
     // Parse CLI arguments
-    const { frontend: cliFrontend, git: cliGit, 'git-link': cliGitLink, name: cliName } = parameters.options;
+    const {
+      'api-branch': cliApiBranch,
+      'api-copy': cliApiCopy,
+      'api-link': cliApiLink,
+      frontend: cliFrontend,
+      'frontend-branch': cliFrontendBranch,
+      'frontend-copy': cliFrontendCopy,
+      'frontend-link': cliFrontendLink,
+      git: cliGit,
+      'git-link': cliGitLink,
+      name: cliName,
+    } = parameters.options;
 
     // Determine noConfirm with priority: CLI > command > parent > global > default
     const noConfirm = config.getNoConfirm({
@@ -155,6 +172,14 @@ const NewCommand: GluegunCommand = {
       }
     }
 
+    // Determine branches and copy/link paths with priority: CLI > config
+    const apiBranch = cliApiBranch || configApiBranch;
+    const frontendBranch = cliFrontendBranch || configFrontendBranch;
+    const apiCopy = cliApiCopy || configApiCopy;
+    const apiLink = cliApiLink || configApiLink;
+    const frontendCopy = cliFrontendCopy || configFrontendCopy;
+    const frontendLink = cliFrontendLink || configFrontendLink;
+
     const workspaceSpinner = spin(`Create fullstack workspace with ${frontend} in ${projectDir} with ${name} app`);
 
     // Clone monorepo
@@ -193,24 +218,36 @@ const NewCommand: GluegunCommand = {
       }
     }
 
-    try {
-      if (frontend === 'angular') {
-        // Clone ng-base-starter
-        await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/ng-base-starter.git app`);
-      } else {
-        await system.run('npm i -g create-nuxt-base');
-        await system.run(`cd ${projectDir}/projects && create-nuxt-base app`);
-      }
-    } catch (err) {
-      error(`Failed to set up ${frontend} frontend: ${err.message}`);
+    // Setup frontend using FrontendHelper
+    const frontendDest = `${projectDir}/projects/app`;
+    const isNuxt = frontend === 'nuxt';
+
+    let frontendResult;
+    if (isNuxt) {
+      frontendResult = await frontendHelper.setupNuxt(frontendDest, {
+        branch: frontendBranch,
+        copyPath: frontendCopy,
+        linkPath: frontendLink,
+        skipInstall: true, // Will install at monorepo level
+      });
+    } else {
+      frontendResult = await frontendHelper.setupAngular(frontendDest, {
+        branch: frontendBranch,
+        copyPath: frontendCopy,
+        linkPath: frontendLink,
+        skipGitInit: true, // Git is handled at monorepo level
+        skipHuskyRemoval: true, // Will handle at monorepo level if needed
+        skipInstall: true, // Will install at monorepo level
+      });
+    }
+
+    if (!frontendResult.success) {
+      error(`Failed to set up ${frontend} frontend: ${frontendResult.path}`);
       return;
     }
 
     // Remove gitkeep file
     filesystem.remove(`${projectDir}/projects/.gitkeep`);
-
-    // Remove git folder after clone
-    filesystem.remove(`${projectDir}/projects/app/.git`);
 
     // Integrate files
     if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
@@ -226,29 +263,25 @@ const NewCommand: GluegunCommand = {
       ngBaseSpinner.succeed(`Example for ${frontend} integrated`);
 
       // Include files from https://github.com/lenneTech/nest-server-starter
+      const serverSpinner = spin(`Integrate Nest Server Starter${apiLink ? ' (link)' : apiCopy ? ' (copy)' : apiBranch ? ` (branch: ${apiBranch})` : ''}`);
 
-      // Init
-      const serverSpinner = spin('Integrate Nest Server Starter');
+      // Setup API using Server extension
+      const apiDest = `${projectDir}/projects/api`;
+      const apiResult = await server.setupServerForFullstack(apiDest, {
+        branch: apiBranch,
+        copyPath: apiCopy,
+        linkPath: apiLink,
+        name,
+        projectDir,
+      });
 
-      // Clone api
-      await system.run(`cd ${projectDir}/projects && git clone https://github.com/lenneTech/nest-server-starter api`);
+      if (!apiResult.success) {
+        serverSpinner.fail(`Failed to set up API: ${apiResult.path}`);
+        return;
+      }
 
       // Integrate files
       if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {
-        // Remove git folder from clone
-        filesystem.remove(`${projectDir}/projects/api/.git`);
-
-        // Prepare meta.json in api
-        filesystem.write(`./${projectDir}/projects/api/src/meta.json`, {
-          description: `API for ${name} app`,
-          name: `${name}-api-server`,
-          version: '0.0.0',
-        });
-
-        // Replace secret or private keys and remove `nest-server`
-        await patching.update(`./${projectDir}/projects/api/src/config.env.ts`, content => server.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, `${projectDir
-        }-`));
-
         // Check if git init is active
         if (addToGit) {
           // Commit changes

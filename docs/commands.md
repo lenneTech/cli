@@ -72,6 +72,9 @@ lt server create [name] [options]
 |--------|-------------|
 | `--description <text>` | Project description |
 | `--author <name>` | Author name |
+| `--branch <branch>` / `-b` | Branch of nest-server-starter to use as template |
+| `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
+| `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
 | `--git` | Initialize git repository |
 | `--noConfirm` | Skip confirmation prompts |
 
@@ -426,9 +429,17 @@ lt fullstack init [options]
 |--------|-------------|
 | `--name <name>` | Project name |
 | `--frontend <type>` | Frontend framework: `angular` or `nuxt` |
+| `--api-branch <branch>` | Branch of nest-server-starter to use for API |
+| `--api-copy <path>` | Copy API from local template directory |
+| `--api-link <path>` | Symlink API to local template (fastest, changes affect original) |
+| `--frontend-branch <branch>` | Branch of frontend starter to use (ng-base-starter or nuxt-base-starter) |
+| `--frontend-copy <path>` | Copy frontend from local template directory |
+| `--frontend-link <path>` | Symlink frontend to local template (fastest, changes affect original) |
 | `--git` | Initialize git repository |
 | `--git-link <url>` | Git repository URL |
 | `--noConfirm` | Skip confirmation prompts |
+
+**Note:** For Nuxt frontends with `--frontend-copy` or `--frontend-link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root.
 
 **Configuration:** `commands.fullstack.*`, `defaults.noConfirm`
 
@@ -495,23 +506,50 @@ lt npm update
 
 ### `lt frontend angular`
 
-Creates a new Angular workspace.
+Creates a new Angular workspace using ng-base-starter.
 
 **Usage:**
 ```bash
-lt frontend angular [name]
+lt frontend angular [name] [options]
 ```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--branch <branch>` / `-b` | Branch of ng-base-starter to use as template |
+| `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
+| `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
+| `--localize` | Enable Angular localize |
+| `--noLocalize` | Disable Angular localize |
+| `--gitLink <url>` | Git repository URL to link |
+| `--noConfirm` / `-y` | Skip confirmation prompts |
+
+**Configuration:** `commands.frontend.angular.*`, `defaults.noConfirm`
 
 ---
 
 ### `lt frontend nuxt`
 
-Creates a new Nuxt workspace.
+Creates a new Nuxt workspace using nuxt-base-starter.
 
 **Usage:**
 ```bash
-lt frontend nuxt
+lt frontend nuxt [options]
 ```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--branch <branch>` / `-b` | Branch of nuxt-base-starter to use (uses git clone instead of create-nuxt-base) |
+| `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
+| `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
+
+**Note:** For `--copy` and `--link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root:
+```bash
+lt frontend nuxt --copy /path/to/nuxt-base-starter/nuxt-base-template
+```
+
+**Configuration:** `commands.frontend.nuxt.*`
 
 ---
 

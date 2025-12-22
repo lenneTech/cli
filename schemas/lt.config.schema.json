@@ -178,6 +178,21 @@
               "type": "object",
               "description": "Configuration for 'lt frontend angular' command",
               "properties": {
+                "branch": {
+                  "type": "string",
+                  "description": "Branch of ng-base-starter to use as template",
+                  "examples": ["feature/new-auth"]
+                },
+                "copy": {
+                  "type": "string",
+                  "description": "Path to local template directory to copy instead of cloning",
+                  "examples": ["/path/to/local/ng-base-starter"]
+                },
+                "link": {
+                  "type": "string",
+                  "description": "Path to local template directory to symlink instead of cloning (fastest, changes affect original)",
+                  "examples": ["/path/to/local/ng-base-starter"]
+                },
                 "localize": {
                   "type": "boolean",
                   "description": "Enable Angular localize by default"
@@ -185,6 +200,28 @@
                 "noConfirm": {
                   "type": "boolean",
                   "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
+            },
+            "nuxt": {
+              "type": "object",
+              "description": "Configuration for 'lt frontend nuxt' command",
+              "properties": {
+                "branch": {
+                  "type": "string",
+                  "description": "Branch of nuxt-base-starter to use as template. When specified, uses git clone instead of create-nuxt-base",
+                  "examples": ["feature/new-auth"]
+                },
+                "copy": {
+                  "type": "string",
+                  "description": "Path to local template directory to copy instead of cloning",
+                  "examples": ["/path/to/local/nuxt-base-starter"]
+                },
+                "link": {
+                  "type": "string",
+                  "description": "Path to local template directory to symlink instead of cloning (fastest, changes affect original)",
+                  "examples": ["/path/to/local/nuxt-base-starter"]
                 }
               },
               "additionalProperties": false
@@ -196,10 +233,40 @@
           "type": "object",
           "description": "Configuration for 'lt fullstack init' command",
           "properties": {
+            "apiBranch": {
+              "type": "string",
+              "description": "Branch of nest-server-starter to use for API",
+              "examples": ["feature/new-auth"]
+            },
+            "apiCopy": {
+              "type": "string",
+              "description": "Path to local API template directory to copy instead of cloning",
+              "examples": ["/path/to/local/nest-server-starter"]
+            },
+            "apiLink": {
+              "type": "string",
+              "description": "Path to local API template directory to symlink instead of cloning (fastest, changes affect original)",
+              "examples": ["/path/to/local/nest-server-starter"]
+            },
             "frontend": {
               "type": "string",
               "enum": ["angular", "nuxt"],
               "description": "Default frontend framework"
+            },
+            "frontendBranch": {
+              "type": "string",
+              "description": "Branch of frontend starter to use (ng-base-starter or nuxt-base-starter)",
+              "examples": ["feature/new-design"]
+            },
+            "frontendCopy": {
+              "type": "string",
+              "description": "Path to local frontend template directory to copy instead of cloning",
+              "examples": ["/path/to/local/ng-base-starter"]
+            },
+            "frontendLink": {
+              "type": "string",
+              "description": "Path to local frontend template directory to symlink instead of cloning (fastest, changes affect original)",
+              "examples": ["/path/to/local/ng-base-starter"]
             },
             "git": {
               "type": "boolean",
@@ -427,10 +494,20 @@
                   "type": "string",
                   "description": "Default author for new server projects"
                 },
+                "branch": {
+                  "type": "string",
+                  "description": "Branch of nest-server-starter to use as template",
+                  "examples": ["feature/new-auth"]
+                },
                 "controller": {
                   "type": "string",
                   "enum": ["Rest", "GraphQL", "Both", "auto"],
                   "description": "Default controller type for new server projects"
+                },
+                "copy": {
+                  "type": "string",
+                  "description": "Path to local template directory to copy instead of cloning",
+                  "examples": ["/path/to/local/nest-server-starter"]
                 },
                 "description": {
                   "type": "string",
@@ -439,6 +516,11 @@
                 "git": {
                   "type": "boolean",
                   "description": "Initialize git for new server projects"
+                },
+                "link": {
+                  "type": "string",
+                  "description": "Path to local template directory to symlink instead of cloning (fastest, changes affect original)",
+                  "examples": ["/path/to/local/nest-server-starter"]
                 },
                 "noConfirm": {
                   "type": "boolean",

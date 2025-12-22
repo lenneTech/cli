@@ -15,10 +15,10 @@ const NewCommand: GluegunCommand = {
     const {
       config,
       filesystem,
+      frontendHelper,
       git,
       helper,
       parameters,
-      patching,
       print: { error, info, spin, success },
       prompt: { confirm },
       strings: { kebabCase },
@@ -28,6 +28,19 @@ const NewCommand: GluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configLocalize = ltConfig?.commands?.frontend?.angular?.localize;
+    const configBranch = ltConfig?.commands?.frontend?.angular?.branch;
+    const configCopy = ltConfig?.commands?.frontend?.angular?.copy;
+    const configLink = ltConfig?.commands?.frontend?.angular?.link;
+
+    // Parse CLI arguments
+    const cliBranch = parameters.options.branch || parameters.options.b;
+    const cliCopy = parameters.options.copy || parameters.options.c;
+    const cliLink = parameters.options.link;
+
+    // Determine branch and copy/link paths with priority: CLI > config
+    const branch = cliBranch || configBranch;
+    const copyPath = cliCopy || configCopy;
+    const linkPath = cliLink || configLink;
 
     // Determine noConfirm with priority: CLI > command > global > default
     const noConfirm = config.getNoConfirm({
@@ -94,99 +107,52 @@ const NewCommand: GluegunCommand = {
       ).trim();
     }
 
-    const workspaceSpinner = spin(`Creating angular workspace ${projectDir}...`);
+    const workspaceSpinner = spin(`Creating angular workspace ${projectDir}${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}...`);
 
-    // Clone monorepo
-    try {
-      await system.run(`git clone https://github.com/lenneTech/ng-base-starter ${projectDir}`);
-    } catch (err) {
-      workspaceSpinner.fail(`Failed to clone repository: ${err.message}`);
+    // Use FrontendHelper for setup
+    const result = await frontendHelper.setupAngular(`./${projectDir}`, {
+      branch,
+      copyPath,
+      gitLink,
+      linkPath,
+      localize,
+    });
+
+    if (!result.success) {
+      workspaceSpinner.fail(`Failed to set up workspace: ${result.path}`);
       return;
     }
 
-    // Check for directory
-    if (!filesystem.isDirectory(`./${projectDir}`)) {
-      workspaceSpinner.fail(`The directory '${projectDir}' was not created.`);
-      return;
-    }
-
-    // Remove git folder after clone
-    filesystem.remove(`${projectDir}/.git`);
-
-    // Install packages
-    try {
-      await system.run(`cd ${projectDir} && npm i`);
-    } catch (err) {
-      workspaceSpinner.fail(`Failed to install npm packages: ${err.message}`);
-      return;
-    }
-
-    // Check if git init is active
-    const gitSpinner = spin('Initializing git...');
-    try {
-      await system.run(`cd ${projectDir} && git init --initial-branch=main`);
-      gitSpinner.succeed('Successfully initialized Git');
-      if (gitLink) {
-        await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
-        await system.run(`cd ${projectDir} && git add .`);
-        await system.run(`cd ${projectDir} && git commit -m "Initial commit"`);
-        await system.run(`cd ${projectDir} && git push -u origin main`);
-      }
-    } catch (err) {
-      gitSpinner.fail(`Failed to initialize git: ${err.message}`);
-      return;
-    }
-
-    workspaceSpinner.succeed(`Workspace ${projectDir} created`);
-
-    if (filesystem.isDirectory(`./${projectDir}`)) {
-
-      // Remove husky from app project
-      filesystem.remove(`${projectDir}/.husky`);
-      await patching.update(`${projectDir}/package.json`, (data: Record<string, any>) => {
-        delete data.scripts.prepare;
-        delete data.devDependencies.husky;
-        return data;
-      });
-
-      if (localize) {
-        const localizeSpinner = spin('Adding localization for Angular...');
-        try {
-          await system.run(`cd ${projectDir} && ng add @angular/localize --skip-confirmation`);
-          localizeSpinner.succeed('Added localization for Angular');
-        } catch (err) {
-          localizeSpinner.fail(`Failed to add localization: ${err.message}`);
-        }
-      }
-
-      // Install all packages
-      const installSpinner = spin('Install all packages');
-      try {
-        await system.run(`cd ${projectDir} && npm run init`);
-        installSpinner.succeed('Successfully installed all packages');
-      } catch (err) {
-        installSpinner.fail(`Failed to install packages: ${err.message}`);
-        return;
-      }
-
-      // We're done, so show what to do next
-      info('');
-      success(`Generated Angular workspace ${projectDir} in ${helper.msToMinutesAndSeconds(timer())}m.`);
-      info('');
-      info('Next:');
-      info(`  Test and run ${name}:`);
-      info(`  $ cd ${projectDir}`);
-      info('  $ npm run test');
-      info('  $ npm run start');
-      info('');
+    // Link mode: early return
+    if (result.method === 'link') {
+      workspaceSpinner.succeed(`Symlinked to: ${result.path}`);
+      info('Note: Changes will affect the original template!');
 
       if (!toolbox.parameters.options.fromGluegunMenu) {
         process.exit();
       }
-
-      // For tests
-      return `new workspace ${projectDir} with ${name}`;
+      return `created angular workspace symlink ${projectDir}`;
     }
+
+    workspaceSpinner.succeed(`Workspace ${projectDir} created`);
+
+    // We're done, so show what to do next
+    info('');
+    success(`Generated Angular workspace ${projectDir} in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    info('');
+    info('Next:');
+    info(`  Test and run ${name}:`);
+    info(`  $ cd ${projectDir}`);
+    info('  $ npm run test');
+    info('  $ npm run start');
+    info('');
+
+    if (!toolbox.parameters.options.fromGluegunMenu) {
+      process.exit();
+    }
+
+    // For tests
+    return `new workspace ${projectDir} with ${name}`;
   },
 };
 

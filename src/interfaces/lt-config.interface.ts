@@ -141,6 +141,25 @@ export interface LtConfig {
        */
       angular?: {
         /**
+         * Branch of ng-base-starter to use as template
+         * @example "feature/new-auth"
+         */
+        branch?: string;
+
+        /**
+         * Path to local template directory to copy instead of cloning
+         * @example "/path/to/local/ng-base-starter"
+         */
+        copy?: string;
+
+        /**
+         * Path to local template directory to symlink instead of cloning
+         * Fastest option for testing local changes (changes affect original)
+         * @example "/path/to/local/ng-base-starter"
+         */
+        link?: string;
+
+        /**
          * Enable Angular localize by default
          */
         localize?: boolean;
@@ -150,6 +169,31 @@ export interface LtConfig {
          */
         noConfirm?: boolean;
       };
+
+      /**
+       * Configuration for 'lt frontend nuxt' command
+       */
+      nuxt?: {
+        /**
+         * Branch of nuxt-base-starter to use as template
+         * When specified, uses git clone instead of create-nuxt-base
+         * @example "feature/new-auth"
+         */
+        branch?: string;
+
+        /**
+         * Path to local template directory to copy instead of cloning
+         * @example "/path/to/local/nuxt-base-starter"
+         */
+        copy?: string;
+
+        /**
+         * Path to local template directory to symlink instead of cloning
+         * Fastest option for testing local changes (changes affect original)
+         * @example "/path/to/local/nuxt-base-starter"
+         */
+        link?: string;
+      };
     };
 
     /**
@@ -157,10 +201,48 @@ export interface LtConfig {
      */
     fullstack?: {
       /**
+       * Branch of nest-server-starter to use for API
+       * @example "feature/new-auth"
+       */
+      apiBranch?: string;
+
+      /**
+       * Path to local API template directory to copy instead of cloning
+       * @example "/path/to/local/nest-server-starter"
+       */
+      apiCopy?: string;
+
+      /**
+       * Path to local API template directory to symlink instead of cloning
+       * Fastest option for testing local changes (changes affect original)
+       * @example "/path/to/local/nest-server-starter"
+       */
+      apiLink?: string;
+
+      /**
        * Default frontend framework
        * @example "angular" | "nuxt"
        */
       frontend?: 'angular' | 'nuxt';
+
+      /**
+       * Branch of frontend starter to use (ng-base-starter or nuxt-base-starter)
+       * @example "feature/new-design"
+       */
+      frontendBranch?: string;
+
+      /**
+       * Path to local frontend template directory to copy instead of cloning
+       * @example "/path/to/local/ng-base-starter"
+       */
+      frontendCopy?: string;
+
+      /**
+       * Path to local frontend template directory to symlink instead of cloning
+       * Fastest option for testing local changes (changes affect original)
+       * @example "/path/to/local/ng-base-starter"
+       */
+      frontendLink?: string;
 
       /**
        * Initialize git by default
@@ -390,10 +472,22 @@ export interface LtConfig {
         author?: string;
 
         /**
+         * Branch of nest-server-starter to use as template
+         * @example "feature/new-auth"
+         */
+        branch?: string;
+
+        /**
          * Default controller type for new server projects
          * @example "Rest" | "GraphQL" | "Both" | "auto"
          */
         controller?: 'auto' | 'Both' | 'GraphQL' | 'Rest';
+
+        /**
+         * Path to local template directory to copy instead of cloning
+         * @example "/path/to/local/nest-server-starter"
+         */
+        copy?: string;
 
         /**
          * Default description for new server projects
@@ -404,6 +498,13 @@ export interface LtConfig {
          * Initialize git for new server projects
          */
         git?: boolean;
+
+        /**
+         * Path to local template directory to symlink instead of cloning
+         * Fastest option for testing local changes (changes affect original)
+         * @example "/path/to/local/nest-server-starter"
+         */
+        link?: string;
 
         /**
          * Skip confirmation prompts
