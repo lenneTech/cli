@@ -844,14 +844,45 @@ lt starter chrome-extension [name]
 
 ### `lt claude plugins`
 
-Manages Claude Code plugins.
+Installs and manages Claude Code plugins from multiple marketplaces.
 
 **Usage:**
 ```bash
-lt claude plugins
+lt claude plugins [plugin-name] [options]
 ```
 
-Lists and manages installed Claude Code plugins.
+**Parameters:**
+| Parameter | Description |
+|-----------|-------------|
+| `plugin-name` | Optional. Name of a specific plugin to install |
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--list` | List available plugins from all marketplaces |
+| `--uninstall` | Uninstall a plugin |
+
+**Plugin Sources:**
+- [lenne-tech marketplace](https://github.com/lenneTech/claude-code) - lenne.Tech plugins for NestJS development
+- [claude-plugins-official](https://github.com/anthropics/claude-plugins-official) - Official Anthropic plugins (e.g., typescript-lsp)
+
+**Default Behavior:**
+When run without a plugin name, all lenne.Tech plugins plus recommended external plugins (like `typescript-lsp`) are installed automatically.
+
+**Examples:**
+```bash
+# Install all recommended plugins (lenne.Tech + recommended external)
+lt claude plugins
+
+# Install a specific plugin
+lt claude plugins typescript-lsp
+
+# List available plugins
+lt claude plugins --list
+
+# Uninstall a plugin
+lt claude plugins lt-dev --uninstall
+```
 
 ---
 

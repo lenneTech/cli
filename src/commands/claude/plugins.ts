@@ -9,12 +9,35 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 /**
  * Marketplace configuration
  */
-const MARKETPLACE = {
-  apiBase: 'https://api.github.com/repos/lenneTech/claude-code/contents',
-  name: 'lenne-tech',
-  rawBase: 'https://raw.githubusercontent.com/lenneTech/claude-code/main',
-  repo: 'lenneTech/claude-code',
-};
+interface MarketplaceConfig {
+  apiBase: string;
+  name: string;
+  rawBase: string;
+  repo: string;
+}
+
+const MARKETPLACES: MarketplaceConfig[] = [
+  {
+    apiBase: 'https://api.github.com/repos/lenneTech/claude-code/contents',
+    name: 'lenne-tech',
+    rawBase: 'https://raw.githubusercontent.com/lenneTech/claude-code/main',
+    repo: 'lenneTech/claude-code',
+  },
+  {
+    apiBase: 'https://api.github.com/repos/anthropics/claude-plugins-official/contents',
+    name: 'claude-plugins-official',
+    rawBase: 'https://raw.githubusercontent.com/anthropics/claude-plugins-official/main',
+    repo: 'anthropics/claude-plugins-official',
+  },
+];
+
+/**
+ * Default plugins to install when no specific plugins are requested
+ * These are installed in addition to all plugins from the primary marketplace (lenne-tech)
+ */
+const DEFAULT_EXTERNAL_PLUGINS: Array<{ marketplaceName: string; pluginName: string }> = [
+  { marketplaceName: 'claude-plugins-official', pluginName: 'typescript-lsp' },
+];
 
 /**
  * GitHub API directory entry
@@ -22,6 +45,17 @@ const MARKETPLACE = {
 interface GitHubDirEntry {
   name: string;
   type: 'dir' | 'file';
+}
+
+/**
+ * Structure of marketplace.json (used by official marketplace)
+ */
+interface MarketplaceManifest {
+  plugins?: Array<{
+    description?: string;
+    name: string;
+    source?: string;
+  }>;
 }
 
 /**
@@ -33,6 +67,30 @@ interface PluginConfig {
   marketplaceRepo: string;
   pluginName: string;
 }
+
+/**
+ * Plugin contents (skills, commands, hooks, agents, permissions, mcpServers)
+ */
+interface PluginContents {
+  agents: string[];
+  commands: string[];
+  hooks: number;
+  mcpServers: string[];
+  permissions: string[];
+  skills: string[];
+}
+
+/**
+ * Empty plugin contents constant (used for failed installations)
+ */
+const EMPTY_PLUGIN_CONTENTS: PluginContents = {
+  agents: [],
+  commands: [],
+  hooks: 0,
+  mcpServers: [],
+  permissions: [],
+  skills: [],
+};
 
 /**
  * Structure of plugin.json in the repository
@@ -58,51 +116,111 @@ interface PluginPermissions {
 }
 
 /**
- * Fetch available plugins from GitHub repository
+ * Fetch available plugins from all marketplaces
  */
 async function fetchAvailablePlugins(
   spin: (msg: string) => { fail: (msg: string) => void; succeed: (msg: string) => void },
 ): Promise<PluginConfig[]> {
-  const spinner = spin('Fetching available plugins from GitHub');
+  const spinner = spin('Fetching available plugins from marketplaces');
 
   try {
-    // Get list of plugin directories
-    const dirResponse = await fetch(`${MARKETPLACE.apiBase}/plugins`);
+    // Fetch plugins from all marketplaces in parallel
+    const results = await Promise.all(
+      MARKETPLACES.map(marketplace => fetchPluginsFromMarketplace(marketplace))
+    );
+
+    // Flatten results
+    const plugins = results.flat();
+
+    if (plugins.length === 0) {
+      spinner.fail('No plugins found in any marketplace');
+      throw new Error('No plugins found');
+    }
+
+    // Group by marketplace for display
+    const byMarketplace = MARKETPLACES.map(m => ({
+      count: plugins.filter(p => p.marketplaceName === m.name).length,
+      name: m.name,
+    })).filter(m => m.count > 0);
+
+    const summary = byMarketplace.map(m => `${m.name}: ${m.count}`).join(', ');
+    spinner.succeed(`Found ${plugins.length} plugins (${summary})`);
+    return plugins;
+  } catch (err) {
+    spinner.fail('Failed to fetch plugins from marketplaces');
+    throw err;
+  }
+}
+
+/**
+ * Fetch available plugins from a single marketplace
+ */
+async function fetchPluginsFromMarketplace(
+  marketplace: MarketplaceConfig,
+): Promise<PluginConfig[]> {
+  const plugins: PluginConfig[] = [];
+
+  try {
+    // First try to read central marketplace.json (used by official marketplace)
+    const marketplaceJsonUrl = `${marketplace.rawBase}/.claude-plugin/marketplace.json`;
+    const marketplaceJsonResponse = await fetch(marketplaceJsonUrl);
+
+    if (marketplaceJsonResponse.ok) {
+      try {
+        const marketplaceManifest: MarketplaceManifest = await marketplaceJsonResponse.json();
+        if (marketplaceManifest.plugins && marketplaceManifest.plugins.length > 0) {
+          for (const plugin of marketplaceManifest.plugins) {
+            plugins.push({
+              description: plugin.description || '',
+              marketplaceName: marketplace.name,
+              marketplaceRepo: marketplace.repo,
+              pluginName: plugin.name,
+            });
+          }
+          return plugins;
+        }
+      } catch {
+        // Failed to parse marketplace.json, fall through to directory scan
+      }
+    }
+
+    // Fallback: Get list of plugin directories and read individual plugin.json files
+    const dirResponse = await fetch(`${marketplace.apiBase}/plugins`);
     if (!dirResponse.ok) {
-      throw new Error(`Failed to fetch plugins directory: ${dirResponse.status}`);
+      return plugins;
     }
 
     const directories: GitHubDirEntry[] = await dirResponse.json();
     const pluginDirs = directories.filter(d => d.type === 'dir');
 
-    // Fetch plugin.json for each plugin
-    const plugins: PluginConfig[] = [];
-
-    for (const dir of pluginDirs) {
+    // Fetch plugin.json for each plugin in parallel
+    const manifestPromises = pluginDirs.map(async (dir) => {
       try {
-        const manifestUrl = `${MARKETPLACE.rawBase}/plugins/${dir.name}/.claude-plugin/plugin.json`;
+        const manifestUrl = `${marketplace.rawBase}/plugins/${dir.name}/.claude-plugin/plugin.json`;
         const manifestResponse = await fetch(manifestUrl);
 
         if (manifestResponse.ok) {
           const manifest: PluginManifest = await manifestResponse.json();
-          plugins.push({
+          return {
             description: manifest.description,
-            marketplaceName: MARKETPLACE.name,
-            marketplaceRepo: MARKETPLACE.repo,
+            marketplaceName: marketplace.name,
+            marketplaceRepo: marketplace.repo,
             pluginName: manifest.name,
-          });
+          } as PluginConfig;
         }
       } catch {
         // Skip plugins without valid manifest
       }
-    }
+      return null;
+    });
 
-    spinner.succeed(`Found ${plugins.length} plugin${plugins.length !== 1 ? 's' : ''}`);
-    return plugins;
-  } catch (err) {
-    spinner.fail('Failed to fetch plugins from GitHub');
-    throw err;
+    const results = await Promise.all(manifestPromises);
+    plugins.push(...results.filter((p): p is PluginConfig => p !== null));
+  } catch {
+    // Marketplace fetch failed, return empty array
   }
+
+  return plugins;
 }
 
 /**
@@ -165,41 +283,18 @@ function findMarkdownFiles(dir: string, basePath = ''): string[] {
 }
 
 /**
- * Install a single plugin
+ * Install a single plugin (marketplace must already be added and updated)
  */
 async function installPlugin(
   plugin: PluginConfig,
   cli: string,
   toolbox: ExtendedGluegunToolbox,
-): Promise<{ action: string; contents: ReturnType<typeof readPluginContents>; success: boolean }> {
+): Promise<{ action: string; contents: PluginContents; success: boolean }> {
   const {
     print: { error, info, spin },
   } = toolbox;
 
-  // Step 1: Add marketplace
-  const marketplaceSpinner = spin(`Adding marketplace for ${plugin.pluginName}`);
-  const addMarketplaceResult = runClaudeCommand(cli, `plugin marketplace add ${plugin.marketplaceRepo}`);
-
-  if (addMarketplaceResult.success || addMarketplaceResult.output.includes('already')) {
-    marketplaceSpinner.succeed(`Marketplace added for ${plugin.pluginName}`);
-  } else {
-    marketplaceSpinner.fail(`Failed to add marketplace for ${plugin.pluginName}`);
-    error(addMarketplaceResult.output);
-    return { action: 'failed', contents: readPluginContents(plugin.marketplaceName, plugin.pluginName), success: false };
-  }
-
-  // Step 2: Update marketplace cache to ensure latest version
-  const updateSpinner = spin(`Updating marketplace cache for ${plugin.marketplaceName}`);
-  const updateResult = runClaudeCommand(cli, `plugin marketplace update ${plugin.marketplaceName}`);
-
-  if (updateResult.success) {
-    updateSpinner.succeed(`Marketplace cache updated for ${plugin.marketplaceName}`);
-  } else {
-    // Non-fatal: continue with potentially cached version
-    updateSpinner.stopAndPersist({ symbol: '⚠', text: `Could not update marketplace cache, using cached version` });
-  }
-
-  // Step 3: Install or update plugin
+  // Step 1: Install or update plugin
   const fullPluginName = `${plugin.pluginName}@${plugin.marketplaceName}`;
   const pluginSpinner = spin(`Installing/updating ${plugin.pluginName}`);
   const installResult = runClaudeCommand(cli, `plugin install ${fullPluginName}`);
@@ -220,19 +315,20 @@ async function installPlugin(
     info('Manual installation:');
     info(`  /plugin marketplace add ${plugin.marketplaceRepo}`);
     info(`  /plugin install ${fullPluginName}`);
-    return { action: 'failed', contents: readPluginContents(plugin.marketplaceName, plugin.pluginName), success: false };
+    return { action: 'failed', contents: EMPTY_PLUGIN_CONTENTS, success: false };
   }
 
-  // Step 3: Read plugin contents
+  // Step 2: Read plugin contents
   const pluginContents = readPluginContents(plugin.marketplaceName, plugin.pluginName);
 
-  // Warn if plugin seems empty
-  if (pluginContents.skills.length === 0 && pluginContents.commands.length === 0) {
+  // Warn if plugin seems empty (but not for LSP plugins which don't have skills/commands)
+  const isLspPlugin = plugin.pluginName.endsWith('-lsp');
+  if (!isLspPlugin && pluginContents.skills.length === 0 && pluginContents.commands.length === 0) {
     info('');
     info(`Warning: No skills or commands found for ${plugin.pluginName}. Plugin may not be installed correctly.`);
   }
 
-  // Step 4: Setup permissions
+  // Step 3: Setup permissions
   if (pluginContents.permissions.length > 0) {
     const permSpinner = spin(`Configuring permissions for ${plugin.pluginName}`);
     const permResult = setupPermissions(pluginContents.permissions, error);
@@ -255,16 +351,77 @@ async function installPlugin(
 }
 
 /**
+ * Prepare marketplaces (add and update cache) for a list of plugins
+ * Returns the set of successfully prepared marketplace names
+ */
+function prepareMarketplaces(
+  plugins: PluginConfig[],
+  cli: string,
+  toolbox: ExtendedGluegunToolbox,
+): Set<string> {
+  const {
+    print: { error, spin },
+  } = toolbox;
+
+  // Get unique marketplaces from plugins
+  const marketplaceMap = new Map<string, PluginConfig>();
+  for (const plugin of plugins) {
+    if (!marketplaceMap.has(plugin.marketplaceName)) {
+      marketplaceMap.set(plugin.marketplaceName, plugin);
+    }
+  }
+
+  const preparedMarketplaces = new Set<string>();
+
+  for (const [marketplaceName, plugin] of marketplaceMap) {
+    // Add marketplace
+    const addSpinner = spin(`Adding marketplace ${marketplaceName}`);
+    const addResult = runClaudeCommand(cli, `plugin marketplace add ${plugin.marketplaceRepo}`);
+
+    if (addResult.success || addResult.output.includes('already')) {
+      addSpinner.succeed(`Marketplace ${marketplaceName} added`);
+    } else {
+      addSpinner.fail(`Failed to add marketplace ${marketplaceName}`);
+      error(addResult.output);
+      continue;
+    }
+
+    // Update marketplace cache
+    const updateSpinner = spin(`Updating marketplace cache for ${marketplaceName}`);
+    const updateResult = runClaudeCommand(cli, `plugin marketplace update ${marketplaceName}`);
+
+    if (updateResult.success) {
+      updateSpinner.succeed(`Marketplace ${marketplaceName} cache updated`);
+    } else {
+      updateSpinner.stopAndPersist({ symbol: '⚠', text: `Could not update ${marketplaceName} cache, using cached version` });
+    }
+
+    preparedMarketplaces.add(marketplaceName);
+  }
+
+  return preparedMarketplaces;
+}
+
+/**
  * Print plugin summary
  */
 function printPluginSummary(
   pluginName: string,
-  contents: ReturnType<typeof readPluginContents>,
+  contents: PluginContents,
   info: (msg: string) => void,
 ): void {
-  if (contents.skills.length > 0 || contents.commands.length > 0 || contents.agents.length > 0) {
+  const isLspPlugin = pluginName.endsWith('-lsp');
+  const hasContent = contents.skills.length > 0 || contents.commands.length > 0 || contents.agents.length > 0;
+
+  if (hasContent || isLspPlugin) {
     info('');
     info(`${pluginName}:`);
+
+    // Show LSP indicator for LSP plugins
+    if (isLspPlugin) {
+      info(`  Type: Language Server (LSP)`);
+    }
+
     // Alphabetical order: Agents, Commands, Hooks, MCP Servers, Skills
     if (contents.agents.length > 0) {
       info(`  Agents (${contents.agents.length}): ${contents.agents.join(', ')}`);
@@ -291,16 +448,9 @@ function printPluginSummary(
 }
 
 /**
- * Read plugin contents (skills, commands, hooks, agents, permissions, mcpServers)
+ * Read plugin contents from installed plugin directory
  */
-function readPluginContents(marketplaceName: string, pluginName: string): {
-  agents: string[];
-  commands: string[];
-  hooks: number;
-  mcpServers: string[];
-  permissions: string[];
-  skills: string[];
-} {
+function readPluginContents(marketplaceName: string, pluginName: string): PluginContents {
   const pluginDir = join(
     homedir(),
     '.claude',
@@ -311,13 +461,13 @@ function readPluginContents(marketplaceName: string, pluginName: string): {
     pluginName
   );
 
-  const result = {
-    agents: [] as string[],
-    commands: [] as string[],
+  const result: PluginContents = {
+    agents: [],
+    commands: [],
     hooks: 0,
-    mcpServers: [] as string[],
-    permissions: [] as string[],
-    skills: [] as string[],
+    mcpServers: [],
+    permissions: [],
+    skills: [],
   };
 
   // Read skills
@@ -476,7 +626,7 @@ function setupPermissions(
 /**
  * Install/update Claude Code Plugins
  */
-const NewCommand: GluegunCommand = {
+const PluginsCommand: GluegunCommand = {
   alias: ['p'],
   description: 'Install Claude Code plugins',
   hidden: false,
@@ -546,9 +696,29 @@ const NewCommand: GluegunCommand = {
 
       info(`Installing ${pluginsToInstall.length} plugin${pluginsToInstall.length > 1 ? 's' : ''}: ${pluginsToInstall.map(p => p.pluginName).join(', ')}`);
     } else {
-      // Install all plugins
-      pluginsToInstall = availablePlugins;
-      info(`Installing all plugins (${availablePlugins.length})...`);
+      // Install all plugins from primary marketplace (lenne-tech) plus default external plugins
+      const primaryMarketplace = MARKETPLACES[0].name;
+      const primaryPlugins = availablePlugins.filter(p => p.marketplaceName === primaryMarketplace);
+
+      // Add default external plugins
+      const externalPlugins: PluginConfig[] = [];
+      for (const defaultPlugin of DEFAULT_EXTERNAL_PLUGINS) {
+        const plugin = availablePlugins.find(
+          p => p.pluginName === defaultPlugin.pluginName && p.marketplaceName === defaultPlugin.marketplaceName
+        );
+        if (plugin) {
+          externalPlugins.push(plugin);
+        }
+      }
+
+      pluginsToInstall = [...primaryPlugins, ...externalPlugins];
+
+      if (externalPlugins.length > 0) {
+        info(`Installing ${primaryPlugins.length} plugins from ${primaryMarketplace}`);
+        info(`  + ${externalPlugins.length} default plugins: ${externalPlugins.map(p => p.pluginName).join(', ')}`);
+      } else {
+        info(`Installing all plugins (${pluginsToInstall.length})...`);
+      }
     }
     info('');
 
@@ -561,10 +731,25 @@ const NewCommand: GluegunCommand = {
       return process.exit(1);
     }
 
-    // Install plugins
-    const results: Array<{ action: string; contents: ReturnType<typeof readPluginContents>; plugin: PluginConfig; success: boolean }> = [];
+    // Prepare marketplaces (add and update cache once per marketplace)
+    const preparedMarketplaces = prepareMarketplaces(pluginsToInstall, cli, toolbox);
+    info('');
+
+    // Install plugins (only from successfully prepared marketplaces)
+    const results: Array<{ action: string; contents: PluginContents; plugin: PluginConfig; success: boolean }> = [];
 
     for (const plugin of pluginsToInstall) {
+      // Skip plugins from marketplaces that failed to prepare
+      if (!preparedMarketplaces.has(plugin.marketplaceName)) {
+        results.push({
+          action: 'failed',
+          contents: EMPTY_PLUGIN_CONTENTS,
+          plugin,
+          success: false,
+        });
+        continue;
+      }
+
       const result = await installPlugin(plugin, cli, toolbox);
       results.push({ ...result, plugin });
 
@@ -634,4 +819,4 @@ const NewCommand: GluegunCommand = {
   },
 };
 
-export default NewCommand;
+export default PluginsCommand;
