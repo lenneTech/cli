@@ -886,6 +886,39 @@ lt claude plugins lt-dev --uninstall
 
 ---
 
+### `lt claude shortcuts`
+
+Installs Claude Code shell shortcuts (aliases) for quick access to common commands.
+
+**Usage:**
+```bash
+lt claude shortcuts
+```
+
+**Alias:** `lt claude s`
+
+**Shortcuts installed:**
+| Alias | Command | Description |
+|-------|---------|-------------|
+| `c` | `claude --dangerously-skip-permissions` | Start new Claude Code session |
+| `cc` | `claude --dangerously-skip-permissions --continue` | Continue last session |
+| `cr` | `claude --dangerously-skip-permissions --resume` | Select and resume previous session |
+
+**Note:** These shortcuts use `--dangerously-skip-permissions` which enables autonomous operation by bypassing permission prompts. Ensure you have proper data backups before using them.
+
+**Examples:**
+```bash
+# Install shortcuts to ~/.zshrc (or detected shell config)
+lt claude shortcuts
+
+# After installation, use:
+c        # Start new session
+cc       # Continue last session
+cr       # Resume a previous session
+```
+
+---
+
 ## Blocks & Components
 
 ### `lt blocks add`

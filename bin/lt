@@ -3,6 +3,19 @@
 
 /* tslint:disable */
 
+// Handle CTRL+C gracefully (enquirer throws ERR_USE_AFTER_CLOSE when readline is closed)
+function handleCtrlCError(e) {
+  if (!e || (e && e.code === 'ERR_USE_AFTER_CLOSE')) {
+    console.log('Goodbye ✌️');
+    process.exit(0);
+  } else {
+    console.error(e);
+    process.exit(1);
+  }
+}
+process.on('unhandledRejection', handleCtrlCError);
+process.on('uncaughtException', handleCtrlCError);
+
 // Handle case where current working directory no longer exists
 try {
   process.cwd();

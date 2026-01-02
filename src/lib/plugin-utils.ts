@@ -182,7 +182,7 @@ export async function handleMissingEnvVars(
       success: (msg: string) => void;
       warning: (msg: string) => void;
     };
-    prompt: { confirm: (msg: string) => Promise<boolean> };
+    prompt: { confirm: (msg: string, initial?: boolean) => Promise<boolean> };
   },
 ): Promise<EnvVarsHandlingResult> {
   const {
@@ -236,7 +236,8 @@ export async function handleMissingEnvVars(
     if (targetConfig) {
       // Ask user if they want to add the env vars automatically
       const shouldAdd = await prompt.confirm(
-        `Add ${envVarsToAdd.length > 1 ? 'these variables' : envVarsToAdd[0].name} to ${targetConfig.path}?`
+        `Add ${envVarsToAdd.length > 1 ? 'these variables' : envVarsToAdd[0].name} to ${targetConfig.path}?`,
+        true
       );
 
       if (shouldAdd) {

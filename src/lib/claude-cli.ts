@@ -86,7 +86,6 @@ export function runClaudeCommand(cli: string, args: string): ClaudeCommandResult
   try {
     const result = spawnSync(cli, args.split(' '), {
       encoding: 'utf-8',
-      shell: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     return {

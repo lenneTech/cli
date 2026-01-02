@@ -20,6 +20,7 @@ import {
   readPluginContents,
   setupPermissions,
 } from '../../lib/plugin-utils';
+import { getPreferredShellConfig } from '../../lib/shell-config';
 
 /**
  * Install a single plugin (marketplace must already be added and updated)
@@ -353,7 +354,9 @@ const PluginsCommand: GluegunCommand = {
         info('  1. Set required environment variables (see above)');
         info('  2. Restart Claude Code to activate the plugins');
       } else if (envVarsResult.configured || allMissingEnvVars.size > 0) {
-        info('  1. Restart your terminal or run source command');
+        const shellConfig = getPreferredShellConfig();
+        const sourceCmd = shellConfig ? `source ${shellConfig.path}` : 'source your shell config';
+        info(`  1. Restart your terminal or run: ${sourceCmd}`);
         info('  2. Restart Claude Code to activate the plugins');
       } else {
         info('  Restart Claude Code to activate the plugins');
