@@ -211,7 +211,7 @@ const NewCommand: GluegunCommand = {
           envContent.split('\n').forEach((line) => {
             const match = line.match(/^([A-Z_]+)=(.+)$/);
             if (match) {
-              existingEnv[match[1]] = match[2];
+              existingEnv[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
             }
           });
         }
