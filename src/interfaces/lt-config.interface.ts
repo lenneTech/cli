@@ -133,6 +133,83 @@ export interface LtConfig {
     };
 
     /**
+     * Directus-related configuration
+     */
+    directus?: {
+      /**
+       * Configuration for 'lt directus docker-setup' command
+       */
+      dockerSetup?: {
+        /**
+         * Default database type
+         * @example "postgres" | "mysql" | "sqlite"
+         */
+        database?: 'mysql' | 'postgres' | 'sqlite';
+
+        /**
+         * Default instance name
+         * @example "directus"
+         */
+        name?: string;
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+
+        /**
+         * Default port for Directus
+         * If not specified, auto-detects next available port starting from 8055
+         * @example 8055
+         */
+        port?: number;
+
+        /**
+         * Default Directus version
+         * @example "latest" | "10" | "10.8.0"
+         */
+        version?: string;
+      };
+
+      /**
+       * Configuration for 'lt directus remove' command
+       */
+      remove?: {
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt directus typegen' command
+       */
+      typegen?: {
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+
+        /**
+         * Default output file path
+         * @example "./directus-schema.ts"
+         */
+        output?: string;
+
+        /**
+         * Directus API token (needs Administrator permissions)
+         */
+        token?: string;
+
+        /**
+         * Directus API URL
+         * @example "http://localhost:8055"
+         */
+        url?: string;
+      };
+    };
+
+    /**
      * Frontend-related configuration
      */
     frontend?: {
