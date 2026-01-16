@@ -44,6 +44,20 @@ export class FrontendHelper {
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
 
   /**
+   * Fix package name in package.json
+   * Changes the name to "app" which is a valid npm package name for monorepos
+   *
+   * @param dest - Directory containing the package.json
+   */
+  private async fixPackageName(dest: string): Promise<void> {
+    const { patching } = this.toolbox;
+    await patching.update(`${dest}/package.json`, (data: Record<string, unknown>) => {
+      data.name = 'app';
+      return data;
+    });
+  }
+
+  /**
    * Setup Nuxt frontend
    * Handles template setup (link/copy/clone) and optional npm install
    *
@@ -87,6 +101,10 @@ export class FrontendHelper {
     // Default: use create-nuxt-base
     try {
       await system.run(`npx create-nuxt-base "${dest}"`);
+
+      // Fix package name - create-nuxt-base uses path as name which is invalid for lerna
+      await this.fixPackageName(dest);
+
       return { method: 'npx', path: dest, success: true };
     } catch (err) {
       return { method: 'npx', path: dest, success: false };
