@@ -38,6 +38,45 @@ async function isPortAvailable(port: number): Promise<boolean> {
 }
 
 /**
+ * Validate instance name for Docker compatibility
+ * Docker container names must match: ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$
+ */
+function validateInstanceName(name: string): { error?: string; isValid: boolean } {
+  // Docker container names must start with alphanumeric and can contain alphanumeric, underscore, period, hyphen
+  const dockerNamePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+
+  if (!name || name.length === 0) {
+    return { error: 'Instance name cannot be empty', isValid: false };
+  }
+
+  if (name.length > 128) {
+    return { error: 'Instance name cannot exceed 128 characters', isValid: false };
+  }
+
+  if (!dockerNamePattern.test(name)) {
+    // Check for common issues to provide helpful error messages
+    if (/[äöüÄÖÜß]/.test(name)) {
+      return {
+        error: `Instance name contains umlauts (${name}). Docker container names only allow: letters (a-z, A-Z), numbers (0-9), underscores (_), periods (.), and hyphens (-)`,
+        isValid: false,
+      };
+    }
+    if (/\s/.test(name)) {
+      return { error: 'Instance name cannot contain spaces', isValid: false };
+    }
+    if (/^[^a-zA-Z0-9]/.test(name)) {
+      return { error: 'Instance name must start with a letter or number', isValid: false };
+    }
+    return {
+      error: `Instance name "${name}" contains invalid characters. Only letters (a-z, A-Z), numbers (0-9), underscores (_), periods (.), and hyphens (-) are allowed`,
+      isValid: false,
+    };
+  }
+
+  return { isValid: true };
+}
+
+/**
  * Setup a new local Directus Docker instance
  */
 const NewCommand: GluegunCommand = {
@@ -106,6 +145,13 @@ const NewCommand: GluegunCommand = {
 
     if (!instanceName) {
       error('Instance name is required!');
+      return;
+    }
+
+    // Validate instance name for Docker compatibility
+    const validation = validateInstanceName(instanceName);
+    if (!validation.isValid) {
+      error(validation.error!);
       return;
     }
 
