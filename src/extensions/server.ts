@@ -470,8 +470,9 @@ export class Server {
       }
 
       // Use utility functions for enum and type config
+      // For enums, only use enum property (not type property)
       const enumConfig = this.getEnumConfig(item);
-      const typeConfig = this.getTypeConfig(modelFieldType, isArray);
+      const typeConfig = enumConfig ? '' : this.getTypeConfig(modelFieldType, isArray);
 
       // Build mongoose configuration
       const mongooseConfig = reference
@@ -492,8 +493,8 @@ export class Server {
     description: '${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
     ${enumConfig}isOptional: ${item.nullable},
     mongoose: ${mongooseConfig},
-    roles: RoleEnum.S_EVERYONE,
-    ${typeConfig}
+    roles: RoleEnum.S_EVERYONE,${typeConfig ? `
+    ${typeConfig}` : ''}
   })
   ${propName}: ${(reference ? reference : schema ? schema : enumRef || modelClassType) + (isArray ? '[]' : '')}${undefinedString}
   `;
@@ -592,8 +593,9 @@ export class Server {
         }
 
         // Use utility functions for enum and type config
+        // For enums, only use enum property (not type property)
         const enumConfig = this.getEnumConfig(item);
-        const typeConfig = this.getTypeConfig(inputFieldType, item.isArray);
+        const typeConfig = enumConfig ? '' : this.getTypeConfig(inputFieldType, item.isArray);
 
         result += `
   /**
@@ -602,8 +604,8 @@ export class Server {
   @UnifiedField({
     description: '${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
     ${enumConfig}isOptional: ${nullable || item.nullable},
-    roles: RoleEnum.S_EVERYONE,
-    ${typeConfig}
+    roles: RoleEnum.S_EVERYONE,${typeConfig ? `
+    ${typeConfig}` : ''}
   })
   ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${inputClassType}${item.isArray ? '[]' : ''}${propertyUndefinedString}
   `;
