@@ -104,7 +104,8 @@ export default (toolbox: ExtendedGluegunToolbox) => {
           const value = parameters.options[key];
 
           if (field === 'nullable' || field === 'isArray') {
-            propData[field] = value === 'true';
+            // Accept both string 'true' and boolean true
+            propData[field] = value === 'true' || value === true;
           } else {
             propData[field] = value;
           }
