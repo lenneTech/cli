@@ -4,7 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * Directus commands
  */
 const command = {
-  alias: ['d'],
+  alias: ['di'],
   description: 'Directus commands',
   hidden: false,
   name: 'directus',

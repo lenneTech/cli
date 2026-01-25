@@ -25,22 +25,40 @@ const branchExists = async (branch: string): Promise<boolean> => {
   }
 };
 
+// Check if working directory is clean (no uncommitted changes)
+const isWorkingDirectoryClean = async (): Promise<boolean> => {
+  try {
+    const status = await system.run('git status --porcelain');
+    return !status?.trim();
+  } catch {
+    return false;
+  }
+};
+
 export {};
 
 describe('Git Commands', () => {
   let onBranch: boolean;
   let hasMainBranch: boolean;
+  let cleanWorkingDir: boolean;
 
   beforeAll(async () => {
     onBranch = await isOnBranch();
     hasMainBranch = await branchExists('main');
+    cleanWorkingDir = await isWorkingDirectoryClean();
   });
 
   describe('lt git update', () => {
-    test('updates current branch or handles detached HEAD', async () => {
+    test('updates current branch or handles various states', async () => {
       if (!onBranch) {
         // In CI with detached HEAD, command will fail gracefully
         await expect(cli('git update')).rejects.toThrow();
+        return;
+      }
+      if (!cleanWorkingDir) {
+        // With uncommitted changes, git pull --rebase will fail
+        // This is expected behavior - verify the command fails appropriately
+        await expect(cli('git update')).rejects.toThrow(/unstaged changes|uncommitted/i);
         return;
       }
       const output = await cli('git update');

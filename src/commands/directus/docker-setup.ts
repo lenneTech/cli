@@ -125,7 +125,7 @@ const NewCommand: GluegunCommand = {
 
     // Determine instance name
     let instanceName: string;
-    if (cliName) {
+    if (cliName && typeof cliName === 'string') {
       instanceName = cliName;
     } else if (configName) {
       instanceName = configName;
@@ -157,7 +157,7 @@ const NewCommand: GluegunCommand = {
 
     // Determine Directus version
     let version: string;
-    if (cliVersion) {
+    if (cliVersion && typeof cliVersion === 'string') {
       version = cliVersion;
     } else if (configVersion) {
       version = configVersion;
@@ -188,7 +188,7 @@ const NewCommand: GluegunCommand = {
       { message: 'SQLite', name: 'sqlite' },
     ];
 
-    if (cliDatabase) {
+    if (cliDatabase && typeof cliDatabase === 'string') {
       const validDatabases = ['postgres', 'postgresql', 'mysql', 'sqlite'];
       const normalizedDb = cliDatabase.toLowerCase();
       if (!validDatabases.includes(normalizedDb)) {
@@ -307,8 +307,8 @@ const NewCommand: GluegunCommand = {
     let directusPort: number;
     const configPort = ltConfig?.commands?.directus?.dockerSetup?.port;
 
-    if (cliPort) {
-      directusPort = Number.parseInt(cliPort, 10);
+    if (cliPort && typeof cliPort !== 'boolean') {
+      directusPort = Number.parseInt(String(cliPort), 10);
       if (Number.isNaN(directusPort) || directusPort < 1 || directusPort > 65535) {
         error(`Invalid port: ${cliPort}. Must be between 1 and 65535.`);
         return;
