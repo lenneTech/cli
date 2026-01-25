@@ -29,6 +29,17 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       prodRunner: 'string',
       testRunner: 'string',
     },
+    directus: {
+      dockerSetup: {
+        database: ['postgres', 'mysql', 'sqlite'],
+        name: 'string',
+        noConfirm: 'boolean',
+        port: 'number',
+        version: 'string',
+      },
+      remove: { noConfirm: 'boolean' },
+      typegen: { noConfirm: 'boolean', output: 'string', token: 'string', url: 'string' },
+    },
     frontend: {
       angular: { branch: 'string', copy: 'string', link: 'string', localize: 'boolean', noConfirm: 'boolean' },
       nuxt: { branch: 'string', copy: 'string', link: 'string' },
@@ -148,6 +159,8 @@ function validateConfig(config: any, knownKeys: Record<string, any>, path = ''):
         result.errors.push(`${currentPath}: expected string, got ${typeof value}`);
       } else if (expectedType === 'boolean' && typeof value !== 'boolean') {
         result.errors.push(`${currentPath}: expected boolean, got ${typeof value}`);
+      } else if (expectedType === 'number' && typeof value !== 'number') {
+        result.errors.push(`${currentPath}: expected number, got ${typeof value}`);
       } else if (expectedType === 'array' && !Array.isArray(value)) {
         result.errors.push(`${currentPath}: expected array, got ${typeof value}`);
       }

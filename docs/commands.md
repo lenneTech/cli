@@ -14,6 +14,7 @@ This document provides a comprehensive reference for all `lt` CLI commands. For 
 - [Config Commands](#config-commands)
 - [Utility Commands](#utility-commands)
 - [Database Commands](#database-commands)
+- [Directus Commands](#directus-commands)
 - [TypeScript Commands](#typescript-commands)
 - [Starter Commands](#starter-commands)
 - [Claude Commands](#claude-commands)
@@ -790,6 +791,129 @@ Deletes a Qdrant collection.
 **Usage:**
 ```bash
 lt qdrant delete
+```
+
+---
+
+## Directus Commands
+
+### `lt directus docker-setup`
+
+Sets up a local Directus Docker instance using docker-compose.
+
+**Usage:**
+```bash
+lt directus docker-setup [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--name <name>` / `-n` | Instance name (stored in ~/.lt/directus/<name>) |
+| `--version <version>` / `-v` | Directus version (default: latest) |
+| `--database <type>` / `--db <type>` | Database type: `postgres`, `mysql`, `sqlite` |
+| `--port <number>` / `-p` | Port number (default: auto-detect starting from 8055) |
+| `--update` | Update existing instance configuration |
+| `--noConfirm` | Skip confirmation prompts |
+
+**Configuration:** `commands.directus.dockerSetup.*`, `defaults.noConfirm`
+
+**Port Auto-detection:**
+- If `--port` is not specified, the CLI automatically finds an available port starting from 8055
+- Each instance gets its own port (8055, 8056, 8057, etc.)
+- This allows running multiple Directus instances simultaneously
+
+**Generated files:**
+- `~/.lt/directus/<name>/docker-compose.yml` - Container configuration
+- `~/.lt/directus/<name>/.env` - Secrets and environment variables
+- `~/.lt/directus/<name>/README.md` - Usage instructions
+
+**Examples:**
+```bash
+# Create PostgreSQL instance (auto-detects port 8055)
+lt directus docker-setup --name my-project --database postgres
+
+# Create second instance (auto-detects port 8056)
+lt directus docker-setup --name another-project --database mysql
+
+# Create with specific port
+lt directus docker-setup --name custom-app --database sqlite --port 9000
+
+# Create with specific version
+lt directus docker-setup --name my-app --database mysql --version 10
+
+# Update existing instance
+lt directus docker-setup --name my-project --version 11 --update
+```
+
+---
+
+### `lt directus remove`
+
+Removes a Directus Docker instance and all its data.
+
+**Usage:**
+```bash
+lt directus remove [name] [options]
+```
+
+**Arguments:**
+| Argument | Description |
+|----------|-------------|
+| `name` | Instance name to remove (optional, will prompt if omitted) |
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--noConfirm` | Skip confirmation prompts |
+
+**Configuration:** `commands.directus.remove.*`, `defaults.noConfirm`
+
+**What gets removed:**
+- Stops and removes Docker containers
+- Removes all Docker volumes (database, uploads, extensions)
+- Deletes instance directory from ~/.lt/directus/
+
+**Examples:**
+```bash
+# Interactive (shows list of instances)
+lt directus remove
+
+# Remove specific instance
+lt directus remove my-project
+
+# Skip confirmation
+lt directus remove my-project --noConfirm
+```
+
+---
+
+### `lt directus typegen`
+
+Generates TypeScript types from Directus collections.
+
+**Usage:**
+```bash
+lt directus typegen [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--url <url>` / `-u` | Directus API URL |
+| `--token <token>` / `-t` | Directus API token (Administrator permissions required) |
+| `--output <path>` / `-o` | Output file path |
+| `--noConfirm` | Skip confirmation prompts |
+
+**Configuration:** `commands.directus.typegen.*`, `defaults.noConfirm`
+
+**Examples:**
+```bash
+# Interactive
+lt directus typegen
+
+# With all options
+lt directus typegen --url http://localhost:8055 --token <token> --output ./types.ts
 ```
 
 ---

@@ -22,6 +22,7 @@ const command: GluegunCommand = {
     const qdrantApi = http.create({
       baseURL: 'http://localhost:6333',
       headers: { 'Content-Type': 'application/json' },
+      timeout: 5000,
     });
 
     // 1. Fetch all collections

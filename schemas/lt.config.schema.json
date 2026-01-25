@@ -170,6 +170,82 @@
           },
           "additionalProperties": false
         },
+        "directus": {
+          "type": "object",
+          "description": "Directus-related configuration",
+          "properties": {
+            "typegen": {
+              "type": "object",
+              "description": "Configuration for 'lt directus typegen' command",
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "description": "Directus API URL",
+                  "examples": ["http://localhost:8055"]
+                },
+                "token": {
+                  "type": "string",
+                  "description": "Directus API token (needs Administrator permissions)"
+                },
+                "output": {
+                  "type": "string",
+                  "description": "Default output file path",
+                  "examples": ["./directus-schema.ts"]
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
+            },
+            "dockerSetup": {
+              "type": "object",
+              "description": "Configuration for 'lt directus docker-setup' command",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Default instance name",
+                  "examples": ["directus"]
+                },
+                "version": {
+                  "type": "string",
+                  "description": "Default Directus version",
+                  "examples": ["latest", "10", "10.8.0"]
+                },
+                "database": {
+                  "type": "string",
+                  "enum": ["postgres", "mysql", "sqlite"],
+                  "description": "Default database type"
+                },
+                "port": {
+                  "type": "number",
+                  "description": "Default port for Directus. If not specified, auto-detects next available port starting from 8055",
+                  "minimum": 1,
+                  "maximum": 65535,
+                  "examples": [8055]
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
+            },
+            "remove": {
+              "type": "object",
+              "description": "Configuration for 'lt directus remove' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "frontend": {
           "type": "object",
           "description": "Frontend-related configuration",

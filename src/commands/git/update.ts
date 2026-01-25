@@ -88,7 +88,7 @@ const NewCommand: GluegunCommand = {
 
     // Update
     const updateSpin = spin(`Update branch ${branch}`);
-    await run('git fetch && git pull');
+    await run('git fetch && git pull --rebase');
     updateSpin.succeed();
 
     // Install npm packages (unless skipped)

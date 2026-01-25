@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+<% if (props.dbType !== 'sqlite') { -%>
+  <%= props.dbType %>:
+    image: <%= props.dbConfig.image %>
+    container_name: <%= props.instanceName %>-<%= props.dbType %>
+    environment:
+<% if (props.dbType === 'postgres') { -%>
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+<% } else if (props.dbType === 'mysql') { -%>
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+<% } -%>
+    volumes:
+      - db-data:<%= props.dbType === 'postgres' ? '/var/lib/postgresql/data' : '/var/lib/mysql' %>
+    networks:
+      - directus-net
+    restart: unless-stopped
+    healthcheck:
+<% if (props.dbType === 'postgres') { -%>
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+<% } else if (props.dbType === 'mysql') { -%>
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+<% } -%>
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+<% } -%>
+  directus:
+    image: directus/directus:${DIRECTUS_VERSION}
+    container_name: <%= props.instanceName %>
+    ports:
+      - "${DIRECTUS_PORT}:8055"
+    environment:
+      KEY: ${KEY}
+      SECRET: ${SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DB_CLIENT: <%= props.dbConfig.client %>
+<% if (props.dbType === 'sqlite') { -%>
+      DB_FILENAME: ${DB_FILENAME}
+<% } else { -%>
+      DB_HOST: <%= props.dbType %>
+      DB_PORT: <%= props.dbConfig.port %>
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+<% } -%>
+      WEBSOCKETS_ENABLED: true
+    volumes:
+      - uploads:/directus/uploads
+      - extensions:/directus/extensions
+<% if (props.dbType === 'sqlite') { -%>
+      - database:/directus/database
+<% } -%>
+    networks:
+      - directus-net
+<% if (props.dbType !== 'sqlite') { -%>
+    depends_on:
+      <%= props.dbType %>:
+        condition: service_healthy
+<% } -%>
+    restart: unless-stopped
+
+volumes:
+<% if (props.dbType !== 'sqlite') { -%>
+  db-data:
+<% } else { -%>
+  database:
+<% } -%>
+  uploads:
+  extensions:
+
+networks:
+  directus-net:
