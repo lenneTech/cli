@@ -100,7 +100,7 @@ export class FrontendHelper {
 
     // Default: use create-nuxt-base
     try {
-      await system.run(`npx create-nuxt-base "${dest}"`);
+      await system.run(`npx --ignore-existing create-nuxt-base "${dest}"`);
 
       // Fix package name - create-nuxt-base uses path as name which is invalid for lerna
       await this.fixPackageName(dest);
