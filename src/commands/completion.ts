@@ -88,6 +88,34 @@ function discoverCommandTree(dir: string = __dirname, parentPath: string = ''): 
     }
   }
 
+  // Add native Gluegun commands that are not in the file system
+  if (!parentPath) {
+    nodes.push({
+      children: [],
+      description: 'Show CLI version',
+      name: 'version',
+      path: 'version',
+    });
+    nodes.push({
+      children: [],
+      description: 'Alias for version',
+      name: 'v',
+      path: 'v',
+    });
+    nodes.push({
+      children: [],
+      description: 'Show help',
+      name: 'help',
+      path: 'help',
+    });
+    nodes.push({
+      children: [],
+      description: 'Alias for help',
+      name: 'h',
+      path: 'h',
+    });
+  }
+
   return nodes.sort((a, b) => a.name.localeCompare(b.name));
 }
 
