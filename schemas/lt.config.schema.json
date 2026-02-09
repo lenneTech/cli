@@ -13,6 +13,11 @@
       "type": "object",
       "description": "Global default settings that apply across multiple commands. These are overridden by command-specific settings.",
       "properties": {
+        "apiMode": {
+          "type": "string",
+          "enum": ["Rest", "GraphQL", "Both"],
+          "description": "Default API mode for server projects. Used by: server/create, fullstack/init"
+        },
         "author": {
           "type": "string",
           "description": "Default author for commits and project creation. Used by: git/squash, server/create, cli/create",
@@ -309,6 +314,11 @@
           "type": "object",
           "description": "Configuration for 'lt fullstack init' command",
           "properties": {
+            "apiMode": {
+              "type": "string",
+              "enum": ["Rest", "GraphQL", "Both"],
+              "description": "API mode for the server project"
+            },
             "apiBranch": {
               "type": "string",
               "description": "Branch of nest-server-starter to use for API",
@@ -566,6 +576,11 @@
               "type": "object",
               "description": "Configuration for 'lt server create' command",
               "properties": {
+                "apiMode": {
+                  "type": "string",
+                  "enum": ["Rest", "GraphQL", "Both"],
+                  "description": "API mode for the server project"
+                },
                 "author": {
                   "type": "string",
                   "description": "Default author for new server projects"

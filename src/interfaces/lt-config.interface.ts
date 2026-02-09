@@ -297,6 +297,12 @@ export interface LtConfig {
       apiLink?: string;
 
       /**
+       * API mode for the server project
+       * @example "Rest" | "GraphQL" | "Both"
+       */
+      apiMode?: 'Both' | 'GraphQL' | 'Rest';
+
+      /**
        * Default frontend framework
        * @example "angular" | "nuxt"
        */
@@ -543,6 +549,12 @@ export interface LtConfig {
        */
       create?: {
         /**
+         * API mode for the server project
+         * @example "Rest" | "GraphQL" | "Both"
+         */
+        apiMode?: 'Both' | 'GraphQL' | 'Rest';
+
+        /**
          * Default author for new server projects
          * @example "John Doe <john@example.com>"
          */
@@ -652,6 +664,13 @@ export interface LtConfig {
    * These are overridden by command-specific settings in the 'commands' section
    */
   defaults?: {
+    /**
+     * Default API mode for server projects
+     * Used by: server/create, fullstack/init
+     * @example "Rest" | "GraphQL" | "Both"
+     */
+    apiMode?: 'Both' | 'GraphQL' | 'Rest';
+
     /**
      * Default author for commits and project creation
      * Used by: git/squash, server/create, cli/create

@@ -34,9 +34,11 @@ const NewCommand: GluegunCommand = {
     const configBranch = ltConfig?.commands?.server?.create?.branch;
     const configCopy = ltConfig?.commands?.server?.create?.copy;
     const configLink = ltConfig?.commands?.server?.create?.link;
+    const configApiMode = ltConfig?.commands?.server?.create?.apiMode;
 
     // Load global defaults
     const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
+    const globalApiMode = config.getGlobalDefault<'Both' | 'GraphQL' | 'Rest'>(ltConfig, 'apiMode');
 
     // Parse CLI arguments
     const cliGit = parameters.options.git;
@@ -46,6 +48,7 @@ const NewCommand: GluegunCommand = {
     const cliBranch = parameters.options.branch || parameters.options.b;
     const cliCopy = parameters.options.copy || parameters.options.c;
     const cliLink = parameters.options.link;
+    const cliApiMode = parameters.options['api-mode'] || parameters.options.apiMode;
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
     const noConfirm = config.getNoConfirm({
@@ -122,10 +125,39 @@ const NewCommand: GluegunCommand = {
       });
     }
 
+    // Determine API mode with priority: CLI > config > global > interactive (default: Rest)
+    let apiMode: 'Both' | 'GraphQL' | 'Rest';
+    if (cliApiMode) {
+      apiMode = cliApiMode as 'Both' | 'GraphQL' | 'Rest';
+    } else if (configApiMode) {
+      apiMode = configApiMode;
+      info(`Using API mode from lt.config commands.server.create: ${apiMode}`);
+    } else if (globalApiMode) {
+      apiMode = globalApiMode;
+      info(`Using API mode from lt.config defaults: ${apiMode}`);
+    } else if (noConfirm) {
+      apiMode = 'Rest';
+      info('Using default API mode: REST/RPC');
+    } else {
+      const apiModeChoice = await ask([{
+        choices: [
+          'Rest - REST/RPC API with Swagger documentation (recommended)',
+          'GraphQL - GraphQL API with subscriptions',
+          'Both - REST/RPC and GraphQL in parallel (hybrid)',
+        ],
+        initial: 0,
+        message: 'API mode?',
+        name: 'apiMode',
+        type: 'select',
+      }]);
+      apiMode = apiModeChoice.apiMode.split(' - ')[0] as 'Both' | 'GraphQL' | 'Rest';
+    }
+
     // Setup server using Server extension
     const setupSpinner = spin(`Setting up server${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`);
 
     const result = await server.setupServer(`./${projectDir}`, {
+      apiMode,
       author,
       branch,
       copyPath,
@@ -188,69 +220,31 @@ const NewCommand: GluegunCommand = {
       }
     }
 
-    // Configure default controller type for modules
-    info('');
-    info('Project Configuration');
-    info('');
-    info('To streamline module creation, you can set a default controller type.');
-    info('This will be used for all new modules unless explicitly overridden.');
-    info('');
+    // Derive controller type from API mode and save project config
+    const controllerType: 'Both' | 'GraphQL' | 'Rest' = apiMode;
 
-    const configureDefaults = noConfirm ? true : await confirm('Would you like to configure default settings?', true);
-
-    if (configureDefaults) {
-      // Determine controller type - use default when noConfirm, otherwise ask
-      let controllerType: 'auto' | 'Both' | 'GraphQL' | 'Rest';
-      if (noConfirm) {
-        controllerType = 'Both'; // Default to Both when noConfirm
-        info('Using default controller type: Both');
-      } else {
-        const controllerChoice = await ask([{
-          choices: [
-            'Rest - REST controllers only (no GraphQL)',
-            'GraphQL - GraphQL resolvers only (includes subscriptions)',
-            'Both - Both REST and GraphQL (hybrid approach)',
-            'auto - Auto-detect from existing modules',
-          ],
-          initial: 2, // Default to "Both"
-          message: 'Default controller type for new modules?',
-          name: 'controller',
-          type: 'select',
-        }]);
-
-        // Extract the controller type from the choice
-        controllerType = controllerChoice.controller.split(' - ')[0] as 'auto' | 'Both' | 'GraphQL' | 'Rest';
-      }
-
-      // Create lt.config.json
-      const projectConfig = {
-        commands: {
-          server: {
-            module: {
-              controller: controllerType,
-            },
+    // Create lt.config.json
+    const projectConfig = {
+      commands: {
+        server: {
+          module: {
+            controller: controllerType,
           },
         },
-        meta: {
-          version: '1.0.0',
-        },
-      };
+      },
+      meta: {
+        apiMode,
+        version: '1.0.0',
+      },
+    };
 
-      const configPath = filesystem.path(projectDir, 'lt.config.json');
-      filesystem.write(configPath, projectConfig, { jsonIndent: 2 });
+    const configPath = filesystem.path(projectDir, 'lt.config.json');
+    filesystem.write(configPath, projectConfig, { jsonIndent: 2 });
 
-      info('');
-      success(`Configuration saved to ${projectDir}/lt.config.json`);
-      info(`   Default controller type: ${controllerType}`);
-      info('');
-      info('You can change this anytime by:');
-      info(`   - Editing ${projectDir}/lt.config.json directly`);
-      info(`   - Running 'lt config init' in the project directory`);
-    } else {
-      info('');
-      info('Skipped configuration. You can set it up later with:');
-      info(`   cd ${projectDir} && lt config init`);
-    }
+    info('');
+    success(`Configuration saved to ${projectDir}/lt.config.json`);
+    info(`   API mode: ${apiMode}`);
+    info(`   Default controller type: ${controllerType}`);
 
     // We're done, so show what to do next
     info('');

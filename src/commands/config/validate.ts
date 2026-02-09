@@ -48,6 +48,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       apiBranch: 'string',
       apiCopy: 'string',
       apiLink: 'string',
+      apiMode: ['Rest', 'GraphQL', 'Both'],
       frontend: ['angular', 'nuxt'],
       frontendBranch: 'string',
       frontendCopy: 'string',
@@ -78,6 +79,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
     server: {
       addProp: { skipLint: 'boolean' },
       create: {
+        apiMode: ['Rest', 'GraphQL', 'Both'],
         author: 'string',
         branch: 'string',
         controller: ['Rest', 'GraphQL', 'Both', 'auto'],
@@ -99,6 +101,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
     },
   },
   defaults: {
+    apiMode: ['Rest', 'GraphQL', 'Both'],
     author: 'string',
     baseBranch: 'string',
     controller: ['Rest', 'GraphQL', 'Both', 'auto'],

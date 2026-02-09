@@ -636,6 +636,7 @@ export class Server {
   async setupServer(
     dest: string,
     options: {
+      apiMode?: 'Both' | 'GraphQL' | 'Rest';
       author?: string;
       branch?: string;
       copyPath?: string;
@@ -647,8 +648,9 @@ export class Server {
       skipPatching?: boolean;
     },
   ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
-    const { patching, system, template, templateHelper } = this.toolbox;
+    const { apiMode: apiModeHelper, patching, system, template, templateHelper } = this.toolbox;
     const {
+      apiMode,
       author = '',
       branch,
       copyPath,
@@ -690,8 +692,7 @@ export class Server {
         // Replace secret or private keys and update database names
         await patching.update(`${dest}/src/config.env.ts`, (content: string) => {
           let updated = this.replaceSecretOrPrivateKeys(content);
-          updated = updated.replace(/nest-server-(ci|develop|local|prod|production|test)/g, `${projectDir}-$1`);
-          updated = updated.replace(/nest-server/g, projectDir);
+          updated = updated.replace(/nest-server-(\w+)/g, `${projectDir}-$1`);
           return updated;
         });
 
@@ -727,6 +728,23 @@ export class Server {
       }
     }
 
+    // Clean up copied template artifacts (prevents npm install issues with stale node_modules)
+    if (result.method === 'copy') {
+      this.filesystem.remove(`${dest}/node_modules`);
+      this.filesystem.remove(`${dest}/package-lock.json`);
+      this.filesystem.remove(`${dest}/.yalc`);
+      this.filesystem.remove(`${dest}/yalc.lock`);
+    }
+
+    // Process API mode (before npm install so package.json is correct)
+    if (apiMode) {
+      try {
+        await apiModeHelper.processApiMode(dest, apiMode);
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
+    }
+
     // Install packages
     if (!skipInstall) {
       try {
@@ -749,6 +767,7 @@ export class Server {
   async setupServerForFullstack(
     dest: string,
     options: {
+      apiMode?: 'Both' | 'GraphQL' | 'Rest';
       branch?: string;
       copyPath?: string;
       linkPath?: string;
@@ -756,8 +775,8 @@ export class Server {
       projectDir: string;
     },
   ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
-    const { patching, templateHelper } = this.toolbox;
-    const { branch, copyPath, linkPath, name, projectDir } = options;
+    const { apiMode: apiModeHelper, patching, templateHelper } = this.toolbox;
+    const { apiMode, branch, copyPath, linkPath, name, projectDir } = options;
 
     // Setup template
     const result = await templateHelper.setup(dest, {
@@ -791,6 +810,23 @@ export class Server {
       );
     } catch (err) {
       return { method: result.method, path: dest, success: false };
+    }
+
+    // Clean up copied template artifacts
+    if (result.method === 'copy') {
+      this.filesystem.remove(`${dest}/node_modules`);
+      this.filesystem.remove(`${dest}/package-lock.json`);
+      this.filesystem.remove(`${dest}/.yalc`);
+      this.filesystem.remove(`${dest}/yalc.lock`);
+    }
+
+    // Process API mode (before npm install which happens at monorepo level)
+    if (apiMode) {
+      try {
+        await apiModeHelper.processApiMode(dest, apiMode);
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
     }
 
     return { method: result.method, path: dest, success: true };

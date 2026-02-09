@@ -40,6 +40,7 @@ const NewCommand: GluegunCommand = {
     // Load configuration
     const ltConfig = config.loadConfig();
     const configFrontend = ltConfig?.commands?.fullstack?.frontend;
+    const configApiMode = ltConfig?.commands?.fullstack?.apiMode;
     const configGit = ltConfig?.commands?.fullstack?.git;
     const configGitLink = ltConfig?.commands?.fullstack?.gitLink;
     const configApiBranch = ltConfig?.commands?.fullstack?.apiBranch;
@@ -54,6 +55,7 @@ const NewCommand: GluegunCommand = {
       'api-branch': cliApiBranch,
       'api-copy': cliApiCopy,
       'api-link': cliApiLink,
+      'api-mode': cliApiMode,
       frontend: cliFrontend,
       'frontend-branch': cliFrontendBranch,
       'frontend-copy': cliFrontendCopy,
@@ -120,6 +122,35 @@ const NewCommand: GluegunCommand = {
       if (!frontend) {
         return;
       }
+    }
+
+    // Determine API mode with priority: CLI > config > global > interactive (default: Rest)
+    const globalApiMode = config.getGlobalDefault<'Both' | 'GraphQL' | 'Rest'>(ltConfig, 'apiMode');
+    let apiMode: 'Both' | 'GraphQL' | 'Rest';
+    if (cliApiMode) {
+      apiMode = cliApiMode as 'Both' | 'GraphQL' | 'Rest';
+    } else if (configApiMode) {
+      apiMode = configApiMode;
+      info(`Using API mode from lt.config: ${apiMode}`);
+    } else if (globalApiMode) {
+      apiMode = globalApiMode;
+      info(`Using API mode from lt.config defaults: ${apiMode}`);
+    } else if (noConfirm) {
+      apiMode = 'Rest';
+      info('Using default API mode: REST/RPC');
+    } else {
+      const apiModeChoice = await ask({
+        choices: [
+          'Rest - REST/RPC API with Swagger documentation (recommended)',
+          'GraphQL - GraphQL API with subscriptions',
+          'Both - REST and GraphQL in parallel (hybrid)',
+        ],
+        initial: 0,
+        message: 'API mode?',
+        name: 'apiMode',
+        type: 'select',
+      });
+      apiMode = apiModeChoice.apiMode.split(' - ')[0] as 'Both' | 'GraphQL' | 'Rest';
     }
 
     // Determine git settings with priority: CLI > config > interactive
@@ -268,6 +299,7 @@ const NewCommand: GluegunCommand = {
       // Setup API using Server extension
       const apiDest = `${projectDir}/projects/api`;
       const apiResult = await server.setupServerForFullstack(apiDest, {
+        apiMode,
         branch: apiBranch,
         copyPath: apiCopy,
         linkPath: apiLink,
@@ -279,6 +311,22 @@ const NewCommand: GluegunCommand = {
         serverSpinner.fail(`Failed to set up API: ${apiResult.path}`);
         return;
       }
+
+      // Create lt.config.json for API
+      const apiConfigPath = filesystem.path(apiDest, 'lt.config.json');
+      filesystem.write(apiConfigPath, {
+        commands: {
+          server: {
+            module: {
+              controller: apiMode,
+            },
+          },
+        },
+        meta: {
+          apiMode,
+          version: '1.0.0',
+        },
+      }, { jsonIndent: 2 });
 
       // Integrate files
       if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {

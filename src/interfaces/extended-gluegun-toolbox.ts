@@ -1,6 +1,7 @@
 import { IHelperExtendedGluegunToolbox } from '@lenne.tech/cli-plugin-helper';
 import { GluegunParameters } from 'gluegun';
 
+import { ApiMode } from '../extensions/api-mode';
 import { Config } from '../extensions/config';
 import { FrontendHelper } from '../extensions/frontend-helper';
 import { Git } from '../extensions/git';
@@ -16,6 +17,7 @@ import { Typescript } from '../extensions/typescript';
  * Extended GluegunToolbox
  */
 export interface ExtendedGluegunToolbox extends IHelperExtendedGluegunToolbox {
+  apiMode: ApiMode;
   config: Config;
   frontendHelper: FrontendHelper;
   git: Git;

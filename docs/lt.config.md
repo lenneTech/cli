@@ -95,6 +95,7 @@ The `defaults` section contains settings that apply across multiple commands. Th
 
 | Field | Type | Default | Used By |
 |-------|------|---------|---------|
+| `defaults.apiMode` | `'Rest'` \| `'GraphQL'` \| `'Both'` | `'Rest'` | server/create, fullstack/init |
 | `defaults.author` | `string` | - | git/squash, server/create, cli/create |
 | `defaults.baseBranch` | `string` | - | git/create, git/squash, git/rebase |
 | `defaults.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | server/module, server/create |
@@ -107,6 +108,7 @@ The `defaults` section contains settings that apply across multiple commands. Th
 ```json
 {
   "defaults": {
+    "apiMode": "Rest",
     "author": "lenne.Tech Team <info@lenne.tech>",
     "baseBranch": "develop",
     "controller": "Both",
@@ -121,6 +123,7 @@ The `defaults` section contains settings that apply across multiple commands. Th
 **YAML Example:**
 ```yaml
 defaults:
+  apiMode: Rest
   author: "lenne.Tech Team <info@lenne.tech>"
   baseBranch: develop
   controller: Both
@@ -359,6 +362,7 @@ Creates a new server project.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `commands.server.create.apiMode` | `'Rest'` \| `'GraphQL'` \| `'Both'` | `'Rest'` | API mode for the server project. Determines which API endpoints (REST/GraphQL) are included. |
 | `commands.server.create.author` | `string` | - | Default author for new projects |
 | `commands.server.create.branch` | `string` | - | Branch of nest-server-starter to use as template |
 | `commands.server.create.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | Default controller type for new projects |
@@ -388,7 +392,8 @@ Creates a new server project.
 
 **CLI Override:**
 ```bash
-lt server create --name MyServer --git true --author "John Doe" --description "My Server" --branch feature/new-auth
+lt server create --name MyServer --api-mode Rest --git true --author "John Doe" --description "My Server"
+lt server create --name MyServer --api-mode GraphQL --branch feature/new-auth
 lt server create --copy /path/to/local/nest-server-starter
 lt server create --link /path/to/local/nest-server-starter  # Fastest, but changes affect original
 ```
@@ -512,6 +517,7 @@ Creates a new fullstack workspace with API and frontend.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `commands.fullstack.apiMode` | `'Rest'` \| `'GraphQL'` \| `'Both'` | `'Rest'` | API mode for the server project |
 | `commands.fullstack.apiBranch` | `string` | - | Branch of nest-server-starter to use for API |
 | `commands.fullstack.apiCopy` | `string` | - | Path to local API template directory to copy instead of cloning |
 | `commands.fullstack.apiLink` | `string` | - | Path to local API template directory to symlink (fastest, changes affect original) |
@@ -541,7 +547,8 @@ Creates a new fullstack workspace with API and frontend.
 
 **CLI Override:**
 ```bash
-lt fullstack init --name MyProject --frontend angular --git true --git-link https://... --api-branch feature/new-auth --frontend-branch feature/new-design
+lt fullstack init --name MyProject --api-mode Rest --frontend nuxt
+lt fullstack init --name MyProject --api-mode GraphQL --frontend angular --git true --git-link https://...
 lt fullstack init --api-copy /path/to/api --frontend-copy /path/to/frontend
 lt fullstack init --api-link /path/to/api --frontend-link /path/to/frontend  # Fastest, changes affect original
 ```
