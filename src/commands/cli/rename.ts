@@ -36,7 +36,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Run rename script
-    await system.run(`cd ${rootPath} && npm run rename -- ${parameters.string}`);
+    await system.run(`cd ${rootPath} && ${toolbox.pm.run('rename', toolbox.pm.detect(rootPath))} -- ${parameters.string}`);
 
     // Exit if not running from menu
     if (!toolbox.parameters.options.fromGluegunMenu) {

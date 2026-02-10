@@ -220,18 +220,19 @@ export async function installPackage(
   if (!isInstalled) {
     if (!noConfirm) {
       const confirmInstall = await prompt.confirm(
-        `The npm package ${nameWithoutVersion} is required. Would you like to install it?`,
+        `The package ${nameWithoutVersion} is required. Would you like to install it?`,
       );
       if (!confirmInstall) {
         return;
       }
     }
 
-    const installSpinner = print.spin(`Install npm package ${nameWithoutVersion}...`);
-    await system.run(`npm install ${packageName} --save-exact`);
-    installSpinner.succeed(`npm package ${nameWithoutVersion} successfully installed`);
+    const { pm } = toolbox;
+    const installSpinner = print.spin(`Install package ${nameWithoutVersion}...`);
+    await system.run(pm.addPackage(packageName, '--save-exact'));
+    installSpinner.succeed(`Package ${nameWithoutVersion} successfully installed`);
   } else {
-    print.info(`npm package ${nameWithoutVersion} is already installed`);
+    print.info(`Package ${nameWithoutVersion} is already installed`);
   }
 }
 

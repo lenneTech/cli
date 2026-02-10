@@ -156,7 +156,7 @@ const NewCommand: GluegunCommand = {
     // Init lerna projects
     if (filesystem.isFile('./lerna.json')) {
       const initProjectsSpin = spin('Init projects');
-      await system.run('npm run init --if-present');
+      await system.run(`${toolbox.pm.run('init')} --if-present`);
       initProjectsSpin.succeed();
     }
 

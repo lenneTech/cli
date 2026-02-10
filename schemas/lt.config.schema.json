@@ -43,6 +43,11 @@
           "description": "Skip confirmation prompts globally. Used by: git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit",
           "default": false
         },
+        "packageManager": {
+          "type": "string",
+          "enum": ["npm", "pnpm", "yarn"],
+          "description": "Default package manager when no lockfile is found. Auto-detection from lockfiles takes precedence. Used as fallback by: all commands that run package manager operations"
+        },
         "skipInstall": {
           "type": "boolean",
           "description": "Skip npm install operations globally. Used by: git/update",
@@ -356,11 +361,11 @@
             },
             "git": {
               "type": "boolean",
-              "description": "Initialize git by default"
+              "description": "Push initial commit to remote repository (git is always initialized with dev branch)"
             },
             "gitLink": {
               "type": "string",
-              "description": "Default git repository link (only used when git is true)"
+              "description": "Git remote repository URL (required when git is true)"
             },
             "noConfirm": {
               "type": "boolean",

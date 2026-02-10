@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if node -e "process.exit(Number(!require('./package.json').scripts?.['check:fix']))"; then
+  pnpm run check:fix
+elif node -e "process.exit(Number(!require('./package.json').scripts?.['check']))"; then
+  pnpm run check
+else
+  echo "no checks"
+fi

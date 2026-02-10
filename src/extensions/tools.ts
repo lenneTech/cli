@@ -21,10 +21,30 @@ const isEscaped = (jsonString, quotePosition) => {
 };
 
 export class Tools {
+  private hintShown = false;
+
   /**
    * Constructor for integration of toolbox
    */
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
+
+  /**
+   * Show a hint when running in non-interactive mode (no TTY)
+   * Suggests using CLI parameters instead of interactive prompts.
+   * Only shows once per session.
+   *
+   * @param usage - Example command with parameters, e.g. "lt fullstack init --name <name> --frontend <nuxt|angular> --noConfirm"
+   */
+  nonInteractiveHint(usage: string): void {
+    if (this.hintShown || process.stdin.isTTY) {
+      return;
+    }
+    this.hintShown = true;
+    const { print } = this.toolbox;
+    print.info(print.colors.yellow(`Hint: Non-interactive mode detected. Use parameters to skip prompts:`));
+    print.info(print.colors.yellow(`  ${usage}`));
+    print.info('');
+  }
 
   /**
    * Strip and save JSON file

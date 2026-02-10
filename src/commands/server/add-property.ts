@@ -418,7 +418,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
     if (!skipLint) {
       if (await confirm('Run lint fix?', true)) {
-        await system.run('npm run lint:fix');
+        await system.run(toolbox.pm.run('lint:fix'));
       }
     }
 

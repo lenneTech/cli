@@ -126,11 +126,11 @@ const NewCommand: GluegunCommand = {
           'Would you like to install directus-sdk-typegen globally?',
         );
         if (!shouldInstall) {
-          info('Using npx instead...');
+          info('Using npx/dlx instead...');
           useGlobalTypegen = false;
         } else {
           const installSpin = spin('Installing directus-sdk-typegen');
-          await system.run('npm install -g directus-sdk-typegen');
+          await system.run(toolbox.pm.globalInstall('directus-sdk-typegen'));
           installSpin.succeed();
           useGlobalTypegen = true;
         }
@@ -141,7 +141,7 @@ const NewCommand: GluegunCommand = {
     const generateSpin = spin('Generating TypeScript types from Directus');
     const command = useGlobalTypegen
       ? `directus-sdk-typegen -u "${url}" -t "${token}" -o "${output}"`
-      : `npx directus-sdk-typegen -u "${url}" -t "${token}" -o "${output}"`;
+      : `${toolbox.pm.exec(`directus-sdk-typegen -u "${url}" -t "${token}" -o "${output}"`)}`;
 
     try {
       await system.run(command);

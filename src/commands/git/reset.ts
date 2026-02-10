@@ -92,7 +92,7 @@ const NewCommand: GluegunCommand = {
       info('  3. Checkout main and pull');
       info(`  4. Delete local branch "${branch}"`);
       info(`  5. Checkout "${branch}" from remote`);
-      info('  6. Run npm install');
+      info(`  6. Run ${toolbox.pm.install()}`);
 
       return `dry-run reset branch ${branch}`;
     }

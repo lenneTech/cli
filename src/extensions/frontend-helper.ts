@@ -86,10 +86,11 @@ export class FrontendHelper {
         return { method: result.method, path: result.path, success: false };
       }
 
-      // Run npm install if not skipped and not a symlink
+      // Run install if not skipped and not a symlink
       if (!skipInstall && result.method !== 'link') {
         try {
-          await system.run(`cd "${dest}" && npm i`);
+          const { pm } = this.toolbox;
+          await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
         } catch (err) {
           return { method: result.method, path: dest, success: false };
         }
@@ -100,7 +101,8 @@ export class FrontendHelper {
 
     // Default: use create-nuxt-base
     try {
-      await system.run(`npx create-nuxt-base@latest "${dest}"`);
+      const { pm } = this.toolbox;
+      await system.run(pm.exec(`create-nuxt-base@latest "${dest}"`));
 
       // Fix package name - create-nuxt-base uses path as name which is invalid for lerna
       await this.fixPackageName(dest);
@@ -155,7 +157,8 @@ export class FrontendHelper {
     // Install packages
     if (!skipInstall) {
       try {
-        await system.run(`cd "${dest}" && npm i`);
+        const { pm } = this.toolbox;
+        await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
       } catch (err) {
         return { method: result.method, path: dest, success: false };
       }
@@ -202,7 +205,8 @@ export class FrontendHelper {
     // Run init script if exists
     if (!skipInstall) {
       try {
-        await system.run(`cd "${dest}" && npm run init`);
+        const { pm: pmHelper } = this.toolbox;
+        await system.run(`cd "${dest}" && ${pmHelper.run('init', pmHelper.detect(dest))}`);
       } catch {
         // Init script failure is not fatal
       }

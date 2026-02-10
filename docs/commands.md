@@ -436,9 +436,11 @@ lt fullstack init [options]
 | `--frontend-branch <branch>` | Branch of frontend starter to use (ng-base-starter or nuxt-base-starter) |
 | `--frontend-copy <path>` | Copy frontend from local template directory |
 | `--frontend-link <path>` | Symlink frontend to local template (fastest, changes affect original) |
-| `--git` | Initialize git repository |
-| `--git-link <url>` | Git repository URL |
+| `--git` | Push initial commit to remote repository (git is always initialized) |
+| `--git-link <url>` | Git remote repository URL (required when `--git` is true) |
 | `--noConfirm` | Skip confirmation prompts |
+
+**Note:** Git is always initialized with the `dev` branch. The `--git` flag only controls whether the initial commit is pushed to a remote repository.
 
 **Note:** For Nuxt frontends with `--frontend-copy` or `--frontend-link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root.
 

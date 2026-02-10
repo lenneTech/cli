@@ -125,10 +125,10 @@ const NewCommand: GluegunCommand = {
 
     prepareSpinner.succeed('Files prepared');
 
-    // Init npm
-    const installSpinner = spin('Install npm packages');
-    await system.run(`cd ${projectDir} && npm i`);
-    installSpinner.succeed('NPM packages installed');
+    // Install packages
+    const installSpinner = spin('Install packages');
+    await system.run(`cd ${projectDir} && ${toolbox.pm.install(toolbox.pm.detect(projectDir))}`);
+    installSpinner.succeed('Packages installed');
 
     // Init git
     const initGitSpinner = spin('Initialize git');

@@ -153,11 +153,13 @@ const StatusCommand: GluegunCommand = {
     info('');
     info(colors.bold('Environment:'));
     if (projectInfo.nodeVersion) {
-      info(`  Node: ${projectInfo.nodeVersion}`);
+      info(`  Node:            ${projectInfo.nodeVersion}`);
     }
     if (projectInfo.npmVersion) {
-      info(`  npm:  v${projectInfo.npmVersion}`);
+      info(`  npm:             v${projectInfo.npmVersion}`);
     }
+    const detectedPm = toolbox.pm.detect();
+    info(`  Package Manager: ${detectedPm}`);
 
     // Show available commands based on project type
     info('');

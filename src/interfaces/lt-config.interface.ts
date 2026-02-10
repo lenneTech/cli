@@ -328,13 +328,14 @@ export interface LtConfig {
       frontendLink?: string;
 
       /**
-       * Initialize git by default
+       * Push initial commit to remote repository
+       * Git is always initialized with dev branch; this only controls the push
        */
       git?: boolean;
 
       /**
-       * Default git repository link
-       * Only used when git is true
+       * Git remote repository URL
+       * Required when git is true
        */
       gitLink?: string;
 
@@ -705,6 +706,14 @@ export interface LtConfig {
      * Used by: blocks/add, components/add, config/init, git/get, git/squash, git/create, git/clear, git/force-pull, git/rebase, git/rename, git/reset, git/undo, npm/reinit
      */
     noConfirm?: boolean;
+
+    /**
+     * Default package manager to use when no lockfile is found
+     * Auto-detection from lockfiles takes precedence over this setting
+     * Used as fallback by: all commands that run package manager operations
+     * @example "npm" | "pnpm" | "yarn"
+     */
+    packageManager?: 'npm' | 'pnpm' | 'yarn';
 
     /**
      * Skip npm install operations globally

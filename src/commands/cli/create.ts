@@ -127,12 +127,13 @@ const NewCommand: GluegunCommand = {
     }
 
     // Install packages
-    const installSpinner = spin('Install npm packages');
+    const detectedPm = toolbox.pm.detect(projectDir);
+    const installSpinner = spin('Install packages');
     try {
-      await system.run(`cd ${projectDir} && npm i`);
-      installSpinner.succeed('NPM packages installed');
+      await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+      installSpinner.succeed('Packages installed');
     } catch (err) {
-      installSpinner.fail(`Failed to install npm packages: ${err.message}`);
+      installSpinner.fail(`Failed to install packages: ${err.message}`);
       return;
     }
 
@@ -140,7 +141,7 @@ const NewCommand: GluegunCommand = {
     const renameSpinner = spin(`Rename files & data ${link ? ' and link' : ''}`);
     try {
       await system.run(
-        `cd ${projectDir} && npm run rename -- "${name}" --author "${author}" --${link ? 'link' : 'nolink'}`,
+        `cd ${projectDir} && ${toolbox.pm.run('rename', detectedPm)} -- "${name}" --author "${author}" --${link ? 'link' : 'nolink'}`,
       );
       renameSpinner.succeed(`Files & data renamed${link ? ' and linked' : ''}`);
     } catch (err) {

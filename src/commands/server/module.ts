@@ -115,6 +115,9 @@ const NewCommand: ExtendedGluegunCommand = {
       info('Create a new server module');
     }
 
+    // Hint for non-interactive callers (e.g. Claude Code)
+    toolbox.tools.nonInteractiveHint('lt server module --name <name> --controller <Rest|GraphQL|Both|auto> --noConfirm');
+
     // Load configuration
     const ltConfig = config.loadConfig();
     const configController = ltConfig?.commands?.server?.module?.controller;
@@ -371,7 +374,7 @@ const NewCommand: ExtendedGluegunCommand = {
       // Run lint fix - skip confirmation when noConfirm, otherwise ask
       const runLint = noConfirm || await confirm('Run lint fix?', true);
       if (runLint) {
-        await system.run('npm run lint:fix');
+        await system.run(toolbox.pm.run('lint:fix'));
       }
     }
 

@@ -63,6 +63,9 @@ const NewCommand: GluegunCommand = {
     // Info
     info('Create a new server');
 
+    // Hint for non-interactive callers (e.g. Claude Code)
+    toolbox.tools.nonInteractiveHint('lt server create --name <name> --api-mode <Rest|GraphQL|Both> --noConfirm');
+
     // Check git
     if (!(await git.gitInstalled())) {
       return;
@@ -183,7 +186,7 @@ const NewCommand: GluegunCommand = {
       info('');
       info('Next:');
       info(`  Go to project directory: cd ${projectDir}`);
-      info('  Start server: npm start');
+      info(`  Start server: ${toolbox.pm.run('start')}`);
       info('');
 
       if (!toolbox.parameters.options.fromGluegunMenu) {
@@ -256,8 +259,8 @@ const NewCommand: GluegunCommand = {
     info('  Start database server (e.g. MongoDB)');
     info(`  Check config: ${projectDir}/src/config.env.ts`);
     info(`  Go to project directory: cd ${projectDir}`);
-    info('  Run tests: npm run test:e2e');
-    info('  Start server: npm start');
+    info(`  Run tests: ${toolbox.pm.run('test:e2e')}`);
+    info(`  Start server: ${toolbox.pm.run('start')}`);
     info('');
 
     if (!toolbox.parameters.options.fromGluegunMenu) {

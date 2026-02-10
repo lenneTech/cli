@@ -7,6 +7,7 @@ import { FrontendHelper } from '../extensions/frontend-helper';
 import { Git } from '../extensions/git';
 import { History } from '../extensions/history';
 import { Logger } from '../extensions/logger';
+import { PackageManager } from '../extensions/package-manager';
 import { ParsedPropsResult } from '../extensions/parse-properties';
 import { Server } from '../extensions/server';
 import { TemplateHelper } from '../extensions/template';
@@ -30,6 +31,7 @@ export interface ExtendedGluegunToolbox extends IHelperExtendedGluegunToolbox {
     referencesToAdd?: { property: string; reference: string }[];
     server?: Server;
   }) => Promise<ParsedPropsResult>;
+  pm: PackageManager;
   server: Server;
   templateHelper: TemplateHelper;
   tools: Tools;

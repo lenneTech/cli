@@ -689,12 +689,8 @@ export class Server {
           template: 'nest-server-starter/README.md.ejs',
         });
 
-        // Replace secret or private keys and update database names
-        await patching.update(`${dest}/src/config.env.ts`, (content: string) => {
-          let updated = this.replaceSecretOrPrivateKeys(content);
-          updated = updated.replace(/nest-server-(\w+)/g, `${projectDir}-$1`);
-          return updated;
-        });
+        // Replace secret or private keys and update database names via AST
+        this.patchConfigEnvTs(`${dest}/src/config.env.ts`, projectDir);
 
         // Update Swagger configuration in main.ts
         await patching.update(`${dest}/src/main.ts`, (content: string) =>
@@ -728,15 +724,17 @@ export class Server {
       }
     }
 
-    // Clean up copied template artifacts (prevents npm install issues with stale node_modules)
+    // Clean up copied template artifacts (prevents install issues with stale node_modules)
     if (result.method === 'copy') {
       this.filesystem.remove(`${dest}/node_modules`);
       this.filesystem.remove(`${dest}/package-lock.json`);
+      this.filesystem.remove(`${dest}/pnpm-lock.yaml`);
+      this.filesystem.remove(`${dest}/yarn.lock`);
       this.filesystem.remove(`${dest}/.yalc`);
       this.filesystem.remove(`${dest}/yalc.lock`);
     }
 
-    // Process API mode (before npm install so package.json is correct)
+    // Process API mode (before install so package.json is correct)
     if (apiMode) {
       try {
         await apiModeHelper.processApiMode(dest, apiMode);
@@ -748,7 +746,8 @@ export class Server {
     // Install packages
     if (!skipInstall) {
       try {
-        await system.run(`cd "${dest}" && npm i`);
+        const { pm } = this.toolbox;
+        await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
       } catch (err) {
         return { method: result.method, path: dest, success: false };
       }
@@ -775,7 +774,7 @@ export class Server {
       projectDir: string;
     },
   ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
-    const { apiMode: apiModeHelper, patching, templateHelper } = this.toolbox;
+    const { apiMode: apiModeHelper, templateHelper } = this.toolbox;
     const { apiMode, branch, copyPath, linkPath, name, projectDir } = options;
 
     // Setup template
@@ -804,10 +803,8 @@ export class Server {
         version: '0.0.0',
       });
 
-      // Replace secret or private keys
-      await patching.update(`${dest}/src/config.env.ts`, (content: string) =>
-        this.replaceSecretOrPrivateKeys(content).replace(/nest-server-/g, `${projectDir}-`)
-      );
+      // Replace secret or private keys and update database names via AST
+      this.patchConfigEnvTs(`${dest}/src/config.env.ts`, projectDir);
     } catch (err) {
       return { method: result.method, path: dest, success: false };
     }
@@ -816,11 +813,13 @@ export class Server {
     if (result.method === 'copy') {
       this.filesystem.remove(`${dest}/node_modules`);
       this.filesystem.remove(`${dest}/package-lock.json`);
+      this.filesystem.remove(`${dest}/pnpm-lock.yaml`);
+      this.filesystem.remove(`${dest}/yarn.lock`);
       this.filesystem.remove(`${dest}/.yalc`);
       this.filesystem.remove(`${dest}/yalc.lock`);
     }
 
-    // Process API mode (before npm install which happens at monorepo level)
+    // Process API mode (before install which happens at monorepo level)
     if (apiMode) {
       try {
         await apiModeHelper.processApiMode(dest, apiMode);
@@ -830,6 +829,54 @@ export class Server {
     }
 
     return { method: result.method, path: dest, success: true };
+  }
+
+  /**
+   * Patch config.env.ts using TypeScript AST manipulation
+   * - Replace SECRET_OR_PRIVATE_KEY placeholders with random secrets
+   * - Replace database names (nest-server-*) with project-specific names
+   */
+  patchConfigEnvTs(configPath: string, projectDir: string): void {
+    if (!this.filesystem.exists(configPath)) {
+      return;
+    }
+
+    try {
+      const { Project, SyntaxKind } = require('ts-morph');
+      const project = new Project({ skipAddingFilesFromTsConfig: true });
+      const sourceFile = project.addSourceFileAtPath(configPath);
+
+      const secretMap = new Map<string, string>();
+
+      for (const literal of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
+        const text = literal.getLiteralText();
+
+        // Replace SECRET_OR_PRIVATE_KEY placeholders with random secrets
+        if (text.startsWith('SECRET_OR_PRIVATE_KEY')) {
+          if (!secretMap.has(text)) {
+            secretMap.set(text, crypto.randomBytes(512).toString('base64'));
+          }
+          literal.setLiteralValue(secretMap.get(text)!);
+          continue;
+        }
+
+        // Replace database names (nest-server-ci -> projectDir-ci)
+        if (text.includes('nest-server-')) {
+          literal.setLiteralValue(text.replace(/nest-server-/g, `${projectDir}-`));
+        }
+      }
+
+      sourceFile.saveSync();
+    } catch {
+      // Fallback to regex-based approach if ts-morph fails
+      let content = this.filesystem.read(configPath);
+      if (!content) {
+        return;
+      }
+      content = this.replaceSecretOrPrivateKeys(content);
+      content = content.replace(/nest-server-(\w+)/g, `${projectDir}-$1`);
+      this.filesystem.write(configPath, content);
+    }
   }
 
   /**

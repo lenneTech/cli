@@ -167,13 +167,13 @@ const NewCommand: GluegunCommand = {
       // Update
       await npm.update({ cwd: join(filesystem.cwd(), projectDir), install: true, showError: true });
     } else {
-      // Init npm
-      const installSpinner = spin('Install npm packages');
+      // Install packages
+      const installSpinner = spin('Install packages');
       try {
-        await system.run(`cd ${projectDir} && npm i`);
-        installSpinner.succeed('NPM packages installed');
+        await system.run(`cd ${projectDir} && ${toolbox.pm.install(toolbox.pm.detect(projectDir))}`);
+        installSpinner.succeed('Packages installed');
       } catch (err) {
-        installSpinner.fail(`Failed to install npm packages: ${err.message}`);
+        installSpinner.fail(`Failed to install packages: ${err.message}`);
         return;
       }
     }

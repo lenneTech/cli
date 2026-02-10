@@ -139,7 +139,7 @@ const NewCommand: GluegunCommand = {
       info(`  2. git checkout ${baseBranch}`);
       info('  3. git pull');
       info(`  4. git checkout -b ${branch}`);
-      info('  5. npm install');
+      info(`  5. ${toolbox.pm.install()}`);
       return `dry-run create branch ${branch} from ${baseBranch}`;
     }
 

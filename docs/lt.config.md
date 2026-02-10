@@ -101,6 +101,7 @@ The `defaults` section contains settings that apply across multiple commands. Th
 | `defaults.controller` | `'Rest'` \| `'GraphQL'` \| `'Both'` \| `'auto'` | `'Both'` | server/module, server/create |
 | `defaults.domain` | `string` | - | deployment/create (use `{name}` as placeholder) |
 | `defaults.noConfirm` | `boolean` | `false` | blocks/add, components/add, config/init, git/*, server/create, server/module, npm/reinit, cli/create, typescript/create, fullstack/init, deployment/create, frontend/angular |
+| `defaults.packageManager` | `'npm'` \| `'pnpm'` \| `'yarn'` | `'npm'` | Fallback when no lockfile is found. Auto-detection from lockfiles takes precedence. Used by: all commands that run package manager operations |
 | `defaults.skipInstall` | `boolean` | `false` | git/update |
 | `defaults.skipLint` | `boolean` | `false` | server/module, server/object, server/addProp |
 
@@ -114,6 +115,7 @@ The `defaults` section contains settings that apply across multiple commands. Th
     "controller": "Both",
     "domain": "{name}.lenne.tech",
     "noConfirm": false,
+    "packageManager": "npm",
     "skipInstall": false,
     "skipLint": false
   }
@@ -129,9 +131,22 @@ defaults:
   controller: Both
   domain: "{name}.lenne.tech"
   noConfirm: false
+  packageManager: npm
   skipInstall: false
   skipLint: false
 ```
+
+### Package Manager Detection
+
+The CLI automatically detects the package manager for your project. The detection order is:
+
+1. **Lockfile in current directory**: `pnpm-lock.yaml` -> pnpm, `yarn.lock` -> yarn, `package-lock.json` -> npm
+2. **`packageManager` field in package.json** (Corepack standard): e.g., `"packageManager": "pnpm@8.15.0"`
+3. **Lockfile in parent directories** (monorepo support)
+4. **Config fallback**: `defaults.packageManager` from lt.config
+5. **Default**: `npm`
+
+This means all CLI commands (`lt server create`, `lt fullstack init`, `lt npm reinit`, etc.) will use the correct package manager automatically without any configuration needed.
 
 ### Global vs Command-Specific Settings
 
@@ -525,8 +540,8 @@ Creates a new fullstack workspace with API and frontend.
 | `commands.fullstack.frontendBranch` | `string` | - | Branch of frontend starter to use (ng-base-starter or nuxt-base-starter) |
 | `commands.fullstack.frontendCopy` | `string` | - | Path to local frontend template directory to copy instead of cloning |
 | `commands.fullstack.frontendLink` | `string` | - | Path to local frontend template directory to symlink (fastest, changes affect original) |
-| `commands.fullstack.git` | `boolean` | - | Initialize git repository |
-| `commands.fullstack.gitLink` | `string` | - | Git repository URL |
+| `commands.fullstack.git` | `boolean` | - | Push initial commit to remote repository (git is always initialized with `dev` branch) |
+| `commands.fullstack.gitLink` | `string` | - | Git remote repository URL (required when `git` is true) |
 
 **Example:**
 ```json
@@ -912,6 +927,7 @@ The `meta` section stores project information.
     "controller": "Both",
     "domain": "{name}.lenne.tech",
     "noConfirm": false,
+    "packageManager": "npm",
     "skipInstall": false,
     "skipLint": false
   },
@@ -924,7 +940,8 @@ The `meta` section stores project information.
     },
     "fullstack": {
       "frontend": "nuxt",
-      "git": false
+      "git": false,
+      "gitLink": "https://github.com/myorg/myproject.git"
     },
     "git": {
       "defaultBranch": "develop",
@@ -959,6 +976,7 @@ defaults:
   controller: Both
   domain: "{name}.lenne.tech"
   noConfirm: false
+  packageManager: npm
   skipInstall: false
   skipLint: false
 
@@ -972,6 +990,7 @@ commands:
   fullstack:
     frontend: nuxt
     git: false
+    gitLink: "https://github.com/myorg/myproject.git"
 
   git:
     defaultBranch: develop

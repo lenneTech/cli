@@ -18,6 +18,7 @@ const NewCommand: GluegunCommand = {
       helper,
       npm,
       parameters,
+      pm,
       print: { info, spin, success },
       prompt,
       system,
@@ -69,7 +70,7 @@ const NewCommand: GluegunCommand = {
     if (update) {
       if (!system.which('ncu')) {
         const installSpin = spin('Install ncu');
-        await system.run('npm i -g npm-check-updates');
+        await system.run(pm.globalInstall('npm-check-updates'));
         installSpin.succeed();
       }
       const updateSpin = spin('Update package.json');
@@ -78,26 +79,28 @@ const NewCommand: GluegunCommand = {
     }
 
     // Reinitialize
+    const detectedPm = pm.detect(dirname(path));
     if (data.scripts && data.scripts.reinit) {
-      const ownReinitSpin = spin('Reinitialize npm packages');
-      await system.run(`cd ${dirname(path)} && npm run reinit`);
+      const ownReinitSpin = spin('Reinitialize packages');
+      await system.run(`cd ${dirname(path)} && ${pm.run('reinit', detectedPm)}`);
       ownReinitSpin.succeed();
     } else {
-      const reinitSpin = spin('Reinitialize npm packages');
+      const reinitSpin = spin('Reinitialize packages');
       if (system.which('rimraf')) {
-        await system.run('npm i -g rimraf');
+        await system.run(pm.globalInstall('rimraf'));
       }
+      const lockfile = pm.getLockfileName(detectedPm);
       await system.run(
-        `cd ${dirname(path)} && rimraf package-lock.json && rimraf node_modules && npm cache clean --force && npm i`,
+        `cd ${dirname(path)} && rimraf ${lockfile} && rimraf node_modules && ${pm.cacheClean(detectedPm)} && ${pm.install(detectedPm)}`,
       );
       reinitSpin.succeed();
       if (data.scripts && data.scripts['test:e2e']) {
         const testE2eSpin = spin('Run tests');
-        await system.run(`cd ${dirname(path)} && npm run test:e2e`);
+        await system.run(`cd ${dirname(path)} && ${pm.run('test:e2e', detectedPm)}`);
         testE2eSpin.succeed();
       } else if (data.scripts && data.scripts && data.scripts.test) {
         const testSpin = spin('Run tests');
-        await system.run(`cd ${dirname(path)} && npm run test`);
+        await system.run(`cd ${dirname(path)} && ${pm.run('test', detectedPm)}`);
         testSpin.succeed();
       }
     }

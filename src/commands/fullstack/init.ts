@@ -32,6 +32,9 @@ const NewCommand: GluegunCommand = {
     // Info
     info('Create a new fullstack workspace');
 
+    // Hint for non-interactive callers (e.g. Claude Code)
+    toolbox.tools.nonInteractiveHint('lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --noConfirm');
+
     // Check git
     if (!(await git.gitInstalled())) {
       return;
@@ -153,14 +156,15 @@ const NewCommand: GluegunCommand = {
       apiMode = apiModeChoice.apiMode.split(' - ')[0] as 'Both' | 'GraphQL' | 'Rest';
     }
 
-    // Determine git settings with priority: CLI > config > interactive
-    let addToGit = false;
+    // Determine remote push settings with priority: CLI > config > interactive
+    // Git is always initialized; the question is whether to push to a remote
+    let pushToRemote = false;
     let gitLink: string | undefined;
 
     if (cliGit !== undefined) {
       // CLI parameter provided
-      addToGit = cliGit === 'true' || cliGit === true;
-      if (addToGit) {
+      pushToRemote = cliGit === 'true' || cliGit === true;
+      if (pushToRemote) {
         gitLink = cliGitLink || configGitLink;
         if (!gitLink) {
           error('--git-link is required when --git is true (or configure gitLink in lt.config)');
@@ -169,8 +173,8 @@ const NewCommand: GluegunCommand = {
       }
     } else if (configGit !== undefined) {
       // Config value provided
-      addToGit = configGit;
-      if (addToGit) {
+      pushToRemote = configGit;
+      if (pushToRemote) {
         gitLink = cliGitLink || configGitLink;
         if (!gitLink) {
           // Ask for git link interactively
@@ -179,26 +183,23 @@ const NewCommand: GluegunCommand = {
             showError: true,
           });
           if (!gitLink) {
-            addToGit = false;
+            pushToRemote = false;
           }
         } else {
           info(`Using git configuration from lt.config`);
         }
       }
-    } else if (noConfirm) {
-      // Don't add to git when noConfirm (would require gitLink)
-      addToGit = false;
-    } else if (parameters.third !== 'false') {
+    } else if (!noConfirm && parameters.third !== 'false') {
       // Interactive mode
-      addToGit = parameters.third === 'true' || (await confirm('Add workspace to a new git repository?'));
+      pushToRemote = parameters.third === 'true' || (await confirm('Push initial commit to a remote repository (dev branch)?'));
 
-      if (addToGit) {
+      if (pushToRemote) {
         gitLink = configGitLink || await helper.getInput(null, {
           name: 'git repository link',
           showError: true,
         });
         if (!gitLink) {
-          addToGit = false;
+          pushToRemote = false;
         }
       }
     }
@@ -235,16 +236,20 @@ const NewCommand: GluegunCommand = {
     // Remove git folder after clone
     filesystem.remove(`${projectDir}/.git`);
 
-    // Check if git init is active
-    if (addToGit) {
+    // Always initialize git
+    try {
+      await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
+    } catch (err) {
+      error(`Failed to initialize git: ${err.message}`);
+      return;
+    }
+
+    // Add remote if push is configured
+    if (pushToRemote && gitLink) {
       try {
-        await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
         await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
-        await system.run(`cd ${projectDir} && git add .`);
-        await system.run(`cd ${projectDir} && git commit -m "Initial commit"`);
-        await system.run(`cd ${projectDir} && git push -u origin dev`);
       } catch (err) {
-        error(`Failed to initialize git: ${err.message}`);
+        error(`Failed to add remote: ${err.message}`);
         return;
       }
     }
@@ -282,15 +287,6 @@ const NewCommand: GluegunCommand = {
 
     // Integrate files
     if (filesystem.isDirectory(`./${projectDir}/projects/app`)) {
-      // Check if git init is active
-      if (addToGit) {
-        // Commit changes
-        await system.run(
-          `cd ${projectDir} && git add . && git commit -am "feat: ${frontend} example integrated" && git push`,
-        );
-      }
-
-      // Angular example integration done
       ngBaseSpinner.succeed(`Example for ${frontend} integrated`);
 
       // Include files from https://github.com/lenneTech/nest-server-starter
@@ -330,15 +326,6 @@ const NewCommand: GluegunCommand = {
 
       // Integrate files
       if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {
-        // Check if git init is active
-        if (addToGit) {
-          // Commit changes
-          await system.run(
-            `cd ${projectDir} && git add . && git commit -am "feat: Nest Server Starter integrated" && git push`,
-          );
-        }
-
-        // Done
         serverSpinner.succeed('Nest Server Starter integrated');
       } else {
         serverSpinner.warn('Nest Server Starter not integrated');
@@ -347,11 +334,30 @@ const NewCommand: GluegunCommand = {
       // Install all packages
       const installSpinner = spin('Install all packages');
       try {
-        await system.run(`cd ${projectDir} && npm i && npm run init`);
+        const detectedPm = toolbox.pm.detect(projectDir);
+        await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)} && ${toolbox.pm.run('init', detectedPm)}`);
         installSpinner.succeed('Successfully installed all packages');
       } catch (err) {
         installSpinner.fail(`Failed to install packages: ${err.message}`);
         return;
+      }
+
+      // Create initial commit after everything is set up
+      try {
+        await system.run(`cd ${projectDir} && git add . && git commit -m "Initial commit"`);
+      } catch (err) {
+        error(`Failed to create initial commit: ${err.message}`);
+        return;
+      }
+
+      // Push to remote if configured
+      if (pushToRemote) {
+        try {
+          await system.run(`cd ${projectDir} && git push -u origin dev`);
+        } catch (err) {
+          error(`Failed to push to remote: ${err.message}`);
+          return;
+        }
       }
 
       // We're done, so show what to do next
@@ -365,7 +371,7 @@ const NewCommand: GluegunCommand = {
       info('Next:');
       info(`  Run ${name}`);
       info(`  $ cd ${projectDir}`);
-      info('  $ npm run start');
+      info(`  $ ${toolbox.pm.run('start')}`);
       info('');
 
       if (!toolbox.parameters.options.fromGluegunMenu) {

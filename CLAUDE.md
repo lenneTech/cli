@@ -126,6 +126,21 @@ CONFLICT - same level:
 ### Test Warnings
 Use `suppressWarnings: true` when creating Config instances in tests.
 
+### Running lt CLI Commands (AI Agent Usage)
+When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
+```bash
+# GOOD - explicit parameters
+lt fullstack init --name my-project --frontend nuxt --api-mode Rest --noConfirm
+lt server create --name my-server --api-mode GraphQL --noConfirm
+lt server module --name MyModule --controller auto --noConfirm
+
+# BAD - will enter interactive mode
+lt fullstack init
+lt server create
+lt server module
+```
+Key flags: `--noConfirm` skips all confirmations, `--name` sets the project/module name. See `docs/commands.md` for all available parameters per command.
+
 ---
 
 ## Quick Checklist

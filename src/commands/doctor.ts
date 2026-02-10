@@ -120,29 +120,18 @@ const DoctorCommand: GluegunCommand = {
       });
     }
 
-    // Check npm version
-    const npmSpinner = spin('Checking npm...');
+    // Check package manager
+    const detectedPm = toolbox.pm.detect();
+    const npmSpinner = spin(`Checking package manager (${detectedPm})...`);
     try {
-      const npmVersion = await system.run('npm --version');
-      const major = parseInt(npmVersion?.trim().split('.')[0] || '0', 10);
-
-      if (major >= 8) {
-        npmSpinner.succeed(`npm ${npmVersion?.trim()}`);
-        checks.push({ name: 'npm', status: 'ok' });
-      } else {
-        npmSpinner.warn(`npm ${npmVersion?.trim()} (v8+ recommended)`);
-        checks.push({
-          details: `Current: v${npmVersion?.trim()}`,
-          fix: 'Run: npm install -g npm@latest',
-          name: 'npm',
-          status: 'warning',
-        });
-      }
+      const pmVersion = await system.run(`${detectedPm} --version`);
+      npmSpinner.succeed(`${detectedPm} ${pmVersion?.trim()}`);
+      checks.push({ name: `Package Manager (${detectedPm})`, status: 'ok' });
     } catch {
-      npmSpinner.fail('npm not found');
+      npmSpinner.fail(`${detectedPm} not found`);
       checks.push({
-        fix: 'npm should be installed with Node.js',
-        name: 'npm',
+        fix: `Install ${detectedPm}`,
+        name: `Package Manager (${detectedPm})`,
         status: 'error',
       });
     }
@@ -237,7 +226,7 @@ const DoctorCommand: GluegunCommand = {
       } else {
         nmSpinner.warn('Dependencies not installed');
         checks.push({
-          fix: 'Run: npm install',
+          fix: `Run: ${toolbox.pm.install()}`,
           name: 'Dependencies',
           status: 'warning',
         });
@@ -246,7 +235,7 @@ const DoctorCommand: GluegunCommand = {
           info('');
           const installSpinner = spin('Installing dependencies...');
           try {
-            await system.run('npm install');
+            await system.run(toolbox.pm.install());
             installSpinner.succeed('Dependencies installed');
           } catch {
             installSpinner.fail('Failed to install dependencies');

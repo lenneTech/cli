@@ -75,9 +75,9 @@ const NewCommand: GluegunCommand = {
       info('  1. git fetch');
       info('  2. git pull');
       if (!skipInstall) {
-        info('  3. npm install');
+        info(`  3. ${toolbox.pm.install()}`);
       } else {
-        info('  3. npm install (SKIPPED via config)');
+        info(`  3. ${toolbox.pm.install()} (SKIPPED via config)`);
       }
 
       return `dry-run update branch ${branch}`;

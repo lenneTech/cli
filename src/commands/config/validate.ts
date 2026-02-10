@@ -107,6 +107,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
     controller: ['Rest', 'GraphQL', 'Both', 'auto'],
     domain: 'string',
     noConfirm: 'boolean',
+    packageManager: ['npm', 'pnpm', 'yarn'],
     skipInstall: 'boolean',
     skipLint: 'boolean',
   },
