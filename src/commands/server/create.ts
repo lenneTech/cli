@@ -142,22 +142,26 @@ const NewCommand: GluegunCommand = {
       apiMode = 'Rest';
       info('Using default API mode: REST/RPC');
     } else {
-      const apiModeChoice = await ask([{
-        choices: [
-          'Rest - REST/RPC API with Swagger documentation (recommended)',
-          'GraphQL - GraphQL API with subscriptions',
-          'Both - REST/RPC and GraphQL in parallel (hybrid)',
-        ],
-        initial: 0,
-        message: 'API mode?',
-        name: 'apiMode',
-        type: 'select',
-      }]);
+      const apiModeChoice = await ask([
+        {
+          choices: [
+            'Rest - REST/RPC API with Swagger documentation (recommended)',
+            'GraphQL - GraphQL API with subscriptions',
+            'Both - REST/RPC and GraphQL in parallel (hybrid)',
+          ],
+          initial: 0,
+          message: 'API mode?',
+          name: 'apiMode',
+          type: 'select',
+        },
+      ]);
       apiMode = apiModeChoice.apiMode.split(' - ')[0] as 'Both' | 'GraphQL' | 'Rest';
     }
 
     // Setup server using Server extension
-    const setupSpinner = spin(`Setting up server${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`);
+    const setupSpinner = spin(
+      `Setting up server${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`,
+    );
 
     const result = await server.setupServer(`./${projectDir}`, {
       apiMode,

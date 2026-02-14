@@ -50,12 +50,14 @@ async function addComponent(toolbox: ExtendedGluegunToolbox, componentName: stri
         selectedComponent = response.componentType;
       } else {
         const foundComponent = possibleComponents.find(
-          e => e.name.toLowerCase() === `${componentName.toLowerCase()}.vue` || e.name.toLowerCase() === componentName.toLowerCase(),
+          (e) =>
+            e.name.toLowerCase() === `${componentName.toLowerCase()}.vue` ||
+            e.name.toLowerCase() === componentName.toLowerCase(),
         );
         selectedComponent = foundComponent?.name || componentName;
       }
 
-      const selectedFile = possibleComponents.find(e => e.name.toLowerCase() === selectedComponent.toLowerCase());
+      const selectedFile = possibleComponents.find((e) => e.name.toLowerCase() === selectedComponent.toLowerCase());
       if (selectedFile?.type === 'dir') {
         print.success(`The directory ${selectedFile.name} has been selected.`);
         const directoryFiles = await getFileInfo('components', selectedFile.name);

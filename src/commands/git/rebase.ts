@@ -70,7 +70,10 @@ const NewCommand: GluegunCommand = {
         info(`Would rebase ${commitCount} commit(s) from branch "${branch}" onto "${baseBranchPreview}":`);
         info('');
         info('Commits to be rebased:');
-        commitsToRebase.trim().split('\n').forEach(line => info(`  ${line}`));
+        commitsToRebase
+          .trim()
+          .split('\n')
+          .forEach((line) => info(`  ${line}`));
       } else {
         info(`No commits to rebase on branch "${branch}" (already up to date with "${baseBranchPreview}")`);
       }

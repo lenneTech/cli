@@ -65,10 +65,7 @@ export class FrontendHelper {
    * @param options - Setup options
    * @returns FrontendSetupResult with success status
    */
-  public async setupNuxt(
-    dest: string,
-    options: NuxtSetupOptions = {},
-  ): Promise<FrontendSetupResult> {
+  public async setupNuxt(dest: string, options: NuxtSetupOptions = {}): Promise<FrontendSetupResult> {
     const { system, templateHelper } = this.toolbox;
     const { branch, copyPath, linkPath, skipInstall } = options;
 
@@ -121,10 +118,7 @@ export class FrontendHelper {
    * @param options - Setup options
    * @returns FrontendSetupResult with success status
    */
-  public async setupAngular(
-    dest: string,
-    options: AngularSetupOptions = {},
-  ): Promise<FrontendSetupResult> {
+  public async setupAngular(dest: string, options: AngularSetupOptions = {}): Promise<FrontendSetupResult> {
     const { filesystem, patching, system, templateHelper } = this.toolbox;
     const {
       branch,

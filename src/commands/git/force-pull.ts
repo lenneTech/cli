@@ -57,7 +57,7 @@ const NewCommand: GluegunCommand = {
         info(`  - ${lines.length} file(s) with local changes`);
         info('');
         info('Files:');
-        lines.forEach(line => info(`  ${line}`));
+        lines.forEach((line) => info(`  ${line}`));
       } else {
         info('No local changes to discard.');
       }
@@ -67,7 +67,10 @@ const NewCommand: GluegunCommand = {
       if (localCommits?.trim()) {
         info('');
         info('Local commits that would be lost:');
-        localCommits.trim().split('\n').forEach(line => info(`  ${line}`));
+        localCommits
+          .trim()
+          .split('\n')
+          .forEach((line) => info(`  ${line}`));
       }
 
       return `dry-run force-pull branch ${branch}`;

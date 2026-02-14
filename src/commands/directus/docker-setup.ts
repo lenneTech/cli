@@ -25,7 +25,7 @@ async function isPortAvailable(port: number): Promise<boolean> {
     const server = net.createServer();
 
     server.once('error', () => {
-        resolve(false);
+      resolve(false);
     });
 
     server.once('listening', () => {
@@ -192,15 +192,10 @@ const NewCommand: GluegunCommand = {
       const validDatabases = ['postgres', 'postgresql', 'mysql', 'sqlite'];
       const normalizedDb = cliDatabase.toLowerCase();
       if (!validDatabases.includes(normalizedDb)) {
-        error(
-          `Invalid database type: ${cliDatabase}. Valid options: postgres, mysql, sqlite`,
-        );
+        error(`Invalid database type: ${cliDatabase}. Valid options: postgres, mysql, sqlite`);
         return;
       }
-      database = (normalizedDb === 'postgresql' ? 'postgres' : normalizedDb) as
-        | 'mysql'
-        | 'postgres'
-        | 'sqlite';
+      database = (normalizedDb === 'postgresql' ? 'postgres' : normalizedDb) as 'mysql' | 'postgres' | 'sqlite';
     } else if (configDatabase) {
       database = configDatabase as 'mysql' | 'postgres' | 'sqlite';
       info(`Using database type from lt.config: ${database}`);
@@ -233,9 +228,7 @@ const NewCommand: GluegunCommand = {
         error(`Instance "${instanceName}" already exists. Use --update to modify it.`);
         return;
       }
-      const shouldUpdate = await prompt.confirm(
-        `Instance "${instanceName}" already exists. Update it?`,
-      );
+      const shouldUpdate = await prompt.confirm(`Instance "${instanceName}" already exists. Update it?`);
       if (!shouldUpdate) {
         info('Operation cancelled.');
         return;

@@ -67,7 +67,7 @@ export class Typescript {
     // Overwrite index.ts
     const pathOfIndex = join(dir, 'src', 'index.ts');
     fs.unlinkSync(pathOfIndex);
-    fs.writeFileSync(pathOfIndex, '// Write your code here\nconsole.log(\'hello world!\');');
+    fs.writeFileSync(pathOfIndex, "// Write your code here\nconsole.log('hello world!');");
 
     // Init git
     if (which('git')) {

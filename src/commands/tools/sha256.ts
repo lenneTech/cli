@@ -17,14 +17,14 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { info },
     } = toolbox;
-    
+
     const input = await helper.getInput(parameters.first, {
       name: 'string to hash',
       showError: false,
     });
     const hashResult = await sha256(input);
     info(hashResult);
-    
+
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();
     }

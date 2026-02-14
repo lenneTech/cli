@@ -113,9 +113,8 @@ const NewCommand: GluegunCommand = {
 
     // Ask to delete remote branch
     if (
-      remote
-      && (parameters.options.deleteRemote
-        || (!noConfirm && (await confirm(`Delete remote branch ${branch}?`))))
+      remote &&
+      (parameters.options.deleteRemote || (!noConfirm && (await confirm(`Delete remote branch ${branch}?`))))
     ) {
       timer = startTimer();
       const deleteSpin = spin(`Delete remote branch ${branch}`);

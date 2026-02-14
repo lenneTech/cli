@@ -98,9 +98,9 @@ export class Config {
       const ignored = existingFiles.slice(1);
       console.warn(
         `Warning: Multiple config files found in ${dirPath}:\n` +
-        `  Using:    ${used}\n` +
-        `  Ignored:  ${ignored.join(', ')}\n` +
-        `  Priority: lt.config.json > lt.config.yaml > lt.config`
+          `  Using:    ${used}\n` +
+          `  Ignored:  ${ignored.join(', ')}\n` +
+          `  Priority: lt.config.json > lt.config.yaml > lt.config`,
       );
     }
 
@@ -381,12 +381,14 @@ export class Config {
     const configNoConfirm = commandConfig?.noConfirm ?? parentConfig?.noConfirm;
     const globalNoConfirm = this.getGlobalDefault<boolean>(config, 'noConfirm');
 
-    return this.getValue({
-      cliValue,
-      configValue: configNoConfirm,
-      defaultValue: false,
-      globalValue: globalNoConfirm,
-    }) ?? false;
+    return (
+      this.getValue({
+        cliValue,
+        configValue: configNoConfirm,
+        defaultValue: false,
+        globalValue: globalNoConfirm,
+      }) ?? false
+    );
   }
 
   /**
@@ -403,12 +405,14 @@ export class Config {
     const { cliValue, commandConfig, config } = options;
     const globalSkipLint = this.getGlobalDefault<boolean>(config, 'skipLint');
 
-    return this.getValue({
-      cliValue,
-      configValue: commandConfig?.skipLint,
-      defaultValue: false,
-      globalValue: globalSkipLint,
-    }) ?? false;
+    return (
+      this.getValue({
+        cliValue,
+        configValue: commandConfig?.skipLint,
+        defaultValue: false,
+        globalValue: globalSkipLint,
+      }) ?? false
+    );
   }
 
   /**
@@ -462,10 +466,7 @@ export class Config {
    * @param cliOptions - CLI parameters object
    * @returns Combined configuration for the command
    */
-  getCommandConfig<T extends Record<string, any>>(
-    commandPath: string[],
-    cliOptions: Record<string, any> = {},
-  ): T {
+  getCommandConfig<T extends Record<string, any>>(commandPath: string[], cliOptions: Record<string, any> = {}): T {
     const loadedConfig = this.loadConfig();
     let configValue: any = loadedConfig.commands;
 
@@ -554,9 +555,9 @@ export class Config {
       const ignored = existingFiles.slice(1);
       console.warn(
         `Warning: Multiple config files found in ${dirPath}:\n` +
-        `  Using:    ${used}\n` +
-        `  Ignored:  ${ignored.join(', ')}\n` +
-        `  Priority: lt.config.json > lt.config.yaml > lt.config`
+          `  Using:    ${used}\n` +
+          `  Ignored:  ${ignored.join(', ')}\n` +
+          `  Priority: lt.config.json > lt.config.yaml > lt.config`,
       );
     }
 

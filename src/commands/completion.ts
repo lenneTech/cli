@@ -125,7 +125,6 @@ function discoverCommandTree(dir: string = __dirname, parentPath: string = ''): 
  */
 function extractCommandInfo(filePath: string): CommandInfo | null {
   try {
-     
     const cmd = require(filePath);
     const command = cmd.default || cmd;
 
@@ -148,10 +147,7 @@ function extractCommandInfo(filePath: string): CommandInfo | null {
 /**
  * Generate completion script from EJS template
  */
-function generateCompletionFromTemplate(
-  shell: 'bash' | 'fish' | 'zsh',
-  commandTree: CommandNode[]
-): string {
+function generateCompletionFromTemplate(shell: 'bash' | 'fish' | 'zsh', commandTree: CommandNode[]): string {
   const templateDir = getTemplateDir();
   const templatePath = join(templateDir, `${shell}.sh.ejs`);
 
@@ -247,7 +243,7 @@ function getTemplateDir(): string {
 async function installCompletion(
   toolbox: ExtendedGluegunToolbox,
   shell: string,
-  options: { noConfirm?: boolean; silent?: boolean } = {}
+  options: { noConfirm?: boolean; silent?: boolean } = {},
 ): Promise<{ configFile: string; success: boolean }> {
   const {
     filesystem,

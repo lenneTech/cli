@@ -101,9 +101,7 @@ export async function fetchAvailablePlugins(
 
   try {
     // Fetch plugins from all marketplaces in parallel
-    const results = await Promise.all(
-      MARKETPLACES.map(marketplace => fetchPluginsFromMarketplace(marketplace))
-    );
+    const results = await Promise.all(MARKETPLACES.map((marketplace) => fetchPluginsFromMarketplace(marketplace)));
 
     // Flatten results
     const plugins = results.flat();
@@ -114,12 +112,12 @@ export async function fetchAvailablePlugins(
     }
 
     // Group by marketplace for display
-    const byMarketplace = MARKETPLACES.map(m => ({
-      count: plugins.filter(p => p.marketplaceName === m.name).length,
+    const byMarketplace = MARKETPLACES.map((m) => ({
+      count: plugins.filter((p) => p.marketplaceName === m.name).length,
       name: m.name,
-    })).filter(m => m.count > 0);
+    })).filter((m) => m.count > 0);
 
-    const summary = byMarketplace.map(m => `${m.name}: ${m.count}`).join(', ');
+    const summary = byMarketplace.map((m) => `${m.name}: ${m.count}`).join(', ');
     spinner.succeed(`Found ${plugins.length} plugins (${summary})`);
     return plugins;
   } catch (err) {
@@ -134,9 +132,7 @@ export async function fetchAvailablePlugins(
  * @param marketplace - Marketplace configuration
  * @returns Array of plugin configurations
  */
-export async function fetchPluginsFromMarketplace(
-  marketplace: MarketplaceConfig,
-): Promise<PluginConfig[]> {
+export async function fetchPluginsFromMarketplace(marketplace: MarketplaceConfig): Promise<PluginConfig[]> {
   const plugins: PluginConfig[] = [];
 
   try {
@@ -173,7 +169,7 @@ export async function fetchPluginsFromMarketplace(
       return plugins;
     }
 
-    const pluginDirs = directories.filter(d => d.type === 'dir');
+    const pluginDirs = directories.filter((d) => d.type === 'dir');
 
     // Fetch plugin.json for each plugin in parallel
     const manifestPromises = pluginDirs.map(async (dir) => {
@@ -214,13 +210,9 @@ export async function fetchPluginsFromMarketplace(
  * @param plugins - Array of plugin configurations
  * @param info - Info print function from toolbox
  */
-export function printAvailablePlugins(
-  plugins: PluginConfig[],
-  info: (msg: string) => void,
-): void {
+export function printAvailablePlugins(plugins: PluginConfig[], info: (msg: string) => void): void {
   info('Available plugins:');
   for (const plugin of plugins) {
     info(`  ${plugin.pluginName} - ${plugin.description}`);
   }
 }
-

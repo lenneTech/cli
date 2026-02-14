@@ -165,7 +165,7 @@ const StatusCommand: GluegunCommand = {
     info('');
     info(colors.bold('Available Commands:'));
     const commands = getAvailableCommands(projectInfo.projectType);
-    commands.forEach(cmd => info(`  ${colors.cyan(cmd.command)} - ${cmd.description}`));
+    commands.forEach((cmd) => info(`  ${colors.cyan(cmd.command)} - ${cmd.description}`));
 
     info('');
 
@@ -176,15 +176,15 @@ const StatusCommand: GluegunCommand = {
 
 function formatProjectType(type: string): string {
   const typeMap: Record<string, string> = {
-    'angular': 'Angular',
+    angular: 'Angular',
     'nest-server': 'lenne.tech Nest Server',
-    'nestjs': 'NestJS',
-    'node': 'Node.js',
-    'nuxt': 'Nuxt',
-    'react': 'React',
-    'typescript': 'TypeScript',
-    'unknown': 'Unknown',
-    'vue': 'Vue',
+    nestjs: 'NestJS',
+    node: 'Node.js',
+    nuxt: 'Nuxt',
+    react: 'React',
+    typescript: 'TypeScript',
+    unknown: 'Unknown',
+    vue: 'Vue',
   };
   return typeMap[type] || type;
 }
@@ -197,20 +197,14 @@ function getAvailableCommands(projectType: string): Array<{ command: string; des
   ];
 
   const typeCommands: Record<string, Array<{ command: string; description: string }>> = {
-    'angular': [
-      { command: 'lt frontend angular', description: 'Angular tools' },
-    ],
+    angular: [{ command: 'lt frontend angular', description: 'Angular tools' }],
     'nest-server': [
       { command: 'lt server module', description: 'Create server module' },
       { command: 'lt server object', description: 'Create object type' },
       { command: 'lt server add-property', description: 'Add property to module' },
     ],
-    'nestjs': [
-      { command: 'lt server', description: 'NestJS server tools' },
-    ],
-    'nuxt': [
-      { command: 'lt frontend nuxt', description: 'Nuxt tools' },
-    ],
+    nestjs: [{ command: 'lt server', description: 'NestJS server tools' }],
+    nuxt: [{ command: 'lt frontend nuxt', description: 'Nuxt tools' }],
   };
 
   return [...commonCommands, ...(typeCommands[projectType] || [])];

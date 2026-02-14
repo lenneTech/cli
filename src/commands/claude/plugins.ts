@@ -46,7 +46,11 @@ async function installPlugin(
     pluginAction = 'updated';
   }
 
-  if (installResult.success || installResult.output.includes('already') || installResult.output.includes('up to date')) {
+  if (
+    installResult.success ||
+    installResult.output.includes('already') ||
+    installResult.output.includes('up to date')
+  ) {
     pluginSpinner.succeed(`${plugin.pluginName} ${pluginAction}`);
   } else {
     pluginSpinner.fail(`Failed to install ${plugin.pluginName}`);
@@ -97,11 +101,7 @@ async function installPlugin(
  * Prepare marketplaces (add and update cache) for a list of plugins
  * Returns the set of successfully prepared marketplace names
  */
-function prepareMarketplaces(
-  plugins: PluginConfig[],
-  cli: string,
-  toolbox: ExtendedGluegunToolbox,
-): Set<string> {
+function prepareMarketplaces(plugins: PluginConfig[], cli: string, toolbox: ExtendedGluegunToolbox): Set<string> {
   const {
     print: { error, spin },
   } = toolbox;
@@ -141,7 +141,10 @@ function prepareMarketplaces(
     if (updateResult.success) {
       updateSpinner.succeed(`${marketplaceName} cache updated`);
     } else {
-      updateSpinner.stopAndPersist({ symbol: '⚠', text: `Could not update ${marketplaceName} cache, using cached version` });
+      updateSpinner.stopAndPersist({
+        symbol: '⚠',
+        text: `Could not update ${marketplaceName} cache, using cached version`,
+      });
     }
 
     preparedMarketplaces.add(marketplaceName);
@@ -205,7 +208,7 @@ const PluginsCommand: GluegunCommand = {
       pluginsToInstall = [];
 
       for (const name of requestedPlugins) {
-        const plugin = availablePlugins.find(p => p.pluginName === name);
+        const plugin = availablePlugins.find((p) => p.pluginName === name);
         if (plugin) {
           pluginsToInstall.push(plugin);
         } else {
@@ -226,17 +229,19 @@ const PluginsCommand: GluegunCommand = {
         process.exit(1);
       }
 
-      info(`Installing ${pluginsToInstall.length} plugin${pluginsToInstall.length > 1 ? 's' : ''}: ${pluginsToInstall.map(p => p.pluginName).join(', ')}`);
+      info(
+        `Installing ${pluginsToInstall.length} plugin${pluginsToInstall.length > 1 ? 's' : ''}: ${pluginsToInstall.map((p) => p.pluginName).join(', ')}`,
+      );
     } else {
       // Install all plugins from primary marketplace (lenne-tech) plus default external plugins
       const primaryMarketplace = MARKETPLACES[0].name;
-      const primaryPlugins = availablePlugins.filter(p => p.marketplaceName === primaryMarketplace);
+      const primaryPlugins = availablePlugins.filter((p) => p.marketplaceName === primaryMarketplace);
 
       // Add default external plugins
       const externalPlugins: PluginConfig[] = [];
       for (const defaultPlugin of DEFAULT_EXTERNAL_PLUGINS) {
         const plugin = availablePlugins.find(
-          p => p.pluginName === defaultPlugin.pluginName && p.marketplaceName === defaultPlugin.marketplaceName
+          (p) => p.pluginName === defaultPlugin.pluginName && p.marketplaceName === defaultPlugin.marketplaceName,
         );
         if (plugin) {
           externalPlugins.push(plugin);
@@ -247,7 +252,7 @@ const PluginsCommand: GluegunCommand = {
 
       if (externalPlugins.length > 0) {
         info(`Installing ${primaryPlugins.length} plugins from ${primaryMarketplace}`);
-        info(`  + ${externalPlugins.length} default plugins: ${externalPlugins.map(p => p.pluginName).join(', ')}`);
+        info(`  + ${externalPlugins.length} default plugins: ${externalPlugins.map((p) => p.pluginName).join(', ')}`);
       } else {
         info(`Installing all plugins (${pluginsToInstall.length})...`);
       }
@@ -289,19 +294,23 @@ const PluginsCommand: GluegunCommand = {
     }
 
     // Summary
-    const successCount = results.filter(r => r.success).length;
-    const failCount = results.filter(r => !r.success).length;
+    const successCount = results.filter((r) => r.success).length;
+    const failCount = results.filter((r) => !r.success).length;
     const totalIssues = failCount + notFoundPlugins.length;
 
     info('');
     if (totalIssues === 0) {
-      success(`${successCount} plugin${successCount > 1 ? 's' : ''} processed in ${helper.msToMinutesAndSeconds(timer())}m.`);
+      success(
+        `${successCount} plugin${successCount > 1 ? 's' : ''} processed in ${helper.msToMinutesAndSeconds(timer())}m.`,
+      );
     } else {
-      warning(`${successCount} succeeded, ${totalIssues} issue${totalIssues > 1 ? 's' : ''} in ${helper.msToMinutesAndSeconds(timer())}m.`);
+      warning(
+        `${successCount} succeeded, ${totalIssues} issue${totalIssues > 1 ? 's' : ''} in ${helper.msToMinutesAndSeconds(timer())}m.`,
+      );
     }
 
     // Print summaries for successful installations
-    const successfulResults = results.filter(r => r.success);
+    const successfulResults = results.filter((r) => r.success);
     if (successfulResults.length > 0) {
       info('');
       info('Installed:');
@@ -311,7 +320,7 @@ const PluginsCommand: GluegunCommand = {
     }
 
     // Print failed installations
-    const failedResults = results.filter(r => !r.success);
+    const failedResults = results.filter((r) => !r.success);
     if (failedResults.length > 0) {
       info('');
       warning('Failed to install:');

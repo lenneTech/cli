@@ -72,7 +72,7 @@ const NewCommand: GluegunCommand = {
         info(`  - ${lines.length} file(s) with local changes`);
         info('');
         info('Files:');
-        lines.forEach(line => info(`  ${line}`));
+        lines.forEach((line) => info(`  ${line}`));
       } else {
         info('No local changes to discard.');
       }
@@ -82,7 +82,10 @@ const NewCommand: GluegunCommand = {
       if (localCommits?.trim()) {
         info('');
         info('Local commits that would be lost:');
-        localCommits.trim().split('\n').forEach(line => info(`  ${line}`));
+        localCommits
+          .trim()
+          .split('\n')
+          .forEach((line) => info(`  ${line}`));
       }
 
       info('');
@@ -105,14 +108,14 @@ const NewCommand: GluegunCommand = {
     // Reset
     const resetSpin = spin(`Reset ${branch}`);
     await system.run(
-      'git clean -fd && '
-        + 'git reset HEAD --hard && '
-        + 'git checkout main && '
-        + 'git fetch && '
-        + 'git pull && '
-        + `git branch -D ${branch} && `
-        + `git checkout ${branch} && `
-        + 'git pull',
+      'git clean -fd && ' +
+        'git reset HEAD --hard && ' +
+        'git checkout main && ' +
+        'git fetch && ' +
+        'git pull && ' +
+        `git branch -D ${branch} && ` +
+        `git checkout ${branch} && ` +
+        'git pull',
     );
     resetSpin.succeed();
 

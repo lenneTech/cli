@@ -58,11 +58,15 @@ const NewCommand: GluegunCommand = {
 
       // Check for incoming commits
       const incomingCommits = await run(`git log ${branch}..origin/${branch} --oneline 2>/dev/null || echo ""`);
-      const commits = incomingCommits?.trim().split('\n').filter(c => c) || [];
+      const commits =
+        incomingCommits
+          ?.trim()
+          .split('\n')
+          .filter((c) => c) || [];
 
       if (commits.length > 0) {
         info(`Incoming commits (${commits.length}):`);
-        commits.slice(0, 10).forEach(c => info(`  ${c}`));
+        commits.slice(0, 10).forEach((c) => info(`  ${c}`));
         if (commits.length > 10) {
           info(`  ... and ${commits.length - 10} more`);
         }

@@ -95,6 +95,15 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
         skipLint: 'boolean',
       },
       object: { skipLint: 'boolean' },
+      permissions: {
+        console: 'boolean',
+        failOnWarnings: 'boolean',
+        format: ['md', 'json', 'html'],
+        noConfirm: 'boolean',
+        open: 'boolean',
+        output: 'string',
+        path: 'string',
+      },
     },
     typescript: {
       create: { author: 'string', noConfirm: 'boolean', updatePackages: 'boolean' },

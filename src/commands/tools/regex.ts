@@ -11,7 +11,6 @@ const NewCommand: GluegunCommand = {
   hidden: false,
   name: 'regex',
   run: async (toolbox: ExtendedGluegunToolbox) => {
-
     const { default: open } = await import('open');
 
     // Open link

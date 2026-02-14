@@ -60,14 +60,16 @@ export const ValidationRules = {
 export function sanitizeInput(input: string): string {
   if (!input) return '';
 
-  return input
-    .trim()
-    // Remove shell special characters
-    .replace(/[;&|`$(){}[\]<>\\'"]/g, '')
-    // Remove control characters
-    .replace(/[\x00-\x1F\x7F]/g, '')
-    // Collapse multiple spaces
-    .replace(/\s+/g, ' ');
+  return (
+    input
+      .trim()
+      // Remove shell special characters
+      .replace(/[;&|`$(){}[\]<>\\'"]/g, '')
+      // Remove control characters
+      .replace(/[\x00-\x1F\x7F]/g, '')
+      // Collapse multiple spaces
+      .replace(/\s+/g, ' ')
+  );
 }
 
 /**
@@ -76,16 +78,18 @@ export function sanitizeInput(input: string): string {
 export function sanitizePath(input: string): string {
   if (!input) return '';
 
-  return input
-    .trim()
-    // Remove directory traversal attempts
-    .replace(/\.\./g, '')
-    // Remove double slashes
-    .replace(/\/+/g, '/')
-    // Remove leading slashes (make relative)
-    .replace(/^\/+/, '')
-    // Remove shell special characters
-    .replace(/[;&|`$(){}[\]<>\\'"]/g, '');
+  return (
+    input
+      .trim()
+      // Remove directory traversal attempts
+      .replace(/\.\./g, '')
+      // Remove double slashes
+      .replace(/\/+/g, '/')
+      // Remove leading slashes (make relative)
+      .replace(/^\/+/, '')
+      // Remove shell special characters
+      .replace(/[;&|`$(){}[\]<>\\'"]/g, '')
+  );
 }
 
 /**
@@ -177,12 +181,7 @@ export function validateKebabCase(input: string): ValidationResult {
 /**
  * Validate input length
  */
-export function validateLength(
-  input: string,
-  min: number,
-  max: number,
-  fieldName = 'Input',
-): ValidationResult {
+export function validateLength(input: string, min: number, max: number, fieldName = 'Input'): ValidationResult {
   if (!input || input.trim() === '') {
     return { error: `${fieldName} is required`, valid: false };
   }
@@ -202,21 +201,13 @@ export function validateLength(
  * Validate an npm package name
  */
 export function validateNpmPackage(input: string): ValidationResult {
-  return validatePattern(
-    input,
-    ValidationRules.npmPackage,
-    'Invalid npm package name.',
-  );
+  return validatePattern(input, ValidationRules.npmPackage, 'Invalid npm package name.');
 }
 
 /**
  * Validate input against a pattern
  */
-export function validatePattern(
-  input: string,
-  pattern: RegExp,
-  errorMessage: string,
-): ValidationResult {
+export function validatePattern(input: string, pattern: RegExp, errorMessage: string): ValidationResult {
   if (!input || input.trim() === '') {
     return { error: 'Input is required', valid: false };
   }
@@ -243,10 +234,7 @@ export function validatePropertyName(input: string): ValidationResult {
 /**
  * Validate required input with custom validator
  */
-export function validateRequired<T>(
-  value: null | T | undefined,
-  fieldName: string,
-): ValidationResult {
+export function validateRequired<T>(value: null | T | undefined, fieldName: string): ValidationResult {
   if (value === null || value === undefined || value === '') {
     return { error: `${fieldName} is required`, valid: false };
   }

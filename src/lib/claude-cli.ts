@@ -51,11 +51,7 @@ export function checkMarketplaceExists(marketplaceName: string): boolean {
  * @returns Path to Claude CLI or null if not found
  */
 export function findClaudeCli(): null | string {
-  const possiblePaths = [
-    join(homedir(), '.claude', 'local', 'claude'),
-    '/usr/local/bin/claude',
-    '/usr/bin/claude',
-  ];
+  const possiblePaths = [join(homedir(), '.claude', 'local', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude'];
 
   for (const p of possiblePaths) {
     if (existsSync(p)) {

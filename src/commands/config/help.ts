@@ -50,31 +50,37 @@ const HelpCommand: ExtendedGluegunCommand = {
     info('');
     info('Example lt.config.json:');
     info('');
-    info(JSON.stringify({
-      commands: {
-        fullstack: {
-          frontend: 'angular',
-          git: true,
+    info(
+      JSON.stringify(
+        {
+          commands: {
+            fullstack: {
+              frontend: 'angular',
+              git: true,
+            },
+            server: {
+              addProp: {
+                skipLint: false,
+              },
+              module: {
+                controller: 'Both',
+                skipLint: false,
+              },
+              object: {
+                skipLint: false,
+              },
+            },
+          },
+          meta: {
+            description: 'Project description',
+            name: 'My Project',
+            version: '1.0.0',
+          },
         },
-        server: {
-          addProp: {
-            skipLint: false,
-          },
-          module: {
-            controller: 'Both',
-            skipLint: false,
-          },
-          object: {
-            skipLint: false,
-          },
-        },
-      },
-      meta: {
-        description: 'Project description',
-        name: 'My Project',
-        version: '1.0.0',
-      },
-    }, null, 2));
+        null,
+        2,
+      ),
+    );
     info('');
 
     divider();

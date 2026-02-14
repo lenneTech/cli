@@ -40,9 +40,7 @@ const command: GluegunCommand = {
     const spinner = print.spin('Fetching Qdrant statistics...');
 
     // 1. Fetch all collections
-    const collectionsResponse = await qdrantApi.get<QdrantCollectionsResponse>(
-      '/collections',
-    );
+    const collectionsResponse = await qdrantApi.get<QdrantCollectionsResponse>('/collections');
 
     if (!collectionsResponse.ok) {
       spinner.fail('Error fetching collections from Qdrant.');
@@ -58,22 +56,10 @@ const command: GluegunCommand = {
 
     spinner.succeed('Fetched collection statistics:');
 
-    const tableData = [
-      [
-        'Collection',
-        'Points',
-        'Vectors',
-        'Segments',
-        'RAM Size (MB)',
-        'Disk Size (MB)',
-      ],
-    ];
+    const tableData = [['Collection', 'Points', 'Vectors', 'Segments', 'RAM Size (MB)', 'Disk Size (MB)']];
 
     for (const collection of collections) {
-      const infoResponse
-        = await qdrantApi.get<QdrantCollectionInfoResponse>(
-          `/collections/${collection.name}`,
-        );
+      const infoResponse = await qdrantApi.get<QdrantCollectionInfoResponse>(`/collections/${collection.name}`);
 
       if (infoResponse.ok && infoResponse.data?.result) {
         const result = infoResponse.data.result;

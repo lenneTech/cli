@@ -23,8 +23,7 @@ const HistoryCommand: GluegunCommand = {
 
     // Clear history
     if (action === 'clear') {
-      const confirmed =
-        parameters.options.noConfirm || (await prompt.confirm('Clear command history?'));
+      const confirmed = parameters.options.noConfirm || (await prompt.confirm('Clear command history?'));
       if (confirmed) {
         history.clear();
         success('History cleared.');

@@ -30,7 +30,7 @@ const NewCommand: GluegunCommand = {
 
     // Set secrets
     const prepareSpinner = spin(`Setting secrets in server configuration: ${filePath}`);
-    await patching.update(filePath, content => server.replaceSecretOrPrivateKeys(content));
+    await patching.update(filePath, (content) => server.replaceSecretOrPrivateKeys(content));
     prepareSpinner.succeed(`Secrets set in server configuration ${filePath}`);
 
     if (!toolbox.parameters.options.fromGluegunMenu) {

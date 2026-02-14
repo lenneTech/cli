@@ -52,8 +52,8 @@ const NewCommand: GluegunCommand = {
       const result = await system.run('git branch --merged');
       const branches = result
         .split('\n')
-        .map(b => b.trim().replace(/^\* /, ''))
-        .filter(b => b && !excludedBranches.includes(b));
+        .map((b) => b.trim().replace(/^\* /, ''))
+        .filter((b) => b && !excludedBranches.includes(b));
 
       if (branches.length === 0) {
         info('No merged branches to delete.');
@@ -63,7 +63,7 @@ const NewCommand: GluegunCommand = {
       }
 
       info(`Would delete ${branches.length} merged branch(es):`);
-      branches.forEach(b => info(`  - ${b}`));
+      branches.forEach((b) => info(`  - ${b}`));
       info('');
       info(`Excluded branches: ${excludedBranches.join(', ')}`);
       info('');
@@ -124,8 +124,8 @@ const NewCommand: GluegunCommand = {
     // Local Branches into Array
     const branches = result
       .split('\n')
-      .map(b => b.trim().replace(/^\* /, '')) // Remove '* '
-      .filter(b => b && !excludedBranches.includes(b));
+      .map((b) => b.trim().replace(/^\* /, '')) // Remove '* '
+      .filter((b) => b && !excludedBranches.includes(b));
 
     if (branches.length === 0) {
       undoSpinner.succeed();

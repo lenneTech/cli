@@ -90,11 +90,13 @@ const NewCommand: GluegunCommand = {
     } else if (noConfirm) {
       link = false; // Default to false when noConfirm is set
     } else {
-      link = !!(await ask({
-        message: 'Link when finished?',
-        name: 'link',
-        type: 'confirm',
-      })).link;
+      link = !!(
+        await ask({
+          message: 'Link when finished?',
+          name: 'link',
+          type: 'confirm',
+        })
+      ).link;
     }
 
     // Start timer

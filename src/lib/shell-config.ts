@@ -124,11 +124,8 @@ export function checkAliasInFile(configPath: string, alias: string): boolean {
     }
     const content = readFileSync(configPath, 'utf-8');
     // Check for alias definition (with single or double quotes)
-    const patterns = [
-      `alias ${alias}=`,
-      `alias ${alias} =`,
-    ];
-    return patterns.some(p => content.includes(p));
+    const patterns = [`alias ${alias}=`, `alias ${alias} =`];
+    return patterns.some((p) => content.includes(p));
   } catch {
     return false;
   }
@@ -154,7 +151,7 @@ export function checkEnvVarInFile(configPath: string, envName: string, envValue:
       `export ${envName}="${envValue}"`,
       `export ${envName}='${envValue}'`,
     ];
-    return patterns.some(p => content.includes(p));
+    return patterns.some((p) => content.includes(p));
   } catch {
     return false;
   }
@@ -207,5 +204,5 @@ export function detectShellConfigs(): ShellConfigFile[] {
  */
 export function getPreferredShellConfig(): null | ShellConfigFile {
   const configs = detectShellConfigs();
-  return configs.find(c => c.exists) || configs[0] || null;
+  return configs.find((c) => c.exists) || configs[0] || null;
 }

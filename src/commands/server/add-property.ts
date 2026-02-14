@@ -1,6 +1,7 @@
 import { join } from 'path';
 import {
-  ClassPropertyTypes, IndentationText,
+  ClassPropertyTypes,
+  IndentationText,
   OptionalKind,
   Project,
   PropertyDeclarationStructure,
@@ -26,7 +27,6 @@ const NewCommand: ExtendedGluegunCommand = {
       preventExitProcess?: boolean;
     },
   ) => {
-
     // Options:
     const { preventExitProcess } = {
       preventExitProcess: false,
@@ -69,28 +69,31 @@ const NewCommand: ExtendedGluegunCommand = {
     // Parse CLI arguments
     const { element: cliElement, skipLint: cliSkipLint, type: cliType } = parameters.options;
 
-    const objectOrModule = cliType || (
-      await ask([
-        {
-          choices: ['Module', 'Object'],
-          message: 'What should be updated',
-          name: 'input',
-          type: 'select',
-        },
-      ])
-    ).input;
+    const objectOrModule =
+      cliType ||
+      (
+        await ask([
+          {
+            choices: ['Module', 'Object'],
+            message: 'What should be updated',
+            name: 'input',
+            type: 'select',
+          },
+        ])
+      ).input;
 
-    const elementToEdit = cliElement || (
-      await ask([
-        {
-          choices: objectOrModule === 'Module' ? getModules() : getObjects(),
-          message: 'Choose one to update',
-          name: 'input',
-          type: 'select',
-        },
-      ])
-    ).input;
-
+    const elementToEdit =
+      cliElement ||
+      (
+        await ask([
+          {
+            choices: objectOrModule === 'Module' ? getModules() : getObjects(),
+            message: 'Choose one to update',
+            name: 'input',
+            type: 'select',
+          },
+        ])
+      ).input;
 
     // Check if directory
     const cwd = filesystem.cwd();
@@ -101,60 +104,67 @@ const NewCommand: ExtendedGluegunCommand = {
       return;
     }
 
-    const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet }
-      = await toolbox.parseProperties({
-        argProps,
-        objectsToAdd: [],
-        parameters: toolbox.parameters,
-        referencesToAdd: [],
-        server: toolbox.server,
-      });
+    const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet } = await toolbox.parseProperties({
+      argProps,
+      objectsToAdd: [],
+      parameters: toolbox.parameters,
+      referencesToAdd: [],
+      server: toolbox.server,
+    });
 
     const updateSpinner = spin('Updating files...');
 
     const project = new Project();
 
     // Prepare model file
-    const modelPath = objectOrModule === 'Module'
-      ? join(path, 'src', 'server', 'modules', elementToEdit, `${elementToEdit}.model.ts`)
-      : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}.object.ts`);
+    const modelPath =
+      objectOrModule === 'Module'
+        ? join(path, 'src', 'server', 'modules', elementToEdit, `${elementToEdit}.model.ts`)
+        : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}.object.ts`);
     const moduleFile = project.addSourceFileAtPath(modelPath);
     const modelDeclaration = moduleFile.getClasses()[0];
-    const modelProperties = modelDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
+    const modelProperties = modelDeclaration
+      .getMembers()
+      .filter((m) => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
 
     // Prepare input file
-    const inputPath = objectOrModule === 'Module'
-      ? join(path, 'src', 'server', 'modules', elementToEdit, 'inputs', `${elementToEdit}.input.ts`)
-      : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}.input.ts`);
+    const inputPath =
+      objectOrModule === 'Module'
+        ? join(path, 'src', 'server', 'modules', elementToEdit, 'inputs', `${elementToEdit}.input.ts`)
+        : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}.input.ts`);
     const inputFile = project.addSourceFileAtPath(inputPath);
     const inputDeclaration = inputFile.getClasses()[0];
-    const inputProperties = inputDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
+    const inputProperties = inputDeclaration
+      .getMembers()
+      .filter((m) => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
 
     // Prepare create input file
-    const creatInputPath = objectOrModule === 'Module'
-      ? join(path, 'src', 'server', 'modules', elementToEdit, 'inputs', `${elementToEdit}-create.input.ts`)
-      : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}-create.input.ts`);
+    const creatInputPath =
+      objectOrModule === 'Module'
+        ? join(path, 'src', 'server', 'modules', elementToEdit, 'inputs', `${elementToEdit}-create.input.ts`)
+        : join(path, 'src', 'server', 'common', 'objects', elementToEdit, `${elementToEdit}-create.input.ts`);
     const createInputFile = project.addSourceFileAtPath(creatInputPath);
     const createInputDeclaration = createInputFile.getClasses()[0];
-    const createInputProperties = createInputDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration);
+    const createInputProperties = createInputDeclaration
+      .getMembers()
+      .filter((m) => m.getKind() === SyntaxKind.PropertyDeclaration);
 
     // Add props
     for (const prop of Object.keys(props).reverse()) {
-
       const propObj = props[prop];
 
-      if (modelProperties.some(p => p.getName() === propObj.name)) {
+      if (modelProperties.some((p) => p.getName() === propObj.name)) {
         info('');
         info(`Property ${propObj.name} already exists`);
 
         // Remove the reference for this property from the list
-        const refIndex = referencesToAdd.findIndex(item => item.property === propObj.name);
+        const refIndex = referencesToAdd.findIndex((item) => item.property === propObj.name);
         if (refIndex !== -1) {
           referencesToAdd.splice(refIndex, 1);
         }
 
         // Remove the object for this property from the list
-        const objIndex = objectsToAdd.findIndex(item => item.property === propObj.name);
+        const objIndex = objectsToAdd.findIndex((item) => item.property === propObj.name);
         if (objIndex !== -1) {
           objectsToAdd.splice(objIndex, 1);
         }
@@ -274,7 +284,10 @@ const NewCommand: ExtendedGluegunCommand = {
         newCreateInputProperty.hasOverrideKeyword = true;
         newCreateInputProperty.initializer = 'undefined'; // Override requires = undefined
       }
-      newCreateInputProperty.decorators.push({ arguments: [constructUnifiedFieldOptions('create')], name: 'UnifiedField' });
+      newCreateInputProperty.decorators.push({
+        arguments: [constructUnifiedFieldOptions('create')],
+        name: 'UnifiedField',
+      });
 
       // Use utility function to determine TypeScript type for CreateInput
       const createTsType = server.getInputClassType(propObj, { create: true });
@@ -283,7 +296,10 @@ const NewCommand: ExtendedGluegunCommand = {
       let insertedCreateInputProp;
       if (createInputProperties.length > 0) {
         const lastCreateInputProperty = createInputProperties[createInputProperties.length - 1];
-        insertedCreateInputProp = createInputDeclaration.insertProperty(lastCreateInputProperty.getChildIndex() + 1, newCreateInputProperty);
+        insertedCreateInputProp = createInputDeclaration.insertProperty(
+          lastCreateInputProperty.getChildIndex() + 1,
+          newCreateInputProperty,
+        );
       } else {
         insertedCreateInputProp = createInputDeclaration.addProperty(newCreateInputProperty);
       }
@@ -300,7 +316,9 @@ const NewCommand: ExtendedGluegunCommand = {
     const mapMethod = modelDeclaration.getMethod('map');
     if (mapMethod) {
       // Collect all properties that need mapClasses (non-native types)
-      const allModelProps = modelDeclaration.getMembers().filter(m => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
+      const allModelProps = modelDeclaration
+        .getMembers()
+        .filter((m) => m.getKind() === SyntaxKind.PropertyDeclaration) as ClassPropertyTypes[];
       const mappings = {};
 
       for (const prop of allModelProps) {
@@ -308,12 +326,16 @@ const NewCommand: ExtendedGluegunCommand = {
         const propType = prop.getType().getText();
 
         // Skip if it's a standard type
-        if (standardTypes.some(t => propType.includes(t))) {
+        if (standardTypes.some((t) => propType.includes(t))) {
           continue;
         }
 
         // Skip ObjectId, enum, and JSON types
-        if (propType.includes('string') || propType.includes('ObjectId') || propType.includes('Record<string, unknown>')) {
+        if (
+          propType.includes('string') ||
+          propType.includes('ObjectId') ||
+          propType.includes('Record<string, unknown>')
+        ) {
           continue;
         }
 
@@ -335,7 +357,7 @@ const NewCommand: ExtendedGluegunCommand = {
       }
 
       // Update the map method's return statement
-      const returnStatement = mapMethod.getStatements().find(s => s.getKind() === SyntaxKind.ReturnStatement);
+      const returnStatement = mapMethod.getStatements().find((s) => s.getKind() === SyntaxKind.ReturnStatement);
       if (returnStatement && Object.keys(mappings).length > 0) {
         const currentReturn = returnStatement.getText();
 
@@ -345,12 +367,12 @@ const NewCommand: ExtendedGluegunCommand = {
           const match = currentReturn.match(/mapClasses\(input,\s*\{([^}]*)\}/);
           if (match) {
             const existingMappings = match[1].trim();
-            const existingPairs = existingMappings ? existingMappings.split(',').map(p => p.trim()) : [];
+            const existingPairs = existingMappings ? existingMappings.split(',').map((p) => p.trim()) : [];
 
             // Merge with new mappings
             const allMappings = {};
             for (const pair of existingPairs) {
-              const [key, value] = pair.split(':').map(s => s.trim());
+              const [key, value] = pair.split(':').map((s) => s.trim());
               if (key && value) {
                 allMappings[key] = value;
               }
@@ -375,7 +397,7 @@ const NewCommand: ExtendedGluegunCommand = {
         const existingImports = moduleFile.getImportDeclaration('@lenne.tech/nest-server');
         if (existingImports) {
           const namedImports = existingImports.getNamedImports();
-          const hasMapClasses = namedImports.some(ni => ni.getName() === 'mapClasses');
+          const hasMapClasses = namedImports.some((ni) => ni.getName() === 'mapClasses');
           if (!hasMapClasses) {
             existingImports.addNamedImport('mapClasses');
           }

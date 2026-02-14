@@ -250,9 +250,9 @@ const DoctorCommand: GluegunCommand = {
     info('');
     info(colors.dim('─'.repeat(50)));
 
-    const errors = checks.filter(c => c.status === 'error');
-    const warnings = checks.filter(c => c.status === 'warning');
-    const ok = checks.filter(c => c.status === 'ok');
+    const errors = checks.filter((c) => c.status === 'error');
+    const warnings = checks.filter((c) => c.status === 'warning');
+    const ok = checks.filter((c) => c.status === 'ok');
 
     if (errors.length === 0 && warnings.length === 0) {
       success('All checks passed!');

@@ -115,9 +115,7 @@ export class History {
   search(pattern: string): HistoryEntry[] {
     const history = this.getHistory();
     const regex = new RegExp(pattern, 'i');
-    return history.filter(
-      (entry) => regex.test(entry.command) || entry.args.some((arg) => regex.test(arg))
-    );
+    return history.filter((entry) => regex.test(entry.command) || entry.args.some((arg) => regex.test(arg)));
   }
 
   /**

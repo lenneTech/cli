@@ -655,6 +655,43 @@
                 }
               },
               "additionalProperties": false
+            },
+            "permissions": {
+              "type": "object",
+              "description": "Configuration for 'lt server permissions' command",
+              "properties": {
+                "console": {
+                  "type": "boolean",
+                  "description": "Print summary to console"
+                },
+                "failOnWarnings": {
+                  "type": "boolean",
+                  "description": "Exit with code 1 when warnings are found (for CI/CD)"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": ["md", "json", "html"],
+                  "description": "Output format for the permissions report"
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                },
+                "open": {
+                  "type": "boolean",
+                  "description": "Open report in browser after generation"
+                },
+                "output": {
+                  "type": "string",
+                  "description": "Output file path",
+                  "examples": ["permissions.md", "permissions.html"]
+                },
+                "path": {
+                  "type": "string",
+                  "description": "Path to NestJS project"
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

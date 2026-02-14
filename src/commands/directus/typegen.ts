@@ -122,9 +122,7 @@ const NewCommand: GluegunCommand = {
       if (noConfirm) {
         info('Installing directus-sdk-typegen globally...');
       } else {
-        const shouldInstall = await prompt.confirm(
-          'Would you like to install directus-sdk-typegen globally?',
-        );
+        const shouldInstall = await prompt.confirm('Would you like to install directus-sdk-typegen globally?');
         if (!shouldInstall) {
           info('Using npx/dlx instead...');
           useGlobalTypegen = false;

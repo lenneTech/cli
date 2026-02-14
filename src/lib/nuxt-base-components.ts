@@ -183,10 +183,7 @@ export async function getConfigForFile(
 /**
  * Get file info from GitHub API for blocks or components
  */
-export async function getFileInfo(
-  type: 'blocks' | 'components',
-  subPath?: string,
-): Promise<FileInfo[]> {
+export async function getFileInfo(type: 'blocks' | 'components', subPath?: string): Promise<FileInfo[]> {
   const githubApiUrl = `${GITHUB_API_URL}/${type}${subPath ? `/${subPath}` : ''}`;
   const response = await axios.get(githubApiUrl);
 
@@ -213,9 +210,9 @@ export async function installPackage(
   const nameWithoutVersion = packageName.split('@')[0] || packageName;
   const packageJsonPath = path.resolve(process.cwd(), 'package.json');
   const packageJson = filesystem.read(packageJsonPath, 'json');
-  const isInstalled
-    = (packageJson.dependencies && packageJson.dependencies[nameWithoutVersion])
-    || (packageJson.devDependencies && packageJson.devDependencies[nameWithoutVersion]);
+  const isInstalled =
+    (packageJson.dependencies && packageJson.dependencies[nameWithoutVersion]) ||
+    (packageJson.devDependencies && packageJson.devDependencies[nameWithoutVersion]);
 
   if (!isInstalled) {
     if (!noConfirm) {

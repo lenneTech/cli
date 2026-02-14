@@ -135,8 +135,8 @@ const command: GluegunCommand = {
         backupFiles = [
           ...backupFiles,
           ...objects
-            .filter(object => object.Key && (object.Key.endsWith('.tar.gz') || object.Key.endsWith('.archive')))
-            .map(object => ({
+            .filter((object) => object.Key && (object.Key.endsWith('.tar.gz') || object.Key.endsWith('.archive')))
+            .map((object) => ({
               key: object.Key!,
               label: object.Key!.split('/').pop() || object.Key!,
               lastModified: object.LastModified,
@@ -204,7 +204,7 @@ const command: GluegunCommand = {
       return;
     }
 
-    const selectedBackup = backupFiles.find(f => f.key === selectedBackupKey);
+    const selectedBackup = backupFiles.find((f) => f.key === selectedBackupKey);
     if (!selectedBackup) {
       error('Selected backup not found');
       return;
@@ -238,9 +238,7 @@ const command: GluegunCommand = {
       const bodyArray = await bodyStream.transformToByteArray();
       await fs.promises.writeFile(backupFile, Buffer.from(bodyArray));
 
-      downloadSpin.succeed(
-        `Downloaded ${selectedBackup.label} (${(bodyArray.length / 1024 / 1024).toFixed(2)} MB)`,
-      );
+      downloadSpin.succeed(`Downloaded ${selectedBackup.label} (${(bodyArray.length / 1024 / 1024).toFixed(2)} MB)`);
     } catch (err: any) {
       error(`Failed to download backup: ${err.message}`);
       // Cleanup
@@ -298,7 +296,10 @@ const command: GluegunCommand = {
       // Find all directories containing BSON files
       const findBsonCommand = `find "${extractDir}" -name "*.bson" -exec dirname {} \\; | sort -u`;
       const { stdout } = await execAsync(findBsonCommand);
-      const dbPaths = stdout.trim().split('\n').filter(p => p);
+      const dbPaths = stdout
+        .trim()
+        .split('\n')
+        .filter((p) => p);
 
       if (dbPaths.length === 0) {
         throw new Error('No database files found in backup');
@@ -320,7 +321,7 @@ const command: GluegunCommand = {
         .filter((name, index, self) => self.indexOf(name) === index); // unique
 
       // Filter out system databases
-      const userDatabases = dbNames.filter(name => !systemDatabases.includes(name));
+      const userDatabases = dbNames.filter((name) => !systemDatabases.includes(name));
 
       if (userDatabases.length === 0) {
         warning('Only system databases (admin, local, config) found in backup');
@@ -335,7 +336,7 @@ const command: GluegunCommand = {
         // Let user select which database to restore
         info('');
         info('Multiple databases found in backup:');
-        userDatabases.forEach(db => info(`  - ${db}`));
+        userDatabases.forEach((db) => info(`  - ${db}`));
         info('');
 
         const { selectedDb } = await prompt.ask({

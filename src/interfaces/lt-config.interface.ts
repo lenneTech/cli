@@ -528,7 +528,6 @@ export interface LtConfig {
          */
         update?: boolean;
       };
-
     };
 
     /**
@@ -631,6 +630,48 @@ export interface LtConfig {
          * Skip lint after object creation
          */
         skipLint?: boolean;
+      };
+
+      /**
+       * Configuration for 'lt server permissions' command
+       */
+      permissions?: {
+        /**
+         * Print summary to console
+         */
+        console?: boolean;
+
+        /**
+         * Exit with code 1 when warnings are found (for CI/CD)
+         */
+        failOnWarnings?: boolean;
+
+        /**
+         * Output format
+         * @example "md" | "json" | "html"
+         */
+        format?: 'html' | 'json' | 'md';
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+
+        /**
+         * Open report in browser after generation
+         */
+        open?: boolean;
+
+        /**
+         * Output file path
+         * @example "permissions.md"
+         */
+        output?: string;
+
+        /**
+         * Path to NestJS project
+         */
+        path?: string;
       };
     };
 

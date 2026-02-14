@@ -9,11 +9,7 @@ import { join } from 'path';
 
 import { checkCommandExists } from './claude-cli';
 import { safeJsonParse } from './json-utils';
-import {
-  addEnvVarToShellConfig,
-  checkEnvVarInFile,
-  getPreferredShellConfig,
-} from './shell-config';
+import { addEnvVarToShellConfig, checkEnvVarInFile, getPreferredShellConfig } from './shell-config';
 
 /**
  * Result of handling missing environment variables
@@ -153,9 +149,7 @@ export function findMarkdownFiles(dir: string, basePath = ''): string[] {
         results.push(...findMarkdownFiles(fullPath, relativePath));
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         // Convert path to command name (e.g., "git/commit-message.md" -> "/git:commit-message")
-        const commandName = relativePath
-          .replace(/\.md$/, '')
-          .replace(/\//g, ':');
+        const commandName = relativePath.replace(/\.md$/, '').replace(/\//g, ':');
         results.push(`/${commandName}`);
       }
     }
@@ -237,7 +231,7 @@ export async function handleMissingEnvVars(
       // Ask user if they want to add the env vars automatically
       const shouldAdd = await prompt.confirm(
         `Add ${envVarsToAdd.length > 1 ? 'these variables' : envVarsToAdd[0].name} to ${targetConfig.path}?`,
-        true
+        true,
       );
 
       if (shouldAdd) {
@@ -283,11 +277,7 @@ export async function handleMissingEnvVars(
  * @param contents - Plugin contents
  * @param info - Info print function from toolbox
  */
-export function printPluginSummary(
-  pluginName: string,
-  contents: PluginContents,
-  info: (msg: string) => void,
-): void {
+export function printPluginSummary(pluginName: string, contents: PluginContents, info: (msg: string) => void): void {
   const isLspPlugin = pluginName.endsWith('-lsp');
   const hasContent = contents.skills.length > 0 || contents.commands.length > 0 || contents.agents.length > 0;
 
@@ -307,9 +297,7 @@ export function printPluginSummary(
     if (contents.commands.length > 0) {
       const shown = contents.commands.slice(0, MAX_COMMANDS_TO_SHOW);
       const remaining = contents.commands.length - MAX_COMMANDS_TO_SHOW;
-      const commandsStr = remaining > 0
-        ? `${shown.join(', ')} and ${remaining} more`
-        : shown.join(', ');
+      const commandsStr = remaining > 0 ? `${shown.join(', ')} and ${remaining} more` : shown.join(', ');
       info(`  Commands (${contents.commands.length}): ${commandsStr}`);
     }
     if (contents.hooks > 0) {
@@ -333,7 +321,12 @@ export function printPluginSummary(
  */
 export function processPostInstall(
   pluginName: string,
-  toolbox: { print: { spin: (msg: string) => { fail: (msg: string) => void; succeed: (msg: string) => void; text: string }; warning: (msg: string) => void } },
+  toolbox: {
+    print: {
+      spin: (msg: string) => { fail: (msg: string) => void; succeed: (msg: string) => void; text: string };
+      warning: (msg: string) => void;
+    };
+  },
 ): PostInstallResult {
   const {
     print: { spin, warning },
@@ -428,15 +421,7 @@ export function processPostInstall(
  * @returns Plugin contents with skills, commands, agents, hooks, etc.
  */
 export function readPluginContents(marketplaceName: string, pluginName: string): PluginContents {
-  const pluginDir = join(
-    homedir(),
-    '.claude',
-    'plugins',
-    'marketplaces',
-    marketplaceName,
-    'plugins',
-    pluginName
-  );
+  const pluginDir = join(homedir(), '.claude', 'plugins', 'marketplaces', marketplaceName, 'plugins', pluginName);
 
   const result: PluginContents = {
     agents: [],
@@ -452,8 +437,8 @@ export function readPluginContents(marketplaceName: string, pluginName: string):
   if (existsSync(skillsDir)) {
     try {
       result.skills = readdirSync(skillsDir, { withFileTypes: true })
-        .filter(dirent => dirent.isDirectory())
-        .map(dirent => dirent.name);
+        .filter((dirent) => dirent.isDirectory())
+        .map((dirent) => dirent.name);
     } catch {
       // Skills directory read failed
     }
@@ -464,8 +449,8 @@ export function readPluginContents(marketplaceName: string, pluginName: string):
   if (existsSync(agentsDir)) {
     try {
       result.agents = readdirSync(agentsDir, { withFileTypes: true })
-        .filter(dirent => dirent.isFile() && dirent.name.endsWith('.md'))
-        .map(dirent => dirent.name.replace(/\.md$/, ''));
+        .filter((dirent) => dirent.isFile() && dirent.name.endsWith('.md'))
+        .map((dirent) => dirent.name.replace(/\.md$/, ''));
     } catch {
       // Agents directory read failed
     }
@@ -502,7 +487,7 @@ export function readPluginContents(marketplaceName: string, pluginName: string):
   const permissionsPath = join(pluginDir, 'permissions.json');
   const pluginPerms = safeReadJson<PluginPermissions>(permissionsPath);
   if (pluginPerms?.permissions) {
-    result.permissions = pluginPerms.permissions.map(p => p.pattern);
+    result.permissions = pluginPerms.permissions.map((p) => p.pattern);
   }
 
   return result;
@@ -548,7 +533,7 @@ export function setupPermissions(
     const added: string[] = [];
     const existing: string[] = [];
 
-    requiredPermissions.forEach(perm => {
+    requiredPermissions.forEach((perm) => {
       if (currentAllowList.includes(perm)) {
         existing.push(perm);
       } else {

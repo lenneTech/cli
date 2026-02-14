@@ -44,9 +44,8 @@ const NewCommand: GluegunCommand = {
     }
 
     // Get list of existing instances
-    const instances = filesystem
-      .list(directusBaseDir)
-      ?.filter((item) => filesystem.isDirectory(join(directusBaseDir, item))) || [];
+    const instances =
+      filesystem.list(directusBaseDir)?.filter((item) => filesystem.isDirectory(join(directusBaseDir, item))) || [];
 
     if (instances.length === 0) {
       error('No Directus instances found.');

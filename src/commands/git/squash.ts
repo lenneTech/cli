@@ -88,7 +88,10 @@ const NewCommand: GluegunCommand = {
         info(`Would squash ${commitCount} commit(s) on branch "${branch}" into base "${base}":`);
         info('');
         info('Commits to be squashed:');
-        commitsToSquash.trim().split('\n').forEach(line => info(`  ${line}`));
+        commitsToSquash
+          .trim()
+          .split('\n')
+          .forEach((line) => info(`  ${line}`));
       } else {
         info(`No commits to squash on branch "${branch}" (already up to date with "${base}")`);
       }
@@ -219,14 +222,14 @@ const NewCommand: GluegunCommand = {
     // Commit and push
     await run(`git commit -am "${message}" --author="${author}"`);
     commitSpin.succeed();
-    
+
     if (!noConfirm && !(await confirm('Push force?'))) {
       return;
     }
-    
+
     // Start timer
     const pushForceSpin = spin('Push force');
-    
+
     // Push
     await run('git push -f origin HEAD');
     pushForceSpin.succeed();

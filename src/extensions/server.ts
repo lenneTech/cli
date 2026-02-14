@@ -8,7 +8,12 @@ import * as ts from 'typescript';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 
-type GluegunPromptAsk = <T = GluegunAskResponse>(questions: (((this: GluegunEnquirer) => PromptOptions) | PromptOptions)[] | ((this: GluegunEnquirer) => PromptOptions) | PromptOptions) => Promise<T>;
+type GluegunPromptAsk = <T = GluegunAskResponse>(
+  questions:
+    | (((this: GluegunEnquirer) => PromptOptions) | PromptOptions)[]
+    | ((this: GluegunEnquirer) => PromptOptions)
+    | PromptOptions,
+) => Promise<T>;
 type GluegunPromptConfirm = (message: string, initial?: boolean) => Promise<boolean>;
 
 /**
@@ -28,10 +33,10 @@ export class Server {
 
   // Specific imports for default modells
   imports: Record<string, string> = {
-    'CoreFileInfo': 'import { CoreFileInfo } from \'@lenne.tech/nest-server\';',
-    'FileUpload': 'import type { FileUpload } from \'graphql-upload/processRequest.js\';',
-    'GraphQLUpload': 'import * as GraphQLUpload from \'graphql-upload/GraphQLUpload.js\';',
-    'Record<string, unknown>': 'import { JSON } from \'@lenne.tech/nest-server\';',
+    CoreFileInfo: "import { CoreFileInfo } from '@lenne.tech/nest-server';",
+    FileUpload: "import type { FileUpload } from 'graphql-upload/processRequest.js';",
+    GraphQLUpload: "import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';",
+    'Record<string, unknown>': "import { JSON } from '@lenne.tech/nest-server';",
   };
 
   // Specific types for properties in input fields
@@ -156,7 +161,17 @@ export class Server {
       let type = (
         await this.ask([
           {
-            choices: ['boolean', 'string', 'number', 'ObjectId / Reference', 'Date', 'enum', 'SubObject', 'Use own', 'JSON / any'],
+            choices: [
+              'boolean',
+              'string',
+              'number',
+              'ObjectId / Reference',
+              'Date',
+              'enum',
+              'SubObject',
+              'Use own',
+              'JSON / any',
+            ],
             message: 'Choose property type',
             name: 'input',
             type: 'select',
@@ -194,7 +209,7 @@ export class Server {
             createObjAfter = await this.confirm('Create this Object after all the other Properties?', true);
           }
 
-          if (createObjAfter && !objectsToAdd.find(obj => obj.object === this.kebabCase(type))) {
+          if (createObjAfter && !objectsToAdd.find((obj) => obj.object === this.kebabCase(type))) {
             objectsToAdd.push({ object: this.kebabCase(type), property: name });
           }
         }
@@ -224,7 +239,7 @@ export class Server {
             createRefAfter = await this.confirm('Create this Module after all the other Properties?', true);
           }
 
-          if (createRefAfter && !referencesToAdd.find(ref => ref.reference === this.kebabCase(reference))) {
+          if (createRefAfter && !referencesToAdd.find((ref) => ref.reference === this.kebabCase(reference))) {
             referencesToAdd.push({ property: name, reference: this.kebabCase(reference) });
           }
         }
@@ -288,11 +303,10 @@ export class Server {
       return enumRef;
     } else {
       // Standard types or custom types
-      let fieldType = this.inputFieldTypes[this.pascalCase(item.type)]
-        || this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input');
-      fieldType = this.modelFieldTypes[item.type]
-        ? this.modelFieldTypes[item.type]
-        : fieldType;
+      let fieldType =
+        this.inputFieldTypes[this.pascalCase(item.type)] ||
+        this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input');
+      fieldType = this.modelFieldTypes[item.type] ? this.modelFieldTypes[item.type] : fieldType;
       return fieldType;
     }
   }
@@ -317,10 +331,12 @@ export class Server {
       return enumRef;
     } else {
       // Standard types or custom types
-      return this.inputClassTypes[this.pascalCase(item.type)]
-        || (this.standardTypes.includes(item.type)
+      return (
+        this.inputClassTypes[this.pascalCase(item.type)] ||
+        (this.standardTypes.includes(item.type)
           ? item.type
-          : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'));
+          : this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input'))
+      );
     }
   }
 
@@ -358,8 +374,10 @@ export class Server {
     } else if (enumRef) {
       return enumRef;
     } else {
-      return this.modelClassTypes[this.pascalCase(item.type)]
-        || (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type));
+      return (
+        this.modelClassTypes[this.pascalCase(item.type)] ||
+        (this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type))
+      );
     }
   }
 
@@ -493,8 +511,12 @@ export class Server {
     description: '${this.pascalCase(propName) + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
     ${enumConfig}isOptional: ${item.nullable},
     mongoose: ${mongooseConfig},
-    roles: RoleEnum.S_EVERYONE,${typeConfig ? `
-    ${typeConfig}` : ''}
+    roles: RoleEnum.S_EVERYONE,${
+      typeConfig
+        ? `
+    ${typeConfig}`
+        : ''
+    }
   })
   ${propName}: ${(reference ? reference : schema ? schema : enumRef || modelClassType) + (isArray ? '[]' : '')}${undefinedString}
   `;
@@ -550,8 +572,8 @@ export class Server {
    */
   @Restricted(RoleEnum.ADMIN, RoleEnum.S_CREATOR)
   @Field(() => [String], { description: 'Properties of ${this.pascalCase(modelName)}', nullable: ${
-            config.nullable ? config.nullable : '\'items\''
-          }})
+    config.nullable ? config.nullable : "'items'"
+  }})
   properties: string[]${undefinedString}
 
   /**
@@ -604,8 +626,12 @@ export class Server {
   @UnifiedField({
     description: '${this.pascalCase(name) + propertySuffix + (modelName ? ` of ${this.pascalCase(modelName)}` : '')}',
     ${enumConfig}isOptional: ${nullable || item.nullable},
-    roles: RoleEnum.S_EVERYONE,${typeConfig ? `
-    ${typeConfig}` : ''}
+    roles: RoleEnum.S_EVERYONE,${
+      typeConfig
+        ? `
+    ${typeConfig}`
+        : ''
+    }
   })
   ${overrideFlag + this.camelCase(name)}${nullable || item.nullable ? '?' : ''}: ${inputClassType}${item.isArray ? '[]' : ''}${propertyUndefinedString}
   `;
@@ -696,7 +722,7 @@ export class Server {
         await patching.update(`${dest}/src/main.ts`, (content: string) =>
           content
             .replace(/\.setTitle\('.*?'\)/, `.setTitle('${name}')`)
-            .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`)
+            .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`),
         );
 
         // Update package.json
@@ -909,7 +935,6 @@ export class Server {
       return `'${secretMap.get(placeholder)}'`;
     });
   }
-
 }
 
 /**

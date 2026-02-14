@@ -137,9 +137,7 @@ export class Logger {
    */
   timing(operation: string, durationMs: number): void {
     if (this.isVerbose) {
-      const duration = durationMs < 1000
-        ? `${durationMs}ms`
-        : `${(durationMs / 1000).toFixed(2)}s`;
+      const duration = durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(2)}s`;
       this.print.info(this.print.colors.dim(`[timing] ${operation}: ${duration}`));
     }
   }
@@ -199,16 +197,11 @@ export class Logger {
     this.print.info(this.print.colors.dim('─'.repeat(50)));
     this.print.info(this.print.colors.bold('Performance Metrics:'));
 
-    const sortedMetrics = [...this.metrics.entries()]
-      .sort((a, b) => b[1].totalMs - a[1].totalMs);
+    const sortedMetrics = [...this.metrics.entries()].sort((a, b) => b[1].totalMs - a[1].totalMs);
 
     for (const [operation, data] of sortedMetrics) {
       const avgMs = Math.round(data.totalMs / data.count);
-      this.print.info(
-        this.print.colors.dim(
-          `  ${operation}: ${data.count}x, avg ${avgMs}ms, total ${data.totalMs}ms`
-        )
-      );
+      this.print.info(this.print.colors.dim(`  ${operation}: ${data.count}x, avg ${avgMs}ms, total ${data.totalMs}ms`));
     }
   }
 }

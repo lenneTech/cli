@@ -348,6 +348,37 @@ Creates a new server object (embedded document).
 
 ---
 
+#### `lt server permissions`
+
+Scans server modules and generates a permissions report.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.server.permissions.format` | `'md'` \| `'json'` \| `'html'` | `'html'` (TTY) / `'json'` (CI) | Output format |
+| `commands.server.permissions.output` | `string` | `permissions.<format>` | Output file path |
+| `commands.server.permissions.path` | `string` | auto-detect | Path to NestJS project |
+| `commands.server.permissions.open` | `boolean` | `true` (TTY) / `false` (CI) | Open report in browser |
+| `commands.server.permissions.console` | `boolean` | `false` | Print summary to console |
+| `commands.server.permissions.failOnWarnings` | `boolean` | `false` | Exit code 1 on warnings |
+| `commands.server.permissions.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+
+**Example:**
+```json
+{
+  "commands": {
+    "server": {
+      "permissions": {
+        "format": "html",
+        "open": true,
+        "failOnWarnings": true
+      }
+    }
+  }
+}
+```
+
+---
+
 #### `lt server addProp`
 
 Adds a property to an existing module or object.

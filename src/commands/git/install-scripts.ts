@@ -40,7 +40,7 @@ const NewCommand: GluegunCommand = {
     }
 
     // Get all script files
-    const scripts = readdirSync(sourceDir).filter(file => !file.startsWith('.'));
+    const scripts = readdirSync(sourceDir).filter((file) => !file.startsWith('.'));
 
     if (scripts.length === 0) {
       error('No scripts found to install.');
@@ -81,7 +81,9 @@ const NewCommand: GluegunCommand = {
     // Summary
     info('');
     if (failed.length === 0) {
-      success(`${installed.length} script${installed.length > 1 ? 's' : ''} installed in ${helper.msToMinutesAndSeconds(timer())}m.`);
+      success(
+        `${installed.length} script${installed.length > 1 ? 's' : ''} installed in ${helper.msToMinutesAndSeconds(timer())}m.`,
+      );
     } else {
       error(`${installed.length} installed, ${failed.length} failed.`);
     }

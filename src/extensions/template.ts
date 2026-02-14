@@ -28,7 +28,10 @@ export class TemplateHelper {
    * @returns Object with resolved path and whether it was adjusted
    */
   public resolveNuxtPath(basePath: string): { path: string; wasAdjusted: boolean } {
-    const { filesystem, print: { info } } = this.toolbox;
+    const {
+      filesystem,
+      print: { info },
+    } = this.toolbox;
 
     const resolvedPath = filesystem.path(basePath);
     const templateSubdir = filesystem.path(resolvedPath, 'nuxt-base-template');
@@ -54,7 +57,10 @@ export class TemplateHelper {
     dest: string,
     options: { removeGit?: boolean; showInfo?: boolean } = {},
   ): Promise<TemplateSetupResult> {
-    const { filesystem, print: { error, info } } = this.toolbox;
+    const {
+      filesystem,
+      print: { error, info },
+    } = this.toolbox;
     const opts = { removeGit: true, showInfo: true, ...options };
 
     const templatePath = filesystem.path(source);
@@ -91,7 +97,11 @@ export class TemplateHelper {
     dest: string,
     options: { showInfo?: boolean; showWarning?: boolean } = {},
   ): Promise<TemplateSetupResult> {
-    const { filesystem, print: { error, info }, system } = this.toolbox;
+    const {
+      filesystem,
+      print: { error, info },
+      system,
+    } = this.toolbox;
     const opts = { showInfo: true, showWarning: true, ...options };
 
     const templatePath = filesystem.path(source);
@@ -131,7 +141,11 @@ export class TemplateHelper {
     dest: string,
     options: { branch?: string; removeGit?: boolean; showInfo?: boolean } = {},
   ): Promise<TemplateSetupResult> {
-    const { filesystem, print: { error, info }, system } = this.toolbox;
+    const {
+      filesystem,
+      print: { error, info },
+      system,
+    } = this.toolbox;
     const opts = { removeGit: true, showInfo: true, ...options };
 
     const branchArg = opts.branch ? ` -b ${opts.branch}` : '';

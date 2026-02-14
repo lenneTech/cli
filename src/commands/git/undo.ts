@@ -57,14 +57,20 @@ const NewCommand: GluegunCommand = {
       info(`Would undo last commit on branch "${branch}":`);
       info('');
       info('Commit to undo:');
-      commitDetails?.trim().split('\n').forEach(line => info(`  ${line}`));
+      commitDetails
+        ?.trim()
+        .split('\n')
+        .forEach((line) => info(`  ${line}`));
 
       // Show files that would become staged
       const changedFiles = await run('git diff-tree --no-commit-id --name-status -r HEAD');
       if (changedFiles?.trim()) {
         info('');
         info('Files that would become staged:');
-        changedFiles.trim().split('\n').forEach(line => info(`  ${line}`));
+        changedFiles
+          .trim()
+          .split('\n')
+          .forEach((line) => info(`  ${line}`));
       }
 
       info('');

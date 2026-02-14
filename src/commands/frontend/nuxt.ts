@@ -41,7 +41,7 @@ const NewCommand: GluegunCommand = {
 
     const projName = (
       await ask({
-        message: 'What is the project\'s name?',
+        message: "What is the project's name?",
         name: 'projectName',
         required: true,
         type: 'input',
@@ -53,7 +53,9 @@ const NewCommand: GluegunCommand = {
     // Start timer
     const timer = system.startTimer();
 
-    const baseSpinner = spin(`Creating nuxt-base with name '${projectDir}'${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`);
+    const baseSpinner = spin(
+      `Creating nuxt-base with name '${projectDir}'${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`,
+    );
 
     // Use FrontendHelper for setup
     const result = await frontendHelper.setupNuxt(`./${projectDir}`, {
@@ -68,9 +70,9 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    baseSpinner.succeed(`Successfully created nuxt workspace with name '${projectDir}' in ${helper.msToMinutesAndSeconds(
-      timer(),
-    )}m.`);
+    baseSpinner.succeed(
+      `Successfully created nuxt workspace with name '${projectDir}' in ${helper.msToMinutesAndSeconds(timer())}m.`,
+    );
 
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();

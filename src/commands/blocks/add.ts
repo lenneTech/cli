@@ -50,12 +50,14 @@ async function addBlock(toolbox: ExtendedGluegunToolbox, blockName: string | und
         selectedBlock = response.blockType;
       } else {
         const foundBlock = possibleBlocks.find(
-          e => e.name.toLowerCase() === `${blockName.toLowerCase()}.vue` || e.name.toLowerCase() === blockName.toLowerCase(),
+          (e) =>
+            e.name.toLowerCase() === `${blockName.toLowerCase()}.vue` ||
+            e.name.toLowerCase() === blockName.toLowerCase(),
         );
         selectedBlock = foundBlock?.name || blockName;
       }
 
-      const selectedFile = possibleBlocks.find(e => e.name.toLowerCase() === selectedBlock.toLowerCase());
+      const selectedFile = possibleBlocks.find((e) => e.name.toLowerCase() === selectedBlock.toLowerCase());
       if (selectedFile?.type === 'dir') {
         print.success(`The directory ${selectedFile.name} has been selected.`);
         const directoryFiles = await getFileInfo('blocks', selectedFile.name);

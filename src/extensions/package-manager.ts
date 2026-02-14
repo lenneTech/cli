@@ -89,11 +89,12 @@ export class PackageManager {
       return this.cache.get(dir)!;
     }
 
-    const result = this.detectFromLockfile(dir)
-      || this.detectFromPackageJson(dir)
-      || this.detectFromParentDirs(dir)
-      || this.detectFromConfig()
-      || 'npm';
+    const result =
+      this.detectFromLockfile(dir) ||
+      this.detectFromPackageJson(dir) ||
+      this.detectFromParentDirs(dir) ||
+      this.detectFromConfig() ||
+      'npm';
 
     this.cache.set(dir, result);
     return result;
@@ -266,9 +267,6 @@ export class PackageManager {
  * Extension function to add package manager helper to toolbox
  */
 export default (toolbox: any) => {
-  const pm = new PackageManager(
-    toolbox.filesystem,
-    () => toolbox.config?.loadConfig?.() || {},
-  );
+  const pm = new PackageManager(toolbox.filesystem, () => toolbox.config?.loadConfig?.() || {});
   toolbox.pm = pm;
 };

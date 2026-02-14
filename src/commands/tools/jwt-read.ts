@@ -16,17 +16,17 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info },
     } = toolbox;
-    
+
     const jwt = await helper.getInput(parameters.first, {
       name: 'JWT to parse',
       showError: false,
     });
-    
+
     if (!jwt) {
       error('No JWT provided');
       return;
     }
-    
+
     // Hash password
     const data = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString());
     info(data);
@@ -36,11 +36,11 @@ const NewCommand: GluegunCommand = {
     if (data.exp) {
       info(`exp: ${new Date(data.exp * 1000)}`);
     }
-    
+
     if (!toolbox.parameters.options.fromGluegunMenu) {
       process.exit();
     }
-    
+
     // For tests
     return 'jwt-read';
   },

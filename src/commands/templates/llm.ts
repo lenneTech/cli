@@ -110,7 +110,7 @@ const LlmCommand: GluegunCommand = {
 
       // Get all available prompts (*.md files)
       const allFiles = filesystem.list(promptsTemplateDir) || [];
-      const availablePrompts = allFiles.filter(file => file.endsWith('.md'));
+      const availablePrompts = allFiles.filter((file) => file.endsWith('.md'));
 
       if (availablePrompts.length === 0) {
         error('No LLM prompts found in CLI installation.');
@@ -122,15 +122,13 @@ const LlmCommand: GluegunCommand = {
 
       if (parameters.first) {
         // Check if the requested prompt exists
-        const requestedPrompt = parameters.first.endsWith('.md')
-          ? parameters.first
-          : `${parameters.first}.md`;
+        const requestedPrompt = parameters.first.endsWith('.md') ? parameters.first : `${parameters.first}.md`;
 
         if (!availablePrompts.includes(requestedPrompt)) {
           error(`Prompt "${parameters.first}" not found.`);
           info('');
           info('Available prompts:');
-          availablePrompts.forEach(p => {
+          availablePrompts.forEach((p) => {
             const promptPath = join(promptsTemplateDir, p);
             const metadata = getPromptMetadata(promptPath, filesystem);
             const promptName = p.replace('.md', '');
@@ -149,7 +147,7 @@ const LlmCommand: GluegunCommand = {
 
         const choices: Array<{ message: string; name: string; value: string }> = [];
 
-        availablePrompts.forEach(p => {
+        availablePrompts.forEach((p) => {
           const promptPath = join(promptsTemplateDir, p);
           const metadata = getPromptMetadata(promptPath, filesystem);
           const promptName = p.replace('.md', '');
@@ -161,14 +159,14 @@ const LlmCommand: GluegunCommand = {
         });
 
         const { selected } = await prompt.ask({
-          choices: choices.map(c => c.message),
+          choices: choices.map((c) => c.message),
           message: 'Select a prompt template:',
           name: 'selected',
           type: 'select',
         });
 
         // Find the selected prompt file
-        const selectedChoice = choices.find(c => c.message === selected);
+        const selectedChoice = choices.find((c) => c.message === selected);
         if (!selectedChoice) {
           error('Invalid selection.');
           return;
@@ -196,11 +194,7 @@ const LlmCommand: GluegunCommand = {
       } else {
         // Interactive: ask user
         const { action } = await prompt.ask({
-          choices: [
-            'Display in terminal',
-            'Copy to clipboard',
-            'Save as Markdown file',
-          ],
+          choices: ['Display in terminal', 'Copy to clipboard', 'Save as Markdown file'],
           message: 'What would you like to do with this prompt?',
           name: 'action',
           type: 'select',
@@ -303,7 +297,6 @@ ${promptContent}
 
       // For tests
       return `templates llm ${selectedPrompt.replace('.md', '')}`;
-
     } catch (err) {
       error(`Failed to process prompt: ${err.message}`);
       return;

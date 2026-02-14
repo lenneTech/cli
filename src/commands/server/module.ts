@@ -22,7 +22,7 @@ function detectControllerType(filesystem: any, path: string): 'Both' | 'GraphQL'
   // Get all module directories
   const allModules = filesystem.list(modulesDir) || [];
   const modulesToAnalyze = allModules.filter(
-    (module: string) => !excludeModules.includes(module) && filesystem.isDirectory(join(modulesDir, module))
+    (module: string) => !excludeModules.includes(module) && filesystem.isDirectory(join(modulesDir, module)),
   );
 
   // If no modules to analyze, use default
@@ -81,7 +81,6 @@ const NewCommand: ExtendedGluegunCommand = {
       referencesToAdd?: { property: string; reference: string }[];
     },
   ) => {
-
     // Options:
     const { currentItem, preventExitProcess } = {
       currentItem: '',
@@ -116,7 +115,9 @@ const NewCommand: ExtendedGluegunCommand = {
     }
 
     // Hint for non-interactive callers (e.g. Claude Code)
-    toolbox.tools.nonInteractiveHint('lt server module --name <name> --controller <Rest|GraphQL|Both|auto> --noConfirm');
+    toolbox.tools.nonInteractiveHint(
+      'lt server module --name <name> --controller <Rest|GraphQL|Both|auto> --noConfirm',
+    );
 
     // Load configuration
     const ltConfig = config.loadConfig();
@@ -193,13 +194,18 @@ const NewCommand: ExtendedGluegunCommand = {
       const initialIndex = choices.indexOf(detected);
 
       info(`Detected controller pattern: ${detected} (based on existing modules)`);
-      controller = (await ask([{
-        choices,
-        initial: initialIndex >= 0 ? initialIndex : 2, // Default to 'Both' (index 2)
-        message: 'What controller type?',
-        name: 'controller',
-        type: 'select',
-      }])).controller || detected;
+      controller =
+        (
+          await ask([
+            {
+              choices,
+              initial: initialIndex >= 0 ? initialIndex : 2, // Default to 'Both' (index 2)
+              message: 'What controller type?',
+              name: 'controller',
+              type: 'select',
+            },
+          ])
+        ).controller || detected;
     }
 
     // Set up initial props (to pass into templates)
@@ -213,8 +219,13 @@ const NewCommand: ExtendedGluegunCommand = {
       return;
     }
 
-    const { objectsToAdd: newObjects, props, referencesToAdd: newReferences, refsSet, schemaSet }
-      = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
+    const {
+      objectsToAdd: newObjects,
+      props,
+      referencesToAdd: newReferences,
+      refsSet,
+      schemaSet,
+    } = await toolbox.parseProperties({ objectsToAdd, referencesToAdd });
 
     objectsToAdd = newObjects;
     referencesToAdd = newReferences;
@@ -233,7 +244,12 @@ const NewCommand: ExtendedGluegunCommand = {
 
     if (controller === 'Rest' || controller === 'Both') {
       await template.generate({
-        props: { lowercase: name.toLowerCase(), nameCamel: camelCase(name), nameKebab: kebabCase(name), namePascal: pascalCase(name) },
+        props: {
+          lowercase: name.toLowerCase(),
+          nameCamel: camelCase(name),
+          nameKebab: kebabCase(name),
+          namePascal: pascalCase(name),
+        },
         target: join(directory, `${nameKebab}.controller.ts`),
         template: 'nest-server-module/template.controller.ts.ejs',
       });
@@ -241,7 +257,14 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // nest-server-module/inputs/xxx-create.input.ts
     await template.generate({
-      props: { imports: createTemplate.imports, isGql: controller === 'GraphQL' || controller === 'Both', nameCamel, nameKebab, namePascal, props: createTemplate.props },
+      props: {
+        imports: createTemplate.imports,
+        isGql: controller === 'GraphQL' || controller === 'Both',
+        nameCamel,
+        nameKebab,
+        namePascal,
+        props: createTemplate.props,
+      },
       target: join(directory, 'inputs', `${nameKebab}-create.input.ts`),
       template: 'nest-server-module/inputs/template-create.input.ts.ejs',
     });
@@ -276,12 +299,12 @@ const NewCommand: ExtendedGluegunCommand = {
     });
 
     if (controller === 'GraphQL' || controller === 'Both') {
-    // nest-server-module/xxx.resolver.ts
-    await template.generate({
-      props: { nameCamel, nameKebab, namePascal },
-      target: join(directory, `${nameKebab}.resolver.ts`),
-      template: 'nest-server-module/template.resolver.ts.ejs',
-    });
+      // nest-server-module/xxx.resolver.ts
+      await template.generate({
+        props: { nameCamel, nameKebab, namePascal },
+        target: join(directory, `${nameKebab}.resolver.ts`),
+        template: 'nest-server-module/template.resolver.ts.ejs',
+      });
     }
 
     // nest-server-module/xxx.service.ts
@@ -324,7 +347,11 @@ const NewCommand: ExtendedGluegunCommand = {
             insert: '$1, forwardRef$2',
             replace: /from '@nestjs\/common'(.*?)}/,
           });
-        } else if (serverModuleContent && serverModuleContent.includes('@nestjs/common') && !serverModuleContent.match(/forwardRef.*@nestjs\/common|@nestjs\/common.*forwardRef/)) {
+        } else if (
+          serverModuleContent &&
+          serverModuleContent.includes('@nestjs/common') &&
+          !serverModuleContent.match(/forwardRef.*@nestjs\/common|@nestjs\/common.*forwardRef/)
+        ) {
           // forwardRef exists but not in @nestjs/common import - add it
           await patching.patch(serverModule, {
             insert: '$1, forwardRef$2',
@@ -341,7 +368,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
       includeSpinner.succeed('Module included');
     } else {
-      info('Don\'t forget to include the module into your main module.');
+      info("Don't forget to include the module into your main module.");
     }
 
     // We're done, so show what to do next
@@ -372,7 +399,7 @@ const NewCommand: ExtendedGluegunCommand = {
 
     if (!skipLint) {
       // Run lint fix - skip confirmation when noConfirm, otherwise ask
-      const runLint = noConfirm || await confirm('Run lint fix?', true);
+      const runLint = noConfirm || (await confirm('Run lint fix?', true));
       if (runLint) {
         await system.run(toolbox.pm.run('lint:fix'));
       }

@@ -33,7 +33,9 @@ const NewCommand: GluegunCommand = {
     info('Create a new fullstack workspace');
 
     // Hint for non-interactive callers (e.g. Claude Code)
-    toolbox.tools.nonInteractiveHint('lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --noConfirm');
+    toolbox.tools.nonInteractiveHint(
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --noConfirm',
+    );
 
     // Check git
     if (!(await git.gitInstalled())) {
@@ -76,10 +78,12 @@ const NewCommand: GluegunCommand = {
     });
 
     // Get name of the workspace
-    const name = cliName || await helper.getInput(parameters.first, {
-      name: 'workspace name',
-      showError: true,
-    });
+    const name =
+      cliName ||
+      (await helper.getInput(parameters.first, {
+        name: 'workspace name',
+        showError: true,
+      }));
     if (!name) {
       return;
     }
@@ -191,13 +195,16 @@ const NewCommand: GluegunCommand = {
       }
     } else if (!noConfirm && parameters.third !== 'false') {
       // Interactive mode
-      pushToRemote = parameters.third === 'true' || (await confirm('Push initial commit to a remote repository (dev branch)?'));
+      pushToRemote =
+        parameters.third === 'true' || (await confirm('Push initial commit to a remote repository (dev branch)?'));
 
       if (pushToRemote) {
-        gitLink = configGitLink || await helper.getInput(null, {
-          name: 'git repository link',
-          showError: true,
-        });
+        gitLink =
+          configGitLink ||
+          (await helper.getInput(null, {
+            name: 'git repository link',
+            showError: true,
+          }));
         if (!gitLink) {
           pushToRemote = false;
         }
@@ -290,7 +297,9 @@ const NewCommand: GluegunCommand = {
       ngBaseSpinner.succeed(`Example for ${frontend} integrated`);
 
       // Include files from https://github.com/lenneTech/nest-server-starter
-      const serverSpinner = spin(`Integrate Nest Server Starter${apiLink ? ' (link)' : apiCopy ? ' (copy)' : apiBranch ? ` (branch: ${apiBranch})` : ''}`);
+      const serverSpinner = spin(
+        `Integrate Nest Server Starter${apiLink ? ' (link)' : apiCopy ? ' (copy)' : apiBranch ? ` (branch: ${apiBranch})` : ''}`,
+      );
 
       // Setup API using Server extension
       const apiDest = `${projectDir}/projects/api`;
@@ -310,19 +319,23 @@ const NewCommand: GluegunCommand = {
 
       // Create lt.config.json for API
       const apiConfigPath = filesystem.path(apiDest, 'lt.config.json');
-      filesystem.write(apiConfigPath, {
-        commands: {
-          server: {
-            module: {
-              controller: apiMode,
+      filesystem.write(
+        apiConfigPath,
+        {
+          commands: {
+            server: {
+              module: {
+                controller: apiMode,
+              },
             },
           },
+          meta: {
+            apiMode,
+            version: '1.0.0',
+          },
         },
-        meta: {
-          apiMode,
-          version: '1.0.0',
-        },
-      }, { jsonIndent: 2 });
+        { jsonIndent: 2 },
+      );
 
       // Integrate files
       if (filesystem.isDirectory(`./${projectDir}/projects/api`)) {
@@ -335,7 +348,9 @@ const NewCommand: GluegunCommand = {
       const installSpinner = spin('Install all packages');
       try {
         const detectedPm = toolbox.pm.detect(projectDir);
-        await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)} && ${toolbox.pm.run('init', detectedPm)}`);
+        await system.run(
+          `cd ${projectDir} && ${toolbox.pm.install(detectedPm)} && ${toolbox.pm.run('init', detectedPm)}`,
+        );
         installSpinner.succeed('Successfully installed all packages');
       } catch (err) {
         installSpinner.fail(`Failed to install packages: ${err.message}`);

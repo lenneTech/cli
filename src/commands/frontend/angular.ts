@@ -107,7 +107,9 @@ const NewCommand: GluegunCommand = {
       ).trim();
     }
 
-    const workspaceSpinner = spin(`Creating angular workspace ${projectDir}${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}...`);
+    const workspaceSpinner = spin(
+      `Creating angular workspace ${projectDir}${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}...`,
+    );
 
     // Use FrontendHelper for setup
     const result = await frontendHelper.setupAngular(`./${projectDir}`, {

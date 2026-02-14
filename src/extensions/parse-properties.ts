@@ -12,18 +12,16 @@ export interface ParsedPropsResult {
  * Extend toolbox with parseProperties() helper.
  */
 export default (toolbox: ExtendedGluegunToolbox) => {
-  toolbox.parseProperties = async (
-    options?: {
-      argProps?: string[];
-      objectsToAdd?: { object: string; property: string }[];
-      parameters?: typeof toolbox.parameters;
-      referencesToAdd?: { property: string; reference: string }[];
-      server?: typeof toolbox.server;
-    },
-  ): Promise<ParsedPropsResult> => {
+  toolbox.parseProperties = async (options?: {
+    argProps?: string[];
+    objectsToAdd?: { object: string; property: string }[];
+    parameters?: typeof toolbox.parameters;
+    referencesToAdd?: { property: string; reference: string }[];
+    server?: typeof toolbox.server;
+  }): Promise<ParsedPropsResult> => {
     const { parameters: globalParameters, server: globalServer } = toolbox;
     const {
-      argProps = Object.keys(globalParameters.options || {}).filter(key => key.startsWith('prop')),
+      argProps = Object.keys(globalParameters.options || {}).filter((key) => key.startsWith('prop')),
       objectsToAdd = [],
       parameters = globalParameters,
       referencesToAdd = [],
@@ -34,14 +32,16 @@ export default (toolbox: ExtendedGluegunToolbox) => {
       const { print } = toolbox;
 
       // Count how many prop-name flags exist
-      const propNameFlags = argProps.filter(key => key.startsWith('prop-name'));
+      const propNameFlags = argProps.filter((key) => key.startsWith('prop-name'));
       const hasMultipleProps = propNameFlags.length > 1;
 
       // If multiple properties, all must have numeric indices
       if (hasMultipleProps) {
-        const hasNonIndexed = propNameFlags.some(key => !key.match(/^prop-name-\d+$/));
+        const hasNonIndexed = propNameFlags.some((key) => !key.match(/^prop-name-\d+$/));
         if (hasNonIndexed) {
-          print.error('When adding multiple properties, all must use numeric indices (e.g., --prop-name-0, --prop-name-1)');
+          print.error(
+            'When adding multiple properties, all must use numeric indices (e.g., --prop-name-0, --prop-name-1)',
+          );
           print.info('');
           print.info('Example:');
           print.info('  lt server addProp --type Module --element User \\');

@@ -122,7 +122,7 @@ export class Git {
     try {
       const diff = await system.run(`git --no-pager diff --name-only ${branch} ${opts.otherBranch}`);
       // Return relative file paths as array
-      return diff.split(/\r?\n/).filter(item => item);
+      return diff.split(/\r?\n/).filter((item) => item);
     } catch (error) {
       if (opts.showWarning) {
         warning('Branch diff could not be performed!');
@@ -192,7 +192,7 @@ export class Git {
         throw new Error('No commits found');
       }
 
-      const commits = output.split('\n').filter(line => line.trim());
+      const commits = output.split('\n').filter((line) => line.trim());
       const firstCommit = commits[commits.length - 1];
 
       const messageStart = firstCommit.indexOf(' ');
@@ -241,7 +241,9 @@ export class Git {
     // Return cached result if available
     if (this.gitInstalledCache !== null) {
       if (!this.gitInstalledCache) {
-        const { print: { error } } = this.toolbox;
+        const {
+          print: { error },
+        } = this.toolbox;
         error('Please install git: https://git-scm.com');
       }
       return this.gitInstalledCache;
@@ -339,17 +341,14 @@ export class Git {
         }
       }
     } else {
-
       branch = (await system.run('git branch -a'))
         .split(/\r?\n/)
-        .map(line => line.trim())
-        .find(line => line.includes(branch))
+        .map((line) => line.trim())
+        .find((line) => line.includes(branch))
         ?.replace(/^.*origin\//, '')
         .replace(/^.*github\//, '')
         .replace(/^\* /, '')
         .trim();
-
-
     }
     if (!branch) {
       if (opts.spin) {
@@ -456,7 +455,7 @@ export class Git {
 
     // Prepare branches
     if (branches.includes(opts.defaultBranch)) {
-      branches = [opts.defaultBranch].concat(branches.filter(item => item !== opts.defaultBranch));
+      branches = [opts.defaultBranch].concat(branches.filter((item) => item !== opts.defaultBranch));
     }
 
     // Select branch
@@ -489,10 +488,7 @@ export class Git {
    * @param options - Configuration options
    * @returns Formatted dry-run result string or null if no changes
    */
-  public async showDryRunInfo(options: {
-    branch?: string;
-    operation: string;
-  }): Promise<null | string> {
+  public async showDryRunInfo(options: { branch?: string; operation: string }): Promise<null | string> {
     const { branch, operation } = options;
     const {
       print: { info, warning },
@@ -509,9 +505,9 @@ export class Git {
     }
 
     const lines = status.trim().split('\n');
-    const modified = lines.filter(l => l.startsWith(' M') || l.startsWith('M ')).length;
-    const added = lines.filter(l => l.startsWith('A ') || l.startsWith('??')).length;
-    const deleted = lines.filter(l => l.startsWith(' D') || l.startsWith('D ')).length;
+    const modified = lines.filter((l) => l.startsWith(' M') || l.startsWith('M ')).length;
+    const added = lines.filter((l) => l.startsWith('A ') || l.startsWith('??')).length;
+    const deleted = lines.filter((l) => l.startsWith(' D') || l.startsWith('D ')).length;
 
     const branchInfo = branch ? ` on branch "${branch}"` : '';
     info(`Would ${operation}${branchInfo}:`);
@@ -520,7 +516,7 @@ export class Git {
     if (deleted > 0) info(`  - ${deleted} deleted file(s)`);
     info('');
     info('Files:');
-    lines.forEach(line => info(`  ${line}`));
+    lines.forEach((line) => info(`  ${line}`));
 
     return `dry-run ${operation} ${branch || ''}`.trim();
   }

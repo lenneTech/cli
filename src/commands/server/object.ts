@@ -21,7 +21,6 @@ const NewCommand: ExtendedGluegunCommand = {
       referencesToAdd?: { property: string; reference: string }[];
     },
   ) => {
-
     // Options:
     const { currentItem, objectsToAdd, preventExitProcess, referencesToAdd } = {
       currentItem: '',

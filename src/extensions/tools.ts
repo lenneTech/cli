@@ -131,10 +131,10 @@ export class Tools {
             offset = index;
             commaIndex = -1;
           } else if (
-            currentCharacter !== ' '
-            && currentCharacter !== '\t'
-            && currentCharacter !== '\r'
-            && currentCharacter !== '\n'
+            currentCharacter !== ' ' &&
+            currentCharacter !== '\t' &&
+            currentCharacter !== '\r' &&
+            currentCharacter !== '\n'
           ) {
             // Hit non-whitespace following a comma; comma is not trailing
             buffer += jsonString.slice(offset, index);

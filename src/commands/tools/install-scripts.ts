@@ -48,7 +48,7 @@ const NewCommand: GluegunCommand = {
         continue;
       }
 
-      const scripts = readdirSync(sourceDir).filter(file => !file.startsWith('.'));
+      const scripts = readdirSync(sourceDir).filter((file) => !file.startsWith('.'));
 
       for (const script of scripts) {
         const sourcePath = join(sourceDir, script);

@@ -26,9 +26,7 @@ const command: GluegunCommand = {
     });
 
     // 1. Fetch all collections
-    const collectionsResponse = await qdrantApi.get<QdrantCollectionsResponse>(
-      '/collections',
-    );
+    const collectionsResponse = await qdrantApi.get<QdrantCollectionsResponse>('/collections');
 
     if (!collectionsResponse.ok) {
       print.error('Error fetching collections from Qdrant.');
@@ -42,7 +40,7 @@ const command: GluegunCommand = {
       return;
     }
 
-    const collectionNames = collections.map(c => c.name);
+    const collectionNames = collections.map((c) => c.name);
 
     // 2. Ask user to select a collection
     const { collectionToDelete } = await prompt.ask({
@@ -75,9 +73,7 @@ const command: GluegunCommand = {
     const spinner = print.spin(`Deleting collection "${collectionToDelete}"...`);
 
     // 4. Delete the collection
-    const deleteResponse = await qdrantApi.delete(
-      `/collections/${collectionToDelete}`,
-    );
+    const deleteResponse = await qdrantApi.delete(`/collections/${collectionToDelete}`);
     if (!deleteResponse.ok) {
       spinner.fail(`Error deleting collection "${collectionToDelete}".`);
       print.error(deleteResponse.data);

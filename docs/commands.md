@@ -123,6 +123,30 @@ lt server object [options]
 
 ---
 
+### `lt server permissions`
+
+Scans all server modules and generates a permissions report showing roles, restrictions, and security gaps.
+
+**Usage:**
+```bash
+lt server permissions [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--path <dir>` | Path to NestJS project (default: auto-detect) |
+| `--output <file>` | Output file (default: `permissions.<format>`) |
+| `--format <md\|json\|html>` | Output format (default: `html` for TTY, `json` for CI) |
+| `--open` / `--no-open` | Open report in browser (default: `true` for TTY) |
+| `--console` | Print summary to console |
+| `--fail-on-warnings` | Exit code 1 on warnings (for CI/CD) |
+| `--noConfirm` | Skip confirmation prompts |
+
+**Configuration:** `commands.server.permissions.*`, `defaults.noConfirm`
+
+---
+
 ### `lt server addProp`
 
 Adds a property to an existing module or object.

@@ -379,7 +379,8 @@ export class ApiMode {
       const multiImportStart = line.match(/^import\s+\{$/);
 
       if (singleImportMatch) {
-        const imports = singleImportMatch[1].split(',')
+        const imports = singleImportMatch[1]
+          .split(',')
           .map((s) => s.trim())
           .filter(Boolean)
           .map((s) => ({ original: s, resolved: this.resolveImportAlias(s) }));

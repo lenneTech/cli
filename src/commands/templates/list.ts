@@ -29,7 +29,7 @@ const ListTemplatesCommand: GluegunCommand = {
     if (builtInTemplates.length > 0) {
       info('');
       info(colors.bold('Built-in Templates:'));
-      builtInTemplates.forEach(template => {
+      builtInTemplates.forEach((template) => {
         info(`  ${colors.cyan(template.name)} ${colors.dim(`(${template.type})`)}`);
       });
     }
@@ -41,7 +41,7 @@ const ListTemplatesCommand: GluegunCommand = {
     if (customTemplates.length > 0) {
       info('');
       info(colors.bold('Custom Templates:'));
-      customTemplates.forEach(template => {
+      customTemplates.forEach((template) => {
         info(`  ${colors.cyan(template.name)} ${colors.dim(`(${template.type})`)}`);
       });
     } else {
@@ -57,7 +57,7 @@ const ListTemplatesCommand: GluegunCommand = {
     if (projectTemplates.length > 0) {
       info('');
       info(colors.bold('Project Templates:'));
-      projectTemplates.forEach(template => {
+      projectTemplates.forEach((template) => {
         info(`  ${colors.cyan(template.name)} ${colors.dim(`(${template.type})`)}`);
       });
     }
@@ -83,10 +83,7 @@ interface TemplateInfo {
   type: string;
 }
 
-function getTemplatesFromDirectory(
-  filesystem: ExtendedGluegunToolbox['filesystem'],
-  dirPath: string,
-): TemplateInfo[] {
+function getTemplatesFromDirectory(filesystem: ExtendedGluegunToolbox['filesystem'], dirPath: string): TemplateInfo[] {
   const templates: TemplateInfo[] = [];
 
   if (!filesystem.exists(dirPath)) {

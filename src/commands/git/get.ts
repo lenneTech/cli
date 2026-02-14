@@ -78,10 +78,7 @@ const NewCommand: GluegunCommand = {
 
     // Ask for checkout branch
     if (branchName !== branch) {
-      if (
-        !noConfirm
-        && !(await prompt.confirm(`Checkout ${remoteBranch ? 'remote' : 'local'} branch ${branch}`))
-      ) {
+      if (!noConfirm && !(await prompt.confirm(`Checkout ${remoteBranch ? 'remote' : 'local'} branch ${branch}`))) {
         return;
       }
     } else {
