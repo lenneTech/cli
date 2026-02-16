@@ -1,4 +1,5 @@
 import { GluegunCommand } from 'gluegun';
+import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
@@ -119,8 +120,15 @@ const NewCommand: GluegunCommand = {
     );
     resetSpin.succeed();
 
-    // Install npm packages
-    await npm.install();
+    // Install packages with correctly detected package manager (supports monorepo lockfiles)
+    const { path: pkgPath } = await npm.getPackageJson();
+    if (pkgPath) {
+      const projectDir = dirname(pkgPath);
+      const detectedPm = toolbox.pm.detect(projectDir);
+      const installSpin = spin(`Install packages using ${detectedPm}`);
+      await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+      installSpin.succeed();
+    }
 
     // Success info
     success(`Branch ${branch} was reset in ${helper.msToMinutesAndSeconds(timer())}m.`);

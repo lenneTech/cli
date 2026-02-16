@@ -1,4 +1,5 @@
 import { GluegunCommand } from 'gluegun';
+import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
@@ -95,9 +96,16 @@ const NewCommand: GluegunCommand = {
     await run('git fetch && git pull --rebase');
     updateSpin.succeed();
 
-    // Install npm packages (unless skipped)
+    // Install packages (unless skipped) with correctly detected package manager (supports monorepo lockfiles)
     if (!skipInstall) {
-      await npm.install();
+      const { path: pkgPath } = await npm.getPackageJson();
+      if (pkgPath) {
+        const projectDir = dirname(pkgPath);
+        const detectedPm = toolbox.pm.detect(projectDir);
+        const installSpin = spin(`Install packages using ${detectedPm}`);
+        await run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+        installSpin.succeed();
+      }
     }
 
     // Success
