@@ -58,6 +58,41 @@ export class FrontendHelper {
   }
 
   /**
+   * Patch frontend .env file with project-specific values
+   * Replaces template placeholders with actual project values
+   *
+   * @param dest - Directory containing the .env file
+   * @param projectName - Project name in kebab-case (e.g., "my-shop")
+   */
+  public patchFrontendEnv(dest: string, projectName: string): void {
+    const { filesystem } = this.toolbox;
+    const envPath = `${dest}/.env`;
+    const envExamplePath = `${dest}/.env.example`;
+
+    // Create .env from .env.example if it doesn't exist
+    if (!filesystem.exists(envPath) && filesystem.exists(envExamplePath)) {
+      filesystem.copy(envExamplePath, envPath);
+    }
+
+    if (!filesystem.exists(envPath)) {
+      return;
+    }
+
+    let content = filesystem.read(envPath);
+    if (!content) {
+      return;
+    }
+
+    // Replace NUXT_PUBLIC_STORAGE_PREFIX value with project-specific prefix
+    content = content.replace(
+      /^(NUXT_PUBLIC_STORAGE_PREFIX=).*$/m,
+      `$1${projectName}-local`,
+    );
+
+    filesystem.write(envPath, content);
+  }
+
+  /**
    * Setup Nuxt frontend
    * Handles template setup (link/copy/clone) and optional npm install
    *

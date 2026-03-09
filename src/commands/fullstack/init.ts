@@ -289,6 +289,11 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
+    // Patch frontend .env with project-specific values (skip for linked templates)
+    if (frontendResult.method !== 'link') {
+      frontendHelper.patchFrontendEnv(frontendDest, projectDir);
+    }
+
     // Remove gitkeep file
     filesystem.remove(`${projectDir}/projects/.gitkeep`);
 
