@@ -20,6 +20,29 @@ const isEscaped = (jsonString, quotePosition) => {
   return Boolean(backslashCount % 2);
 };
 
+export interface HelpJsonDefinition {
+  aliases?: string[];
+  configuration?: string;
+  description: string;
+  name: string;
+  options: HelpJsonOption[];
+  propertyFlags?: HelpJsonPropertyFlags;
+}
+
+export interface HelpJsonOption {
+  default?: any;
+  description: string;
+  flag: string;
+  required?: boolean;
+  type: string;
+  values?: string[];
+}
+
+export interface HelpJsonPropertyFlags {
+  attributes: { description: string; name: string; type: string; values?: string[] }[];
+  pattern: string;
+}
+
 export class Tools {
   private hintShown = false;
 
@@ -27,6 +50,22 @@ export class Tools {
    * Constructor for integration of toolbox
    */
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
+
+  /**
+   * Check if --help-json flag is set; if so, print the command definition as JSON and return true.
+   * Commands should call this early and return immediately when it returns true.
+   *
+   * @param definition - The command's help definition (name, description, options, etc.)
+   * @returns true if --help-json was handled (caller should return), false otherwise
+   */
+  helpJson(definition: HelpJsonDefinition): boolean {
+    const { parameters } = this.toolbox;
+    if (!parameters.options['help-json'] && !parameters.options.helpJson) {
+      return false;
+    }
+    console.debug(JSON.stringify(definition, null, 2));
+    return true;
+  }
 
   /**
    * Show a hint when running in non-interactive mode (no TTY)

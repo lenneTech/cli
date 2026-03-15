@@ -104,6 +104,66 @@ const NewCommand: ExtendedGluegunCommand = {
       template,
     } = toolbox;
 
+    // Handle --help-json flag
+    if (
+      toolbox.tools.helpJson({
+        aliases: ['m'],
+        configuration: 'commands.server.module.*',
+        description: 'Create server module',
+        name: 'module',
+        options: [
+          { description: 'Module name', flag: '--name', required: true, type: 'string' },
+          {
+            description: 'Controller type',
+            flag: '--controller',
+            required: false,
+            type: 'string',
+            values: ['Rest', 'GraphQL', 'Both', 'auto'],
+          },
+          {
+            default: false,
+            description: 'Skip all interactive prompts',
+            flag: '--noConfirm',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Skip lint fix after generation',
+            flag: '--skipLint',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Preview what would be generated without creating files',
+            flag: '--dryRun',
+            required: false,
+            type: 'boolean',
+          },
+        ],
+        propertyFlags: {
+          attributes: [
+            { description: 'Property name', name: 'name', type: 'string' },
+            {
+              description: 'Property type',
+              name: 'type',
+              type: 'string',
+              values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
+            },
+            { description: 'Optional field', name: 'nullable', type: 'boolean' },
+            { description: 'Array of this type', name: 'array', type: 'boolean' },
+            { description: 'Enum type reference', name: 'enum', type: 'string' },
+            { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
+            { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
+          ],
+          pattern: '--prop-<attribute>-<index>',
+        },
+      })
+    ) {
+      return;
+    }
+
     // Start timer
     const timer = system.startTimer();
 
@@ -128,6 +188,9 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Parse CLI arguments
     const { controller: cliController, name: cliName, skipLint: cliSkipLint } = parameters.options;
+
+    // Parse dry-run flag early
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
     const noConfirm = config.getNoConfirm({
@@ -217,6 +280,34 @@ const NewCommand: ExtendedGluegunCommand = {
       info('');
       error(`Module directory "${directory}" already exists.`);
       return;
+    }
+
+    // Dry-run mode: show what would happen and exit
+    if (dryRun) {
+      info('');
+      info(`Dry run: lt server module --name ${name} --controller ${controller}`);
+      info('');
+      info('Files that would be created:');
+      info(`  src/server/modules/${nameKebab}/${nameKebab}.model.ts`);
+      info(`  src/server/modules/${nameKebab}/${nameKebab}.service.ts`);
+      if (controller === 'Rest' || controller === 'Both') {
+        info(`  src/server/modules/${nameKebab}/${nameKebab}.controller.ts`);
+      }
+      if (controller === 'GraphQL' || controller === 'Both') {
+        info(`  src/server/modules/${nameKebab}/${nameKebab}.resolver.ts`);
+      }
+      info(`  src/server/modules/${nameKebab}/${nameKebab}.module.ts`);
+      info(`  src/server/modules/${nameKebab}/inputs/${nameKebab}.input.ts`);
+      info(`  src/server/modules/${nameKebab}/inputs/${nameKebab}-create.input.ts`);
+      info(`  src/server/modules/${nameKebab}/outputs/find-and-count-${nameKebab}s-result.output.ts`);
+      info('');
+      const serverModule = join(path, 'src', 'server', 'server.module.ts');
+      if (filesystem.exists(serverModule)) {
+        info('Files that would be modified:');
+        info('  src/server/server.module.ts');
+        info('');
+      }
+      return `dry-run module ${name}`;
     }
 
     const {
@@ -374,6 +465,54 @@ const NewCommand: ExtendedGluegunCommand = {
     // We're done, so show what to do next
     info('');
     success(`Generated ${namePascal}Module in ${helper.msToMinutesAndSeconds(timer())}m.`);
+    info('');
+
+    // Print structured summary
+    const summaryLines: string[] = [];
+    summaryLines.push('--- Summary ---');
+    summaryLines.push(`Module: ${namePascal}`);
+    summaryLines.push(`Controller: ${controller}`);
+    summaryLines.push(`Location: src/server/modules/${nameKebab}/`);
+    summaryLines.push('');
+    summaryLines.push('Created files:');
+    summaryLines.push(`  + ${nameKebab}.model.ts`);
+    summaryLines.push(`  + ${nameKebab}.service.ts`);
+    if (controller === 'Rest' || controller === 'Both') {
+      summaryLines.push(`  + ${nameKebab}.controller.ts`);
+    }
+    if (controller === 'GraphQL' || controller === 'Both') {
+      summaryLines.push(`  + ${nameKebab}.resolver.ts`);
+    }
+    summaryLines.push(`  + ${nameKebab}.module.ts`);
+    summaryLines.push(`  + inputs/${nameKebab}.input.ts`);
+    summaryLines.push(`  + inputs/${nameKebab}-create.input.ts`);
+    summaryLines.push(`  + outputs/find-and-count-${nameKebab}s-result.output.ts`);
+    summaryLines.push('');
+    if (filesystem.exists(join(path, 'src', 'server', 'server.module.ts'))) {
+      summaryLines.push('Modified files:');
+      summaryLines.push('  ~ src/server/server.module.ts');
+      summaryLines.push('');
+    }
+    const propKeys = Object.keys(props);
+    if (propKeys.length > 0) {
+      summaryLines.push('Properties:');
+      for (const key of propKeys) {
+        const p = props[key];
+        const parts: string[] = [];
+        if (p.isArray) parts.push('array');
+        if (p.nullable) parts.push('nullable');
+        const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+        summaryLines.push(`  - ${p.name}${p.nullable ? '?' : ''}: ${p.type}${p.isArray ? '[]' : ''}${suffix}`);
+      }
+      summaryLines.push('');
+    }
+    summaryLines.push('Next steps:');
+    summaryLines.push('  1. Add descriptions to @UnifiedField decorators');
+    summaryLines.push('  2. Customize securityCheck() in model');
+    summaryLines.push('  3. Add business logic to service');
+    summaryLines.push('  4. Run: lt server permissions --failOnWarnings');
+    summaryLines.push('---');
+    info(summaryLines.join('\n'));
     info('');
 
     // Add additional references

@@ -310,6 +310,70 @@ const PermissionsCommand: ExtendedGluegunCommand = {
       template,
     } = toolbox;
 
+    // Handle --help-json flag
+    if (
+      toolbox.tools.helpJson({
+        aliases: ['p'],
+        configuration: 'commands.server.permissions.*',
+        description: 'Scan server permissions and generate report',
+        name: 'permissions',
+        options: [
+          {
+            description: 'Project path containing src/server/modules/',
+            flag: '--path',
+            required: false,
+            type: 'string',
+          },
+          {
+            default: 'html',
+            description: 'Report output format',
+            flag: '--format',
+            required: false,
+            type: 'string',
+            values: ['md', 'json', 'html'],
+          },
+          { description: 'Output file name', flag: '--output', required: false, type: 'string' },
+          {
+            default: true,
+            description: 'Open report in default application',
+            flag: '--open',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Disable opening report',
+            flag: '--no-open',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Print summary to console',
+            flag: '--console',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Exit with code 1 if warnings found',
+            flag: '--fail-on-warnings',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Skip all interactive prompts',
+            flag: '--noConfirm',
+            required: false,
+            type: 'boolean',
+          },
+        ],
+      })
+    ) {
+      return;
+    }
+
     info('Scan server permissions');
 
     // Hint for non-interactive callers

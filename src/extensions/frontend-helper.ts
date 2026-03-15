@@ -84,10 +84,7 @@ export class FrontendHelper {
     }
 
     // Replace NUXT_PUBLIC_STORAGE_PREFIX value with project-specific prefix
-    content = content.replace(
-      /^(NUXT_PUBLIC_STORAGE_PREFIX=).*$/m,
-      `$1${projectName}-local`,
-    );
+    content = content.replace(/^(NUXT_PUBLIC_STORAGE_PREFIX=).*$/m, `$1${projectName}-local`);
 
     filesystem.write(envPath, content);
   }

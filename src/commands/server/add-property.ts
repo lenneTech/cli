@@ -45,6 +45,52 @@ const NewCommand: ExtendedGluegunCommand = {
       system,
     } = toolbox;
 
+    // Handle --help-json flag
+    if (
+      toolbox.tools.helpJson({
+        aliases: ['ap'],
+        configuration: 'commands.server.addProp.*',
+        description: 'Add property to module/object',
+        name: 'addProp',
+        options: [
+          {
+            description: 'Target type to update',
+            flag: '--type',
+            required: true,
+            type: 'string',
+            values: ['Module', 'Object'],
+          },
+          { description: 'Name of the module or object to update', flag: '--element', required: true, type: 'string' },
+          {
+            default: false,
+            description: 'Skip lint fix after update',
+            flag: '--skipLint',
+            required: false,
+            type: 'boolean',
+          },
+        ],
+        propertyFlags: {
+          attributes: [
+            { description: 'Property name', name: 'name', type: 'string' },
+            {
+              description: 'Property type',
+              name: 'type',
+              type: 'string',
+              values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
+            },
+            { description: 'Optional field', name: 'nullable', type: 'boolean' },
+            { description: 'Array of this type', name: 'array', type: 'boolean' },
+            { description: 'Enum type reference', name: 'enum', type: 'string' },
+            { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
+            { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
+          ],
+          pattern: '--prop-<attribute>-<index>',
+        },
+      })
+    ) {
+      return;
+    }
+
     const argProps = Object.keys(toolbox.parameters.options || {}).filter((key: string) => key.startsWith('prop'));
 
     function getModules() {
@@ -68,6 +114,9 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Parse CLI arguments
     const { element: cliElement, skipLint: cliSkipLint, type: cliType } = parameters.options;
+
+    // Parse dry-run flag early
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     const objectOrModule =
       cliType ||
@@ -102,6 +151,63 @@ const NewCommand: ExtendedGluegunCommand = {
       info('');
       error(`No src directory in "${path}".`);
       return;
+    }
+
+    // Verify the target module/object directory exists
+    const targetDir =
+      objectOrModule === 'Module'
+        ? join(path, 'src', 'server', 'modules', elementToEdit)
+        : join(path, 'src', 'server', 'common', 'objects', elementToEdit);
+    if (!filesystem.exists(targetDir)) {
+      info('');
+      error(`${objectOrModule} directory "${targetDir}" does not exist.`);
+      return;
+    }
+
+    // Dry-run mode: show what would happen and exit
+    if (dryRun) {
+      // Still parse properties so we can display them
+      const { props: dryRunProps } = await toolbox.parseProperties({
+        argProps,
+        objectsToAdd: [],
+        parameters: toolbox.parameters,
+        referencesToAdd: [],
+        server: toolbox.server,
+      });
+
+      info('');
+      info(`Dry run: lt server addProp --type ${objectOrModule} --element ${elementToEdit}`);
+      info('');
+      info('Files that would be modified:');
+      if (objectOrModule === 'Module') {
+        info(`  src/server/modules/${elementToEdit}/${elementToEdit}.model.ts`);
+        info(`  src/server/modules/${elementToEdit}/inputs/${elementToEdit}.input.ts`);
+        info(`  src/server/modules/${elementToEdit}/inputs/${elementToEdit}-create.input.ts`);
+      } else {
+        info(`  src/server/common/objects/${elementToEdit}/${elementToEdit}.object.ts`);
+        info(`  src/server/common/objects/${elementToEdit}/${elementToEdit}.input.ts`);
+        info(`  src/server/common/objects/${elementToEdit}/${elementToEdit}-create.input.ts`);
+      }
+
+      const propKeys = Object.keys(dryRunProps);
+      if (propKeys.length > 0) {
+        info('');
+        info('Properties that would be added:');
+        for (const key of propKeys) {
+          const p = dryRunProps[key];
+          const parts: string[] = [];
+          parts.push(p.type || 'string');
+          if (p.isArray) parts.push('(array)');
+          if (p.nullable) parts.push('(nullable)');
+          if (p.enumRef) parts.push(`(enum: ${p.enumRef})`);
+          if (p.reference) parts.push(`(ref: ${p.reference})`);
+          if (p.schema) parts.push(`(schema: ${p.schema})`);
+          info(`  ${p.name}: ${parts.join(' ')}`);
+        }
+      }
+
+      info('');
+      return `dry-run addProp ${objectOrModule} ${elementToEdit}`;
     }
 
     const { objectsToAdd, props, referencesToAdd, refsSet, schemaSet } = await toolbox.parseProperties({
@@ -416,6 +522,42 @@ const NewCommand: ExtendedGluegunCommand = {
     await createInputFile.save();
 
     updateSpinner.succeed('All files updated successfully.');
+
+    // Print structured summary
+    const summaryLines: string[] = [];
+    summaryLines.push('--- Summary ---');
+    summaryLines.push(`Added properties to: ${pascalCase(elementToEdit)} (${objectOrModule})`);
+    summaryLines.push('');
+    summaryLines.push('Modified files:');
+    if (objectOrModule === 'Module') {
+      summaryLines.push(`  ~ src/server/modules/${elementToEdit}/${elementToEdit}.model.ts`);
+      summaryLines.push(`  ~ src/server/modules/${elementToEdit}/inputs/${elementToEdit}.input.ts`);
+      summaryLines.push(`  ~ src/server/modules/${elementToEdit}/inputs/${elementToEdit}-create.input.ts`);
+    } else {
+      summaryLines.push(`  ~ src/server/common/objects/${elementToEdit}/${elementToEdit}.object.ts`);
+      summaryLines.push(`  ~ src/server/common/objects/${elementToEdit}/${elementToEdit}.input.ts`);
+      summaryLines.push(`  ~ src/server/common/objects/${elementToEdit}/${elementToEdit}-create.input.ts`);
+    }
+    summaryLines.push('');
+    const addedPropKeys = Object.keys(props);
+    if (addedPropKeys.length > 0) {
+      summaryLines.push('Properties added:');
+      for (const key of addedPropKeys) {
+        const p = props[key];
+        const parts: string[] = [];
+        if (p.isArray) parts.push('array');
+        if (p.nullable) parts.push('nullable');
+        const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+        summaryLines.push(`  - ${p.name}${p.nullable ? '?' : ''}: ${p.type}${p.isArray ? '[]' : ''}${suffix}`);
+      }
+      summaryLines.push('');
+    }
+    summaryLines.push('Next steps:');
+    summaryLines.push('  1. Add descriptions to new @UnifiedField decorators');
+    summaryLines.push('  2. Update tests for new properties');
+    summaryLines.push('---');
+    info(summaryLines.join('\n'));
+    info('');
 
     // Add additional references
     if (referencesToAdd.length > 0) {

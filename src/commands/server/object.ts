@@ -44,6 +44,52 @@ const NewCommand: ExtendedGluegunCommand = {
       template,
     } = toolbox;
 
+    // Handle --help-json flag
+    if (
+      toolbox.tools.helpJson({
+        aliases: ['o'],
+        configuration: 'commands.server.object.*',
+        description: 'Create embedded object',
+        name: 'object',
+        options: [
+          { description: 'Object name', flag: '--name', required: true, type: 'string' },
+          {
+            default: false,
+            description: 'Skip lint fix after generation',
+            flag: '--skipLint',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Preview what would be generated without creating files',
+            flag: '--dryRun',
+            required: false,
+            type: 'boolean',
+          },
+        ],
+        propertyFlags: {
+          attributes: [
+            { description: 'Property name', name: 'name', type: 'string' },
+            {
+              description: 'Property type',
+              name: 'type',
+              type: 'string',
+              values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
+            },
+            { description: 'Optional field', name: 'nullable', type: 'boolean' },
+            { description: 'Array of this type', name: 'array', type: 'boolean' },
+            { description: 'Enum type reference', name: 'enum', type: 'string' },
+            { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
+            { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
+          ],
+          pattern: '--prop-<attribute>-<index>',
+        },
+      })
+    ) {
+      return;
+    }
+
     // Start timer
     const timer = system.startTimer();
 
@@ -59,6 +105,9 @@ const NewCommand: ExtendedGluegunCommand = {
 
     // Parse CLI arguments
     const { name: cliName, skipLint: cliSkipLint } = parameters.options;
+
+    // Parse dry-run flag early
+    const dryRun = parameters.options.dryRun || parameters.options['dry-run'];
 
     // Get name
     let name = cliName || currentItem || parameters.first;
@@ -90,6 +139,19 @@ const NewCommand: ExtendedGluegunCommand = {
       info('');
       error(`Module directory "${directory}" already exists.`);
       return;
+    }
+
+    // Dry-run mode: show what would happen and exit
+    if (dryRun) {
+      info('');
+      info(`Dry run: lt server object --name ${name}`);
+      info('');
+      info('Files that would be created:');
+      info(`  src/server/common/objects/${nameKebab}/${nameKebab}.object.ts`);
+      info(`  src/server/common/objects/${nameKebab}/${nameKebab}.input.ts`);
+      info(`  src/server/common/objects/${nameKebab}/${nameKebab}-create.input.ts`);
+      info('');
+      return `dry-run object ${name}`;
     }
 
     // Parse properties from CLI or interactive mode
@@ -129,6 +191,37 @@ const NewCommand: ExtendedGluegunCommand = {
     });
 
     generateSpinner.succeed('Files generated');
+
+    // Print structured summary
+    const summaryLines: string[] = [];
+    summaryLines.push('--- Summary ---');
+    summaryLines.push(`Object: ${namePascal}`);
+    summaryLines.push(`Location: src/server/common/objects/${nameKebab}/`);
+    summaryLines.push('');
+    summaryLines.push('Created files:');
+    summaryLines.push(`  + ${nameKebab}.object.ts`);
+    summaryLines.push(`  + ${nameKebab}.input.ts`);
+    summaryLines.push(`  + ${nameKebab}-create.input.ts`);
+    summaryLines.push('');
+    const propKeys = Object.keys(props);
+    if (propKeys.length > 0) {
+      summaryLines.push('Properties:');
+      for (const key of propKeys) {
+        const p = props[key];
+        const parts: string[] = [];
+        if (p.isArray) parts.push('array');
+        if (p.nullable) parts.push('nullable');
+        const suffix = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+        summaryLines.push(`  - ${p.name}${p.nullable ? '?' : ''}: ${p.type}${p.isArray ? '[]' : ''}${suffix}`);
+      }
+      summaryLines.push('');
+    }
+    summaryLines.push('Next steps:');
+    summaryLines.push('  1. Add descriptions to @UnifiedField decorators');
+    summaryLines.push('  2. Customize securityCheck() in object');
+    summaryLines.push('---');
+    info(summaryLines.join('\n'));
+    info('');
 
     // Lint fix with priority: CLI > config > global > default (false)
     const skipLint = config.getSkipLint({

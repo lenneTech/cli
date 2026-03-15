@@ -16,7 +16,7 @@ The LT CLI is a globally installed code generation tool for TypeScript projects 
 lt fullstack init
 
 # Non-interactive mode with CLI arguments
-lt fullstack init --name <WorkspaceName> --frontend <angular|nuxt> --git <true|false> --git-link <GitURL>
+lt fullstack init --name <WorkspaceName> --frontend <angular|nuxt> --git <true|false> --noConfirm [--git-link <GitURL>]
 ```
 
 **Arguments:**
@@ -24,6 +24,7 @@ lt fullstack init --name <WorkspaceName> --frontend <angular|nuxt> --git <true|f
 - `--frontend` - Frontend framework: "angular" or "nuxt"
 - `--git` - Initialize git repository: "true" or "false"
 - `--git-link` - Git repository URL (required when --git is true)
+- `--noConfirm` - Skip all confirmation prompts (for non-interactive/automated usage)
 
 **Examples:**
 ```bash
@@ -58,12 +59,13 @@ lt fullstack init
 lt server module
 
 # Non-interactive mode with CLI arguments
-lt server module --name <ModuleName> --controller <Rest|GraphQL|Both> [property-flags]
+lt server module --name <ModuleName> --controller <Rest|GraphQL|Both> --noConfirm --skipLint [property-flags]
 ```
 
 **Arguments:**
 - `--name` - Module name (required)
 - `--controller` - Controller type: "Rest", "GraphQL", or "Both" (required)
+- `--noConfirm` - Skip all confirmation prompts (for non-interactive/automated usage)
 - `--skipLint` - Skip lint fix prompt (optional)
 - Property arguments (same as add-property command):
   - `--prop-name-X` - Property name (X = index: 0, 1, 2...)
@@ -116,12 +118,14 @@ lt server module --name Category --controller Both --skipLint
 lt server addProp
 
 # Non-interactive mode with CLI arguments
-lt server addProp --type <Module|Object> --element <name> [property-flags]
+lt server addProp --type <Module|Object> --element <name> --noConfirm --skipLint [property-flags]
 ```
 
 **Arguments:**
 - `--type` - "Module" or "Object" (required)
 - `--element` - Name of the module/object to modify (required)
+- `--noConfirm` - Skip all confirmation prompts (for non-interactive/automated usage)
+- `--skipLint` - Skip lint fix prompt (optional)
 - Property definitions (multiple properties supported):
   - `--prop-name-X` - Property name (X = index: 0, 1, 2...)
   - `--prop-type-X` - Property type (string, number, boolean, ObjectId, Json, etc.)
@@ -184,11 +188,12 @@ lt server addProp --type Module --element Product \
 lt server object
 
 # Non-interactive mode with CLI arguments
-lt server object --name <ObjectName> [property-flags]
+lt server object --name <ObjectName> --noConfirm --skipLint [property-flags]
 ```
 
 **Arguments:**
 - `--name` - Object name (required)
+- `--noConfirm` - Skip all confirmation prompts (for non-interactive/automated usage)
 - `--skipLint` - Skip lint fix prompt (optional)
 - Property definitions (multiple properties supported):
   - `--prop-name-X` - Property name (X = index: 0, 1, 2...)

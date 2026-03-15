@@ -26,6 +26,41 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
+    // Handle --help-json flag
+    if (
+      toolbox.tools.helpJson({
+        aliases: ['c'],
+        configuration: 'commands.server.create.*',
+        description: 'Create new server',
+        name: 'create',
+        options: [
+          { description: 'Server name', flag: '--name', required: true, type: 'string' },
+          {
+            description: 'API mode',
+            flag: '--api-mode',
+            required: false,
+            type: 'string',
+            values: ['Rest', 'GraphQL', 'Both'],
+          },
+          { description: 'Project description', flag: '--description', required: false, type: 'string' },
+          { description: 'Project author', flag: '--author', required: false, type: 'string' },
+          { description: 'Initialize git repository', flag: '--git', required: false, type: 'boolean' },
+          { description: 'Git branch to clone from', flag: '--branch', required: false, type: 'string' },
+          { description: 'Copy from local path instead of cloning', flag: '--copy', required: false, type: 'string' },
+          { description: 'Symlink to local path instead of cloning', flag: '--link', required: false, type: 'string' },
+          {
+            default: false,
+            description: 'Skip all interactive prompts',
+            flag: '--noConfirm',
+            required: false,
+            type: 'boolean',
+          },
+        ],
+      })
+    ) {
+      return;
+    }
+
     // Load configuration
     const ltConfig = config.loadConfig();
     const configGit = ltConfig?.commands?.server?.create?.git;
