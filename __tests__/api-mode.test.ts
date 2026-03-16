@@ -194,6 +194,18 @@ describe('ApiMode Extension', () => {
       expect(pkg.scripts.copy).toBe('npm run copy:assets');
     });
 
+    it('should apply scriptEdits with different package manager (pnpm)', async () => {
+      // Override package.json with pnpm scripts
+      const pkg = JSON.parse(filesystem.read(filesystem.path(tempDir, 'package.json')));
+      pkg.scripts.copy = 'pnpm run copy:assets && pnpm run copy:spectaql';
+      filesystem.write(filesystem.path(tempDir, 'package.json'), pkg, { jsonIndent: 2 });
+
+      await apiMode.processApiMode(tempDir, 'Rest');
+
+      const result = JSON.parse(filesystem.read(filesystem.path(tempDir, 'package.json')));
+      expect(result.scripts.copy).toBe('pnpm run copy:assets');
+    });
+
     it('should strip graphql regions from source files', async () => {
       await apiMode.processApiMode(tempDir, 'Rest');
 

@@ -105,7 +105,19 @@ export class ApiMode {
     if (modeConfig.scriptEdits && pkg.scripts) {
       for (const [scriptName, edit] of Object.entries(modeConfig.scriptEdits)) {
         if (pkg.scripts[scriptName] && (edit as any).remove) {
-          pkg.scripts[scriptName] = pkg.scripts[scriptName].replace((edit as any).remove, '');
+          const removeStr: string = (edit as any).remove;
+          // Try literal match first, then try all package manager variants
+          if (pkg.scripts[scriptName].includes(removeStr)) {
+            pkg.scripts[scriptName] = pkg.scripts[scriptName].replace(removeStr, '');
+          } else {
+            for (const pm of ['npm', 'pnpm', 'yarn']) {
+              const variant = removeStr.replace(/\b(npm|pnpm|yarn)\s+run\b/g, `${pm} run`);
+              if (pkg.scripts[scriptName].includes(variant)) {
+                pkg.scripts[scriptName] = pkg.scripts[scriptName].replace(variant, '');
+                break;
+              }
+            }
+          }
         }
       }
     }
