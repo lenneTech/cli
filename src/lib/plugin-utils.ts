@@ -2,7 +2,7 @@
  * Plugin utilities for Claude Code plugin management
  * Handles reading plugin contents, permissions, and post-installation setup
  */
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -111,6 +111,10 @@ export const MAX_COMMANDS_TO_SHOW = 5;
  * These define additional setup steps needed after plugin installation
  */
 export const PLUGIN_POST_INSTALL: Record<string, PluginPostInstall> = {
+  'lt-offers': {
+    // No envVars needed — OAuth via browser login
+    // No requirements — MCP connection is remote HTTP
+  },
   'typescript-lsp': {
     envVars: [
       {
@@ -359,10 +363,7 @@ export function processPostInstall(
         // Try to install
         checkSpinner.text = `Installing ${req.description}`;
         try {
-          execSync(req.installCommand, {
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
+          safeExecCommand(req.installCommand);
 
           // Verify installation
           if (checkCommandExists(req.checkCommand)) {
@@ -384,10 +385,7 @@ export function processPostInstall(
         // No checkCommand provided - always run installCommand
         const installSpinner = spin(`Running ${req.description}`);
         try {
-          execSync(req.installCommand, {
-            encoding: 'utf-8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
+          safeExecCommand(req.installCommand);
           installSpinner.succeed(`${req.description} completed`);
           result.requirementsInstalled.push(req.description);
         } catch (err) {
@@ -491,6 +489,20 @@ export function readPluginContents(marketplaceName: string, pluginName: string):
   }
 
   return result;
+}
+
+/**
+ * Execute a shell command safely using spawnSync (no shell interpretation)
+ * Splits the command string into executable and arguments to prevent command injection
+ * @param command - Command string to execute (e.g., 'npm install -g typescript')
+ * @throws Error if command fails (non-zero exit code or signal)
+ */
+export function safeExecCommand(command: string): void {
+  const [cmd, ...args] = command.trim().split(/\s+/);
+  const result = spawnSync(cmd, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  if (result.status !== 0 || result.error) {
+    throw new Error(result.stderr || result.error?.message || `Command failed: ${command}`);
+  }
 }
 
 /**

@@ -16,7 +16,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 - Extras: `extras/` (sync scripts)
 - Config: `eslint.config.mjs`, `tsconfig.json`
 
-### Known Blocked Updates (as of 2026-03-15)
+### Known Blocked Updates (as of 2026-03-22)
 - **eslint 9.x -> 10.x**: Blocked by `@lenne.tech/eslint-config-ts` using internal bundled `@typescript-eslint/utils` incompatible with ESLint 10 API (`Class extends value undefined` error). ESLint is pinned at **9.39.4** (latest 9.x). If `@lenne.tech/eslint-config-ts` releases a version >2.1.4 that supports ESLint 10, this can be unblocked.
 
 ### Maintenance Patterns
@@ -30,7 +30,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 
 ### Remaining Overrides (still needed)
 - `semver@*: 7.7.4` - force latest semver across all sub-deps (gluegun bundles 7.7.0 without override)
-- `flatted@*: 3.4.1` - security fix for CVE in flatted <3.4.0 (used by eslint -> file-entry-cache -> flat-cache)
+- `flatted@*: 3.4.2` - security fix for CVE in flatted <=3.4.1 (GHSA-rf6f-7fwh-wjgh, prototype pollution); 3.4.2 is the fixed version. Used by eslint -> file-entry-cache -> flat-cache.
 
 ### Pre-existing Test Failure (do NOT fix)
 - `database-commands.test.ts` - qdrant stats test can be flaky when run with full suite (timing/port issue), passes in isolation. Not related to dependencies.

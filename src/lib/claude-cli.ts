@@ -2,7 +2,7 @@
  * Claude CLI utilities
  * Handles detection and execution of Claude CLI commands
  */
-import { execSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -29,8 +29,9 @@ export interface ClaudeCommandResult {
  */
 export function checkCommandExists(command: string): boolean {
   try {
-    execSync(command, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    return true;
+    const [cmd, ...args] = command.trim().split(/\s+/);
+    const result = spawnSync(cmd, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    return result.status === 0;
   } catch {
     return false;
   }
@@ -60,9 +61,9 @@ export function findClaudeCli(): null | string {
   }
 
   try {
-    const result = execSync('which claude', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    const path = result.trim();
-    if (path && existsSync(path)) {
+    const result = spawnSync('which', ['claude'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const path = (result.stdout || '').trim();
+    if (result.status === 0 && path && existsSync(path)) {
       return path;
     }
   } catch {
