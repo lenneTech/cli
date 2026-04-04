@@ -11,13 +11,15 @@
       "dom"
     ],
     "module": "commonjs",
-    "moduleResolution": "node",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
     "noImplicitAny": false,
     "noImplicitThis": true,
     "noUnusedLocals": true,
     "sourceMap": false,
-    "inlineSourceMap": true,
+    "inlineSourceMap": false,
     "outDir": "build",
+    "rootDir": "src",
     "strict": false,
     "target": "es6",
     "resolveJsonModule": true

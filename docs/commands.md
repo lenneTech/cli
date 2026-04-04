@@ -79,6 +79,8 @@ lt server create [name] [options]
 | `--git` | Initialize git repository |
 | `--noConfirm` | Skip confirmation prompts |
 
+**CLAUDE.md Patching:** If the project contains a `CLAUDE.md`, the generic API mode description is replaced with the selected mode. In single-mode projects (`Rest` or `GraphQL`), the "API Mode System" documentation section is condensed to a brief note.
+
 **Configuration:** `commands.server.create.*`, `defaults.author`, `defaults.noConfirm`
 
 ---
@@ -467,6 +469,17 @@ lt fullstack init [options]
 **Note:** Git is always initialized with the `dev` branch. The `--git` flag only controls whether the initial commit is pushed to a remote repository.
 
 **Note:** For Nuxt frontends with `--frontend-copy` or `--frontend-link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root.
+
+**CLAUDE.md Patching:** If the workspace contains a `CLAUDE.md` file, the following template placeholders are replaced with project-specific values:
+
+| Placeholder | Replaced with |
+|-------------|---------------|
+| `{{PROJECT_NAME}}` | Project name |
+| `{{PROJECT_DIR}}` | Absolute project directory path |
+| `{{API_MODE}}` | Selected API mode (`Rest`, `GraphQL`, or `Both`) |
+| `{{FRONTEND_FRAMEWORK}}` | Frontend framework (`Nuxt 4` or `Angular`) |
+
+Additionally, the API's `CLAUDE.md` is patched to reflect the selected API mode — the generic "API Mode" description is replaced with the chosen mode, and in single-mode projects (`Rest` or `GraphQL`), the "API Mode System" section is condensed.
 
 **Configuration:** `commands.fullstack.*`, `defaults.noConfirm`
 

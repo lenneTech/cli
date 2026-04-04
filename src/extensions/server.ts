@@ -769,6 +769,9 @@ export class Server {
       }
     }
 
+    // Patch CLAUDE.md with API mode info
+    this.patchClaudeMdApiMode(dest, apiMode);
+
     // Install packages
     if (!skipInstall) {
       try {
@@ -854,6 +857,9 @@ export class Server {
       }
     }
 
+    // Patch CLAUDE.md with API mode info
+    this.patchClaudeMdApiMode(dest, apiMode);
+
     return { method: result.method, path: dest, success: true };
   }
 
@@ -903,6 +909,42 @@ export class Server {
       content = content.replace(/nest-server-(\w+)/g, `${projectDir}-$1`);
       this.filesystem.write(configPath, content);
     }
+  }
+
+  /**
+   * Patch CLAUDE.md with API mode information
+   * Replaces the generic "API Mode" line with the selected mode and removes the
+   * API Mode System section when not in "Both" mode (markers already stripped).
+   * @param dest - Target directory containing the CLAUDE.md file
+   * @param apiMode - Selected API mode (Rest, GraphQL, or Both)
+   */
+  private patchClaudeMdApiMode(dest: string, apiMode?: 'Both' | 'GraphQL' | 'Rest'): void {
+    const claudeMdPath = `${dest}/CLAUDE.md`;
+    if (!this.filesystem.exists(claudeMdPath) || !apiMode) {
+      return;
+    }
+
+    let content = this.filesystem.read(claudeMdPath);
+    if (!content) {
+      return;
+    }
+
+    // Replace generic API mode placeholder or description
+    content = content.replace(/- \*\*API Mode:\*\* REST \(default\) or GraphQL or Both/, `- **API Mode:** ${apiMode}`);
+
+    // When not in "Both" mode, the region markers have been stripped by processApiMode.
+    // Replace the API Mode System section with a short note.
+    // Lookahead anchors (## Tooling, ## Framework:) match the known next-section headers in the
+    // nest-server-starter CLAUDE.md template. The $ fallback ensures the regex terminates even if
+    // neither header exists (e.g., template was customized).
+    if (apiMode !== 'Both') {
+      content = content.replace(
+        /## API Mode System[\s\S]*?(?=## Tooling|## Framework:|$)/,
+        `## API Mode\n\nThis project uses **${apiMode}** mode (configured during \`lt fullstack init\` / \`lt server create\`).\n\n`,
+      );
+    }
+
+    this.filesystem.write(claudeMdPath, content);
   }
 
   /**

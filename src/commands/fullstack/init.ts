@@ -19,6 +19,7 @@ const NewCommand: GluegunCommand = {
       git,
       helper,
       parameters,
+      patching,
       print: { error, info, spin, success },
       prompt: { ask, confirm },
       server,
@@ -242,6 +243,19 @@ const NewCommand: GluegunCommand = {
 
     // Remove git folder after clone
     filesystem.remove(`${projectDir}/.git`);
+
+    // Patch CLAUDE.md with project-specific values
+    const claudeMdPath = `${projectDir}/CLAUDE.md`;
+    if (filesystem.exists(claudeMdPath)) {
+      const frontendName = frontend === 'nuxt' ? 'Nuxt 4' : 'Angular';
+      await patching.update(claudeMdPath, (content: string) =>
+        content
+          .replace(/\{\{PROJECT_NAME\}\}/g, () => name)
+          .replace(/\{\{PROJECT_DIR\}\}/g, () => projectDir)
+          .replace(/\{\{API_MODE\}\}/g, () => apiMode)
+          .replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendName),
+      );
+    }
 
     // Always initialize git
     try {
