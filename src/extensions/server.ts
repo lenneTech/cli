@@ -1282,6 +1282,87 @@ export class Server {
       }
     }
 
+    // Explicit rewrite of migrations-utils/migrate.js — the generic codemod
+    // above works indirectly (via `bin/migrate.js` loading ts-node first),
+    // but it's fragile: if somebody invokes migrate.js standalone, `require
+    // ('../src/core')` would crash because Node cannot load TypeScript.
+    // Replace the file with the explicit, imo-pilot-proven variant that
+    // registers ts-node itself BEFORE requiring the vendored core and
+    // points at the specific migration.helper path (not the index hub).
+    const migrateJsPath = `${dest}/migrations-utils/migrate.js`;
+    filesystem.write(
+      migrateJsPath,
+      [
+        '// The vendored core is TypeScript-only (no prebuilt dist/). Register ts-node (via our',
+        '// custom bootstrap) before requiring any vendor module, so that .ts source files are',
+        '// transparently compiled on demand. Uses the same compiler config as the migrate CLI.',
+        "require('./ts-compiler');",
+        '',
+        "const { createMigrationStore } = require('../src/core/modules/migrate/helpers/migration.helper');",
+        "const config = require('../src/config.env');",
+        '',
+        'module.exports = createMigrationStore(',
+        '  config.default.mongoose.uri,',
+        "  'migrations' // optional, default is 'migrations'",
+        ');',
+        '',
+      ].join('\n'),
+    );
+
+    // ── 4b. Copy vendor maintenance scripts ──────────────────────────────
+    //
+    // These scripts are consumed by the `nest-server-core-updater` and
+    // `nest-server-core-contributor` Claude Code agents and by the
+    // `check`/`check:fix`/`check:naf` pipelines below. They live at
+    // `scripts/vendor/` in every vendored project:
+    //
+    //   check-vendor-freshness.mjs — non-blocking warning that the
+    //     vendored core is behind the latest upstream release. Hooked
+    //     into `check` / `check:fix` / `check:naf`.
+    //
+    //   sync-from-upstream.ts — produces a structured diff (upstream
+    //     delta vs. baseline, local changes, conflict map) that the
+    //     updater agent parses when pulling a new upstream version.
+    //
+    //   propose-upstream-pr.ts — scans local commits that touched
+    //     src/core/ and emits per-commit patch files the contributor
+    //     agent uses to open upstream PRs.
+    //
+    // Templates live at `src/templates/vendor-scripts/` in the CLI and
+    // are copied into the new project's `scripts/vendor/`.
+    const vendorScriptsSrc = path.join(__dirname, '..', 'templates', 'vendor-scripts');
+    const vendorScriptsDest = `${dest}/scripts/vendor`;
+    if (filesystem.exists(vendorScriptsSrc)) {
+      if (!filesystem.exists(vendorScriptsDest)) {
+        filesystem.dir(vendorScriptsDest);
+      }
+      const vendorScriptFiles = filesystem.find(vendorScriptsSrc, { matching: '*' });
+      for (const src of vendorScriptFiles || []) {
+        const base = path.basename(src);
+        filesystem.copy(src, `${vendorScriptsDest}/${base}`, { overwrite: true });
+      }
+    }
+
+    // ── 4c. .gitignore: ignore transient vendor script outputs ──────────
+    //
+    // sync-from-upstream.ts writes diffs to scripts/vendor/sync-results/
+    // and propose-upstream-pr.ts writes patches to
+    // scripts/vendor/upstream-candidates/. Both are throw-away analysis
+    // artifacts and must not be committed.
+    const gitignorePath = `${dest}/.gitignore`;
+    if (filesystem.exists(gitignorePath)) {
+      const raw = filesystem.read(gitignorePath) || '';
+      const entries = ['scripts/vendor/sync-results/', 'scripts/vendor/upstream-candidates/'];
+      const missing = entries.filter((e) => !raw.includes(e));
+      if (missing.length > 0) {
+        const block =
+          `\n# Vendor-sync / upstream-contribute output (transient analysis artifacts)\n${ 
+          missing.join('\n') 
+          }\n`;
+        filesystem.write(gitignorePath, raw.trimEnd() + block);
+      }
+    }
+
     // ── 5. package.json: remove @lenne.tech/nest-server, add migrate/bin ─
     //
     // Delete the framework dep — it's no longer needed since src/core/
@@ -1358,6 +1439,11 @@ export class Server {
         // Add a script to run the local bin/migrate.js. The starter's
         // existing migrate:* scripts are already correct for npm mode; we
         // need them pointing at the local bin + local ts-compiler.
+        //
+        // Also wire the vendor maintenance scripts (check-vendor-freshness,
+        // vendor:sync, vendor:propose-upstream) and hook the freshness
+        // check into `check` / `check:fix` / `check:naf` as a non-blocking
+        // first step.
         if (pkg.scripts && typeof pkg.scripts === 'object') {
           const scripts = pkg.scripts as Record<string, string>;
           const migrateArgs =
@@ -1371,6 +1457,33 @@ export class Server {
           scripts['migrate:test:up'] = `NODE_ENV=test node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:preview:up'] = `NODE_ENV=preview node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:prod:up'] = `NODE_ENV=production node ./bin/migrate.js up ${migrateArgs}`;
+
+          // Vendor maintenance scripts
+          scripts['check:vendor-freshness'] = 'node scripts/vendor/check-vendor-freshness.mjs';
+          scripts['vendor:sync'] = 'node -r ./migrations-utils/ts-compiler scripts/vendor/sync-from-upstream.ts';
+          scripts['vendor:propose-upstream'] =
+            'node -r ./migrations-utils/ts-compiler scripts/vendor/propose-upstream-pr.ts';
+
+          // Hook vendor-freshness as the first step of check / check:fix /
+          // check:naf. Non-blocking (exit 0 even on mismatch), so it just
+          // surfaces the warning at the top of the log.
+          const hookFreshness = (scriptName: string) => {
+            const existing = scripts[scriptName];
+            if (!existing) return;
+            if (existing.includes('check:vendor-freshness')) return;
+            // Inject the freshness check right after the initial `pnpm install`
+            // or at the very beginning of the chain. Looks for a leading
+            // `pnpm install && ` and inserts after it; otherwise prepends.
+            const installPrefix = 'pnpm install && ';
+            if (existing.startsWith(installPrefix)) {
+              scripts[scriptName] = `${installPrefix}pnpm run check:vendor-freshness && ${existing.slice(installPrefix.length)}`;
+            } else {
+              scripts[scriptName] = `pnpm run check:vendor-freshness && ${existing}`;
+            }
+          };
+          hookFreshness('check');
+          hookFreshness('check:fix');
+          hookFreshness('check:naf');
         }
 
         filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
@@ -1480,6 +1593,50 @@ export class Server {
     this.widenTsconfigExcludes(`${dest}/tsconfig.build.json`);
     this.widenTsconfigTypes(`${dest}/tsconfig.json`);
     this.widenTsconfigTypes(`${dest}/tsconfig.build.json`);
+
+    // ── 9b. Prepend a vendor-mode block to projects/api/CLAUDE.md ────────
+    //
+    // Claude Code's project-level CLAUDE.md is the single source of truth
+    // for "what kind of project is this". Prepending a short vendor block
+    // tells any downstream agent (backend-dev, generating-nest-servers,
+    // nest-server-updater, …) that the framework lives at src/core/ and
+    // that generated imports must use relative paths, before they even
+    // read the rest of the file.
+    const apiClaudeMdPath = `${dest}/CLAUDE.md`;
+    if (filesystem.exists(apiClaudeMdPath)) {
+      const existing = filesystem.read(apiClaudeMdPath) || '';
+      const marker = '<!-- lt-vendor-marker -->';
+      if (!existing.includes(marker)) {
+        const vendorBlock = [
+          marker,
+          '',
+          '# Vendor-Mode Notice',
+          '',
+          'This api project runs in **vendor mode**: the `@lenne.tech/nest-server`',
+          'core/ tree has been copied directly into `src/core/` as first-class',
+          'project code. There is **no** `@lenne.tech/nest-server` npm dependency.',
+          '',
+          '- **Read framework code from `src/core/**`** — not from `node_modules/`.',
+          '- **Generated imports use relative paths** to `src/core`, e.g.',
+          '  `import { CrudService } from \'../../../core\';`',
+          '  The exact depth depends on the file location. `lt server module`',
+          '  computes it automatically.',
+          '- **Baseline + patch log** live in `src/core/VENDOR.md`. Log any',
+          '  substantial local change there so the `nest-server-core-updater`',
+          '  agent can classify it at sync time.',
+          '- **Update flow:** run `/lt-dev:backend:update-nest-server-core` (the',
+          '  agent clones upstream, computes a delta, and presents a review).',
+          '- **Contribute back:** run `/lt-dev:backend:contribute-nest-server-core`',
+          '  to propose local fixes as upstream PRs.',
+          '- **Freshness check:** `pnpm run check:vendor-freshness` warns (non-',
+          '  blockingly) when upstream has a newer release than the baseline.',
+          '',
+          '---',
+          '',
+        ].join('\n');
+        filesystem.write(apiClaudeMdPath, vendorBlock + existing);
+      }
+    }
 
     // ── 10. VENDOR.md baseline ───────────────────────────────────────────
     //

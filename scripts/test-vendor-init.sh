@@ -138,6 +138,68 @@ run_scenario() {
     [[ -f "${api_dir}/migrations-utils/ts-compiler.js" ]] \
       && pass "migrations-utils/ts-compiler.js present" \
       || fail "migrations-utils/ts-compiler.js missing"
+    # migrate.js should explicitly load the ts-compiler bootstrap
+    if grep -q "require('./ts-compiler')" "${api_dir}/migrations-utils/migrate.js"; then
+      pass "migrations-utils/migrate.js explicitly loads ts-compiler"
+    else
+      fail "migrations-utils/migrate.js does NOT load ts-compiler"
+    fi
+    # Vendor maintenance scripts
+    [[ -f "${api_dir}/scripts/vendor/check-vendor-freshness.mjs" ]] \
+      && pass "scripts/vendor/check-vendor-freshness.mjs present" \
+      || fail "scripts/vendor/check-vendor-freshness.mjs missing"
+    [[ -f "${api_dir}/scripts/vendor/sync-from-upstream.ts" ]] \
+      && pass "scripts/vendor/sync-from-upstream.ts present" \
+      || fail "scripts/vendor/sync-from-upstream.ts missing"
+    [[ -f "${api_dir}/scripts/vendor/propose-upstream-pr.ts" ]] \
+      && pass "scripts/vendor/propose-upstream-pr.ts present" \
+      || fail "scripts/vendor/propose-upstream-pr.ts missing"
+    # Vendor package.json scripts
+    if grep -q '"check:vendor-freshness"' "${api_dir}/package.json"; then
+      pass "package.json has check:vendor-freshness script"
+    else
+      fail "package.json missing check:vendor-freshness script"
+    fi
+    if grep -q '"vendor:sync"' "${api_dir}/package.json"; then
+      pass "package.json has vendor:sync script"
+    else
+      fail "package.json missing vendor:sync script"
+    fi
+    if grep -q '"vendor:propose-upstream"' "${api_dir}/package.json"; then
+      pass "package.json has vendor:propose-upstream script"
+    else
+      fail "package.json missing vendor:propose-upstream script"
+    fi
+    # check / check:fix / check:naf wired to freshness check
+    if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(s.check && s.check.includes('check:vendor-freshness') ? 0 : 1)"; then
+      pass "check script hooks check:vendor-freshness"
+    else
+      fail "check script does NOT hook check:vendor-freshness"
+    fi
+    # .gitignore contains vendor output entries
+    if grep -q 'scripts/vendor/sync-results' "${api_dir}/.gitignore"; then
+      pass ".gitignore ignores scripts/vendor/sync-results/"
+    else
+      fail ".gitignore missing scripts/vendor/sync-results/"
+    fi
+    # CLAUDE.md vendor block
+    if grep -q 'lt-vendor-marker' "${api_dir}/CLAUDE.md"; then
+      pass "CLAUDE.md has vendor-mode notice block"
+    else
+      fail "CLAUDE.md missing vendor-mode notice block"
+    fi
+    # Functional: freshness check runs and exits 0
+    if (cd "${api_dir}" && pnpm run check:vendor-freshness >/dev/null 2>&1); then
+      pass "pnpm run check:vendor-freshness exits 0"
+    else
+      fail "pnpm run check:vendor-freshness failed"
+    fi
+    # Functional: vendor:propose-upstream runs and exits 0
+    if (cd "${api_dir}" && pnpm run vendor:propose-upstream >/dev/null 2>&1); then
+      pass "pnpm run vendor:propose-upstream exits 0"
+    else
+      fail "pnpm run vendor:propose-upstream failed"
+    fi
     # No @lenne.tech/nest-server dep in vendor
     if grep -q '"@lenne.tech/nest-server"' "${api_dir}/package.json"; then
       fail "package.json still lists @lenne.tech/nest-server"
