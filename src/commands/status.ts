@@ -2,9 +2,11 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { detectFrameworkMode, FrameworkMode, isVendoredProject } from '../lib/framework-detection';
 
 interface ProjectInfo {
   configFiles: string[];
+  frameworkMode: FrameworkMode | null;
   gitBranch: null | string;
   gitRoot: null | string;
   hasGit: boolean;
@@ -40,6 +42,7 @@ const StatusCommand: GluegunCommand = {
 
     const projectInfo: ProjectInfo = {
       configFiles: [],
+      frameworkMode: null,
       gitBranch: null,
       gitRoot: null,
       hasGit: false,
@@ -72,8 +75,12 @@ const StatusCommand: GluegunCommand = {
 
         // Detect project type
         const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-        if (deps['@lenne.tech/nest-server']) {
+        // A project is a nest-server project if it EITHER has the npm dep
+        // (classic) OR has vendored the core/ directory. The frameworkMode
+        // field records which of the two modes this project runs in.
+        if (deps['@lenne.tech/nest-server'] || isVendoredProject(cwd)) {
           projectInfo.projectType = 'nest-server';
+          projectInfo.frameworkMode = detectFrameworkMode(cwd);
         } else if (deps['@nestjs/core']) {
           projectInfo.projectType = 'nestjs';
         } else if (deps['nuxt']) {
@@ -130,6 +137,13 @@ const StatusCommand: GluegunCommand = {
         info(`  Version: ${projectInfo.packageVersion}`);
       }
       info(`  Type:    ${formatProjectType(projectInfo.projectType)}`);
+      if (projectInfo.frameworkMode) {
+        const modeLabel =
+          projectInfo.frameworkMode === 'vendor'
+            ? 'vendor (src/core/, VENDOR.md)'
+            : 'npm (@lenne.tech/nest-server dependency)';
+        info(`  Framework: ${modeLabel}`);
+      }
     }
 
     if (projectInfo.hasGit) {

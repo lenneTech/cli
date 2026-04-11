@@ -35,7 +35,7 @@ const NewCommand: GluegunCommand = {
 
     // Hint for non-interactive callers (e.g. Claude Code)
     toolbox.tools.nonInteractiveHint(
-      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --noConfirm',
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> --noConfirm',
     );
 
     // Check git
@@ -55,6 +55,10 @@ const NewCommand: GluegunCommand = {
     const configFrontendCopy = ltConfig?.commands?.fullstack?.frontendCopy;
     const configApiLink = ltConfig?.commands?.fullstack?.apiLink;
     const configFrontendLink = ltConfig?.commands?.fullstack?.frontendLink;
+    const configFrameworkMode = ltConfig?.commands?.fullstack?.frameworkMode as
+      | 'npm'
+      | 'vendor'
+      | undefined;
 
     // Parse CLI arguments
     const {
@@ -62,6 +66,7 @@ const NewCommand: GluegunCommand = {
       'api-copy': cliApiCopy,
       'api-link': cliApiLink,
       'api-mode': cliApiMode,
+      'framework-mode': cliFrameworkMode,
       frontend: cliFrontend,
       'frontend-branch': cliFrontendBranch,
       'frontend-copy': cliFrontendCopy,
@@ -159,6 +164,47 @@ const NewCommand: GluegunCommand = {
         type: 'select',
       });
       apiMode = apiModeChoice.apiMode.split(' - ')[0] as 'Both' | 'GraphQL' | 'Rest';
+    }
+
+    // Determine framework-consumption mode (npm vs vendored)
+    //
+    //   npm    — classic: @lenne.tech/nest-server is an npm dependency. Framework
+    //            source lives in node_modules/@lenne.tech/nest-server. Backend is
+    //            cloned from nest-server-starter. Updates via
+    //            `/lt-dev:backend:update-nest-server`.
+    //
+    //   vendor — pilot: the framework's core/ directory is copied directly into
+    //            projects/api/src/core/ as first-class project code. No npm
+    //            dependency. Backend is cloned from the nest-server framework repo
+    //            itself and stripped of framework-internal content. Updates via
+    //            `/lt-dev:backend:update-nest-server-core`; local patches are logged
+    //            in src/core/VENDOR.md.
+    //
+    // Default is still 'npm' until the vendoring pilot is fully evaluated.
+    let frameworkMode: 'npm' | 'vendor';
+    if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
+      frameworkMode = cliFrameworkMode;
+    } else if (cliFrameworkMode) {
+      error(`Invalid --framework-mode value "${cliFrameworkMode}". Use "npm" or "vendor".`);
+      return;
+    } else if (configFrameworkMode === 'npm' || configFrameworkMode === 'vendor') {
+      frameworkMode = configFrameworkMode;
+      info(`Using framework mode from lt.config: ${frameworkMode}`);
+    } else if (noConfirm) {
+      frameworkMode = 'npm';
+      info('Using default framework mode: npm (noConfirm mode)');
+    } else {
+      const frameworkModeChoice = await ask({
+        choices: [
+          'npm    - @lenne.tech/nest-server as npm dependency (classic, stable)',
+          'vendor - framework core vendored into projects/api/src/core/ (pilot, allows local patches)',
+        ],
+        initial: 0,
+        message: 'Framework consumption mode?',
+        name: 'frameworkMode',
+        type: 'select',
+      });
+      frameworkMode = frameworkModeChoice.frameworkMode.startsWith('vendor') ? 'vendor' : 'npm';
     }
 
     // Determine remote push settings with priority: CLI > config > interactive
@@ -326,6 +372,7 @@ const NewCommand: GluegunCommand = {
         apiMode,
         branch: apiBranch,
         copyPath: apiCopy,
+        frameworkMode,
         linkPath: apiLink,
         name,
         projectDir,
@@ -337,6 +384,10 @@ const NewCommand: GluegunCommand = {
       }
 
       // Create lt.config.json for API
+      // Note: frameworkMode is persisted under meta so that subsequent `lt
+      // server module` / `addProp` / `permissions` calls can detect the mode
+      // without re-probing src/core/VENDOR.md each time (the VENDOR.md check
+      // still works; this is just an explicit marker).
       const apiConfigPath = filesystem.path(apiDest, 'lt.config.json');
       filesystem.write(
         apiConfigPath,
@@ -350,6 +401,7 @@ const NewCommand: GluegunCommand = {
           },
           meta: {
             apiMode,
+            frameworkMode,
             version: '1.0.0',
           },
         },

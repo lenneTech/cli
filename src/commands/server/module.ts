@@ -2,6 +2,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { getFrameworkImportSpecifier } from '../../lib/framework-detection';
 import genObject from './object';
 
 /**
@@ -326,29 +327,46 @@ const NewCommand: ExtendedGluegunCommand = {
     const createTemplate = server.propsForInput(props, { create: true, modelName: name, nullable: false });
     const modelTemplate = server.propsForModel(props, { modelName: name });
 
+    // Compute the correct framework-import specifier for each generated file.
+    // In vendored projects this resolves to a relative path to src/core (depth
+    // depends on file location); in npm projects it stays '@lenne.tech/nest-server'.
+    const importFor = (target: string) => getFrameworkImportSpecifier(path, target);
+
     // nest-server-module/inputs/xxx.input.ts
+    const inputTarget = join(directory, 'inputs', `${nameKebab}.input.ts`);
     await template.generate({
-      props: { imports: inputTemplate.imports, nameCamel, nameKebab, namePascal, props: inputTemplate.props },
-      target: join(directory, 'inputs', `${nameKebab}.input.ts`),
+      props: {
+        frameworkImport: importFor(inputTarget),
+        imports: inputTemplate.imports,
+        nameCamel,
+        nameKebab,
+        namePascal,
+        props: inputTemplate.props,
+      },
+      target: inputTarget,
       template: 'nest-server-module/inputs/template.input.ts.ejs',
     });
 
     if (controller === 'Rest' || controller === 'Both') {
+      const controllerTarget = join(directory, `${nameKebab}.controller.ts`);
       await template.generate({
         props: {
+          frameworkImport: importFor(controllerTarget),
           lowercase: name.toLowerCase(),
           nameCamel: camelCase(name),
           nameKebab: kebabCase(name),
           namePascal: pascalCase(name),
         },
-        target: join(directory, `${nameKebab}.controller.ts`),
+        target: controllerTarget,
         template: 'nest-server-module/template.controller.ts.ejs',
       });
     }
 
     // nest-server-module/inputs/xxx-create.input.ts
+    const createInputTarget = join(directory, 'inputs', `${nameKebab}-create.input.ts`);
     await template.generate({
       props: {
+        frameworkImport: importFor(createInputTarget),
         imports: createTemplate.imports,
         isGql: controller === 'GraphQL' || controller === 'Both',
         nameCamel,
@@ -356,20 +374,29 @@ const NewCommand: ExtendedGluegunCommand = {
         namePascal,
         props: createTemplate.props,
       },
-      target: join(directory, 'inputs', `${nameKebab}-create.input.ts`),
+      target: createInputTarget,
       template: 'nest-server-module/inputs/template-create.input.ts.ejs',
     });
 
     // nest-server-module/output/find-and-count-xxxs-result.output.ts
+    const facOutputTarget = join(directory, 'outputs', `find-and-count-${nameKebab}s-result.output.ts`);
     await template.generate({
-      props: { isGql: controller === 'GraphQL' || controller === 'Both', nameCamel, nameKebab, namePascal },
-      target: join(directory, 'outputs', `find-and-count-${nameKebab}s-result.output.ts`),
+      props: {
+        frameworkImport: importFor(facOutputTarget),
+        isGql: controller === 'GraphQL' || controller === 'Both',
+        nameCamel,
+        nameKebab,
+        namePascal,
+      },
+      target: facOutputTarget,
       template: 'nest-server-module/outputs/template-fac-result.output.ts.ejs',
     });
 
     // nest-server-module/xxx.model.ts
+    const modelTarget = join(directory, `${nameKebab}.model.ts`);
     await template.generate({
       props: {
+        frameworkImport: importFor(modelTarget),
         imports: modelTemplate.imports,
         isGql: controller === 'GraphQL' || controller === 'Both',
         mappings: modelTemplate.mappings,
@@ -378,30 +405,39 @@ const NewCommand: ExtendedGluegunCommand = {
         namePascal,
         props: modelTemplate.props,
       },
-      target: join(directory, `${nameKebab}.model.ts`),
+      target: modelTarget,
       template: 'nest-server-module/template.model.ts.ejs',
     });
 
     // nest-server-module/xxx.module.ts
+    const moduleTarget = join(directory, `${nameKebab}.module.ts`);
     await template.generate({
-      props: { controller, nameCamel, nameKebab, namePascal },
-      target: join(directory, `${nameKebab}.module.ts`),
+      props: { controller, frameworkImport: importFor(moduleTarget), nameCamel, nameKebab, namePascal },
+      target: moduleTarget,
       template: 'nest-server-module/template.module.ts.ejs',
     });
 
     if (controller === 'GraphQL' || controller === 'Both') {
       // nest-server-module/xxx.resolver.ts
+      const resolverTarget = join(directory, `${nameKebab}.resolver.ts`);
       await template.generate({
-        props: { nameCamel, nameKebab, namePascal },
-        target: join(directory, `${nameKebab}.resolver.ts`),
+        props: { frameworkImport: importFor(resolverTarget), nameCamel, nameKebab, namePascal },
+        target: resolverTarget,
         template: 'nest-server-module/template.resolver.ts.ejs',
       });
     }
 
     // nest-server-module/xxx.service.ts
+    const serviceTarget = join(directory, `${nameKebab}.service.ts`);
     await template.generate({
-      props: { isGql: controller === 'GraphQL' || controller === 'Both', nameCamel, nameKebab, namePascal },
-      target: join(directory, `${nameKebab}.service.ts`),
+      props: {
+        frameworkImport: importFor(serviceTarget),
+        isGql: controller === 'GraphQL' || controller === 'Both',
+        nameCamel,
+        nameKebab,
+        namePascal,
+      },
+      target: serviceTarget,
       template: 'nest-server-module/template.service.ts.ejs',
     });
 

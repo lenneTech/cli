@@ -1,4 +1,4 @@
-import { ConfigService } from '@lenne.tech/nest-server';
+import { ConfigService } from '<%= props.frameworkImport %>';
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 <% if ((props.controller === 'GraphQL') || (props.controller === 'Both')) { -%>

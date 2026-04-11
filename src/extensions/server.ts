@@ -798,20 +798,31 @@ export class Server {
       apiMode?: 'Both' | 'GraphQL' | 'Rest';
       branch?: string;
       copyPath?: string;
+      frameworkMode?: 'npm' | 'vendor';
       linkPath?: string;
       name: string;
       projectDir: string;
     },
   ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
     const { apiMode: apiModeHelper, templateHelper } = this.toolbox;
-    const { apiMode, branch, copyPath, linkPath, name, projectDir } = options;
+    const { apiMode, branch, copyPath, frameworkMode = 'npm', linkPath, name, projectDir } = options;
+
+    // In vendor mode we don't clone nest-server-starter — we clone the
+    // framework repo itself and strip its framework-internal content. This
+    // produces a project where the framework core/ directory lives inline
+    // at src/core/ as first-class project code. See convertCloneToVendored()
+    // below for the exact transformation.
+    const repoUrl =
+      frameworkMode === 'vendor'
+        ? 'https://github.com/lenneTech/nest-server'
+        : 'https://github.com/lenneTech/nest-server-starter';
 
     // Setup template
     const result = await templateHelper.setup(dest, {
       branch,
       copyPath,
       linkPath,
-      repoUrl: 'https://github.com/lenneTech/nest-server-starter',
+      repoUrl,
     });
 
     if (!result.success) {
@@ -848,6 +859,18 @@ export class Server {
       this.filesystem.remove(`${dest}/yalc.lock`);
     }
 
+    // Vendor-mode transformation: strip framework-internal content and wire
+    // the remaining files so they behave like a project that consumed the
+    // framework's core/ directory directly. Idempotent; safe to skip in
+    // npm mode.
+    if (frameworkMode === 'vendor') {
+      try {
+        await this.convertCloneToVendored(dest, name);
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
+    }
+
     // Process API mode (before install which happens at monorepo level)
     if (apiMode) {
       try {
@@ -861,6 +884,190 @@ export class Server {
     this.patchClaudeMdApiMode(dest, apiMode);
 
     return { method: result.method, path: dest, success: true };
+  }
+
+  /**
+   * Converts a freshly cloned `nest-server` working tree into a
+   * vendored-mode consumer project.
+   *
+   * The framework repo ships everything a project needs (src/core framework
+   * kernel, src/main.ts bootstrap, src/config.env.ts env layout, tests/,
+   * bin/migrate.js, migration-guides/) plus framework-internal content that
+   * a consumer project should not carry (framework example server modules
+   * in src/server/, framework release tooling in package.json scripts,
+   * framework docs meta files).
+   *
+   * This method strips the framework-internal content and rewrites
+   * package.json so the resulting tree behaves like a consumer project.
+   *
+   * Idempotent — running twice is a no-op.
+   */
+  protected async convertCloneToVendored(dest: string, projectName: string): Promise<void> {
+    const filesystem = this.filesystem;
+
+    // 1. Framework-internal meta files that have no place in a consumer
+    //    project. `migration-guides/` is kept on purpose — it's valuable
+    //    read-only reference for the update agent.
+    const frameworkMetaFiles = [
+      'FRAMEWORK-API.md',
+      'SHOWCASE.md',
+      'model-doc.yuml',
+      'model-doc-dark.svg',
+      'model-doc-light.svg',
+      'CHANGELOG.md',
+      '.versionrc',
+      'load-tests',
+      'scripts/add-type-references.js',
+      'scripts/generate-framework-api.ts',
+    ];
+    for (const f of frameworkMetaFiles) {
+      const p = `${dest}/${f}`;
+      if (filesystem.exists(p)) {
+        filesystem.remove(p);
+      }
+    }
+
+    // 2. Replace src/server/ with a minimal scaffold. The framework repo's
+    //    src/server/ contains framework-testing modules (auth, user,
+    //    error-code, better-auth, file, tus). A consumer project needs its
+    //    own src/server/ for business modules. We wipe and recreate with
+    //    just a minimal server.module.ts so `lt server module` can extend it.
+    const serverDir = `${dest}/src/server`;
+    if (filesystem.exists(serverDir)) {
+      filesystem.remove(serverDir);
+    }
+    // Minimal server.module.ts. Users add their own modules via `lt server module`.
+    filesystem.write(
+      `${serverDir}/server.module.ts`,
+      [
+        "import { Module } from '@nestjs/common';",
+        "import { CoreModule } from '../core';",
+        '',
+        "import envConfig from '../config.env';",
+        '',
+        '/**',
+        ` * ${projectName} server module`,
+        ' *',
+        ' * Register project-specific modules here via `lt server module`.',
+        ' */',
+        '@Module({',
+        '  imports: [CoreModule.forRoot(envConfig)],',
+        '})',
+        'export class ServerModule {}',
+        '',
+      ].join('\n'),
+    );
+
+    // 3. Tests — framework-internal e2e tests test the framework's own
+    //    example modules which we just deleted. Strip them, leave the
+    //    directory for the project to fill.
+    const testsDir = `${dest}/tests`;
+    if (filesystem.exists(testsDir)) {
+      filesystem.remove(testsDir);
+    }
+    filesystem.write(`${testsDir}/.gitkeep`, '');
+
+    // 4. Rewrite package.json: drop framework release scripts, add
+    //    vendor-mode scripts, drop framework-internal devDeps, ensure
+    //    migrate CLI paths point at the local bin/migrate.js.
+    const pkgPath = `${dest}/package.json`;
+    if (filesystem.exists(pkgPath)) {
+      const pkg = filesystem.read(pkgPath, 'json') as Record<string, unknown>;
+      if (pkg && typeof pkg === 'object') {
+        pkg.name = `${projectName}-api`;
+        pkg.version = '0.0.0';
+        pkg.description = `API for ${projectName}`;
+        pkg.private = true;
+        delete pkg.main;
+        delete pkg.types;
+        delete pkg.files;
+        delete pkg.bin;
+        delete pkg.keywords;
+        delete pkg.repository;
+        delete pkg.bugs;
+        delete pkg.homepage;
+        delete pkg.author;
+        delete pkg.license;
+        delete pkg.packageManager;
+
+        // Framework-only scripts that must be removed from a consumer pkg.
+        const frameworkScriptKeys = [
+          'build:framework-api',
+          'build:copy-types',
+          'build:copy-templates',
+          'build:add-type-references',
+          'build:pack',
+          'build:dev',
+          'docs',
+          'docs:bootstrap',
+          'docs:ci',
+          'prepack',
+          'prepublishOnly',
+          'preversion',
+          'release',
+          'release:minor',
+          'release:major',
+          'reinit:force',
+          'reinit:legacy',
+          'test:types',
+          'watch',
+        ];
+        if (pkg.scripts && typeof pkg.scripts === 'object') {
+          const scripts = pkg.scripts as Record<string, string>;
+          for (const key of frameworkScriptKeys) {
+            delete scripts[key];
+          }
+        }
+
+        filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
+      }
+    }
+
+    // 5. Write VENDOR.md baseline. The updater agent reads this file to
+    //    determine the current baseline version and to detect whether a
+    //    project is in vendored mode at all.
+    const vendorMdPath = `${dest}/src/core/VENDOR.md`;
+    if (!filesystem.exists(vendorMdPath)) {
+      const today = new Date().toISOString().slice(0, 10);
+      filesystem.write(
+        vendorMdPath,
+        [
+          '# @lenne.tech/nest-server – core (vendored)',
+          '',
+          'This directory is a curated vendor copy of the `core/` tree from',
+          '@lenne.tech/nest-server. It is first-class project code, not a',
+          'node_modules shadow copy. Edit freely; log substantial changes in',
+          'the "Local changes" table below so the `nest-server-core-updater`',
+          'agent can classify them at sync time.',
+          '',
+          '## Baseline',
+          '',
+          '- **Upstream-Repo:** https://github.com/lenneTech/nest-server',
+          '- **Baseline-Version:** (detected from clone — run `vendor:sync` to record)',
+          `- **Vendored am:** ${today}`,
+          `- **Vendored von:** lt CLI (\`lt fullstack init --framework-mode vendor\`)`,
+          '',
+          '## Sync history',
+          '',
+          '| Date | From | To | Notes |',
+          '| ---- | ---- | -- | ----- |',
+          `| ${today} | — | initial import | scaffolded by lt CLI |`,
+          '',
+          '## Local changes',
+          '',
+          '| Date | Commit | Scope | Reason | Status |',
+          '| ---- | ------ | ----- | ------ | ------ |',
+          '| — | — | (none, pristine) | initial vendor | — |',
+          '',
+          '## Upstream PRs',
+          '',
+          '| PR | Title | Commits | Status |',
+          '| -- | ----- | ------- | ------ |',
+          '| — | (none yet) | — | — |',
+          '',
+        ].join('\n'),
+      );
+    }
   }
 
   /**

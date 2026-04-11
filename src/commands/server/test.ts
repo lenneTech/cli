@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { getFrameworkImportSpecifier } from '../../lib/framework-detection';
 
 /**
  * Create a new server
@@ -64,7 +65,12 @@ const NewCommand: GluegunCommand = {
 
     // nest-server-tests/tests.e2e-spec.ts.ejs
     await template.generate({
-      props: { nameCamel, nameKebab, namePascal },
+      props: {
+        frameworkImport: getFrameworkImportSpecifier(path, filePath),
+        nameCamel,
+        nameKebab,
+        namePascal,
+      },
       target: filePath,
       template: 'nest-server-tests/tests.e2e-spec.ts.ejs',
     });

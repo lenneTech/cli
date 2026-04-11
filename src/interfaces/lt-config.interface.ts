@@ -303,6 +303,28 @@ export interface LtConfig {
       apiMode?: 'Both' | 'GraphQL' | 'Rest';
 
       /**
+       * Framework consumption mode for the backend:
+       *
+       *   "npm"    — Classic: @lenne.tech/nest-server is installed as an npm
+       *              dependency. Framework source lives in
+       *              node_modules/@lenne.tech/nest-server. Backend is cloned
+       *              from nest-server-starter. Updates via
+       *              /lt-dev:backend:update-nest-server.
+       *
+       *   "vendor" — Pilot: the framework's core/ directory is copied
+       *              directly into projects/api/src/core/ as first-class
+       *              project code. No @lenne.tech/nest-server dep. Backend
+       *              is cloned from the nest-server framework repo itself
+       *              and stripped of framework-internal content. Updates
+       *              via /lt-dev:backend:update-nest-server-core; local
+       *              patches are logged in src/core/VENDOR.md.
+       *
+       * Default is "npm" until the vendoring pilot is fully evaluated.
+       * @example "npm" | "vendor"
+       */
+      frameworkMode?: 'npm' | 'vendor';
+
+      /**
        * Default frontend framework
        * @example "angular" | "nuxt"
        */

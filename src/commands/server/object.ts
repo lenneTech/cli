@@ -2,6 +2,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { getFrameworkImportSpecifier } from '../../lib/framework-detection';
 import genModule from './module';
 
 /**
@@ -162,23 +163,44 @@ const NewCommand: ExtendedGluegunCommand = {
     const createTemplate = server.propsForInput(props, { create: true, modelName: name, nullable: false });
     const objectTemplate = server.propsForModel(props, { modelName: name });
 
+    // Framework-import specifier (bare in npm mode, relative in vendored mode)
+    const importFor = (target: string) => getFrameworkImportSpecifier(path, target);
+
     // nest-server-module/inputs/xxx.input.ts
+    const inputTarget = join(directory, `${nameKebab}.input.ts`);
     await template.generate({
-      props: { imports: inputTemplate.imports, nameCamel, nameKebab, namePascal, props: inputTemplate.props },
-      target: join(directory, `${nameKebab}.input.ts`),
+      props: {
+        frameworkImport: importFor(inputTarget),
+        imports: inputTemplate.imports,
+        nameCamel,
+        nameKebab,
+        namePascal,
+        props: inputTemplate.props,
+      },
+      target: inputTarget,
       template: 'nest-server-object/template.input.ts.ejs',
     });
 
     // nest-server-object/inputs/xxx-create.input.ts
+    const createInputTarget = join(directory, `${nameKebab}-create.input.ts`);
     await template.generate({
-      props: { imports: createTemplate.imports, nameCamel, nameKebab, namePascal, props: createTemplate.props },
-      target: join(directory, `${nameKebab}-create.input.ts`),
+      props: {
+        frameworkImport: importFor(createInputTarget),
+        imports: createTemplate.imports,
+        nameCamel,
+        nameKebab,
+        namePascal,
+        props: createTemplate.props,
+      },
+      target: createInputTarget,
       template: 'nest-server-object/template-create.input.ts.ejs',
     });
 
     // nest-server-module/xxx.model.ts
+    const objectTarget = join(directory, `${nameKebab}.object.ts`);
     await template.generate({
       props: {
+        frameworkImport: importFor(objectTarget),
         imports: objectTemplate.imports,
         mappings: objectTemplate.mappings,
         nameCamel,
@@ -186,7 +208,7 @@ const NewCommand: ExtendedGluegunCommand = {
         namePascal,
         props: objectTemplate.props,
       },
-      target: join(directory, `${nameKebab}.object.ts`),
+      target: objectTarget,
       template: 'nest-server-object/template.object.ts.ejs',
     });
 

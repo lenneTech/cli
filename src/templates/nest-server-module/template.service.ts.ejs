@@ -1,4 +1,4 @@
-import { ConfigService, CrudService, ServiceOptions, assignPlain } from '@lenne.tech/nest-server';
+import { ConfigService, CrudService, ServiceOptions, assignPlain } from '<%= props.frameworkImport %>';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 <% if (props.isGql) { %>import { PubSub } from 'graphql-subscriptions';

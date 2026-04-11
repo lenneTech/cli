@@ -1,4 +1,4 @@
-import { Restricted, RoleEnum, equalIds<% if (props.mappings.includes('mapClasses')) { %>, mapClasses<% } %>, UnifiedField} from '@lenne.tech/nest-server';
+import { Restricted, RoleEnum, equalIds<% if (props.mappings.includes('mapClasses')) { %>, mapClasses<% } %>, UnifiedField} from '<%= props.frameworkImport %>';
 <% if (props.isGql) { %>
 import { ObjectType } from '@nestjs/graphql';
 <% } %>

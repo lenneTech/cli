@@ -10,6 +10,7 @@ import {
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { getFrameworkImportSpecifier, isVendoredProject } from '../../lib/framework-detection';
 import genModule from './module';
 import genObject from './object';
 
@@ -499,8 +500,32 @@ const NewCommand: ExtendedGluegunCommand = {
           returnStatement.replaceWithText(`return mapClasses(input, { ${mappingPairs.join(', ')} }, this);`);
         }
 
-        // Ensure mapClasses is imported
-        const existingImports = moduleFile.getImportDeclaration('@lenne.tech/nest-server');
+        // Ensure mapClasses is imported. The import specifier differs by
+        // framework-consumption mode — in npm projects it's
+        // '@lenne.tech/nest-server'; in vendored projects it's a relative
+        // path to src/core whose depth depends on the model file location.
+        // We search for BOTH forms so this works regardless of how the file
+        // was originally generated.
+        const vendoredSpec = isVendoredProject(path)
+          ? getFrameworkImportSpecifier(path, modelPath)
+          : null;
+        let existingImports = moduleFile.getImportDeclaration('@lenne.tech/nest-server');
+        if (!existingImports && vendoredSpec) {
+          existingImports = moduleFile.getImportDeclaration(vendoredSpec);
+        }
+        if (!existingImports) {
+          // Final fallback: scan all imports and match any that resolves to
+          // the framework path (covers hand-edited files or unusual depths).
+          const allImports = moduleFile.getImportDeclarations();
+          existingImports = allImports.find((imp) => {
+            const spec = imp.getModuleSpecifierValue();
+            if (spec === '@lenne.tech/nest-server') return true;
+            if (!vendoredSpec) return false;
+            // Accept any relative path ending with '/core' or '../core' —
+            // covers variations across file depths.
+            return /(^|\/)core(\/.*)?$/.test(spec) && spec.startsWith('.');
+          });
+        }
         if (existingImports) {
           const namedImports = existingImports.getNamedImports();
           const hasMapClasses = namedImports.some((ni) => ni.getName() === 'mapClasses');

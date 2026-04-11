@@ -4,6 +4,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { isVendoredProject } from '../../lib/framework-detection';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Interfaces (matching @lenne.tech/nest-server PermissionsReport)
@@ -181,31 +182,51 @@ function generateJson(report: PermissionsReport, projectPath: string): string {
  * Returns an object with scanPermissions + generateMarkdownReport, or null if neither is available.
  */
 async function loadScanner(projectPath: string): Promise<null | ScannerModule> {
-  // Try 1: Load from project's nest-server (preferred)
-  const scannerPaths = [
-    join(
-      projectPath,
-      'node_modules',
-      '@lenne.tech',
-      'nest-server',
-      'dist',
-      'core',
-      'modules',
-      'permissions',
-      'permissions-scanner',
-    ),
-    join(
-      projectPath,
-      'node_modules',
-      '@lenne.tech',
-      'nest-server',
-      'dist',
-      'core',
-      'modules',
-      'permissions',
-      'permissions-scanner.js',
-    ),
-  ];
+  // Build an ordered list of candidate paths, mode-aware:
+  //
+  // - Vendored projects: the framework code lives in src/core/ as
+  //   project-compiled TypeScript. After `nest build` the compiled output
+  //   lands under dist/src/core/modules/permissions/. Before the build,
+  //   the .ts source sits at src/core/modules/permissions/permissions-scanner.ts
+  //   (which Node's `require()` cannot load directly). We try the dist
+  //   variant first and fall back to the bundled CLI scanner if the
+  //   project hasn't been built yet.
+  // - npm projects: classic path under node_modules/@lenne.tech/nest-server/dist.
+  const scannerPaths: string[] = [];
+
+  if (isVendoredProject(projectPath)) {
+    scannerPaths.push(
+      join(projectPath, 'dist', 'src', 'core', 'modules', 'permissions', 'permissions-scanner'),
+      join(projectPath, 'dist', 'src', 'core', 'modules', 'permissions', 'permissions-scanner.js'),
+      join(projectPath, 'dist', 'core', 'modules', 'permissions', 'permissions-scanner'),
+      join(projectPath, 'dist', 'core', 'modules', 'permissions', 'permissions-scanner.js'),
+    );
+  } else {
+    scannerPaths.push(
+      join(
+        projectPath,
+        'node_modules',
+        '@lenne.tech',
+        'nest-server',
+        'dist',
+        'core',
+        'modules',
+        'permissions',
+        'permissions-scanner',
+      ),
+      join(
+        projectPath,
+        'node_modules',
+        '@lenne.tech',
+        'nest-server',
+        'dist',
+        'core',
+        'modules',
+        'permissions',
+        'permissions-scanner.js',
+      ),
+    );
+  }
 
   for (const scannerPath of scannerPaths) {
     try {
@@ -221,7 +242,8 @@ async function loadScanner(projectPath: string): Promise<null | ScannerModule> {
     }
   }
 
-  // Try 2: Use CLI's bundled fallback scanner
+  // Fallback: Use CLI's bundled scanner. Covers both "not yet built" (vendor
+  // mode before `nest build`) and "framework not installed" (detached clone).
   try {
     const fallback = require('../../lib/fallback-scanner');
     if (typeof fallback.scanPermissions === 'function') {
