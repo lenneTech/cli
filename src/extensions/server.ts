@@ -817,13 +817,28 @@ export class Server {
       branch?: string;
       copyPath?: string;
       frameworkMode?: 'npm' | 'vendor';
+      /**
+       * Branch, tag, or commit of the upstream @lenne.tech/nest-server repo
+       * to use when vendoring the framework core (vendor mode only).
+       * Default: repository HEAD.
+       */
+      frameworkUpstreamBranch?: string;
       linkPath?: string;
       name: string;
       projectDir: string;
     },
   ): Promise<{ method: 'clone' | 'copy' | 'link'; path: string; success: boolean }> {
     const { apiMode: apiModeHelper, templateHelper } = this.toolbox;
-    const { apiMode, branch, copyPath, frameworkMode = 'npm', linkPath, name, projectDir } = options;
+    const {
+      apiMode,
+      branch,
+      copyPath,
+      frameworkMode = 'npm',
+      frameworkUpstreamBranch,
+      linkPath,
+      name,
+      projectDir,
+    } = options;
 
     // Both npm and vendor mode clone nest-server-starter as the base. The
     // starter ships the minimal consumer conventions a project needs
@@ -893,7 +908,11 @@ export class Server {
     let vendorCoreEssentials: string[] = [];
     if (frameworkMode === 'vendor') {
       try {
-        const converted = await this.convertCloneToVendored({ dest, projectName: name });
+        const converted = await this.convertCloneToVendored({
+          dest,
+          projectName: name,
+          upstreamBranch: frameworkUpstreamBranch,
+        });
         vendorUpstreamDeps = converted.upstreamDeps;
       } catch (err) {
         return { method: result.method, path: dest, success: false };
@@ -976,11 +995,13 @@ export class Server {
       dest: string;
       /** Project name. Currently used only for logging/diagnostics. */
       projectName?: string;
+      /** Branch, tag or commit to check out from the upstream repo. Default: HEAD. */
+      upstreamBranch?: string;
       /** Override the upstream framework repo URL (for testing / forks). */
       upstreamRepoUrl?: string;
     },
   ): Promise<{ upstreamDeps: Record<string, string>; upstreamDevDeps: Record<string, string> }> {
-    const { dest, upstreamRepoUrl = 'https://github.com/lenneTech/nest-server.git' } = options;
+    const { dest, upstreamBranch, upstreamRepoUrl = 'https://github.com/lenneTech/nest-server.git' } = options;
 
     const filesystem = this.filesystem;
     const { system } = this.toolbox;
@@ -997,25 +1018,39 @@ export class Server {
     // `bin/migrate.js`, and associated meta files. The clone lives in a
     // throw-away tmp dir that gets cleaned up at the end.
     const tmpClone = path.join(os.tmpdir(), `lt-vendor-nest-server-${Date.now()}`);
+    const branchArg = upstreamBranch ? `--branch ${upstreamBranch} ` : '';
     try {
-      await system.run(`git clone --depth 1 ${upstreamRepoUrl} ${tmpClone}`);
+      await system.run(`git clone --depth 1 ${branchArg}${upstreamRepoUrl} ${tmpClone}`);
     } catch (err) {
-      throw new Error(`Failed to clone ${upstreamRepoUrl}: ${(err as Error).message}`);
+      throw new Error(
+        `Failed to clone ${upstreamRepoUrl}${upstreamBranch ? ` (branch/tag: ${upstreamBranch})` : ''}: ${(err as Error).message}`,
+      );
     }
 
     // Snapshot upstream package.json before cleanup so we can merge its
     // transitive deps into the project's package.json (step 5 below).
     let upstreamDeps: Record<string, string> = {};
     let upstreamDevDeps: Record<string, string> = {};
+    let upstreamVersion = '';
     try {
       const upstreamPkg = filesystem.read(`${tmpClone}/package.json`, 'json') as Record<string, any>;
       if (upstreamPkg && typeof upstreamPkg === 'object') {
         upstreamDeps = (upstreamPkg.dependencies as Record<string, string>) || {};
         upstreamDevDeps = (upstreamPkg.devDependencies as Record<string, string>) || {};
+        upstreamVersion = (upstreamPkg.version as string) || '';
       }
     } catch {
       // Best-effort — if we can't read upstream pkg, the starter's own
       // deps should still cover most of the framework's needs.
+    }
+
+    // Snapshot the upstream commit SHA for traceability in VENDOR.md.
+    let upstreamCommit = '';
+    try {
+      const sha = await system.run(`git -C ${tmpClone} rev-parse HEAD`);
+      upstreamCommit = (sha || '').trim();
+    } catch {
+      // Non-fatal — VENDOR.md will just show an empty SHA.
     }
 
     try {
@@ -1378,6 +1413,58 @@ export class Server {
       ].join('\n'),
     );
 
+    // ── 6b. extras/sync-packages.mjs: replace with vendor-aware stub ─────
+    //
+    // The starter's `extras/sync-packages.mjs` pulls the latest deps of
+    // `@lenne.tech/nest-server` from the npm registry and merges them into
+    // the project's package.json. In vendor mode the framework is no
+    // longer an npm dependency, so the script has nothing meaningful to
+    // sync and would either no-op or error out.
+    //
+    // Replace it with a small informational stub that points the user at
+    // the canonical vendor-update path (the `nest-server-core-updater`
+    // Claude Code agent / `pnpm run vendor:sync` if the project has that
+    // script). Keeps `pnpm run update` from dead-exiting with a confusing
+    // message.
+    const syncPackagesPath = `${dest}/extras/sync-packages.mjs`;
+    if (filesystem.exists(syncPackagesPath)) {
+      filesystem.write(
+        syncPackagesPath,
+        [
+          '#!/usr/bin/env node',
+          '',
+          "'use strict';",
+          '',
+          '/**',
+          ' * Vendor-mode stub for extras/sync-packages.mjs.',
+          ' *',
+          ' * The original script is designed for npm-mode projects where',
+          " * `@lenne.tech/nest-server` is an installed dependency and",
+          ' * `pnpm run update` pulls the latest upstream deps into the',
+          ' * project package.json.',
+          ' *',
+          ' * This project runs in VENDOR mode: the framework core/ tree is',
+          ' * copied directly into src/core/ and there is no framework npm',
+          ' * dep to sync. To update the vendored core, use the',
+          ' * `nest-server-core-updater` Claude Code agent or run the',
+          ' * project-local vendor:sync script once it has been added.',
+          ' */',
+          '',
+          "console.warn('');",
+          "console.warn('⚠  pnpm run update is a no-op in vendor mode.');",
+          "console.warn('   Framework source lives directly in src/core/ and is updated');",
+          "console.warn('   via the nest-server-core-updater agent:');",
+          "console.warn('');",
+          "console.warn('     /lt-dev:backend:update-nest-server-core');",
+          "console.warn('');",
+          "console.warn('   See src/core/VENDOR.md for the current baseline and sync history.');",
+          "console.warn('');",
+          'process.exit(0);',
+          '',
+        ].join('\n'),
+      );
+    }
+
     // ── 7. tsconfig.json excludes + Node types ───────────────────────────
     //
     // The vendored migrate template references `from '@lenne.tech/nest-server'`
@@ -1395,9 +1482,22 @@ export class Server {
     this.widenTsconfigTypes(`${dest}/tsconfig.build.json`);
 
     // ── 10. VENDOR.md baseline ───────────────────────────────────────────
+    //
+    // Record the exact upstream version + commit SHA we vendored from, so
+    // the `nest-server-core-updater` agent has a reliable base for
+    // computing upstream deltas on the next sync.
     const vendorMdPath = `${dest}/src/core/VENDOR.md`;
     if (!filesystem.exists(vendorMdPath)) {
       const today = new Date().toISOString().slice(0, 10);
+      const versionLine = upstreamVersion
+        ? `- **Baseline-Version:** ${upstreamVersion}`
+        : '- **Baseline-Version:** (not detected — run `vendor:sync` to record)';
+      const commitLine = upstreamCommit
+        ? `- **Baseline-Commit:** \`${upstreamCommit}\``
+        : '- **Baseline-Commit:** (not detected)';
+      const syncHistoryTo = upstreamVersion
+        ? `${upstreamVersion}${upstreamCommit ? ` (\`${upstreamCommit.slice(0, 10)}\`)` : ''}`
+        : 'initial import';
       filesystem.write(
         vendorMdPath,
         [
@@ -1419,7 +1519,8 @@ export class Server {
           '## Baseline',
           '',
           '- **Upstream-Repo:** https://github.com/lenneTech/nest-server',
-          '- **Baseline-Version:** (detected from clone — run `vendor:sync` to record)',
+          versionLine,
+          commitLine,
           `- **Vendored am:** ${today}`,
           `- **Vendored von:** lt CLI (\`lt fullstack init --framework-mode vendor\`)`,
           '',
@@ -1427,7 +1528,7 @@ export class Server {
           '',
           '| Date | From | To | Notes |',
           '| ---- | ---- | -- | ----- |',
-          `| ${today} | — | initial import | scaffolded by lt CLI |`,
+          `| ${today} | — | ${syncHistoryTo} | scaffolded by lt CLI |`,
           '',
           '## Local changes',
           '',
@@ -1449,6 +1550,13 @@ export class Server {
   }
 
   /**
+   * Cached set of upstream devDeps that are actually runtime-needed after
+   * vendoring. Populated lazily from `src/config/vendor-runtime-deps.json`
+   * so new helpers can be added without touching this file.
+   */
+  private _vendorRuntimeHelpers?: Set<string>;
+
+  /**
    * Predicate: is a given upstream `devDependencies` key actually a runtime
    * dep in disguise that needs to live in `dependencies` after vendoring?
    *
@@ -1458,19 +1566,25 @@ export class Server {
    * project, those must end up in `dependencies` so the compiled/dist
    * runtime has them available.
    *
-   * Instead of a hard-coded list, we use a small set of predicates based
-   * on known structural roles of these packages in the framework.
-   * Additions on the upstream side typically land in `devDependencies`
-   * for framework-author workflows (linting, testing, docs generation)
-   * and should NOT be promoted; only structural-runtime helpers should.
+   * The list of such helpers lives in `src/config/vendor-runtime-deps.json`
+   * under the `runtimeHelpers` key. Adding a new helper is a data-only
+   * change (no CLI release required). If the config file is missing or
+   * unreadable, the predicate safely returns `false` for everything.
    */
   protected isVendorRuntimeDep(pkgName: string): boolean {
-    // Currently only `find-file-up` matches. If new runtime helpers land
-    // in upstream devDeps, add their names here. Keeping this as a
-    // predicate (not a hard-coded type-list) so the behaviour is explicit
-    // and easy to audit.
-    const knownRuntimeHelpers = new Set(['find-file-up']);
-    return knownRuntimeHelpers.has(pkgName);
+    if (!this._vendorRuntimeHelpers) {
+      try {
+         
+        const path = require('path');
+        const configPath = path.join(__dirname, '..', 'config', 'vendor-runtime-deps.json');
+        const raw = this.filesystem.read(configPath, 'json') as undefined | { runtimeHelpers?: string[] };
+        const list = Array.isArray(raw?.runtimeHelpers) ? raw!.runtimeHelpers : [];
+        this._vendorRuntimeHelpers = new Set(list.filter((e) => typeof e === 'string'));
+      } catch {
+        this._vendorRuntimeHelpers = new Set();
+      }
+    }
+    return this._vendorRuntimeHelpers.has(pkgName);
   }
 
   /**

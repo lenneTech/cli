@@ -35,7 +35,7 @@ const NewCommand: GluegunCommand = {
 
     // Hint for non-interactive callers (e.g. Claude Code)
     toolbox.tools.nonInteractiveHint(
-      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> --noConfirm',
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> [--framework-upstream-branch <ref>] [--dry-run] --noConfirm',
     );
 
     // Check git
@@ -66,7 +66,9 @@ const NewCommand: GluegunCommand = {
       'api-copy': cliApiCopy,
       'api-link': cliApiLink,
       'api-mode': cliApiMode,
+      'dry-run': cliDryRun,
       'framework-mode': cliFrameworkMode,
+      'framework-upstream-branch': cliFrameworkUpstreamBranch,
       frontend: cliFrontend,
       'frontend-branch': cliFrontendBranch,
       'frontend-copy': cliFrontendCopy,
@@ -75,6 +77,12 @@ const NewCommand: GluegunCommand = {
       'git-link': cliGitLink,
       name: cliName,
     } = parameters.options;
+
+    const dryRun = cliDryRun === true || cliDryRun === 'true';
+    const frameworkUpstreamBranch =
+      typeof cliFrameworkUpstreamBranch === 'string' && cliFrameworkUpstreamBranch.length > 0
+        ? cliFrameworkUpstreamBranch
+        : undefined;
 
     // Determine noConfirm with priority: CLI > command > parent > global > default
     const noConfirm = config.getNoConfirm({
@@ -266,6 +274,55 @@ const NewCommand: GluegunCommand = {
     const frontendCopy = cliFrontendCopy || configFrontendCopy;
     const frontendLink = cliFrontendLink || configFrontendLink;
 
+    // Dry-run mode: print the resolved plan and exit without any disk
+    // changes. Useful for CI previews, for Claude Code confirmation
+    // steps, and for debugging the mode-detection logic without
+    // committing to a multi-minute init flow.
+    if (dryRun) {
+      info('');
+      info('Dry-run plan:');
+      info(`  name:                       ${name}`);
+      info(`  projectDir:                 ${projectDir}`);
+      info(`  frontend:                   ${frontend}`);
+      info(`  apiMode:                    ${apiMode}`);
+      info(`  frameworkMode:              ${frameworkMode}`);
+      if (frameworkUpstreamBranch) {
+        info(`  frameworkUpstreamBranch:    ${frameworkUpstreamBranch}`);
+      }
+      info(`  apiBranch:                  ${apiBranch || '(default)'}`);
+      info(`  frontendBranch:             ${frontendBranch || '(default)'}`);
+      info(`  apiCopy:                    ${apiCopy || '(none)'}`);
+      info(`  apiLink:                    ${apiLink || '(none)'}`);
+      info(`  frontendCopy:               ${frontendCopy || '(none)'}`);
+      info(`  frontendLink:               ${frontendLink || '(none)'}`);
+      info(`  pushToRemote:               ${pushToRemote}`);
+      if (pushToRemote) {
+        info(`  gitLink:                    ${gitLink || '(unset — would abort at run-time)'}`);
+      }
+      info('');
+      info('Would execute:');
+      info(`  1. git clone lt-monorepo → ${projectDir}/`);
+      info(`  2. setup frontend (${frontend}) → ${projectDir}/projects/app`);
+      if (frameworkMode === 'vendor') {
+        info(`  3. clone nest-server-starter → ${projectDir}/projects/api`);
+        info(
+          `  4. clone @lenne.tech/nest-server${frameworkUpstreamBranch ? ` (branch/tag: ${frameworkUpstreamBranch})` : ''} → /tmp`,
+        );
+        info(`  5. vendor core/ + flatten-fix + codemod consumer imports`);
+        info(`  6. merge upstream deps (dynamic, no hard-coded list)`);
+        info(`  7. run processApiMode(${apiMode})`);
+        if (apiMode === 'Rest') {
+          info(`  8. restore vendored core essentials (graphql-*)`);
+        }
+      } else {
+        info(`  3. clone nest-server-starter → ${projectDir}/projects/api`);
+        info(`  4. run processApiMode(${apiMode})`);
+      }
+      info('  N. pnpm install + initial git commit');
+      info('');
+      return `fullstack init dry-run (${frameworkMode} / ${apiMode})`;
+    }
+
     const workspaceSpinner = spin(`Create fullstack workspace with ${frontend} in ${projectDir} with ${name} app`);
 
     // Clone monorepo
@@ -373,6 +430,7 @@ const NewCommand: GluegunCommand = {
         branch: apiBranch,
         copyPath: apiCopy,
         frameworkMode,
+        frameworkUpstreamBranch,
         linkPath: apiLink,
         name,
         projectDir,
