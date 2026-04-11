@@ -468,21 +468,20 @@ const NewCommand: ExtendedGluegunCommand = {
 
         // Ensure forwardRef is imported from @nestjs/common
         const serverModuleContent = filesystem.read(serverModule);
-        if (serverModuleContent && !serverModuleContent.includes('forwardRef')) {
-          // Add forwardRef to @nestjs/common import
-          await patching.patch(serverModule, {
-            insert: '$1, forwardRef$2',
-            replace: /from '@nestjs\/common'(.*?)}/,
-          });
-        } else if (
+        if (
           serverModuleContent &&
           serverModuleContent.includes('@nestjs/common') &&
-          !serverModuleContent.match(/forwardRef.*@nestjs\/common|@nestjs\/common.*forwardRef/)
+          !serverModuleContent.match(/import\s*\{[^}]*forwardRef[^}]*}\s*from\s+['"]@nestjs\/common['"]/)
         ) {
-          // forwardRef exists but not in @nestjs/common import - add it
+          // Add forwardRef into the existing `import { ... } from '@nestjs/common'`
+          // statement by inserting it before the closing brace. The regex
+          // captures two groups: (1) everything up to (but not including) the
+          // closing brace of the named-import list and (2) the closing brace
+          // plus the `from '@nestjs/common'` clause. The replacement wedges
+          // `, forwardRef` in between.
           await patching.patch(serverModule, {
-            insert: '$1, forwardRef$2',
-            replace: /(\w+)\s*}\s*from\s+'@nestjs\/common'/,
+            insert: "$1, forwardRef$2",
+            replace: /(import\s*\{\s*[^}]*?)(\s*\}\s*from\s+['"]@nestjs\/common['"])/,
           });
         }
       }

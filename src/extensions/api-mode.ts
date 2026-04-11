@@ -414,9 +414,25 @@ export class ApiMode {
       i++;
     }
 
-    // Get the non-import part of the file
-    const maxImportEnd = importLines.reduce((max, il) => Math.max(max, il.end), -1);
-    const codeContent = lines.slice(maxImportEnd + 1).join('\n');
+    // Build the "code content" view against which import usage is checked.
+    //
+    // Previous implementation: `lines.slice(maxImportEnd + 1)` — only the
+    // lines AFTER the last import. That breaks for files where imports and
+    // top-level code are interleaved (e.g. a helper `const` declared between
+    // two import groups). Those inter-import usages were never seen, so the
+    // still-used identifiers got pruned.
+    //
+    // Fix: build a mask where all import lines are blanked out but every
+    // other line is preserved, so inter-import usages still count.
+    const importLineSet = new Set<number>();
+    for (const imp of importLines) {
+      for (let j = imp.start; j <= imp.end; j++) {
+        importLineSet.add(j);
+      }
+    }
+    const codeContent = lines
+      .map((line, idx) => (importLineSet.has(idx) ? '' : line))
+      .join('\n');
 
     // Check each import
     const linesToRemove = new Set<number>();

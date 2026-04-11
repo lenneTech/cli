@@ -269,7 +269,25 @@ export class Server {
   }
 
   useDefineForClassFieldsActivated(): boolean {
-    const tsConfigPath = this.filesystem.resolve('tsconfig.json');
+    // Walk UP from the current working directory to find the nearest
+    // tsconfig.json. gluegun's `filesystem.resolve('tsconfig.json')` resolves
+    // relative to cwd without checking existence, so it breaks when `lt
+    // server module` is invoked from inside `src/` (where no tsconfig lives)
+    // — it would then silently return `false`, causing the generator to
+    // emit class fields without the `override` modifier that the project's
+    // `noImplicitOverride` rule requires.
+    const path = require('path');
+    let current = this.filesystem.cwd();
+    const root = path.parse(current).root;
+    let tsConfigPath: null | string = null;
+    while (current && current !== root) {
+      const candidate = path.join(current, 'tsconfig.json');
+      if (this.filesystem.exists(candidate)) {
+        tsConfigPath = candidate;
+        break;
+      }
+      current = path.dirname(current);
+    }
     if (tsConfigPath) {
       const readConfig = ts.readConfigFile(tsConfigPath, ts.sys.readFile);
       if (!readConfig.error) {
@@ -807,22 +825,26 @@ export class Server {
     const { apiMode: apiModeHelper, templateHelper } = this.toolbox;
     const { apiMode, branch, copyPath, frameworkMode = 'npm', linkPath, name, projectDir } = options;
 
-    // In vendor mode we don't clone nest-server-starter — we clone the
-    // framework repo itself and strip its framework-internal content. This
-    // produces a project where the framework core/ directory lives inline
-    // at src/core/ as first-class project code. See convertCloneToVendored()
-    // below for the exact transformation.
-    const repoUrl =
-      frameworkMode === 'vendor'
-        ? 'https://github.com/lenneTech/nest-server'
-        : 'https://github.com/lenneTech/nest-server-starter';
-
+    // Both npm and vendor mode clone nest-server-starter as the base. The
+    // starter ships the minimal consumer conventions a project needs
+    // (src/server/common/models/persistence.model.ts, src/server/modules/user/,
+    // file/, meta/, tests/, migrations/, env files, etc.).
+    //
+    // In vendor mode we additionally clone @lenne.tech/nest-server to
+    // obtain the framework `core/` tree, copy it into the project at
+    // src/core/ (with the flatten-fix), remove the `@lenne.tech/nest-server`
+    // npm dependency, merge its transitive deps into the project
+    // package.json, and run a codemod that rewrites every
+    // `from '@lenne.tech/nest-server'` import to a relative path pointing
+    // at the vendored core.
+    //
+    // See convertCloneToVendored() below for the exact transformation.
     // Setup template
     const result = await templateHelper.setup(dest, {
       branch,
       copyPath,
       linkPath,
-      repoUrl,
+      repoUrl: 'https://github.com/lenneTech/nest-server-starter',
     });
 
     if (!result.success) {
@@ -880,6 +902,22 @@ export class Server {
       }
     }
 
+    // In vendor mode the processApiMode step may strip GraphQL-related
+    // packages that the `api-mode.manifest.json` declares as graphql-only
+    // (e.g. graphql-subscriptions, graphql-upload, json-to-graphql-query).
+    // That's correct in npm mode because the stripped modules are pruned
+    // together; in vendor mode, however, the framework core at src/core/
+    // still imports those packages at the top of core-auth.module.ts etc.
+    // Restore them unconditionally after the api-mode pass.
+    if (frameworkMode === 'vendor' && apiMode === 'Rest') {
+      try {
+        this.restoreVendorCoreEssentials(dest);
+      } catch (err) {
+        // Non-fatal — install may still succeed if the core never imports
+        // the restored packages at the current version.
+      }
+    }
+
     // Patch CLAUDE.md with API mode info
     this.patchClaudeMdApiMode(dest, apiMode);
 
@@ -887,145 +925,440 @@ export class Server {
   }
 
   /**
-   * Converts a freshly cloned `nest-server` working tree into a
+   * Converts a freshly cloned `nest-server-starter` working tree into a
    * vendored-mode consumer project.
    *
-   * The framework repo ships everything a project needs (src/core framework
-   * kernel, src/main.ts bootstrap, src/config.env.ts env layout, tests/,
-   * bin/migrate.js, migration-guides/) plus framework-internal content that
-   * a consumer project should not carry (framework example server modules
-   * in src/server/, framework release tooling in package.json scripts,
-   * framework docs meta files).
+   * The starter ships all consumer conventions a project needs (a
+   * working `src/server/` with `common/models/persistence.model.ts`,
+   * `modules/user/`, `modules/file/`, `modules/meta/`, sample tests,
+   * migrations, env files). In npm mode it relies on the
+   * `@lenne.tech/nest-server` npm dependency to provide the framework
+   * source via `node_modules/@lenne.tech/nest-server/dist/**`.
    *
-   * This method strips the framework-internal content and rewrites
-   * package.json so the resulting tree behaves like a consumer project.
+   * In vendor mode we additionally clone `@lenne.tech/nest-server` to
+   * /tmp, copy its framework kernel (`src/core/`, `src/index.ts`,
+   * `src/core.module.ts`, `src/test/`, `src/templates/`, `src/types/`,
+   * `LICENSE`, `bin/migrate.js`) into the project at `src/core/`
+   * applying the flatten-fix, remove `@lenne.tech/nest-server` from the
+   * project's `package.json`, merge the framework's transitive deps into
+   * the project's own deps, and run an AST-based codemod that rewrites
+   * every `from '@lenne.tech/nest-server'` import in consumer code
+   * (src/server, src/main.ts, tests/, migrations/, scripts/) to a
+   * relative path pointing at the vendored `src/core/`.
+   *
+   * The resulting tree matches the layout produced by the imo vendoring
+   * pilot, so the `nest-server-core-updater` and
+   * `nest-server-core-contributor` agents work without any further
+   * post-processing.
    *
    * Idempotent — running twice is a no-op.
    */
-  protected async convertCloneToVendored(dest: string, projectName: string): Promise<void> {
+  protected async convertCloneToVendored(dest: string, _projectName: string): Promise<void> {
     const filesystem = this.filesystem;
+    const { system } = this.toolbox;
+    const os = require('os');
+    const path = require('path');
+    const { Project, SyntaxKind } = require('ts-morph');
 
-    // 1. Framework-internal meta files that have no place in a consumer
-    //    project. `migration-guides/` is kept on purpose — it's valuable
-    //    read-only reference for the update agent.
-    const frameworkMetaFiles = [
-      'FRAMEWORK-API.md',
-      'SHOWCASE.md',
-      'model-doc.yuml',
-      'model-doc-dark.svg',
-      'model-doc-light.svg',
-      'CHANGELOG.md',
-      '.versionrc',
-      'load-tests',
-      'scripts/add-type-references.js',
-      'scripts/generate-framework-api.ts',
-    ];
-    for (const f of frameworkMetaFiles) {
-      const p = `${dest}/${f}`;
-      if (filesystem.exists(p)) {
-        filesystem.remove(p);
+    const srcDir = `${dest}/src`;
+    const coreDir = `${srcDir}/core`;
+
+    // ── 1. Clone @lenne.tech/nest-server into a temp directory ───────────
+    //
+    // We clone the framework repo shallowly to get the `src/core/` tree,
+    // `bin/migrate.js`, and associated meta files. The clone lives in a
+    // throw-away tmp dir that gets cleaned up at the end.
+    const tmpClone = path.join(os.tmpdir(), `lt-vendor-nest-server-${Date.now()}`);
+    try {
+      await system.run(`git clone --depth 1 https://github.com/lenneTech/nest-server.git ${tmpClone}`);
+    } catch (err) {
+      throw new Error(`Failed to clone @lenne.tech/nest-server: ${(err as Error).message}`);
+    }
+
+    // Snapshot upstream package.json before cleanup so we can merge its
+    // transitive deps into the project's package.json (step 5 below).
+    let upstreamDeps: Record<string, string> = {};
+    let upstreamDevDeps: Record<string, string> = {};
+    try {
+      const upstreamPkg = filesystem.read(`${tmpClone}/package.json`, 'json') as Record<string, any>;
+      if (upstreamPkg && typeof upstreamPkg === 'object') {
+        upstreamDeps = (upstreamPkg.dependencies as Record<string, string>) || {};
+        upstreamDevDeps = (upstreamPkg.devDependencies as Record<string, string>) || {};
+      }
+    } catch {
+      // Best-effort — if we can't read upstream pkg, the starter's own
+      // deps should still cover most of the framework's needs.
+    }
+
+    try {
+      // ── 2. Copy framework kernel into project src/core/ (flatten-fix) ──
+      //
+      // Upstream layout: src/core/ (framework sub-dir) + src/index.ts +
+      // src/core.module.ts + src/test/ + src/templates/ + src/types/.
+      // Target layout: everything flat under <project>/src/core/.
+      //
+      // We WIPE the starter's (non-existent in npm mode) src/core/ first
+      // just to guarantee idempotency when users run this twice.
+      if (filesystem.exists(coreDir)) {
+        filesystem.remove(coreDir);
+      }
+
+      const copies: [string, string][] = [
+        [`${tmpClone}/src/core`, coreDir],
+        [`${tmpClone}/src/index.ts`, `${coreDir}/index.ts`],
+        [`${tmpClone}/src/core.module.ts`, `${coreDir}/core.module.ts`],
+        [`${tmpClone}/src/test`, `${coreDir}/test`],
+        [`${tmpClone}/src/templates`, `${coreDir}/templates`],
+        [`${tmpClone}/src/types`, `${coreDir}/types`],
+        [`${tmpClone}/LICENSE`, `${coreDir}/LICENSE`],
+      ];
+      for (const [from, to] of copies) {
+        if (filesystem.exists(from)) {
+          filesystem.copy(from, to);
+        }
+      }
+
+
+      // Copy bin/migrate.js so the project has a working migrate CLI
+      // independent of node_modules/@lenne.tech/nest-server.
+      if (filesystem.exists(`${tmpClone}/bin/migrate.js`)) {
+        filesystem.copy(`${tmpClone}/bin/migrate.js`, `${dest}/bin/migrate.js`);
+      }
+
+      // Copy migration-guides for vendor-sync agent reference (optional
+      // but useful — small overhead, big value for the updater agent).
+      if (filesystem.exists(`${tmpClone}/migration-guides`)) {
+        filesystem.copy(`${tmpClone}/migration-guides`, `${dest}/migration-guides`);
+      }
+    } finally {
+      // Always clean up the temp clone, even if copy fails midway.
+      if (filesystem.exists(tmpClone)) {
+        filesystem.remove(tmpClone);
       }
     }
 
-    // 2. Replace src/server/ with a minimal scaffold. The framework repo's
-    //    src/server/ contains framework-testing modules (auth, user,
-    //    error-code, better-auth, file, tus). A consumer project needs its
-    //    own src/server/ for business modules. We wipe and recreate with
-    //    just a minimal server.module.ts so `lt server module` can extend it.
-    const serverDir = `${dest}/src/server`;
-    if (filesystem.exists(serverDir)) {
-      filesystem.remove(serverDir);
-    }
-    // Minimal server.module.ts. Users add their own modules via `lt server module`.
-    filesystem.write(
-      `${serverDir}/server.module.ts`,
-      [
-        "import { Module } from '@nestjs/common';",
-        "import { CoreModule } from '../core';",
-        '',
-        "import envConfig from '../config.env';",
-        '',
-        '/**',
-        ` * ${projectName} server module`,
-        ' *',
-        ' * Register project-specific modules here via `lt server module`.',
-        ' */',
-        '@Module({',
-        '  imports: [CoreModule.forRoot(envConfig)],',
-        '})',
-        'export class ServerModule {}',
-        '',
-      ].join('\n'),
-    );
+    // ── 3. Apply flatten-fix rewrites on the vendored files ──────────────
+    //
+    // In `src/core/index.ts` and `src/core/core.module.ts` every relative
+    // specifier that used to be `./core/…` (when the file lived on src/)
+    // must now drop the `./core/` prefix. All OTHER internal imports
+    // within common/, modules/, etc. stay identical because their
+    // relative structure is preserved by the copy.
+    //
+    // Known edge cases from the imo pilot:
+    //   - src/core/test/test.helper.ts references '../core/common/helpers/db.helper'
+    //     which must become '../common/helpers/db.helper' after the flatten.
+    //   - src/core/common/interfaces/core-persistence-model.interface.ts
+    //     references '../../..' (three levels up to src/index.ts), which
+    //     must become '../..' (two levels up to src/core/index.ts).
+    const tsMorphProject = new Project({ skipAddingFilesFromTsConfig: true });
 
-    // 3. Tests — framework-internal e2e tests test the framework's own
-    //    example modules which we just deleted. Strip them, leave the
-    //    directory for the project to fill.
-    const testsDir = `${dest}/tests`;
-    if (filesystem.exists(testsDir)) {
-      filesystem.remove(testsDir);
+    const flattenTargets = [`${coreDir}/index.ts`, `${coreDir}/core.module.ts`];
+    for (const target of flattenTargets) {
+      if (!filesystem.exists(target)) continue;
+      const sourceFile = tsMorphProject.addSourceFileAtPath(target);
+      for (const decl of sourceFile.getImportDeclarations()) {
+        const spec = decl.getModuleSpecifierValue();
+        if (spec && spec.startsWith('./core/')) {
+          decl.setModuleSpecifier(spec.replace(/^\.\/core\//, './'));
+        }
+      }
+      for (const decl of sourceFile.getExportDeclarations()) {
+        const spec = decl.getModuleSpecifierValue();
+        if (spec && spec.startsWith('./core/')) {
+          decl.setModuleSpecifier(spec.replace(/^\.\/core\//, './'));
+        }
+      }
+      sourceFile.saveSync();
     }
-    filesystem.write(`${testsDir}/.gitkeep`, '');
 
-    // 4. Rewrite package.json: drop framework release scripts, add
-    //    vendor-mode scripts, drop framework-internal devDeps, ensure
-    //    migrate CLI paths point at the local bin/migrate.js.
+    const testHelperPath = `${coreDir}/test/test.helper.ts`;
+    if (filesystem.exists(testHelperPath)) {
+      const sourceFile = tsMorphProject.addSourceFileAtPath(testHelperPath);
+      for (const decl of sourceFile.getImportDeclarations()) {
+        const spec = decl.getModuleSpecifierValue();
+        if (spec && spec.startsWith('../core/')) {
+          decl.setModuleSpecifier(spec.replace(/^\.\.\/core\//, '../'));
+        }
+      }
+      sourceFile.saveSync();
+    }
+
+    const persistenceIfacePath = `${coreDir}/common/interfaces/core-persistence-model.interface.ts`;
+    if (filesystem.exists(persistenceIfacePath)) {
+      const sourceFile = tsMorphProject.addSourceFileAtPath(persistenceIfacePath);
+      for (const decl of sourceFile.getImportDeclarations()) {
+        const spec = decl.getModuleSpecifierValue();
+        if (spec === '../../..') {
+          decl.setModuleSpecifier('../..');
+        }
+      }
+      sourceFile.saveSync();
+    }
+
+    // Edge: core-better-auth-user.mapper.ts uses `ScryptOptions` as a type
+    // annotation without an explicit import. Upstream relies on older
+    // @types/node versions where ScryptOptions was a global. With newer
+    // @types/node (25+) it must be imported from 'crypto'. Add the import.
+    const betterAuthMapperPath = `${coreDir}/modules/better-auth/core-better-auth-user.mapper.ts`;
+    if (filesystem.exists(betterAuthMapperPath)) {
+      const raw = filesystem.read(betterAuthMapperPath) || '';
+      if (raw.includes('ScryptOptions') && !raw.includes('type ScryptOptions')) {
+        // Replace the bare `randomBytes, scrypt` crypto import with one
+        // that also pulls in the ScryptOptions type.
+        const patched = raw.replace(
+          /import\s+\{\s*randomBytes\s*,\s*scrypt\s*\}\s+from\s+['"]crypto['"]\s*;/,
+          "import { randomBytes, scrypt, type ScryptOptions } from 'crypto';",
+        );
+        if (patched !== raw) {
+          filesystem.write(betterAuthMapperPath, patched);
+        }
+      }
+    }
+
+    // ── 4. Rewrite consumer imports: '@lenne.tech/nest-server' → relative ─
+    //
+    // Every .ts file in the starter's src/server/, src/main.ts, tests/,
+    // migrations/, scripts/, migrations-utils/ currently imports from
+    // '@lenne.tech/nest-server'. After vendoring, these must use a
+    // relative path to src/core whose depth depends on the file location.
+    // We handle static imports, dynamic imports, and CJS require() calls.
+    const codemodGlobs = [
+      `${dest}/src/server/**/*.ts`,
+      `${dest}/src/main.ts`,
+      `${dest}/src/config.env.ts`,
+      `${dest}/tests/**/*.ts`,
+      `${dest}/migrations/**/*.ts`,
+      `${dest}/migrations-utils/*.ts`,
+      `${dest}/scripts/**/*.ts`,
+    ];
+    tsMorphProject.addSourceFilesAtPaths(codemodGlobs);
+    for (const file of tsMorphProject.getSourceFiles()) {
+      const filePath = file.getFilePath();
+      // Skip files inside src/core/ — those are the framework itself.
+      if (filePath.startsWith(coreDir)) continue;
+
+      const fromDir = path.dirname(filePath);
+      let relToCore = path.relative(fromDir, coreDir).split(path.sep).join('/');
+      if (!relToCore.startsWith('.')) {
+        relToCore = `./${  relToCore}`;
+      }
+
+      let touched = false;
+
+      // Static import declarations
+      for (const decl of file.getImportDeclarations()) {
+        if (decl.getModuleSpecifierValue() === '@lenne.tech/nest-server') {
+          decl.setModuleSpecifier(relToCore);
+          touched = true;
+        }
+      }
+      // Static export declarations (re-exports)
+      for (const decl of file.getExportDeclarations()) {
+        if (decl.getModuleSpecifierValue() === '@lenne.tech/nest-server') {
+          decl.setModuleSpecifier(relToCore);
+          touched = true;
+        }
+      }
+      // Dynamic imports + CJS require('@lenne.tech/nest-server')
+      file.forEachDescendant((node) => {
+        if (node.getKind() !== SyntaxKind.CallExpression) return;
+        const call = node as any;
+        const expr = call.getExpression();
+        const exprText = expr.getText();
+        const args = call.getArguments();
+        if (args.length === 0) return;
+        const firstArg = args[0];
+        if (firstArg.getKind() !== SyntaxKind.StringLiteral) return;
+        if (firstArg.getLiteralText() !== '@lenne.tech/nest-server') return;
+
+        if (exprText === 'require' || exprText === 'import' || expr.getKind() === SyntaxKind.ImportKeyword) {
+          firstArg.replaceWithText(`'${relToCore}'`);
+          touched = true;
+        }
+      });
+
+      if (touched) {
+        file.saveSync();
+      }
+    }
+
+    // Also patch migrations-utils/*.js (CJS require) via raw string replace
+    // because ts-morph doesn't load .js files in our Project instance.
+    const migrationsUtilsDir = `${dest}/migrations-utils`;
+    if (filesystem.exists(migrationsUtilsDir)) {
+      const jsFiles = filesystem.find(migrationsUtilsDir, { matching: '*.js', recursive: false });
+      for (const f of jsFiles || []) {
+        try {
+          const content = filesystem.read(f);
+          if (content && content.includes('@lenne.tech/nest-server')) {
+            // The migrate helper path is at core/modules/migrate/helpers/migration.helper
+            // regardless of mode, so we replace the package root reference
+            // with the relative path to the vendored core.
+            const fromDir = path.dirname(f);
+            let relToCore = path.relative(fromDir, coreDir).split(path.sep).join('/');
+            if (!relToCore.startsWith('.')) {
+              relToCore = `./${  relToCore}`;
+            }
+            const patched = content
+              .replace(
+                /require\(['"]@lenne\.tech\/nest-server['"]\)/g,
+                `require('${relToCore}')`,
+              )
+              .replace(
+                /require\(['"]@lenne\.tech\/nest-server\/dist\/([^'"]+)['"]\)/g,
+                (_m: string, sub: string) => `require('${relToCore}/${sub}')`,
+              );
+            if (patched !== content) {
+              filesystem.write(f, patched);
+            }
+          }
+        } catch {
+          // skip unreadable file
+        }
+      }
+    }
+
+    // ── 5. package.json: remove @lenne.tech/nest-server, add migrate/bin ─
+    //
+    // Delete the framework dep — it's no longer needed since src/core/
+    // carries the code inline. Leave the starter's other deps alone (they
+    // already cover everything `@lenne.tech/nest-server` pulled in
+    // transitively because the starter pins them via pnpm overrides / direct
+    // deps already; see nest-server-starter/package.json).
     const pkgPath = `${dest}/package.json`;
     if (filesystem.exists(pkgPath)) {
-      const pkg = filesystem.read(pkgPath, 'json') as Record<string, unknown>;
+      const pkg = filesystem.read(pkgPath, 'json') as Record<string, any>;
       if (pkg && typeof pkg === 'object') {
-        pkg.name = `${projectName}-api`;
-        pkg.version = '0.0.0';
-        pkg.description = `API for ${projectName}`;
-        pkg.private = true;
-        delete pkg.main;
-        delete pkg.types;
-        delete pkg.files;
-        delete pkg.bin;
-        delete pkg.keywords;
-        delete pkg.repository;
-        delete pkg.bugs;
-        delete pkg.homepage;
-        delete pkg.author;
-        delete pkg.license;
-        delete pkg.packageManager;
+        if (pkg.dependencies && typeof pkg.dependencies === 'object') {
+          delete pkg.dependencies['@lenne.tech/nest-server'];
+        }
+        if (pkg.devDependencies && typeof pkg.devDependencies === 'object') {
+          delete pkg.devDependencies['@lenne.tech/nest-server'];
+        }
 
-        // Framework-only scripts that must be removed from a consumer pkg.
-        const frameworkScriptKeys = [
-          'build:framework-api',
-          'build:copy-types',
-          'build:copy-templates',
-          'build:add-type-references',
-          'build:pack',
-          'build:dev',
-          'docs',
-          'docs:bootstrap',
-          'docs:ci',
-          'prepack',
-          'prepublishOnly',
-          'preversion',
-          'release',
-          'release:minor',
-          'release:major',
-          'reinit:force',
-          'reinit:legacy',
-          'test:types',
-          'watch',
+        // Merge the framework's transitive deps into the project's own deps.
+        // The starter lists a minimal subset (express, mongoose, class-validator,
+        // etc.) and previously relied on @lenne.tech/nest-server to pull in
+        // all the other framework dependencies (@apollo/server, @nestjs/jwt,
+        // @nestjs/passport, bcrypt, better-auth, ejs, @tus/server, etc.) as
+        // transitive deps. After vendoring we lose that automatic transitivity,
+        // so we must add those deps explicitly to the project package.json.
+        // We only add deps that the project does NOT already have, to avoid
+        // overriding starter-level version pins.
+        if (!pkg.dependencies) pkg.dependencies = {};
+        const deps = pkg.dependencies as Record<string, string>;
+        for (const [depName, depVersion] of Object.entries(upstreamDeps)) {
+          if (depName === '@lenne.tech/nest-server') continue;
+          if (!(depName in deps)) {
+            deps[depName] = depVersion;
+          }
+        }
+        // Merge select devDependencies that are actually needed at compile
+        // time in a consumer project (types packages). Avoid adding
+        // framework-author-only tools (@compodoc, etc.).
+        if (!pkg.devDependencies) pkg.devDependencies = {};
+        const devDeps = pkg.devDependencies as Record<string, string>;
+        const neededTypePackages = [
+          '@types/bcrypt',
+          '@types/compression',
+          '@types/cookie-parser',
+          '@types/ejs',
+          '@types/express',
+          '@types/lodash',
+          '@types/multer',
+          '@types/node',
+          '@types/nodemailer',
+          '@types/passport',
+          '@types/passport-jwt',
+          '@types/supertest',
         ];
+        for (const typePkg of neededTypePackages) {
+          if (upstreamDevDeps[typePkg] && !(typePkg in devDeps) && !(typePkg in deps)) {
+            devDeps[typePkg] = upstreamDevDeps[typePkg];
+          }
+        }
+        // `find-file-up` is a runtime dep of @lenne.tech/nest-server's
+        // config loader; it's in upstream's devDeps but used at runtime.
+        if (upstreamDevDeps['find-file-up'] && !deps['find-file-up']) {
+          deps['find-file-up'] = upstreamDevDeps['find-file-up'];
+        }
+
+        // Add a script to run the local bin/migrate.js. The starter's
+        // existing migrate:* scripts are already correct for npm mode; we
+        // need them pointing at the local bin + local ts-compiler.
         if (pkg.scripts && typeof pkg.scripts === 'object') {
           const scripts = pkg.scripts as Record<string, string>;
-          for (const key of frameworkScriptKeys) {
-            delete scripts[key];
-          }
+          const migrateArgs =
+            '--store ./migrations-utils/migrate.js --migrations-dir ./migrations --compiler ts:./migrations-utils/ts-compiler.js';
+          scripts['migrate:create'] =
+            `f() { node ./bin/migrate.js create "$1" --template-file ./src/core/modules/migrate/templates/migration-project.template.ts --migrations-dir ./migrations --compiler ts:./migrations-utils/ts-compiler.js; }; f`;
+          scripts['migrate:up'] = `node ./bin/migrate.js up ${migrateArgs}`;
+          scripts['migrate:down'] = `node ./bin/migrate.js down ${migrateArgs}`;
+          scripts['migrate:list'] = `node ./bin/migrate.js list ${migrateArgs}`;
+          scripts['migrate:develop:up'] = `NODE_ENV=develop node ./bin/migrate.js up ${migrateArgs}`;
+          scripts['migrate:test:up'] = `NODE_ENV=test node ./bin/migrate.js up ${migrateArgs}`;
+          scripts['migrate:preview:up'] = `NODE_ENV=preview node ./bin/migrate.js up ${migrateArgs}`;
+          scripts['migrate:prod:up'] = `NODE_ENV=production node ./bin/migrate.js up ${migrateArgs}`;
         }
 
         filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
       }
     }
 
-    // 5. Write VENDOR.md baseline. The updater agent reads this file to
-    //    determine the current baseline version and to detect whether a
-    //    project is in vendored mode at all.
+    // ── 6. migrations-utils/ts-compiler.js bootstrap ─────────────────────
+    //
+    // The project's tsconfig.json restricts `types` to vitest/globals
+    // which hides Node globals (__dirname, require, exports). This
+    // bootstrap registers ts-node with an explicit Node-aware config.
+    // Always write it fresh in vendor mode — overwrites whatever the
+    // starter shipped (which relies on node_modules/@lenne.tech/nest-server).
+    const tsCompilerPath = `${dest}/migrations-utils/ts-compiler.js`;
+    filesystem.write(
+      tsCompilerPath,
+      [
+        '/**',
+        ' * ts-node bootstrap for the migrate CLI (vendor mode).',
+        ' *',
+        " * The project's tsconfig.json restricts `types` to vitest/globals",
+        ' * which hides Node globals (__dirname, require, exports). This',
+        ' * bootstrap registers ts-node with an explicit Node-aware config.',
+        ' */',
+        "const tsNode = require('ts-node');",
+        '',
+        'tsNode.register({',
+        '  transpileOnly: true,',
+        '  compilerOptions: {',
+        "    module: 'commonjs',",
+        "    target: 'es2022',",
+        '    esModuleInterop: true,',
+        '    experimentalDecorators: true,',
+        '    emitDecoratorMetadata: true,',
+        '    skipLibCheck: true,',
+        "    types: ['node'],",
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    );
+
+    // ── 7. tsconfig.json excludes + Node types ───────────────────────────
+    //
+    // The vendored migrate template references `from '@lenne.tech/nest-server'`
+    // as a placeholder that only makes sense in the *generated* migration
+    // file's context. Exclude it from compilation.
+    //
+    // The starter's tsconfig.json restricts `types` to `['vitest/globals']`
+    // because the shipped framework dist was pre-compiled with Node types
+    // baked in. In vendor mode we compile the framework source directly,
+    // so we MUST also load `@types/node` — otherwise types like
+    // `ScryptOptions` in core-better-auth-user.mapper.ts break the build.
+    this.widenTsconfigExcludes(`${dest}/tsconfig.json`);
+    this.widenTsconfigExcludes(`${dest}/tsconfig.build.json`);
+    this.widenTsconfigTypes(`${dest}/tsconfig.json`);
+    this.widenTsconfigTypes(`${dest}/tsconfig.build.json`);
+
+    // ── 10. VENDOR.md baseline ───────────────────────────────────────────
     const vendorMdPath = `${dest}/src/core/VENDOR.md`;
     if (!filesystem.exists(vendorMdPath)) {
       const today = new Date().toISOString().slice(0, 10);
@@ -1039,6 +1372,13 @@ export class Server {
           'node_modules shadow copy. Edit freely; log substantial changes in',
           'the "Local changes" table below so the `nest-server-core-updater`',
           'agent can classify them at sync time.',
+          '',
+          'The flatten-fix was applied during `lt fullstack init`: the',
+          'upstream `src/index.ts`, `src/core.module.ts`, `src/test/`,',
+          '`src/templates/`, `src/types/`, and `LICENSE` were moved under',
+          '`src/core/` and their relative `./core/…` specifiers were',
+          'stripped. See the init code in',
+          '`lenneTech/cli/src/extensions/server.ts#convertCloneToVendored`.',
           '',
           '## Baseline',
           '',
@@ -1067,6 +1407,137 @@ export class Server {
           '',
         ].join('\n'),
       );
+    }
+  }
+
+  /**
+   * Restores framework-core-essential dependencies that the `api-mode.manifest.json`
+   * of the starter strips when running in REST-only mode. The vendored
+   * framework core at `src/core/` always imports these packages (e.g.
+   * core-auth.module.ts imports `graphql-subscriptions`), so even a pure
+   * REST project needs them available at compile time.
+   *
+   * Pinned versions match the upstream @lenne.tech/nest-server 11.24.1
+   * manifest; when the starter is bumped the next vendor-sync will
+   * overwrite these with fresher pins.
+   */
+  protected restoreVendorCoreEssentials(dest: string): void {
+    const pkgPath = `${dest}/package.json`;
+    if (!this.filesystem.exists(pkgPath)) return;
+    const pkg = this.filesystem.read(pkgPath, 'json') as Record<string, any>;
+    if (!pkg || typeof pkg !== 'object') return;
+
+    if (!pkg.dependencies) pkg.dependencies = {};
+    const deps = pkg.dependencies as Record<string, string>;
+    const coreEssentials: Record<string, string> = {
+      'graphql-subscriptions': '3.0.0',
+      'graphql-upload': '15.0.2',
+      'json-to-graphql-query': '2.3.0',
+    };
+    for (const [name, version] of Object.entries(coreEssentials)) {
+      if (!deps[name]) {
+        deps[name] = version;
+      }
+    }
+    this.filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
+  }
+
+  /**
+   * Ensures the given tsconfig contains both `node` and `vitest/globals`
+   * in its `types` array.
+   *
+   * - `node` is required because the vendored framework source uses Node
+   *   globals / types like `ScryptOptions` (from `node:crypto`), which
+   *   the starter's compiled dist never needed.
+   * - `vitest/globals` is required because `src/core/test/test.helper.ts`
+   *   uses the global `expect` from vitest, and that file is transitively
+   *   pulled into the build via TestHelper consumers. tsconfig `exclude`
+   *   doesn't help because exclude is a non-transitive filter.
+   *
+   * Idempotent. Handles both bracketed arrays and absent keys, and
+   * leaves the file untouched if both types are already listed.
+   */
+  protected widenTsconfigTypes(tsconfigPath: string): void {
+    if (!this.filesystem.exists(tsconfigPath)) return;
+    try {
+      let raw = this.filesystem.read(tsconfigPath) || '';
+      const needed = ['node', 'vitest/globals'];
+      for (const type of needed) {
+        // Already contains this type in some types array — skip it.
+        const alreadyRegex = new RegExp(`"types"\\s*:\\s*\\[[^\\]]*"${type.replace(/\//g, '\\/')}"`);
+        if (alreadyRegex.test(raw)) continue;
+
+        const typesRegex = /("types"\s*:\s*\[)([^\]]*)(\])/;
+        if (typesRegex.test(raw)) {
+          raw = raw.replace(typesRegex, (_m, head, body, tail) => {
+            const trimmed = (body as string).trim();
+            const joiner = trimmed.length > 0 ? ', ' : '';
+            return `${head}${body}${joiner}"${type}"${tail}`;
+          });
+        } else {
+          const compilerOptionsRegex = /("compilerOptions"\s*:\s*\{)/;
+          if (compilerOptionsRegex.test(raw)) {
+            raw = raw.replace(compilerOptionsRegex, `$1\n    "types": ["${type}"],`);
+          }
+        }
+      }
+      this.filesystem.write(tsconfigPath, raw);
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * Adds the vendored migrate template file AND the vendored `src/core/test/`
+   * directory to the `exclude` array of a tsconfig (build or base).
+   *
+   * - The migrate template file is a text template that references
+   *   `@lenne.tech/nest-server` as a placeholder — only meaningful in the
+   *   *generated* migration file's context. Exclude from compilation.
+   * - `src/core/test/` contains `TestHelper`, which uses vitest globals
+   *   (`expect`, etc.) and is not intended for production dist. The
+   *   starter's `tsconfig.build.json` overrides `types` to `["node"]`,
+   *   which strips vitest globals; compiling `test.helper.ts` there
+   *   breaks. Exclude the whole `src/core/test/` subtree from the build.
+   *
+   * Handles both arrays with pre-existing entries and absent `exclude`
+   * keys. Idempotent.
+   */
+  protected widenTsconfigExcludes(tsconfigPath: string): void {
+    if (!this.filesystem.exists(tsconfigPath)) {
+      return;
+    }
+    const EXCLUDE_ENTRIES = [
+      'src/core/modules/migrate/templates/**/*.template.ts',
+      'src/core/test/**/*.ts',
+    ];
+    try {
+      // The upstream tsconfig files may contain comments — standard JSON parse
+      // breaks on them. Use a regex-based patch as a fallback.
+      let raw = this.filesystem.read(tsconfigPath) || '';
+      for (const entry of EXCLUDE_ENTRIES) {
+        if (raw.includes(entry)) continue;
+        const excludeRegex = /("exclude"\s*:\s*\[)([^\]]*)(\])/;
+        if (excludeRegex.test(raw)) {
+          raw = raw.replace(excludeRegex, (_match, head, body, tail) => {
+            const trimmed = (body as string).trim();
+            const joiner = trimmed.length > 0 ? ', ' : '';
+            return `${head}${body}${joiner}"${entry}"${tail}`;
+          });
+        } else {
+          // No exclude key at all — add one before the closing brace.
+          const lastBrace = raw.lastIndexOf('}');
+          if (lastBrace === -1) continue;
+          const before = raw.slice(0, lastBrace);
+          const after = raw.slice(lastBrace);
+          const separator = before.trimEnd().endsWith(',') || before.trimEnd().endsWith('{') ? '' : ',';
+          raw = `${before.trimEnd()}${separator}\n  "exclude": ["${entry}"]\n${after}`;
+        }
+      }
+      this.filesystem.write(tsconfigPath, raw);
+    } catch {
+      // Best-effort; the project will still work, it just may need a
+      // manual `tsconfig.json` exclude when building.
     }
   }
 
