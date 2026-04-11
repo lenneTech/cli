@@ -55,6 +55,89 @@ $ lt status
 $ lt completion install
 ```
 
+## Framework consumption modes (nest-server)
+
+When you create a new api project (`lt fullstack init` or `lt server create`),
+the CLI supports two framework consumption modes:
+
+**`npm` mode (default)** — `@lenne.tech/nest-server` is installed as an npm
+dependency. Framework source lives in `node_modules/@lenne.tech/nest-server/`.
+Imports use the bare specifier `from '@lenne.tech/nest-server'`. Update path:
+`/lt-dev:backend:update-nest-server` (Claude Code agent).
+
+**`vendor` mode** — The framework's `core/` directory is copied directly into
+`<api>/src/core/` as first-class project code. No `@lenne.tech/nest-server`
+npm dependency. Generated imports use relative paths (`from '../../../core'`).
+Local patches are allowed and tracked in `src/core/VENDOR.md`. Update path:
+`/lt-dev:backend:update-nest-server-core` (Claude Code agent).
+
+### Creating projects
+
+```bash
+# npm mode (classic, default)
+$ lt fullstack init --name myapp --frontend nuxt --api-mode Rest
+
+# vendor mode, HEAD of upstream
+$ lt fullstack init --name myapp --frontend nuxt --api-mode Rest \
+    --framework-mode vendor
+
+# vendor mode, pinned to a specific upstream branch or tag
+$ lt fullstack init --name myapp --framework-mode vendor \
+    --framework-upstream-branch 11.24.1
+
+# dry-run: print the plan without touching the filesystem
+$ lt fullstack init --name myapp --framework-mode vendor --dry-run --noConfirm
+
+# standalone api project (vendor mode works here too)
+$ lt server create --name myapp --framework-mode vendor
+```
+
+### Working on an existing project
+
+All `lt server …` commands (module, object, addProp, test, permissions)
+**auto-detect** the framework mode via `src/core/VENDOR.md` and generate
+the correct import syntax automatically. You never pass `--framework-mode`
+after `init`; it is persisted in the project's `lt.config.json`.
+
+```bash
+# inside projects/api — generates relative or bare imports automatically
+$ lt server module --name Product --controller Rest
+
+# shows the mode + project type
+$ lt status
+
+# prints the mode-specific update instructions
+$ lt fullstack update
+```
+
+### Vendor-mode housekeeping
+
+Vendor-mode projects ship three maintenance scripts under `scripts/vendor/`:
+
+| Script | Purpose | Invocation |
+|---|---|---|
+| `check-vendor-freshness.mjs` | Non-blocking warning when upstream has a newer release than the current baseline | `pnpm run check:vendor-freshness` (auto-invoked by `pnpm run check` / `check:fix` / `check:naf`) |
+| `sync-from-upstream.ts` | Diff generator consumed by the `nest-server-core-updater` Claude Code agent | `pnpm run vendor:sync` |
+| `propose-upstream-pr.ts` | Patch-list generator consumed by the `nest-server-core-contributor` agent | `pnpm run vendor:propose-upstream` |
+
+The vendor-mode baseline (upstream version + commit SHA) is recorded in
+`src/core/VENDOR.md`. Log any substantial local patch there so the updater
+agent can classify it at sync time.
+
+### Integration test
+
+A full end-to-end smoke test for all four supported init combinations
+(`npm/Rest`, `vendor/Rest`, `vendor/GraphQL`, `vendor/Both`) ships with the
+CLI:
+
+```bash
+$ pnpm run test:vendor-init
+```
+
+Each scenario runs init → module → object → addProp → test → tsc → build →
+migrate:list and asserts ~30 structural + functional invariants per scenario.
+Run this before releasing a new CLI version to catch upstream drift early.
+
 ## Configuration
 
 The CLI supports project-specific configuration via `lt.config` files. This allows you to set default values for commands, reducing repetitive input.

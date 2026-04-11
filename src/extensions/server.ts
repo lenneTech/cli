@@ -685,6 +685,14 @@ export class Server {
       branch?: string;
       copyPath?: string;
       description?: string;
+      /**
+       * Framework consumption mode. See `setupServerForFullstack` for the
+       * full explanation; the semantics here are identical — standalone
+       * `lt server create` now supports vendor mode too.
+       */
+      frameworkMode?: 'npm' | 'vendor';
+      /** Branch, tag or commit of upstream nest-server in vendor mode. */
+      frameworkUpstreamBranch?: string;
       linkPath?: string;
       name: string;
       projectDir: string;
@@ -699,6 +707,8 @@ export class Server {
       branch,
       copyPath,
       description = '',
+      frameworkMode = 'npm',
+      frameworkUpstreamBranch,
       linkPath,
       name,
       projectDir,
@@ -778,12 +788,46 @@ export class Server {
       this.filesystem.remove(`${dest}/yalc.lock`);
     }
 
+    // Vendor-mode transformation — identical to setupServerForFullstack, so
+    // a standalone `lt server create --framework-mode vendor` produces the
+    // same project layout as `lt fullstack init --framework-mode vendor`.
+    // Essentials list is captured BEFORE processApiMode deletes the
+    // manifest (same dance as in setupServerForFullstack).
+    let standaloneVendorUpstreamDeps: Record<string, string> = {};
+    let standaloneVendorCoreEssentials: string[] = [];
+    if (frameworkMode === 'vendor') {
+      try {
+        const converted = await this.convertCloneToVendored({
+          dest,
+          projectName: name,
+          upstreamBranch: frameworkUpstreamBranch,
+        });
+        standaloneVendorUpstreamDeps = converted.upstreamDeps;
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
+      standaloneVendorCoreEssentials = this.readApiModeGraphqlEssentials(dest);
+    }
+
     // Process API mode (before install so package.json is correct)
     if (apiMode) {
       try {
         await apiModeHelper.processApiMode(dest, apiMode);
       } catch (err) {
         return { method: result.method, path: dest, success: false };
+      }
+    }
+
+    // Restore core essentials after processApiMode stripped them (vendor + REST only).
+    if (frameworkMode === 'vendor' && apiMode === 'Rest') {
+      try {
+        this.restoreVendorCoreEssentials({
+          dest,
+          essentials: standaloneVendorCoreEssentials,
+          upstreamDeps: standaloneVendorUpstreamDeps,
+        });
+      } catch {
+        // Non-fatal.
       }
     }
 
@@ -1022,8 +1066,31 @@ export class Server {
     try {
       await system.run(`git clone --depth 1 ${branchArg}${upstreamRepoUrl} ${tmpClone}`);
     } catch (err) {
+      // Clone failures usually boil down to one of four causes — network,
+      // auth, unknown ref, or a pre-existing tmp dir. Give the user a
+      // pointed error message rather than the raw `git clone` stderr.
+      const raw = (err as Error).message || '';
+      const hints: string[] = [];
+      if (/Could not resolve host|getaddrinfo|ECONNREFUSED|Network is unreachable/i.test(raw)) {
+        hints.push('Network issue reaching github.com — check your connection or proxy settings.');
+      }
+      if (/Permission denied|authentication failed|publickey|403|401/i.test(raw)) {
+        hints.push('Authentication issue — the CLI uses an anonymous HTTPS clone; verify GitHub is reachable.');
+      }
+      if (upstreamBranch && /Remote branch .* not found|did not match any file\(s\) known to git/i.test(raw)) {
+        hints.push(
+          `Upstream ref "${upstreamBranch}" does not exist. Check ${upstreamRepoUrl}/tags or /branches for valid refs. ` +
+            'Note: nest-server tags have NO "v" prefix — use e.g. "11.24.1", not "v11.24.1".',
+        );
+      }
+      if (/already exists and is not an empty/i.test(raw)) {
+        hints.push(
+          `Target directory ${tmpClone} already exists. This usually indicates a stale previous run — rm -rf /tmp/lt-vendor-nest-server-* and retry.`,
+        );
+      }
+      const hintBlock = hints.length > 0 ? `\n  Hints:\n    - ${hints.join('\n    - ')}` : '';
       throw new Error(
-        `Failed to clone ${upstreamRepoUrl}${upstreamBranch ? ` (branch/tag: ${upstreamBranch})` : ''}: ${(err as Error).message}`,
+        `Failed to clone ${upstreamRepoUrl}${upstreamBranch ? ` (branch/tag: ${upstreamBranch})` : ''}.\n  Raw git error: ${raw.trim()}${hintBlock}`,
       );
     }
 

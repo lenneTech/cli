@@ -70,6 +70,10 @@ const NewCommand: GluegunCommand = {
     const configCopy = ltConfig?.commands?.server?.create?.copy;
     const configLink = ltConfig?.commands?.server?.create?.link;
     const configApiMode = ltConfig?.commands?.server?.create?.apiMode;
+    const configFrameworkMode = ltConfig?.commands?.server?.create?.frameworkMode as
+      | 'npm'
+      | 'vendor'
+      | undefined;
 
     // Load global defaults
     const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
@@ -84,6 +88,10 @@ const NewCommand: GluegunCommand = {
     const cliCopy = parameters.options.copy || parameters.options.c;
     const cliLink = parameters.options.link;
     const cliApiMode = parameters.options['api-mode'] || parameters.options.apiMode;
+    const cliFrameworkMode = parameters.options['framework-mode'] as 'npm' | 'vendor' | undefined;
+    const cliFrameworkUpstreamBranch = parameters.options['framework-upstream-branch'] as
+      | string
+      | undefined;
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
     const noConfirm = config.getNoConfirm({
@@ -193,6 +201,38 @@ const NewCommand: GluegunCommand = {
       apiMode = apiModeChoice.apiMode.split(' - ')[0] as 'Both' | 'GraphQL' | 'Rest';
     }
 
+    // Determine framework consumption mode — same resolution cascade as
+    // lt fullstack init: CLI flag > lt.config > interactive (default npm).
+    let frameworkMode: 'npm' | 'vendor';
+    if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
+      frameworkMode = cliFrameworkMode;
+    } else if (cliFrameworkMode) {
+      error(`Invalid --framework-mode value "${cliFrameworkMode}". Use "npm" or "vendor".`);
+      return;
+    } else if (configFrameworkMode === 'npm' || configFrameworkMode === 'vendor') {
+      frameworkMode = configFrameworkMode;
+      info(`Using framework mode from lt.config: ${frameworkMode}`);
+    } else if (noConfirm) {
+      frameworkMode = 'npm';
+    } else {
+      const frameworkModeChoice = await ask({
+        choices: [
+          'npm    - @lenne.tech/nest-server as npm dependency (classic, stable)',
+          'vendor - framework core vendored into src/core/ (pilot, allows local patches)',
+        ],
+        initial: 0,
+        message: 'Framework consumption mode?',
+        name: 'frameworkMode',
+        type: 'select',
+      });
+      frameworkMode = frameworkModeChoice.frameworkMode.startsWith('vendor') ? 'vendor' : 'npm';
+    }
+
+    const frameworkUpstreamBranch =
+      typeof cliFrameworkUpstreamBranch === 'string' && cliFrameworkUpstreamBranch.length > 0
+        ? cliFrameworkUpstreamBranch
+        : undefined;
+
     // Setup server using Server extension
     const setupSpinner = spin(
       `Setting up server${linkPath ? ' (link)' : copyPath ? ' (copy)' : branch ? ` (branch: ${branch})` : ''}`,
@@ -204,6 +244,8 @@ const NewCommand: GluegunCommand = {
       branch,
       copyPath,
       description,
+      frameworkMode,
+      frameworkUpstreamBranch,
       linkPath,
       name,
       projectDir,

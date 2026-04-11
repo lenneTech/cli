@@ -606,6 +606,13 @@ export interface LtConfig {
         description?: string;
 
         /**
+         * Framework consumption mode for the backend — same semantics as
+         * in `commands.fullstack.frameworkMode`. Default: `"npm"`.
+         * @example "npm" | "vendor"
+         */
+        frameworkMode?: 'npm' | 'vendor';
+
+        /**
          * Initialize git for new server projects
          */
         git?: boolean;

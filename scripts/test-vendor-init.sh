@@ -285,6 +285,77 @@ run_scenario() {
   (cd "${api_dir}" && pnpm exec tsc --noEmit >/dev/null 2>&1) \
     && pass "tsc --noEmit still clean after generation" \
     || fail "tsc --noEmit errors after generation"
+
+  # 9. lt fullstack update should detect the mode correctly
+  local update_output
+  update_output=$((cd "${api_dir}" && "${CLI_BIN}" fullstack update 2>&1) || true)
+  if [[ "${framework_mode}" == "vendor" ]]; then
+    if echo "${update_output}" | grep -q "Vendor-mode update flow"; then
+      pass "lt fullstack update detects vendor mode"
+    else
+      fail "lt fullstack update did not detect vendor mode"
+    fi
+  else
+    if echo "${update_output}" | grep -q "npm-mode update flow"; then
+      pass "lt fullstack update detects npm mode"
+    else
+      fail "lt fullstack update did not detect npm mode"
+    fi
+  fi
+
+  # 10. lt status should report the correct framework mode
+  local status_output
+  status_output=$((cd "${api_dir}" && "${CLI_BIN}" status 2>&1) || true)
+  if [[ "${framework_mode}" == "vendor" ]]; then
+    if echo "${status_output}" | grep -q "Framework: vendor"; then
+      pass "lt status reports vendor mode"
+    else
+      fail "lt status did not report vendor mode"
+    fi
+  else
+    if echo "${status_output}" | grep -q "Framework: npm"; then
+      pass "lt status reports npm mode"
+    else
+      fail "lt status did not report npm mode"
+    fi
+  fi
+}
+
+# ── Dry-run check (fast) ────────────────────────────────────────────────
+
+run_dry_run_check() {
+  section "Dry-run check (no init)"
+  local out
+  out=$((cd "${WORK_DIR}" && "${CLI_BIN}" fullstack init \
+      --name dry-check \
+      --frontend nuxt \
+      --api-mode Rest \
+      --framework-mode vendor \
+      --framework-upstream-branch 11.24.1 \
+      --dry-run \
+      --noConfirm 2>&1) || true)
+  if echo "${out}" | grep -q "Dry-run plan"; then
+    pass "dry-run prints plan"
+  else
+    fail "dry-run did not print plan"
+  fi
+  if echo "${out}" | grep -q "frameworkUpstreamBranch:.*11.24.1"; then
+    pass "dry-run shows framework-upstream-branch"
+  else
+    fail "dry-run does not show framework-upstream-branch"
+  fi
+  if echo "${out}" | grep -q "vendor core/ + flatten-fix"; then
+    pass "dry-run lists vendor-specific operations"
+  else
+    fail "dry-run does not list vendor-specific operations"
+  fi
+  # Should not have created anything on disk
+  if [[ -d "${WORK_DIR}/dry-check" ]]; then
+    fail "dry-run created directory (should not)"
+    rm -rf "${WORK_DIR}/dry-check"
+  else
+    pass "dry-run did not touch the filesystem"
+  fi
 }
 
 # ── Run ─────────────────────────────────────────────────────────────────
@@ -296,6 +367,7 @@ if [[ -n "${SCENARIO_FILTER}" ]]; then
   echo "  Filter:     ${SCENARIO_FILTER}"
 fi
 
+run_dry_run_check
 run_scenario "npm-rest"        "npm"    "Rest"
 run_scenario "vendor-rest"     "vendor" "Rest"
 run_scenario "vendor-graphql"  "vendor" "GraphQL"
