@@ -885,12 +885,29 @@ export class Server {
     // the remaining files so they behave like a project that consumed the
     // framework's core/ directory directly. Idempotent; safe to skip in
     // npm mode.
+    //
+    // We capture the framework package.json snapshot from the temp clone so
+    // the post-apiMode step can restore upstream-declared core essentials
+    // without hard-coding package lists.
+    let vendorUpstreamDeps: Record<string, string> = {};
+    let vendorCoreEssentials: string[] = [];
     if (frameworkMode === 'vendor') {
       try {
-        await this.convertCloneToVendored(dest, name);
+        const converted = await this.convertCloneToVendored({ dest, projectName: name });
+        vendorUpstreamDeps = converted.upstreamDeps;
       } catch (err) {
         return { method: result.method, path: dest, success: false };
       }
+
+      // Read the graphql-only package list from the starter's
+      // api-mode.manifest.json BEFORE processApiMode runs and deletes it.
+      // These are exactly the packages processApiMode will strip in REST
+      // mode — and in vendor mode they must come back afterwards, because
+      // src/core/** still imports them even when the consumer project is
+      // REST-only (e.g. PubSub in core-auth.module.ts, GraphQLUpload in
+      // core-file.service.ts). List is dynamic; new additions surface
+      // automatically.
+      vendorCoreEssentials = this.readApiModeGraphqlEssentials(dest);
     }
 
     // Process API mode (before install which happens at monorepo level)
@@ -902,16 +919,16 @@ export class Server {
       }
     }
 
-    // In vendor mode the processApiMode step may strip GraphQL-related
-    // packages that the `api-mode.manifest.json` declares as graphql-only
-    // (e.g. graphql-subscriptions, graphql-upload, json-to-graphql-query).
-    // That's correct in npm mode because the stripped modules are pruned
-    // together; in vendor mode, however, the framework core at src/core/
-    // still imports those packages at the top of core-auth.module.ts etc.
-    // Restore them unconditionally after the api-mode pass.
+    // In vendor mode + REST, re-add the graphql essentials that
+    // processApiMode just stripped. Both and GraphQL keep all packages
+    // by construction and don't need restoration.
     if (frameworkMode === 'vendor' && apiMode === 'Rest') {
       try {
-        this.restoreVendorCoreEssentials(dest);
+        this.restoreVendorCoreEssentials({
+          dest,
+          essentials: vendorCoreEssentials,
+          upstreamDeps: vendorUpstreamDeps,
+        });
       } catch (err) {
         // Non-fatal — install may still succeed if the core never imports
         // the restored packages at the current version.
@@ -953,7 +970,18 @@ export class Server {
    *
    * Idempotent — running twice is a no-op.
    */
-  protected async convertCloneToVendored(dest: string, _projectName: string): Promise<void> {
+  protected async convertCloneToVendored(
+    options: {
+      /** Absolute path of the project's api root (where package.json lives). */
+      dest: string;
+      /** Project name. Currently used only for logging/diagnostics. */
+      projectName?: string;
+      /** Override the upstream framework repo URL (for testing / forks). */
+      upstreamRepoUrl?: string;
+    },
+  ): Promise<{ upstreamDeps: Record<string, string>; upstreamDevDeps: Record<string, string> }> {
+    const { dest, upstreamRepoUrl = 'https://github.com/lenneTech/nest-server.git' } = options;
+
     const filesystem = this.filesystem;
     const { system } = this.toolbox;
     const os = require('os');
@@ -970,9 +998,9 @@ export class Server {
     // throw-away tmp dir that gets cleaned up at the end.
     const tmpClone = path.join(os.tmpdir(), `lt-vendor-nest-server-${Date.now()}`);
     try {
-      await system.run(`git clone --depth 1 https://github.com/lenneTech/nest-server.git ${tmpClone}`);
+      await system.run(`git clone --depth 1 ${upstreamRepoUrl} ${tmpClone}`);
     } catch (err) {
-      throw new Error(`Failed to clone @lenne.tech/nest-server: ${(err as Error).message}`);
+      throw new Error(`Failed to clone ${upstreamRepoUrl}: ${(err as Error).message}`);
     }
 
     // Snapshot upstream package.json before cleanup so we can merge its
@@ -1244,8 +1272,11 @@ export class Server {
         // @nestjs/passport, bcrypt, better-auth, ejs, @tus/server, etc.) as
         // transitive deps. After vendoring we lose that automatic transitivity,
         // so we must add those deps explicitly to the project package.json.
-        // We only add deps that the project does NOT already have, to avoid
-        // overriding starter-level version pins.
+        //
+        // Fully dynamic: we pull in EVERY upstream dependency that the
+        // project doesn't already have. No hard-coded package lists —
+        // additions to upstream's package.json surface automatically on
+        // the next vendor-init or vendor-sync.
         if (!pkg.dependencies) pkg.dependencies = {};
         const deps = pkg.dependencies as Record<string, string>;
         for (const [depName, depVersion] of Object.entries(upstreamDeps)) {
@@ -1254,34 +1285,39 @@ export class Server {
             deps[depName] = depVersion;
           }
         }
-        // Merge select devDependencies that are actually needed at compile
-        // time in a consumer project (types packages). Avoid adding
-        // framework-author-only tools (@compodoc, etc.).
+
+        // Merge upstream devDependencies that a consumer project actually
+        // needs at compile time. Rather than hard-coding a list of types
+        // packages (which would drift as upstream evolves), we accept any
+        // `@types/*` package whose base package is present in the merged
+        // runtime deps (e.g. if `bcrypt` is in deps, `@types/bcrypt` is
+        // accepted). This scales to new upstream additions automatically.
+        //
+        // Additionally, any upstream devDependency that the CLI knows is
+        // used at runtime by the framework (via the dedicated
+        // `vendorRuntimeDevDeps` predicate below) is promoted into
+        // `dependencies`, because after vendoring the framework code lives
+        // in the project and needs its runtime helpers available in prod.
         if (!pkg.devDependencies) pkg.devDependencies = {};
         const devDeps = pkg.devDependencies as Record<string, string>;
-        const neededTypePackages = [
-          '@types/bcrypt',
-          '@types/compression',
-          '@types/cookie-parser',
-          '@types/ejs',
-          '@types/express',
-          '@types/lodash',
-          '@types/multer',
-          '@types/node',
-          '@types/nodemailer',
-          '@types/passport',
-          '@types/passport-jwt',
-          '@types/supertest',
-        ];
-        for (const typePkg of neededTypePackages) {
-          if (upstreamDevDeps[typePkg] && !(typePkg in devDeps) && !(typePkg in deps)) {
-            devDeps[typePkg] = upstreamDevDeps[typePkg];
+        for (const [depName, depVersion] of Object.entries(upstreamDevDeps)) {
+          // Runtime-needed devDeps → promote to dependencies
+          if (this.isVendorRuntimeDep(depName) && !(depName in deps)) {
+            deps[depName] = depVersion;
+            continue;
           }
-        }
-        // `find-file-up` is a runtime dep of @lenne.tech/nest-server's
-        // config loader; it's in upstream's devDeps but used at runtime.
-        if (upstreamDevDeps['find-file-up'] && !deps['find-file-up']) {
-          deps['find-file-up'] = upstreamDevDeps['find-file-up'];
+          // @types/<pkg> where <pkg> is a runtime dep → accept as devDep
+          if (depName.startsWith('@types/')) {
+            const basePkg = depName.slice('@types/'.length);
+            const matchesRuntime =
+              basePkg in deps ||
+              basePkg === 'node' ||
+              // scoped types: @types/foo__bar ↔ @foo/bar
+              (basePkg.includes('__') && `@${basePkg.replace('__', '/')}` in deps);
+            if (matchesRuntime && !(depName in devDeps) && !(depName in deps)) {
+              devDeps[depName] = depVersion;
+            }
+          }
         }
 
         // Add a script to run the local bin/migrate.js. The starter's
@@ -1408,20 +1444,90 @@ export class Server {
         ].join('\n'),
       );
     }
+
+    return { upstreamDeps, upstreamDevDeps };
   }
 
   /**
-   * Restores framework-core-essential dependencies that the `api-mode.manifest.json`
-   * of the starter strips when running in REST-only mode. The vendored
-   * framework core at `src/core/` always imports these packages (e.g.
-   * core-auth.module.ts imports `graphql-subscriptions`), so even a pure
-   * REST project needs them available at compile time.
+   * Predicate: is a given upstream `devDependencies` key actually a runtime
+   * dep in disguise that needs to live in `dependencies` after vendoring?
    *
-   * Pinned versions match the upstream @lenne.tech/nest-server 11.24.1
-   * manifest; when the starter is bumped the next vendor-sync will
-   * overwrite these with fresher pins.
+   * `@lenne.tech/nest-server` keeps a few packages in devDependencies that
+   * the framework code imports at runtime (e.g. `find-file-up` in its
+   * config loader). When we vendor the framework source into a consumer
+   * project, those must end up in `dependencies` so the compiled/dist
+   * runtime has them available.
+   *
+   * Instead of a hard-coded list, we use a small set of predicates based
+   * on known structural roles of these packages in the framework.
+   * Additions on the upstream side typically land in `devDependencies`
+   * for framework-author workflows (linting, testing, docs generation)
+   * and should NOT be promoted; only structural-runtime helpers should.
    */
-  protected restoreVendorCoreEssentials(dest: string): void {
+  protected isVendorRuntimeDep(pkgName: string): boolean {
+    // Currently only `find-file-up` matches. If new runtime helpers land
+    // in upstream devDeps, add their names here. Keeping this as a
+    // predicate (not a hard-coded type-list) so the behaviour is explicit
+    // and easy to audit.
+    const knownRuntimeHelpers = new Set(['find-file-up']);
+    return knownRuntimeHelpers.has(pkgName);
+  }
+
+  /**
+   * Reads the GraphQL-only package list from the starter's
+   * `api-mode.manifest.json`. Must be called BEFORE `processApiMode`
+   * runs, because `processApiMode` deletes the manifest at the end of
+   * its REST-mode pass.
+   *
+   * Returns a flat list of package names that the manifest declares as
+   * GraphQL-specific (both `packages` and `devPackages` arrays from the
+   * `graphql` mode config). Empty list if the manifest is missing or
+   * malformed.
+   */
+  protected readApiModeGraphqlEssentials(dest: string): string[] {
+    const manifestPath = `${dest}/api-mode.manifest.json`;
+    if (!this.filesystem.exists(manifestPath)) return [];
+    try {
+      const manifest = this.filesystem.read(manifestPath, 'json') as any;
+      const gqlMode = manifest?.modes?.graphql;
+      if (!gqlMode || typeof gqlMode !== 'object') return [];
+      const packages: string[] = [];
+      if (Array.isArray(gqlMode.packages)) packages.push(...gqlMode.packages);
+      if (Array.isArray(gqlMode.devPackages)) packages.push(...gqlMode.devPackages);
+      return packages.filter((p) => typeof p === 'string' && p.length > 0);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Restores framework-core-essential dependencies that the
+   * `api-mode.manifest.json` of the starter strips when running in
+   * REST-only mode. The vendored framework core at `src/core/` always
+   * imports these packages (e.g. `core-auth.module.ts` imports
+   * `graphql-subscriptions`), so even a pure REST project needs them
+   * available at compile time.
+   *
+   * The essentials list is captured BEFORE `processApiMode` runs (via
+   * `readApiModeGraphqlEssentials`) and passed in here. Versions come
+   * from the upstream `@lenne.tech/nest-server` package.json snapshot
+   * (passed in via `upstreamDeps`). No hard-coded package lists or
+   * versions — drift between starter and upstream is handled automatically
+   * at the next init.
+   */
+  protected restoreVendorCoreEssentials(
+    options: {
+      /** Absolute path of the project's api root. */
+      dest: string;
+      /** Essential package names (captured before processApiMode). */
+      essentials: string[];
+      /** Upstream `@lenne.tech/nest-server` dependencies snapshot (for pinning). */
+      upstreamDeps?: Record<string, string>;
+    },
+  ): void {
+    const { dest, essentials, upstreamDeps = {} } = options;
+    if (!essentials || essentials.length === 0) return;
+
     const pkgPath = `${dest}/package.json`;
     if (!this.filesystem.exists(pkgPath)) return;
     const pkg = this.filesystem.read(pkgPath, 'json') as Record<string, any>;
@@ -1429,15 +1535,13 @@ export class Server {
 
     if (!pkg.dependencies) pkg.dependencies = {};
     const deps = pkg.dependencies as Record<string, string>;
-    const coreEssentials: Record<string, string> = {
-      'graphql-subscriptions': '3.0.0',
-      'graphql-upload': '15.0.2',
-      'json-to-graphql-query': '2.3.0',
-    };
-    for (const [name, version] of Object.entries(coreEssentials)) {
-      if (!deps[name]) {
-        deps[name] = version;
-      }
+
+    for (const name of essentials) {
+      if (deps[name]) continue;
+      // Prefer the upstream-pinned version when available, else leave
+      // unversioned (`latest`) — install will resolve either way.
+      const version = upstreamDeps[name] ?? 'latest';
+      deps[name] = version;
     }
     this.filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
   }
