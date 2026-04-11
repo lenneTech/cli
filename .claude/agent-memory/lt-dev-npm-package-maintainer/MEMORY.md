@@ -33,6 +33,8 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 - `open` package is imported via dynamic `import('open')` - not detected by static grep; it IS used at runtime
 - `ts-node` is a runtime dependency (required in `bin/lt` for dev mode) - keep in `dependencies`
 - `typescript` is a runtime dependency (imported in `src/extensions/server.ts`) - keep in `dependencies`
+- `axios` IS used directly in `src/lib/nuxt-base-components.ts` - must be a direct `dependencies` entry (not just transitive)
+- `ejs` IS used directly in `src/commands/completion.ts` - must be a direct `dependencies` entry (not just transitive via gluegun)
 
 ### Remaining Overrides (still needed)
 - `semver@*: 7.7.4` - force latest semver across all sub-deps (gluegun@5.2.2 bundles semver 7.7.0 without override)
@@ -41,7 +43,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 - `flatted@*: 3.4.2` - REMOVED (2026-04-04): flatted 3.4.2 is now the latest stable version AND what npm naturally resolves for `^3.2.9`; the override was redundant.
 
 ### Pre-existing Test Failure (do NOT fix)
-- None currently (all 126 tests passing as of 2026-04-04)
+- None currently (all 137 tests passing as of 2026-04-11)
 
 ### Husky Hooks
 - `.husky/pre-commit`: sync-version + lint
