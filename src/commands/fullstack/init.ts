@@ -356,6 +356,7 @@ const NewCommand: GluegunCommand = {
           .replace(/\{\{PROJECT_NAME\}\}/g, () => name)
           .replace(/\{\{PROJECT_DIR\}\}/g, () => projectDir)
           .replace(/\{\{API_MODE\}\}/g, () => apiMode)
+          .replace(/\{\{FRAMEWORK_MODE\}\}/g, () => frameworkMode)
           .replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendName),
       );
     }

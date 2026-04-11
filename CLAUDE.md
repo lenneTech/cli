@@ -92,6 +92,51 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
 **IMPORTANT: Use EJS templates for multi-line output**, not string arrays.
 - Templates location: `src/templates/`
 - See @src/templates/completion/ for examples
+- `src/templates/vendor-scripts/` ships three scripts
+  (`check-vendor-freshness.mjs`, `sync-from-upstream.ts`,
+  `propose-upstream-pr.ts`) that are copied verbatim into vendor-mode
+  projects during `convertCloneToVendored`. They are **NOT** linted by
+  the CLI's own ESLint (see `eslint.config.mjs` ignores).
+
+### Vendor vs npm mode — key touchpoints
+
+Backend api projects created by the CLI run in one of two framework
+consumption modes. Every code path that generates or reads framework
+source code must be mode-aware:
+
+| Concern | File | Notes |
+|---|---|---|
+| Detection | `src/lib/framework-detection.ts` | `isVendoredProject()`, `detectFrameworkMode()`, `getFrameworkImportSpecifier()`, `getFrameworkRootPath()`, `findProjectDir()` |
+| Init (fullstack) | `src/commands/fullstack/init.ts` | `--framework-mode npm\|vendor`, `--framework-upstream-branch`, `--dry-run`; resolves mode and plumbs to `setupServerForFullstack` |
+| Init (standalone) | `src/commands/server/create.ts` | Same flags; plumbs to `setupServer` |
+| Vendor transform | `src/extensions/server.ts#convertCloneToVendored` | Clones upstream nest-server, flatten-fixes core, rewrites consumer imports (ts-morph), merges deps dynamically, writes VENDOR.md, copies vendor scripts, hooks check:vendor-freshness |
+| Vendor core essentials | `src/extensions/server.ts#restoreVendorCoreEssentials` | Restores graphql-* deps after processApiMode REST strips them |
+| Runtime-helper config | `src/config/vendor-runtime-deps.json` | Upstream devDeps that must be promoted to dependencies (e.g. `find-file-up`) |
+| Template imports | `src/templates/nest-server-{module,object,tests}/*.ejs` | All use `<%= props.frameworkImport %>` placeholder — the generator computes the correct relative path per file |
+| Generators | `src/commands/server/{module,object,test,add-property}.ts` | Inject `frameworkImport` via `importFor(target)` helper; `add-property` looks up existing imports by both specifier forms |
+| Permissions scanner | `src/commands/server/permissions.ts` | `loadScanner()` falls back to `dist/src/core/modules/permissions/` in vendor mode |
+| Update command | `src/commands/fullstack/update.ts` | Detects mode and prints the correct `/lt-dev:backend:…` agent entry point |
+| Status command | `src/commands/status.ts` | Reports `Framework: npm (...)` or `Framework: vendor (src/core/, VENDOR.md)` |
+| Integration test | `scripts/test-vendor-init.sh` | 4 scenarios × ~27 assertions each + dry-run pre-check = 108 total |
+
+**Golden rule:** Never hard-code `'@lenne.tech/nest-server'` as a
+specifier in generated code or `node_modules/@lenne.tech/nest-server/`
+as a path in command logic. Always derive the specifier via
+`getFrameworkImportSpecifier(projectDir, sourceFilePath)` and the root
+path via `getFrameworkRootPath(projectDir)`.
+
+**When adding a new `lt server` subcommand:** read existing generators
+(`module.ts`, `object.ts`, `test.ts`) first — they already do the
+mode detection + import-specifier computation correctly. Copy the
+`importFor = (target: string) => getFrameworkImportSpecifier(path, target)`
+pattern and inject `frameworkImport` into every `template.generate`
+props block.
+
+**Regression safety:** before releasing a new CLI version, run
+`pnpm run test:vendor-init` to verify all 4 init scenarios still pass.
+The script creates fresh projects in `/tmp/lt-it/*`, runs the full
+init → generate → tsc → build → migrate:list pipeline, and asserts
+108 invariants. Runs in ~15-20 minutes on a decent machine.
 
 ---
 
