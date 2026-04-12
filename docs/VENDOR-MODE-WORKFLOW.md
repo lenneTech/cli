@@ -1,90 +1,90 @@
 # Vendor-Mode Workflow — Step-by-Step
 
-Praktische Anleitung für die Überführung eines lenne.tech Fullstack-Projekts vom **npm-Mode** in den **Vendor-Mode**, das Update und die optionale Rückführung.
+Practical guide for converting a lenne.tech fullstack project from **npm mode** to **vendor mode**, updating it, and optionally rolling back.
 
-**Kurz:** Im Vendor-Mode wird der Framework-Code (`@lenne.tech/nest-server`, `@lenne.tech/nuxt-extensions`) direkt ins Projekt kopiert (`src/core/` bzw. `app/core/`), statt via npm installiert.
+**In short:** In vendor mode the framework code (`@lenne.tech/nest-server`, `@lenne.tech/nuxt-extensions`) is copied directly into the project (`src/core/` and `app/core/`) instead of being installed via npm.
 
-> **Ausführliche Referenz**: Alle Commands und Hintergründe findest du im [LT-ECOSYSTEM-GUIDE](./LT-ECOSYSTEM-GUIDE.md).
+> **Complete reference**: All commands and background information can be found in the [LT-ECOSYSTEM-GUIDE](./LT-ECOSYSTEM-GUIDE.md).
 
 ---
 
-## Inhaltsverzeichnis
+## Table of Contents
 
-- [Voraussetzungen](#voraussetzungen)
-- [Teil 1: npm → Vendor überführen](#teil-1-npm--vendor-überführen)
-- [Teil 2: Vendor-Mode updaten](#teil-2-vendor-mode-updaten)
-- [Teil 3: Vendor → npm zurückführen](#teil-3-vendor--npm-zurückführen)
+- [Prerequisites](#prerequisites)
+- [Part 1: Convert npm → vendor](#part-1-convert-npm--vendor)
+- [Part 2: Update in vendor mode](#part-2-update-in-vendor-mode)
+- [Part 3: Roll back vendor → npm](#part-3-roll-back-vendor--npm)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
-## Voraussetzungen
+## Prerequisites
 
-Bevor du startest, stelle sicher:
+Before you start, make sure:
 
 | Check | Command |
 |-------|---------|
-| lt CLI installiert | `lt --version` |
-| Claude Code mit lt-dev Plugin | `/lt-dev:plugin:check` |
-| Projekt ist ein Fullstack-Monorepo | Verzeichnisse `projects/api/` und `projects/app/` existieren |
-| Arbeitsverzeichnis ist clean | `git status` zeigt keine uncommitted changes |
-| Du bist auf einem Feature-Branch | `git checkout -b feature/vendor-mode` |
+| lt CLI installed | `lt --version` |
+| Claude Code with lt-dev plugin | `/lt-dev:plugin:check` |
+| Project is a fullstack monorepo | Directories `projects/api/` and `projects/app/` exist |
+| Working tree is clean | `git status` shows no uncommitted changes |
+| You are on a feature branch | `git checkout -b feature/vendor-mode` |
 
 ---
 
-## Teil 1: npm → Vendor überführen
+## Part 1: Convert npm → vendor
 
-### Schritt 1: Status prüfen
+### Step 1: Check status
 
 **Command:**
 ```bash
 lt status
 ```
 
-**Was passiert:** Zeigt den aktuellen Framework-Modus für Backend und Frontend. Du erwartest jetzt `npm (@lenne.tech/nest-server dependency)` und `npm (@lenne.tech/nuxt-extensions dependency)`.
+**What happens:** Shows the current framework mode for backend and frontend. You expect to see `npm (@lenne.tech/nest-server dependency)` and `npm (@lenne.tech/nuxt-extensions dependency)`.
 
 ---
 
-### Schritt 2: Dry-Run — Plan anzeigen
+### Step 2: Dry-run — show plan
 
-**Command (vom Monorepo-Root):**
+**Command (from monorepo root):**
 ```bash
 lt fullstack convert-mode --to vendor --dry-run
 ```
 
-**Was passiert:** Die CLI scannt `projects/api/` und `projects/app/`, erkennt die aktuellen Modi, und zeigt **was passieren würde**, ohne irgendetwas zu ändern. Prüfe die Ausgabe:
-- Beide Subprojekte als `npm → vendor`
-- Upstream-Versionen werden auto-detected aus den jeweiligen `package.json`
+**What happens:** The CLI scans `projects/api/` and `projects/app/`, detects the current modes, and shows **what would happen** without making any changes. Verify the output:
+- Both subprojects as `npm → vendor`
+- Upstream versions are auto-detected from the respective `package.json` files
 
 ---
 
-### Schritt 3: Konvertierung ausführen
+### Step 3: Run the conversion
 
 **Command:**
 ```bash
 lt fullstack convert-mode --to vendor --noConfirm
 ```
 
-**Was passiert:**
-1. **Backend**: klont `@lenne.tech/nest-server` in `/tmp/`, kopiert `src/core/` + `src/index.ts` + `src/core.module.ts` + `src/test/` + `src/templates/` + `src/types/` + `LICENSE` nach `projects/api/src/core/`, wendet Flatten-Fix an (4 edge-case Dateien), schreibt alle Consumer-Imports von `@lenne.tech/nest-server` auf relative Pfade um, merged die upstream Dependencies dynamisch in `package.json`, konvertiert `express` Value-Imports zu Type-Imports (vendor-Kompatibilität), erzeugt `src/core/VENDOR.md`, prepended ein Vendor-Notice-Block in `CLAUDE.md`
-2. **Frontend**: klont `@lenne.tech/nuxt-extensions` in `/tmp/`, kopiert `src/module.ts` + `src/runtime/` nach `projects/app/app/core/`, ersetzt `'@lenne.tech/nuxt-extensions'` in `nuxt.config.ts` durch `'./app/core/module'`, schreibt die 4 expliziten Consumer-Imports um, entfernt den npm-Dependency, erzeugt `app/core/VENDOR.md`
+**What happens:**
+1. **Backend**: clones `@lenne.tech/nest-server` into `/tmp/`, copies `src/core/` + `src/index.ts` + `src/core.module.ts` + `src/test/` + `src/templates/` + `src/types/` + `LICENSE` into `projects/api/src/core/`, applies the flatten-fix (4 edge-case files), rewrites all consumer imports from `@lenne.tech/nest-server` to relative paths, merges upstream dependencies dynamically into `package.json`, converts `express` value-imports to type-imports (vendor compatibility), creates `src/core/VENDOR.md`, prepends a vendor-notice block to `CLAUDE.md`
+2. **Frontend**: clones `@lenne.tech/nuxt-extensions` into `/tmp/`, copies `src/module.ts` + `src/runtime/` into `projects/app/app/core/`, replaces `'@lenne.tech/nuxt-extensions'` in `nuxt.config.ts` with `'./app/core/module'`, rewrites the 4 explicit consumer imports, removes the npm dependency, creates `app/core/VENDOR.md`
 
-Die Temp-Verzeichnisse in `/tmp/` werden automatisch bereinigt.
+The temp directories in `/tmp/` are cleaned up automatically.
 
 ---
 
-### Schritt 4: Abhängigkeiten neu installieren
+### Step 4: Reinstall dependencies
 
-**Command (vom Monorepo-Root):**
+**Command (from monorepo root):**
 ```bash
 pnpm install
 ```
 
-**Was passiert:** pnpm installiert die neu-gemergten Dependencies (die upstream vom Framework stammten) und entfernt `@lenne.tech/nest-server` bzw. `@lenne.tech/nuxt-extensions` aus `node_modules/`.
+**What happens:** pnpm installs the newly merged dependencies (that transitively came from the framework) and removes `@lenne.tech/nest-server` and `@lenne.tech/nuxt-extensions` from `node_modules/`.
 
 ---
 
-### Schritt 5: Backend validieren
+### Step 5: Validate backend
 
 **Commands:**
 ```bash
@@ -95,14 +95,14 @@ pnpm test
 cd ..
 ```
 
-**Was passiert:**
-- `tsc --noEmit`: TypeScript-Check über den gesamten Backend-Code inkl. vendored `src/core/`. Erwartung: keine Fehler.
-- `pnpm run lint`: oxlint über src/ + tests/. Erwartung: 0 errors.
-- `pnpm test`: vitest e2e-Suite. Erwartung: alle Tests grün (initial können ~10 Min dauern wegen TypeScript-Transform der vendored Core).
+**What happens:**
+- `tsc --noEmit`: TypeScript check over the entire backend code including the vendored `src/core/`. Expectation: no errors.
+- `pnpm run lint`: oxlint over src/ + tests/. Expectation: 0 errors.
+- `pnpm test`: vitest e2e suite. Expectation: all tests green (initial run may take ~10 min due to TypeScript transform of the vendored core).
 
 ---
 
-### Schritt 6: Frontend validieren
+### Step 6: Validate frontend
 
 **Commands:**
 ```bash
@@ -112,20 +112,20 @@ pnpm run build
 cd ..
 ```
 
-**Was passiert:**
-- `lint`: oxlint über app/. Erwartung: 0 errors.
-- `build`: nuxt-Build durchläuft prepare → build → nitro output. Erwartung: `✨ Build complete!`
+**What happens:**
+- `lint`: oxlint over app/. Expectation: 0 errors.
+- `build`: Nuxt build runs prepare → build → nitro output. Expectation: `✨ Build complete!`
 
 ---
 
-### Schritt 7: Status erneut prüfen
+### Step 7: Check status again
 
 **Command:**
 ```bash
 lt status
 ```
 
-**Erwartete Ausgabe:**
+**Expected output:**
 ```
 Monorepo Subprojects:
   Backend:  projects/api → vendor (src/core/, VENDOR.md)
@@ -134,7 +134,7 @@ Monorepo Subprojects:
 
 ---
 
-### Schritt 8: Änderungen committen
+### Step 8: Commit changes
 
 **Commands:**
 ```bash
@@ -146,112 +146,112 @@ git commit -m "chore: convert fullstack to vendor mode
 - Both VENDOR.md files track baseline + sync history"
 ```
 
-**Was passiert:** Der Commit enthält typischerweise ~500 neue Dateien (vendored core) und modifizierte Consumer-Imports.
+**What happens:** The commit typically contains ~500 new files (vendored core) and modified consumer imports.
 
 ---
 
-## Teil 2: Vendor-Mode updaten
+## Part 2: Update in vendor mode
 
-Nach der Überführung musst du dein Projekt weiterhin mit Upstream-Änderungen synchron halten. Im Vendor-Mode geschieht das **kuratiert** über Claude-Code-Agents.
+After the conversion you still need to keep your project in sync with upstream changes. In vendor mode this happens **curated** via Claude Code agents.
 
-### Workflow A: Umfassendes Update (empfohlen)
+### Workflow A: Comprehensive update (recommended)
 
 **Command (in Claude Code):**
 ```
 /lt-dev:fullstack:update-all
 ```
 
-**Was passiert:**
-1. **Phase 1**: Erkennt Modi beider Subprojekte (vendor in diesem Fall)
-2. **Phase 2**: Generiert `UPDATE_PLAN.md` mit Version-Gaps und erwartet deine Zustimmung
-3. **Phase 3**: Backend-Sync via `nest-server-core-updater` Agent (clone upstream, diff, human-review, apply, flatten-fix reapply)
-4. **Phase 4**: Frontend-Sync via `nuxt-extensions-core-updater` Agent (clone upstream, diff, human-review, apply)
-5. **Phase 5**: Package-Maintenance via `npm-package-maintainer` (FULL MODE)
-6. **Phase 6**: `CLAUDE.md`-Sync aus den Upstream-Startern
-7. **Phase 7**: Cross-Validation (Build, Lint, Tests für beide Subprojekte)
-8. **Phase 8**: Final Report
+**What happens:**
+1. **Phase 1**: Detects the modes of both subprojects (vendor in this case)
+2. **Phase 2**: Generates `UPDATE_PLAN.md` with version gaps and waits for your approval
+3. **Phase 3**: Backend sync via `nest-server-core-updater` agent (clone upstream, diff, human review, apply, reapply flatten-fix)
+4. **Phase 4**: Frontend sync via `nuxt-extensions-core-updater` agent (clone upstream, diff, human review, apply)
+5. **Phase 5**: Package maintenance via `npm-package-maintainer` (FULL MODE)
+6. **Phase 6**: `CLAUDE.md` sync from upstream starters
+7. **Phase 7**: Cross-validation (build, lint, tests for both subprojects)
+8. **Phase 8**: Final report
 
 ---
 
-### Workflow B: Nur Backend updaten
+### Workflow B: Update backend only
 
 **Command:**
 ```
 /lt-dev:backend:update-nest-server-core
 ```
 
-**Was passiert:** Wie Phase 3 von Workflow A — synct `src/core/` mit Upstream-Änderungen.
+**What happens:** Same as Phase 3 of Workflow A — syncs `src/core/` with upstream changes.
 
 ---
 
-### Workflow C: Nur Frontend updaten
+### Workflow C: Update frontend only
 
 **Command:**
 ```
 /lt-dev:frontend:update-nuxt-extensions-core
 ```
 
-**Was passiert:** Wie Phase 4 von Workflow A — synct `app/core/` mit Upstream-Änderungen.
+**What happens:** Same as Phase 4 of Workflow A — syncs `app/core/` with upstream changes.
 
 ---
 
-### Workflow D: Sync auf spezifische Version
+### Workflow D: Sync to a specific version
 
 **Command:**
 ```
 /lt-dev:backend:update-nest-server-core --target 11.25.0
 ```
 
-**Was passiert:** Statt auf HEAD zu synchen, wird eine spezifische Upstream-Version gezogen. Gut für stabile Major/Minor-Releases.
+**What happens:** Instead of syncing to HEAD, a specific upstream version is pulled. Useful for stable major/minor releases.
 
 ---
 
-### Freshness-Check
+### Freshness check
 
-**Command (in beiden Subprojekten verfügbar):**
+**Command (available in both subprojects):**
 ```bash
-cd projects/api  # oder projects/app
+cd projects/api  # or projects/app
 pnpm run check:vendor-freshness
 ```
 
-**Was passiert:** Liest Baseline-Version aus `VENDOR.md` und vergleicht mit der aktuellen Version auf npm. Non-blocking Warning wenn eine neuere Version existiert. Wird automatisch von `pnpm run check` ausgeführt.
+**What happens:** Reads the baseline version from `VENDOR.md` and compares it with the current version on npm. Non-blocking warning if a newer version exists. Automatically executed by `pnpm run check`.
 
 ---
 
-### Nach dem Update: Validation
+### After the update: validation
 
-**Command (vom Monorepo-Root):**
+**Command (from monorepo root):**
 ```bash
 pnpm run check
 ```
 
-**Was passiert:** Führt pro Subprojekt audit + format:check + lint + tests + build + server-start aus. Muss grün durchlaufen, bevor du den Update-Commit machst.
+**What happens:** Runs audit + format:check + lint + tests + build + server-start per subproject. Must pass green before you commit the update.
 
 ---
 
-### Upstream-Contribution (optional)
+### Upstream contribution (optional)
 
-Wenn du lokale Patches im vendored core gemacht hast, die **generell nützlich** sind (Bugfix, neue Feature, Type-Korrektur), kannst du sie als Upstream-PR vorbereiten:
+If you have made local patches in the vendored core that are **generally useful** (bugfix, new feature, type correction), you can prepare them as upstream PRs:
 
-**Backend-Patches:**
+**Backend patches:**
 ```
 /lt-dev:backend:contribute-nest-server-core
 ```
 
-**Frontend-Patches:**
+**Frontend patches:**
 ```
 /lt-dev:frontend:contribute-nuxt-extensions-core
 ```
 
-**Was passiert:** Der Agent durchsucht `git log` seit der VENDOR.md-Baseline, filtert kosmetische Commits raus, kategorisiert substantielle Commits als `upstream-candidate` oder `project-specific`, cherry-picked die Kandidaten auf einen frischen Upstream-Branch, generiert einen PR-Body-Entwurf und zeigt dir die Summary. **Push erfolgt manuell von dir nach Review.**
+**What happens:** The agent scans `git log` since the VENDOR.md baseline, filters out cosmetic commits, categorizes substantial commits as `upstream-candidate` or `project-specific`, cherry-picks the candidates onto a fresh upstream branch, generates a PR body draft, and shows you a summary. **The push is done manually by you after review.**
 
 ---
 
-## Teil 3: Vendor → npm zurückführen
+## Part 3: Roll back vendor → npm
 
-Falls der Vendor-Mode für dein Projekt nicht funktioniert oder du wieder zur npm-Dependency zurück willst.
+In case vendor mode doesn't work for your project or you want to go back to the npm dependency.
 
-### Schritt 1: Lokale Patches prüfen
+### Step 1: Check local patches
 
 **Command:**
 ```bash
@@ -259,74 +259,74 @@ cat projects/api/src/core/VENDOR.md | grep -A 20 "## Local changes"
 cat projects/app/app/core/VENDOR.md | grep -A 20 "## Local changes"
 ```
 
-**Was passiert:** Zeigt die Local-Changes-Tabelle aus beiden `VENDOR.md`-Dateien. **Wenn dort substantielle Patches gelistet sind, gehen diese bei der Rückführung verloren!**
+**What happens:** Shows the "Local changes" table from both `VENDOR.md` files. **If substantial patches are listed there, they will be lost during the rollback!**
 
 ---
 
-### Schritt 2: Patches upstream beitragen (falls vorhanden)
+### Step 2: Contribute patches upstream (if any)
 
-**Empfehlung**: Bevor du zurückführst, beitrage die lokalen Patches:
+**Recommendation**: Before rolling back, contribute the local patches:
 
 ```
 /lt-dev:backend:contribute-nest-server-core
 /lt-dev:frontend:contribute-nuxt-extensions-core
 ```
 
-**Was passiert:** Siehe "Upstream-Contribution" oben. Nach Merge der Upstream-PRs kann die Rückführung ohne Datenverlust erfolgen.
+**What happens:** See "Upstream contribution" above. After merging the upstream PRs the rollback can happen without data loss.
 
 ---
 
-### Schritt 3: Dry-Run — Plan anzeigen
+### Step 3: Dry-run — show plan
 
-**Command (vom Monorepo-Root):**
+**Command (from monorepo root):**
 ```bash
 lt fullstack convert-mode --to npm --dry-run
 ```
 
-**Was passiert:** Zeigt `vendor → npm` für beide Subprojekte. Die zu installierenden Versionen werden aus den `VENDOR.md`-Baselines gelesen.
+**What happens:** Shows `vendor → npm` for both subprojects. The versions to install are read from the `VENDOR.md` baselines.
 
 ---
 
-### Schritt 4: Rückführung ausführen
+### Step 4: Run the rollback
 
 **Command:**
 ```bash
 lt fullstack convert-mode --to npm --noConfirm
 ```
 
-**Was passiert:**
+**What happens:**
 1. **Backend**:
-   - Liest Baseline-Version aus `src/core/VENDOR.md`
-   - Warnt bei lokalen Patches in der "Local changes"-Tabelle
-   - Schreibt alle Consumer-Imports von relativen Pfaden zurück auf `@lenne.tech/nest-server`
-   - Löscht `src/core/`
-   - Stellt `@lenne.tech/nest-server` in `package.json` wieder her (mit Baseline-Version)
-   - Stellt `migrate:*` Scripts auf `node_modules/.bin/` zurück
-   - Entfernt Vendor-Artefakte: `bin/migrate.js`, `migrations-utils/ts-compiler.js`, `migration-guides/`
-   - Entfernt Vendor-Marker aus `CLAUDE.md`
+   - Reads the baseline version from `src/core/VENDOR.md`
+   - Warns about local patches in the "Local changes" table
+   - Rewrites all consumer imports from relative paths back to `@lenne.tech/nest-server`
+   - Deletes `src/core/`
+   - Restores `@lenne.tech/nest-server` in `package.json` (with baseline version)
+   - Restores `migrate:*` scripts to `node_modules/.bin/`
+   - Removes vendor artifacts: `bin/migrate.js`, `migrations-utils/ts-compiler.js`, `migration-guides/`
+   - Removes the vendor marker from `CLAUDE.md`
 2. **Frontend**:
-   - Liest Baseline-Version aus `app/core/VENDOR.md`
-   - Schreibt die 4 expliziten Consumer-Imports zurück auf `@lenne.tech/nuxt-extensions`
-   - Löscht `app/core/`
-   - Stellt `@lenne.tech/nuxt-extensions` in `package.json` wieder her
-   - Schreibt `nuxt.config.ts` zurück: `'./app/core/module'` → `'@lenne.tech/nuxt-extensions'`
-   - Entfernt `check:vendor-freshness` Script
-   - Entfernt Vendor-Marker aus `CLAUDE.md`
+   - Reads the baseline version from `app/core/VENDOR.md`
+   - Rewrites the 4 explicit consumer imports back to `@lenne.tech/nuxt-extensions`
+   - Deletes `app/core/`
+   - Restores `@lenne.tech/nuxt-extensions` in `package.json`
+   - Rewrites `nuxt.config.ts`: `'./app/core/module'` → `'@lenne.tech/nuxt-extensions'`
+   - Removes the `check:vendor-freshness` script
+   - Removes the vendor marker from `CLAUDE.md`
 
 ---
 
-### Schritt 5: Abhängigkeiten neu installieren
+### Step 5: Reinstall dependencies
 
 **Command:**
 ```bash
 pnpm install
 ```
 
-**Was passiert:** pnpm installiert `@lenne.tech/nest-server` und `@lenne.tech/nuxt-extensions` frisch aus dem npm-Registry.
+**What happens:** pnpm installs `@lenne.tech/nest-server` and `@lenne.tech/nuxt-extensions` freshly from the npm registry.
 
 ---
 
-### Schritt 6: Validieren
+### Step 6: Validate
 
 **Commands:**
 ```bash
@@ -334,18 +334,18 @@ cd projects/api && pnpm exec tsc --noEmit && pnpm run lint && pnpm test && cd ..
 cd projects/app && pnpm run lint && pnpm run build && cd ..
 ```
 
-**Was passiert:** Stellt sicher, dass alles nach der Rückführung immer noch funktioniert. `tsc` im Backend prüft ob die `@lenne.tech/nest-server` Types aus `node_modules/` jetzt gefunden werden. Frontend-Build prüft, dass Nuxt das Modul als npm-Dep lädt.
+**What happens:** Makes sure everything still works after the rollback. `tsc` in the backend verifies that the `@lenne.tech/nest-server` types from `node_modules/` are now found. The frontend build verifies that Nuxt loads the module as an npm dependency.
 
 ---
 
-### Schritt 7: Status erneut prüfen
+### Step 7: Check status again
 
 **Command:**
 ```bash
 lt status
 ```
 
-**Erwartete Ausgabe:**
+**Expected output:**
 ```
 Monorepo Subprojects:
   Backend:  projects/api → npm (@lenne.tech/nest-server dependency)
@@ -354,7 +354,7 @@ Monorepo Subprojects:
 
 ---
 
-### Schritt 8: Änderungen committen
+### Step 8: Commit changes
 
 **Commands:**
 ```bash
@@ -370,11 +370,11 @@ git commit -m "chore: revert fullstack to npm mode
 
 ## Troubleshooting
 
-### Problem: `tsc` failed mit `new Error('msg', { cause })` Fehler
+### Problem: `tsc` fails with `new Error('msg', { cause })` error
 
-**Ursache:** TypeScript-Target ist zu alt (ES2020 oder niedriger).
+**Cause:** TypeScript target is too old (ES2020 or lower).
 
-**Fix:** In `projects/api/tsconfig.json` das Target auf `"es2022"` setzen:
+**Fix:** In `projects/api/tsconfig.json` set the target to `"es2022"`:
 ```json
 {
   "compilerOptions": {
@@ -385,87 +385,87 @@ git commit -m "chore: revert fullstack to npm mode
 
 ---
 
-### Problem: Vitest-Fehler `'express' does not provide an export named 'Response'`
+### Problem: Vitest error `'express' does not provide an export named 'Response'`
 
-**Ursache:** Im Vendor-Mode wird die TypeScript-Source der Core direkt von Vitest evaluiert. Value-Imports von TypeScript-type-only Exports brechen.
+**Cause:** In vendor mode the TypeScript source of the core is evaluated directly by vitest. Value-imports of TypeScript type-only exports break.
 
-**Fix:** Sollte automatisch vom CLI gefixed worden sein. Falls nicht, in allen betroffenen Dateien:
+**Fix:** Should have been fixed automatically by the CLI. If not, update all affected files:
 ```typescript
-// Vorher
+// Before
 import { Request, Response } from 'express';
 
-// Nachher
+// After
 import type { Request, Response } from 'express';
 ```
 
 ---
 
-### Problem: Konvertierung scheitert mit "Destination path already exists"
+### Problem: Conversion fails with "Destination path already exists"
 
-**Ursache:** Das Projekt hat bereits projektspezifische `bin/` oder `migration-guides/` Verzeichnisse, die mit Upstream-Inhalten kollidieren.
+**Cause:** The project already has project-specific `bin/` or `migration-guides/` directories that collide with upstream contents.
 
-**Fix:** Inhalte sichern, Verzeichnisse löschen, Konvertierung erneut ausführen, Inhalte zurückkopieren.
+**Fix:** Back up the contents, delete the directories, run the conversion again, copy the contents back.
 
 ```bash
 cp projects/api/bin/migrate.js /tmp/migrate-backup.js
 cp -r projects/api/migration-guides /tmp/migration-guides-backup
 rm -rf projects/api/bin projects/api/migration-guides
 lt fullstack convert-mode --to vendor --noConfirm
-# Nach Konvertierung:
+# After conversion:
 mv /tmp/migration-guides-backup/MY-FILE.md projects/api/migration-guides/
 ```
 
 ---
 
-### Problem: Nach Konvertierung fehlen einige Consumer-Imports in der Rewrite
+### Problem: Some consumer imports missing from the rewrite after conversion
 
-**Symptom:** `lt fullstack convert-mode` zeigt Warning wie `X file(s) still contain '@lenne.tech/nest-server' imports`.
+**Symptom:** `lt fullstack convert-mode` shows a warning like `X file(s) still contain '@lenne.tech/nest-server' imports`.
 
-**Fix:** Die gemeldeten Dateien manuell prüfen und Imports auf relative Pfade umschreiben. Die Warning zeigt die genauen Pfade an.
-
----
-
-### Problem: Tests schlagen unter paralleler Last fehl (Flakiness)
-
-**Ursache:** TypeScript-Source-Loading im Vendor-Mode ist langsamer als pre-compiled `dist/` — das deckt bestehende Timing-abhängige Test-Races auf.
-
-**Fix-Optionen:**
-- Einzelne flaky Tests robust machen (Retry-Pattern, Polling statt `setTimeout`)
-- Als Workaround `retry: 3` in `vitest-e2e.config.ts` ist bereits aktiv
-- Letzte Option: `poolOptions.forks.singleFork: true` (macht tests sequenziell — ~4× langsamer)
+**Fix:** Manually check the reported files and rewrite the imports to relative paths. The warning shows the exact paths.
 
 ---
 
-### Problem: Upstream-Sync findet Konflikte
+### Problem: Tests fail under parallel load (flakiness)
 
-**Symptom:** `/lt-dev:backend:update-nest-server-core` zeigt Konflikte zwischen Upstream-Änderung und lokalem Patch.
+**Cause:** TypeScript source loading in vendor mode is slower than pre-compiled `dist/` — this exposes existing timing-sensitive test races.
 
-**Fix:** Der Agent pausiert und präsentiert die Konflikte. Du kannst:
-- `approve all` — alle Upstream-Picks übernehmen (lokale Patches überschrieben)
-- `approve clean` — nur konfliktfreie Picks
-- `reject <file>` — spezifische Datei skippen
-- `show <file>` — Hunk anzeigen
-- `done` — mit aktueller Auswahl fortfahren
+**Fix options:**
+- Make individual flaky tests robust (retry pattern, polling instead of `setTimeout`)
+- As a workaround, `retry: 3` is already active in `vitest-e2e.config.ts`
+- Last resort: `poolOptions.forks.singleFork: true` (makes tests sequential — ~4× slower)
 
 ---
 
-## Schnell-Referenz
+### Problem: Upstream sync finds conflicts
 
-| Aktion | Command |
+**Symptom:** `/lt-dev:backend:update-nest-server-core` shows conflicts between upstream changes and local patches.
+
+**Fix:** The agent pauses and presents the conflicts. You can:
+- `approve all` — take all upstream picks (local patches overwritten)
+- `approve clean` — only conflict-free picks
+- `reject <file>` — skip a specific file
+- `show <file>` — render the hunk
+- `done` — proceed with current selection
+
+---
+
+## Quick Reference
+
+| Action | Command |
 |--------|---------|
-| Status prüfen | `lt status` |
-| Dry-Run npm→vendor | `lt fullstack convert-mode --to vendor --dry-run` |
+| Check status | `lt status` |
+| Dry-run npm→vendor | `lt fullstack convert-mode --to vendor --dry-run` |
 | npm→vendor | `lt fullstack convert-mode --to vendor --noConfirm` |
-| Vendor-Update | `/lt-dev:fullstack:update-all` |
-| Backend-only Update | `/lt-dev:backend:update-nest-server-core` |
-| Frontend-only Update | `/lt-dev:frontend:update-nuxt-extensions-core` |
-| Freshness-Check | `pnpm run check:vendor-freshness` |
-| Full Check | `pnpm run check` |
-| Upstream-PR (Backend) | `/lt-dev:backend:contribute-nest-server-core` |
-| Upstream-PR (Frontend) | `/lt-dev:frontend:contribute-nuxt-extensions-core` |
-| Dry-Run vendor→npm | `lt fullstack convert-mode --to npm --dry-run` |
+| Vendor update | `/lt-dev:fullstack:update-all` |
+| Backend-only update | `/lt-dev:backend:update-nest-server-core` |
+| Frontend-only update | `/lt-dev:frontend:update-nuxt-extensions-core` |
+| Freshness check | `pnpm run check:vendor-freshness` |
+| Full check | `pnpm run check` |
+| Upstream PR (backend) | `/lt-dev:backend:contribute-nest-server-core` |
+| Upstream PR (frontend) | `/lt-dev:frontend:contribute-nuxt-extensions-core` |
+| Dry-run vendor→npm | `lt fullstack convert-mode --to npm --dry-run` |
 | vendor→npm | `lt fullstack convert-mode --to npm --noConfirm` |
 
 ---
 
-> **Weiterführend**: Architektur, Konzepte und Referenz aller CLI-/Plugin-Funktionen im [LT-ECOSYSTEM-GUIDE](./LT-ECOSYSTEM-GUIDE.md).
+> **Further reading**: Architecture, concepts, and reference for all CLI and plugin functions in the [LT-ECOSYSTEM-GUIDE](./LT-ECOSYSTEM-GUIDE.md).

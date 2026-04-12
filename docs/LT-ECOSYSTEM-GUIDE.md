@@ -1,81 +1,81 @@
-# lenne.tech Fullstack-Ecosystem: CLI & lt-dev Plugin
+# lenne.tech Fullstack Ecosystem: CLI & lt-dev Plugin
 
-Umfassender Leitfaden für `lt CLI` und das `lt-dev` Claude-Code-Plugin mit Fokus auf **Vendor-Mode-Workflows** für `@lenne.tech/nest-server` und `@lenne.tech/nuxt-extensions`.
+Comprehensive reference for the `lt` CLI and the `lt-dev` Claude Code plugin, with focus on **vendor-mode workflows** for `@lenne.tech/nest-server` and `@lenne.tech/nuxt-extensions`.
 
 ---
 
-## Inhaltsverzeichnis
+## Table of Contents
 
-- [Überblick](#überblick)
-- [Architekturdiagramm](#architekturdiagramm)
-- [lt CLI — Funktionen](#lt-cli--funktionen)
-  - [Projekt-Scaffolding](#projekt-scaffolding)
-  - [Server-Entwicklung](#server-entwicklung)
-  - [Frontend-Entwicklung](#frontend-entwicklung)
-  - [Fullstack-Workflows](#fullstack-workflows)
-  - [Vendor-Mode-Konvertierung](#vendor-mode-konvertierung)
-  - [Status & Diagnose](#status--diagnose)
-  - [Weitere Tools](#weitere-tools)
-- [lt-dev Plugin — Funktionen](#lt-dev-plugin--funktionen)
+- [Overview](#overview)
+- [Architecture Diagram](#architecture-diagram)
+- [lt CLI — Features](#lt-cli--features)
+  - [Project Scaffolding](#project-scaffolding)
+  - [Server Development](#server-development)
+  - [Frontend Development](#frontend-development)
+  - [Fullstack Workflows](#fullstack-workflows)
+  - [Vendor-Mode Conversion](#vendor-mode-conversion)
+  - [Status & Diagnostics](#status--diagnostics)
+  - [Additional Tools](#additional-tools)
+- [lt-dev Plugin — Features](#lt-dev-plugin--features)
   - [Commands](#commands)
   - [Autonomous Agents](#autonomous-agents)
-  - [Skills (Wissensbasis)](#skills-wissensbasis)
-- [Vendor-Mode-Prozesse](#vendor-mode-prozesse)
-  - [Neues Projekt im Vendor-Mode erstellen](#1-neues-projekt-im-vendor-mode-erstellen)
-  - [npm → Vendor überführen (Backend)](#2-backend-npm--vendor-überführen)
-  - [npm → Vendor überführen (Frontend)](#3-frontend-npm--vendor-überführen)
-  - [Vendor → npm zurückführen (Backend)](#4-backend-vendor--npm-rückführung)
-  - [Vendor → npm zurückführen (Frontend)](#5-frontend-vendor--npm-rückführung)
-  - [Update-Workflows](#6-update-workflows)
-  - [Upstream-Contribution](#7-upstream-contribution)
-- [Entscheidungsmatrix](#entscheidungsmatrix)
-- [Glossar](#glossar)
+  - [Skills (Knowledge Base)](#skills-knowledge-base)
+- [Vendor-Mode Processes](#vendor-mode-processes)
+  - [1. Create a new project in vendor mode](#1-create-a-new-project-in-vendor-mode)
+  - [2. Backend: convert npm → vendor](#2-backend-convert-npm--vendor)
+  - [3. Frontend: convert npm → vendor](#3-frontend-convert-npm--vendor)
+  - [4. Backend: vendor → npm rollback](#4-backend-vendor--npm-rollback)
+  - [5. Frontend: vendor → npm rollback](#5-frontend-vendor--npm-rollback)
+  - [6. Update workflows](#6-update-workflows)
+  - [7. Upstream contribution](#7-upstream-contribution)
+- [Decision Matrix](#decision-matrix)
+- [Glossary](#glossary)
 
 ---
 
-## Überblick
+## Overview
 
-Das lenne.tech-Ecosystem besteht aus zwei komplementären Werkzeugen:
+The lenne.tech ecosystem consists of two complementary tools:
 
-- **`lt CLI`** (`@lenne.tech/cli`) — Terminal-Tool für Scaffolding, Generierung, Status und Mode-Konvertierung
-- **`lt-dev` Plugin** — Claude-Code-Plugin mit Commands, autonomen Agents und Skills für intelligente Entwicklungs-Workflows
+- **`lt CLI`** (`@lenne.tech/cli`) — Terminal tool for scaffolding, code generation, status, and mode conversion
+- **`lt-dev` Plugin** — Claude Code plugin providing commands, autonomous agents, and skills for intelligent development workflows
 
-Beide Werkzeuge unterstützen den **Vendor-Mode** als Pilot für `@lenne.tech/nest-server` (Backend) und `@lenne.tech/nuxt-extensions` (Frontend). Im Vendor-Mode wird der Framework-Code direkt als Projekt-Source in `src/core/` (Backend) bzw. `app/core/` (Frontend) kopiert — ohne npm-Dependency.
+Both tools support the **vendor mode** as a pilot for `@lenne.tech/nest-server` (backend) and `@lenne.tech/nuxt-extensions` (frontend). In vendor mode, the framework code is copied directly into the project as source code under `src/core/` (backend) or `app/core/` (frontend) — without an npm dependency.
 
 ---
 
-## Architekturdiagramm
+## Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                  Entwickler / Claude Code                           │
+│                  Developer / Claude Code                            │
 └─────────┬────────────────────────────────────────────────┬──────────┘
           │                                                │
-          │ Terminal                                       │ Slash-Commands
+          │ Terminal                                       │ Slash commands
           ▼                                                ▼
 ┌──────────────────────┐                      ┌────────────────────────┐
 │      lt CLI          │                      │    lt-dev Plugin       │
 │                      │                      │                        │
 │ • Scaffolding        │                      │ • Commands             │
-│ • Mode-Conversion    │◄─── invoked by ──────┤ • Agents               │
-│ • Code-Generation    │                      │ • Skills               │
-│ • Status/Diagnose    │                      │                        │
+│ • Mode conversion    │◄─── invoked by ──────┤ • Agents               │
+│ • Code generation    │                      │ • Skills               │
+│ • Status/diagnosis   │                      │                        │
 └──────────┬───────────┘                      └────────────┬───────────┘
            │                                               │
            │ writes to                                     │ operates on
            ▼                                               ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                    Fullstack-Projekt                                 │
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Fullstack Project                                 │
 │                                                                      │
 │  projects/api (Backend — NestJS)          projects/app (Frontend)    │
 │  ├── npm mode: @lenne.tech/nest-server    ├── npm mode: @lenne.tech/ │
 │  │    in package.json                     │    nuxt-extensions       │
 │  └── vendor mode: src/core/ + VENDOR.md   └── vendor mode: app/core/ │
 │                                                + VENDOR.md           │
-└──────────────────────────────────────────────────────────────────────┘
-           ▲                                              ▲
-           │ syncs from                                   │ syncs from
-           │                                              │
+└─────────────────────────────────────────────────────────────────────┘
+           ▲                                               ▲
+           │ syncs from                                    │ syncs from
+           │                                               │
 ┌──────────┴──────────────┐                   ┌───────────┴────────────┐
 │  github.com/lenneTech/  │                   │ github.com/lenneTech/  │
 │  nest-server            │                   │ nuxt-extensions        │
@@ -85,21 +85,21 @@ Beide Werkzeuge unterstützen den **Vendor-Mode** als Pilot für `@lenne.tech/ne
 
 ---
 
-## lt CLI — Funktionen
+## lt CLI — Features
 
-### Projekt-Scaffolding
+### Project Scaffolding
 
-| Command | Zweck |
-|---------|-------|
-| `lt fullstack init` | Erstellt ein neues Monorepo mit API + Frontend. Unterstützt npm- und vendor-Mode für beide Seiten |
-| `lt frontend nuxt` | Standalone Nuxt-4-Projekt aus `nuxt-base-starter` |
-| `lt frontend angular` | Standalone Angular-Projekt aus `ng-base-starter` |
-| `lt server create` | Standalone NestJS-Projekt aus `nest-server-starter` |
-| `lt starter chrome-extension` | Chrome-Extension-Starter |
-| `lt cli create` | Neues CLI-Projekt via Gluegun |
-| `lt typescript create` | TypeScript-Library-Starter |
+| Command | Purpose |
+|---------|---------|
+| `lt fullstack init` | Create a new monorepo with API + frontend. Supports npm and vendor mode for both sides |
+| `lt frontend nuxt` | Standalone Nuxt 4 project from `nuxt-base-starter` |
+| `lt frontend angular` | Standalone Angular project from `ng-base-starter` |
+| `lt server create` | Standalone NestJS project from `nest-server-starter` |
+| `lt starter chrome-extension` | Chrome extension starter |
+| `lt cli create` | New CLI project via Gluegun |
+| `lt typescript create` | TypeScript library starter |
 
-**Fullstack-Init mit Vendor-Modes:**
+**Fullstack init with vendor modes:**
 
 ```bash
 lt fullstack init \
@@ -113,78 +113,78 @@ lt fullstack init \
 ```
 
 Flags:
-- `--framework-mode npm|vendor` — Backend-Modus
-- `--frontend-framework-mode npm|vendor` — Frontend-Modus
-- `--framework-upstream-branch <tag>` — Spezifische nest-server Version für Vendor
-- `--dry-run` — Plan anzeigen ohne Änderungen
+- `--framework-mode npm|vendor` — Backend mode
+- `--frontend-framework-mode npm|vendor` — Frontend mode
+- `--framework-upstream-branch <tag>` — Specific nest-server version for vendor
+- `--dry-run` — Show plan without making changes
 
 ---
 
-### Server-Entwicklung
+### Server Development
 
-| Command | Zweck |
-|---------|-------|
-| `lt server module` | Generiert ein NestJS-Modul (Model, Service, Controller, Resolver, Tests) |
-| `lt server object` | Generiert einen Input/Output-Typ |
-| `lt server add-property` | Fügt einem existierenden Modul ein Property hinzu |
-| `lt server test` | Generiert E2E-Tests für ein Modul |
-| `lt server permissions` | Analysiert alle `@Roles`/`@Restricted` Decoratoren, erzeugt Report (md/json/html) |
-| `lt server create-secret` | Generiert sichere Secrets für `.env` |
-| `lt server set-secrets` | Setzt Secrets im Projekt |
-| **`lt server convert-mode`** | **Konvertiert Backend zwischen npm und vendor Mode** |
+| Command | Purpose |
+|---------|---------|
+| `lt server module` | Generate a NestJS module (model, service, controller, resolver, tests) |
+| `lt server object` | Generate an input/output type |
+| `lt server add-property` | Add a property to an existing module |
+| `lt server test` | Generate E2E tests for a module |
+| `lt server permissions` | Analyze all `@Roles`/`@Restricted` decorators, generate report (md/json/html) |
+| `lt server create-secret` | Generate secure secrets for `.env` |
+| `lt server set-secrets` | Set secrets in the project |
+| **`lt server convert-mode`** | **Convert backend between npm and vendor mode** |
 
-Alle Code-Generatoren sind **mode-aware**: Im Vendor-Mode nutzen sie relative Pfade zu `src/core/`, im npm-Mode den bare specifier `@lenne.tech/nest-server`.
-
----
-
-### Frontend-Entwicklung
-
-| Command | Zweck |
-|---------|-------|
-| `lt frontend nuxt` | Nuxt-Projekt aus Starter erstellen |
-| `lt frontend angular` | Angular-Projekt aus Starter erstellen |
-| **`lt frontend convert-mode`** | **Konvertiert Frontend zwischen npm und vendor Mode** |
+All code generators are **mode-aware**: In vendor mode they use relative paths to `src/core/`; in npm mode they use the bare specifier `@lenne.tech/nest-server`.
 
 ---
 
-### Fullstack-Workflows
+### Frontend Development
 
-| Command | Zweck |
-|---------|-------|
-| `lt fullstack init` | Fullstack-Monorepo erstellen (siehe oben) |
-| `lt fullstack update` | Zeigt mode-spezifische Update-Anweisungen für Backend UND Frontend |
-| **`lt fullstack convert-mode`** | **Konvertiert Backend UND Frontend in einem Schritt zwischen npm und vendor Mode** |
+| Command | Purpose |
+|---------|---------|
+| `lt frontend nuxt` | Create Nuxt project from starter |
+| `lt frontend angular` | Create Angular project from starter |
+| **`lt frontend convert-mode`** | **Convert frontend between npm and vendor mode** |
 
-**Fullstack Mode-Konvertierung in einem Command:**
+---
+
+### Fullstack Workflows
+
+| Command | Purpose |
+|---------|---------|
+| `lt fullstack init` | Create fullstack monorepo (see above) |
+| `lt fullstack update` | Show mode-specific update instructions for backend AND frontend |
+| **`lt fullstack convert-mode`** | **Convert backend AND frontend between npm and vendor mode in a single command** |
+
+**Fullstack mode conversion in one command:**
 
 ```bash
-# Beide Subprojekte in vendor mode
+# Both subprojects to vendor mode
 lt fullstack convert-mode --to vendor --noConfirm
 
-# Mit spezifischen Upstream-Versionen
+# With specific upstream versions
 lt fullstack convert-mode --to vendor \
   --framework-upstream-branch 11.24.3 \
   --frontend-framework-upstream-branch 1.5.3 \
   --noConfirm
 
-# Beide zurück zu npm
+# Both back to npm
 lt fullstack convert-mode --to npm --noConfirm
 
-# Nur Backend konvertieren
+# Only convert backend
 lt fullstack convert-mode --to vendor --skip-frontend --noConfirm
 
-# Nur Frontend konvertieren
+# Only convert frontend
 lt fullstack convert-mode --to vendor --skip-backend --noConfirm
 
-# Dry-run (Plan ohne Änderungen)
+# Dry-run (plan without changes)
 lt fullstack convert-mode --to vendor --dry-run
 ```
 
-Der Command findet automatisch `projects/api/` und `projects/app/` (oder `packages/api` / `packages/app`), erkennt die aktuellen Modi, zeigt einen Plan an und orchestriert dann die Konvertierung beider Seiten mit den passenden Helper-Methoden.
+The command automatically locates `projects/api/` and `projects/app/` (or `packages/api` / `packages/app`), detects the current modes, shows a plan, and then orchestrates the conversion of both sides using the appropriate helper methods.
 
 ---
 
-### Vendor-Mode-Konvertierung
+### Vendor-Mode Conversion
 
 **Backend**: `lt server convert-mode`
 
@@ -196,7 +196,7 @@ lt server convert-mode --to vendor --upstream-branch 11.24.3 --noConfirm
 # vendor → npm
 lt server convert-mode --to npm --version 11.24.3 --noConfirm
 
-# Dry-run (Plan ohne Änderungen)
+# Dry-run (plan without changes)
 lt server convert-mode --to vendor --dry-run
 ```
 
@@ -214,19 +214,19 @@ lt frontend convert-mode --to npm --version 1.5.3 --noConfirm
 lt frontend convert-mode --to vendor --dry-run
 ```
 
-Beide Commands klonen das jeweilige Upstream-Repo nach `/tmp/`, führen die Code-Transformation durch und räumen am Ende auf. Es werden **keine lokalen Pfade** benötigt.
+Both commands clone the respective upstream repo into `/tmp/`, perform the code transformation, and clean up at the end. **No local paths** are required.
 
 ---
 
-### Status & Diagnose
+### Status & Diagnostics
 
-| Command | Zweck |
-|---------|-------|
-| `lt status` | Zeigt Projekt-Typ, Framework-Modus (Backend + Frontend), Config, Git-Branch, Versionen. Im Monorepo-Root werden beide Subprojekte automatisch gescannt |
-| `lt doctor` | Prüft Umgebung, Versionen, Abhängigkeiten |
-| `lt history` | Zeigt CLI-Command-Verlauf |
+| Command | Purpose |
+|---------|---------|
+| `lt status` | Shows project type, framework mode (backend + frontend), config, git branch, versions. At the monorepo root, both subprojects are automatically scanned |
+| `lt doctor` | Checks environment, versions, dependencies |
+| `lt history` | Shows CLI command history |
 
-**Beispiel im IMO-Monorepo-Root:**
+**Example at the monorepo root:**
 
 ```
 Monorepo Subprojects:
@@ -236,17 +236,17 @@ Monorepo Subprojects:
 
 ---
 
-### Weitere Tools
+### Additional Tools
 
-| Bereich | Commands |
-|---------|----------|
+| Area | Commands |
+|------|----------|
 | **Config** | `lt config init`, `lt config validate`, `lt config show`, `lt config help` |
 | **Git** | `lt git create`, `git get`, `git update`, `git clean`, `git squash`, `git rebase`, `git rename`, `git reset`, `git undo`, `git clear`, `git force-pull` |
 | **NPM** | `lt npm reinit` |
 | **MongoDB** | `lt mongodb collection-export`, `mongodb s3-restore` |
 | **Qdrant** | `lt qdrant stats`, `qdrant delete` |
 | **Directus** | `lt directus docker-setup`, `directus typegen`, `directus remove` |
-| **Deployment** | `lt deployment create` (GitHub/GitLab Pipelines) |
+| **Deployment** | `lt deployment create` (GitHub/GitLab pipelines) |
 | **Blocks/Components** | `lt blocks add`, `lt components add` |
 | **Tools** | `lt tools regex`, `tools sha256`, `tools jwt-read`, `tools crypt`, `tools install-scripts` |
 | **Docs** | `lt docs open` |
@@ -255,188 +255,188 @@ Monorepo Subprojects:
 
 ---
 
-## lt-dev Plugin — Funktionen
+## lt-dev Plugin — Features
 
-Das `lt-dev` Claude-Code-Plugin enthält **Commands** (User-invocable), **Agents** (autonome Execution) und **Skills** (Wissensbasen).
+The `lt-dev` Claude Code plugin provides **Commands** (user-invocable), **Agents** (autonomous execution), and **Skills** (knowledge bases).
 
 ### Commands
 
 #### Backend
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:backend:update-nest-server` | Aktualisiert `@lenne.tech/nest-server` im npm-Mode mit Migration-Guides |
-| `/lt-dev:backend:update-nest-server-core` | Synct vendored `src/core/` mit Upstream (Vendor-Mode) |
-| `/lt-dev:backend:convert-to-vendor` | Konvertiert bestehendes Projekt von npm → vendor (inkl. Migration-Guides) |
-| `/lt-dev:backend:convert-to-npm` | Konvertiert vendored Projekt zurück zu npm |
-| `/lt-dev:backend:contribute-nest-server-core` | Bereitet lokale Patches als Upstream-PR für nest-server vor |
-| `/lt-dev:backend:sec-audit` | Security-Audit des Backend-Codes |
-| `/lt-dev:backend:sec-review` | Security-Review eines spezifischen Code-Bereichs |
-| `/lt-dev:backend:test-generate` | Generiert E2E-Tests |
-| `/lt-dev:backend:code-cleanup` | Räumt Code auf (imports, formatting) |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:backend:update-nest-server` | Update `@lenne.tech/nest-server` in npm mode with migration guides |
+| `/lt-dev:backend:update-nest-server-core` | Sync vendored `src/core/` with upstream (vendor mode) |
+| `/lt-dev:backend:convert-to-vendor` | Convert existing project from npm → vendor (incl. migration guides) |
+| `/lt-dev:backend:convert-to-npm` | Convert vendored project back to npm |
+| `/lt-dev:backend:contribute-nest-server-core` | Prepare local patches as upstream PR for nest-server |
+| `/lt-dev:backend:sec-audit` | Security audit of backend code |
+| `/lt-dev:backend:sec-review` | Security review of a specific code area |
+| `/lt-dev:backend:test-generate` | Generate E2E tests |
+| `/lt-dev:backend:code-cleanup` | Clean up code (imports, formatting) |
 
 #### Frontend
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:frontend:update-nuxt-extensions-core` | Synct vendored `app/core/` mit Upstream |
-| `/lt-dev:frontend:convert-to-vendor` | Konvertiert Frontend-Projekt von npm → vendor |
-| `/lt-dev:frontend:convert-to-npm` | Konvertiert vendored Frontend zurück zu npm |
-| `/lt-dev:frontend:contribute-nuxt-extensions-core` | Bereitet lokale Patches als Upstream-PR für nuxt-extensions vor |
-| `/lt-dev:frontend:figma-init` | Initialisiert Figma-Code-Connect Setup |
-| `/lt-dev:frontend:figma-research` | Analysiert Figma-Designs für Implementierung |
-| `/lt-dev:frontend:figma-to-code` | Übersetzt Figma-Design in Vue/Nuxt-Code |
-| `/lt-dev:frontend:env-migrate` | Migriert `.env` von alten Standards |
-| `/lt-dev:frontend:init-conventions` | Initialisiert Frontend-Konventionen |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:frontend:update-nuxt-extensions-core` | Sync vendored `app/core/` with upstream |
+| `/lt-dev:frontend:convert-to-vendor` | Convert frontend project from npm → vendor |
+| `/lt-dev:frontend:convert-to-npm` | Convert vendored frontend back to npm |
+| `/lt-dev:frontend:contribute-nuxt-extensions-core` | Prepare local patches as upstream PR for nuxt-extensions |
+| `/lt-dev:frontend:figma-init` | Initialize Figma Code Connect setup |
+| `/lt-dev:frontend:figma-research` | Analyze Figma designs for implementation |
+| `/lt-dev:frontend:figma-to-code` | Translate Figma design into Vue/Nuxt code |
+| `/lt-dev:frontend:env-migrate` | Migrate `.env` from old standards |
+| `/lt-dev:frontend:init-conventions` | Initialize frontend conventions |
 
 #### Fullstack
 
-| Command | Zweck |
-|---------|-------|
-| **`/lt-dev:fullstack:update-all`** | **Comprehensive Update**: Backend + Frontend (mode-aware) + Package-Maintenance + CLAUDE.md-Sync + Validation |
-| `/lt-dev:fullstack:update` | Einfacher Backend + Frontend Update (legacy, weniger umfassend) |
-| `/lt-dev:fullstack:sync-claude-md` | Synct `CLAUDE.md` aus Upstream-Starter-Templates |
+| Command | Purpose |
+|---------|---------|
+| **`/lt-dev:fullstack:update-all`** | **Comprehensive update**: backend + frontend (mode-aware) + package maintenance + CLAUDE.md sync + validation |
+| `/lt-dev:fullstack:update` | Simple backend + frontend update (legacy, less comprehensive) |
+| `/lt-dev:fullstack:sync-claude-md` | Sync `CLAUDE.md` from upstream starter templates |
 
 #### Maintenance
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:maintenance:maintain` | FULL MODE: Package-Update + Audit + Security + Deduplication |
-| `/lt-dev:maintenance:maintain-check` | DRY-RUN: Analyse ohne Änderungen |
-| `/lt-dev:maintenance:maintain-security` | Nur Security-Patches |
-| `/lt-dev:maintenance:maintain-pre-release` | Conservative Patch-only vor Release |
-| `/lt-dev:maintenance:maintain-post-feature` | Post-Feature-Cleanup |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:maintenance:maintain` | FULL MODE: package update + audit + security + deduplication |
+| `/lt-dev:maintenance:maintain-check` | DRY-RUN: analysis without changes |
+| `/lt-dev:maintenance:maintain-security` | Security patches only |
+| `/lt-dev:maintenance:maintain-pre-release` | Conservative patch-only before release |
+| `/lt-dev:maintenance:maintain-post-feature` | Post-feature cleanup |
 
 #### Git
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:git:commit-message` | Generiert Conventional-Commit-Message aus Staging |
-| `/lt-dev:git:create-request` | Erstellt Merge-Request mit beschreibendem Body |
-| `/lt-dev:git:mr-description` | Generiert MR-Description aus Commits |
-| `/lt-dev:git:mr-description-clipboard` | Dito, kopiert ins Clipboard |
-| `/lt-dev:git:rebase` | Rebase auf development-Branch mit Conflict-Resolution |
-| `/lt-dev:git:rebase-mrs` | Rebased mehrere MRs hintereinander |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:git:commit-message` | Generate conventional commit message from staging |
+| `/lt-dev:git:create-request` | Create merge request with descriptive body |
+| `/lt-dev:git:mr-description` | Generate MR description from commits |
+| `/lt-dev:git:mr-description-clipboard` | Same, copied to clipboard |
+| `/lt-dev:git:rebase` | Rebase onto development branch with conflict resolution |
+| `/lt-dev:git:rebase-mrs` | Rebase multiple MRs sequentially |
 
 #### Docker
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:docker:gen-setup` | Generiert Docker-Konfiguration (Dockerfile + compose + .env) |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:docker:gen-setup` | Generate Docker configuration (Dockerfile + compose + .env) |
 
 #### Plugin
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:plugin:check` | Validiert das Plugin-Setup nach Context-Loss |
-| `/lt-dev:plugin:element` | Interaktives Erstellen neuer Plugin-Elemente |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:plugin:check` | Validate the plugin setup after context loss |
+| `/lt-dev:plugin:element` | Interactive creation of new plugin elements |
 
 #### Vibe (Spec-Driven Development)
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:vibe:plan` | Erstellt Implementierungsplan aus Requirement |
-| `/lt-dev:vibe:build` | Implementiert nach Plan |
-| `/lt-dev:vibe:build-plan` | Plan + Build in einem Flow |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:vibe:plan` | Create implementation plan from requirement |
+| `/lt-dev:vibe:build` | Implement according to plan |
+| `/lt-dev:vibe:build-plan` | Plan + build in one flow |
 
 #### Standalone
 
-| Command | Zweck |
-|---------|-------|
-| `/lt-dev:debug` | Structured Debugging Session |
-| `/lt-dev:review` | Code-Review mit mehreren Reviewer-Perspektiven |
-| `/lt-dev:refactor-frontend` | Frontend-Refactoring-Helfer |
-| `/lt-dev:resolve-ticket` | Linear-Ticket implementieren |
-| `/lt-dev:create-ticket` | Linear-Ticket erstellen |
-| `/lt-dev:create-story` | User-Story erstellen (DE) |
-| `/lt-dev:create-task` | Linear-Task erstellen |
-| `/lt-dev:create-bug` | Linear-Bug erstellen |
-| `/lt-dev:linear-comment` | Linear-Kommentar erstellen |
-| `/lt-dev:dev-submit` | Dev-Submit-Workflow (commit + push + MR) |
-| `/lt-dev:interview` | Struktur-Interview für Requirements |
-| `/lt-dev:skill-optimize` | Optimiert eine Plugin-Skill |
-| `/lt-dev:spec-to-tasks` | Spec → Aufgaben-Liste |
+| Command | Purpose |
+|---------|---------|
+| `/lt-dev:debug` | Structured debugging session |
+| `/lt-dev:review` | Code review with multiple reviewer perspectives |
+| `/lt-dev:refactor-frontend` | Frontend refactoring helper |
+| `/lt-dev:resolve-ticket` | Implement Linear ticket |
+| `/lt-dev:create-ticket` | Create Linear ticket |
+| `/lt-dev:create-story` | Create user story (German) |
+| `/lt-dev:create-task` | Create Linear task |
+| `/lt-dev:create-bug` | Create Linear bug |
+| `/lt-dev:linear-comment` | Create Linear comment |
+| `/lt-dev:dev-submit` | Dev-submit workflow (commit + push + MR) |
+| `/lt-dev:interview` | Structured interview for requirements |
+| `/lt-dev:skill-optimize` | Optimize a plugin skill |
+| `/lt-dev:spec-to-tasks` | Spec → task list |
 
 ---
 
 ### Autonomous Agents
 
-Autonome Agents führen mehrschrittige Aufgaben ohne Interaktion aus. Sie werden via Commands oder Agent-Tool gespawnt.
+Autonomous agents perform multi-step tasks without interaction. They are spawned via commands or the Agent tool.
 
 #### Vendor-Mode Agents
 
-| Agent | Zweck | Gespawnt von |
-|-------|-------|--------------|
-| `vendor-mode-converter` | Backend npm → vendor Konvertierung inkl. Migration-Guides | `/lt-dev:backend:convert-to-vendor` |
-| `vendor-mode-converter-frontend` | Frontend npm → vendor Konvertierung inkl. Changelog | `/lt-dev:frontend:convert-to-vendor` |
-| `nest-server-core-updater` | Upstream-Sync für vendored nest-server core | `/lt-dev:backend:update-nest-server-core` |
-| `nuxt-extensions-core-updater` | Upstream-Sync für vendored nuxt-extensions core | `/lt-dev:frontend:update-nuxt-extensions-core` |
-| `nest-server-core-contributor` | Upstream-PR-Drafts aus lokalen Backend-Patches | `/lt-dev:backend:contribute-nest-server-core` |
-| `nuxt-extensions-core-contributor` | Upstream-PR-Drafts aus lokalen Frontend-Patches | `/lt-dev:frontend:contribute-nuxt-extensions-core` |
+| Agent | Purpose | Spawned by |
+|-------|---------|------------|
+| `vendor-mode-converter` | Backend npm → vendor conversion incl. migration guides | `/lt-dev:backend:convert-to-vendor` |
+| `vendor-mode-converter-frontend` | Frontend npm → vendor conversion incl. changelog | `/lt-dev:frontend:convert-to-vendor` |
+| `nest-server-core-updater` | Upstream sync for vendored nest-server core | `/lt-dev:backend:update-nest-server-core` |
+| `nuxt-extensions-core-updater` | Upstream sync for vendored nuxt-extensions core | `/lt-dev:frontend:update-nuxt-extensions-core` |
+| `nest-server-core-contributor` | Upstream PR drafts from local backend patches | `/lt-dev:backend:contribute-nest-server-core` |
+| `nuxt-extensions-core-contributor` | Upstream PR drafts from local frontend patches | `/lt-dev:frontend:contribute-nuxt-extensions-core` |
 
-#### Update-Agents
+#### Update Agents
 
-| Agent | Zweck |
-|-------|-------|
-| `nest-server-updater` | npm-Mode Update von nest-server inkl. Migration-Guides |
-| `fullstack-updater` | Coordinated Backend + Frontend Update (legacy) |
-| `npm-package-maintainer` | Package-Optimierung (5 Modes) |
-| `branch-rebaser` | Rebase-Automation mit Conflict-Resolution |
+| Agent | Purpose |
+|-------|---------|
+| `nest-server-updater` | npm-mode update of nest-server incl. migration guides |
+| `fullstack-updater` | Coordinated backend + frontend update (legacy) |
+| `npm-package-maintainer` | Package optimization (5 modes) |
+| `branch-rebaser` | Rebase automation with conflict resolution |
 
 #### Development Agents
 
-| Agent | Zweck |
-|-------|-------|
-| `backend-dev` | Autonomous NestJS-Entwicklung |
-| `frontend-dev` | Autonomous Nuxt-4-Entwicklung |
-| `architect` | Architektur-Planung mit Stack-Enforcement |
-| `devops` | Docker, CI/CD, Environment |
+| Agent | Purpose |
+|-------|---------|
+| `backend-dev` | Autonomous NestJS development |
+| `frontend-dev` | Autonomous Nuxt 4 development |
+| `architect` | Architecture planning with stack enforcement |
+| `devops` | Docker, CI/CD, environment |
 
-#### Reviewer-Agents
+#### Reviewer Agents
 
-| Agent | Zweck |
-|-------|-------|
-| `code-reviewer` | 6-Dimensionen Code-Review |
-| `backend-reviewer` | NestJS-spezifisch |
-| `frontend-reviewer` | Vue/Nuxt-spezifisch |
+| Agent | Purpose |
+|-------|---------|
+| `code-reviewer` | 6-dimension code review |
+| `backend-reviewer` | NestJS-specific |
+| `frontend-reviewer` | Vue/Nuxt-specific |
 | `security-reviewer` | OWASP-aligned |
 | `a11y-reviewer` | Accessibility + Lighthouse |
-| `ux-reviewer` | UX-Patterns |
-| `performance-reviewer` | Bundle, Queries, Caching |
-| `devops-reviewer` | Docker, CI/CD Security |
-| `docs-reviewer` | README, JSDoc, Migration-Guides |
-| `test-reviewer` | Test-Coverage + Quality |
+| `ux-reviewer` | UX patterns |
+| `performance-reviewer` | Bundle, queries, caching |
+| `devops-reviewer` | Docker, CI/CD security |
+| `docs-reviewer` | README, JSDoc, migration guides |
+| `test-reviewer` | Test coverage + quality |
 
 ---
 
-### Skills (Wissensbasis)
+### Skills (Knowledge Base)
 
-Skills enthalten strukturiertes Wissen und werden automatisch aktiviert bei passenden Anfragen.
+Skills contain structured knowledge and are automatically activated on matching queries.
 
-| Skill | Zweck |
-|-------|-------|
-| **`nest-server-core-vendoring`** | Backend-Vendoring-Pattern, flatten-fix, Sync-Workflows |
-| **`nuxt-extensions-core-vendoring`** | Frontend-Vendoring-Pattern, nuxt.config-Rewrite, Sync |
-| `nest-server-updating` | npm-Mode Update-Prozesse, Migration-Guides, Error-Patterns |
-| `generating-nest-servers` | NestJS-Module/Services/Controller generieren |
-| `developing-lt-frontend` | Nuxt-4-Development, Composables, Forms, Auth |
-| `maintaining-npm-packages` | Dependency-Optimierung (5 Modes) |
-| `using-lt-cli` | lt CLI Reference, Konventionen |
-| `developing-claude-plugins` | Plugin-Development (Skills, Commands, Agents) |
-| `coordinating-agent-teams` | Agent-Team-Coordination, Parallelism |
-| `building-stories-with-tdd` | TDD-Workflow für User-Stories |
-| `rebasing-branches` | Rebase-Strategien mit Conflict-Resolution |
-| `general-frontend-security` | OWASP Frontend Security |
+| Skill | Purpose |
+|-------|---------|
+| **`nest-server-core-vendoring`** | Backend vendoring pattern, flatten-fix, sync workflows |
+| **`nuxt-extensions-core-vendoring`** | Frontend vendoring pattern, nuxt.config rewrite, sync |
+| `nest-server-updating` | npm-mode update processes, migration guides, error patterns |
+| `generating-nest-servers` | Generate NestJS modules/services/controllers |
+| `developing-lt-frontend` | Nuxt 4 development, composables, forms, auth |
+| `maintaining-npm-packages` | Dependency optimization (5 modes) |
+| `using-lt-cli` | lt CLI reference, conventions |
+| `developing-claude-plugins` | Plugin development (skills, commands, agents) |
+| `coordinating-agent-teams` | Agent team coordination, parallelism |
+| `building-stories-with-tdd` | TDD workflow for user stories |
+| `rebasing-branches` | Rebase strategies with conflict resolution |
+| `general-frontend-security` | OWASP frontend security |
 
 ---
 
-## Vendor-Mode-Prozesse
+## Vendor-Mode Processes
 
-### 1. Neues Projekt im Vendor-Mode erstellen
+### 1. Create a new project in vendor mode
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  ENTWICKLER                                                    │
+│  DEVELOPER                                                     │
 │                                                                │
 │  lt fullstack init                                             │
 │    --name my-project                                           │
@@ -451,7 +451,7 @@ Skills enthalten strukturiertes Wissen und werden automatisch aktiviert bei pass
                         │
                         ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  lt CLI macht:                                                 │
+│  lt CLI performs:                                              │
 │                                                                │
 │  1. git clone lt-monorepo                                      │
 │  2. setup frontend (nuxt-base-starter)                         │
@@ -480,7 +480,7 @@ Skills enthalten strukturiertes Wissen und werden automatisch aktiviert bei pass
                         │
                         ▼
 ┌────────────────────────────────────────────────────────────────┐
-│  PROJEKT BEREIT                                                │
+│  PROJECT READY                                                 │
 │                                                                │
 │  my-project/                                                   │
 │  ├── projects/                                                 │
@@ -488,10 +488,10 @@ Skills enthalten strukturiertes Wissen und werden automatisch aktiviert bei pass
 │  │   │   ├── src/                                              │
 │  │   │   │   ├── core/         ← Vendored nest-server          │
 │  │   │   │   │   └── VENDOR.md                                 │
-│  │   │   │   ├── server/       ← Projekt-Code                  │
+│  │   │   │   ├── server/       ← Project code                  │
 │  │   │   │   └── main.ts                                       │
 │  │   │   ├── bin/migrate.js                                    │
-│  │   │   └── package.json (ohne @lenne.tech/nest-server)       │
+│  │   │   └── package.json (no @lenne.tech/nest-server)         │
 │  │   └── app/                                                  │
 │  │       ├── app/                                              │
 │  │       │   ├── core/         ← Vendored nuxt-extensions      │
@@ -500,64 +500,64 @@ Skills enthalten strukturiertes Wissen und werden automatisch aktiviert bei pass
 │  │       │   │   └── VENDOR.md                                 │
 │  │       │   └── ...                                           │
 │  │       ├── nuxt.config.ts (modules: ['./app/core/module'])   │
-│  │       └── package.json (ohne @lenne.tech/nuxt-extensions)   │
+│  │       └── package.json (no @lenne.tech/nuxt-extensions)    │
 │  └── CLAUDE.md                                                 │
 └────────────────────────────────────────────────────────────────┘
 ```
 
-**Alternative**: Nur Backend ODER nur Frontend vendored. Flags weglassen:
+**Alternative**: Only backend OR only frontend vendored. Omit the respective flag:
 
 ```bash
-# Nur Backend vendored, Frontend bleibt npm
+# Only backend vendored, frontend stays npm
 lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
   --framework-mode vendor --framework-upstream-branch 11.24.3 --noConfirm
 
-# Nur Frontend vendored, Backend bleibt npm
+# Only frontend vendored, backend stays npm
 lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
   --frontend-framework-mode vendor --noConfirm
 ```
 
 ---
 
-### 2. Backend: npm → Vendor überführen
+### 2. Backend: convert npm → vendor
 
-**Ausgangslage**: Existierendes Projekt im npm-Mode (`@lenne.tech/nest-server` in `package.json`).
+**Starting point**: Existing project in npm mode (`@lenne.tech/nest-server` in `package.json`).
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ENTWICKLER in projects/api/                             │
+│  DEVELOPER in projects/api/                              │
 │                                                          │
-│  Option A — Via Claude Code (mit Migration-Guides):      │
+│  Option A — Via Claude Code (with migration guides):     │
 │    /lt-dev:backend:convert-to-vendor                     │
 │                                                          │
-│  Option B — Direkt via CLI (ohne Migration-Guides):      │
+│  Option B — Directly via CLI (no migration guides):      │
 │    lt server convert-mode --to vendor                    │
 │                                                          │
-│  Option C — Dry-Run (Plan ohne Änderungen):              │
+│  Option C — Dry-run (plan without changes):              │
 │    lt server convert-mode --to vendor --dry-run          │
 └─────────────┬────────────────────────────────────────────┘
               │
-              ▼ Option A nutzt Agent
+              ▼ Option A uses agent
 ┌──────────────────────────────────────────────────────────┐
-│  vendor-mode-converter Agent                             │
+│  vendor-mode-converter agent                             │
 │                                                          │
 │  Phase 0: Prerequisites                                  │
 │    - Verify npm mode                                     │
 │    - Verify NOT already vendored                         │
 │    - Verify lt CLI available                             │
 │                                                          │
-│  Phase 1: Version Detection                              │
+│  Phase 1: Version detection                              │
 │    - SOURCE = current @lenne.tech/nest-server version    │
 │    - TARGET = latest (or specified)                      │
 │    - Calculate version gap                               │
 │                                                          │
-│  Phase 2: Migration-Guide Discovery                      │
+│  Phase 2: Migration-guide discovery                      │
 │    - gh api lenneTech/nest-server/contents/migration-    │
 │      guides                                              │
 │    - Filter by from-version >= SOURCE, < TARGET          │
 │    - Build ordered migration plan                        │
 │                                                          │
-│  Phase 3: CLI Conversion                                 │
+│  Phase 3: CLI conversion                                 │
 │    - lt server convert-mode --to vendor                  │
 │      --upstream-branch <TARGET>                          │
 │    - Applies all transformations:                        │
@@ -568,12 +568,12 @@ lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
 │      • express type-imports fix                          │
 │      • VENDOR.md                                         │
 │                                                          │
-│  Phase 4: Migration Application                          │
+│  Phase 4: Migration application                          │
 │    - Apply each migration guide in version order         │
 │    - Translate @lenne.tech/nest-server refs to relative  │
 │      paths                                               │
 │                                                          │
-│  Phase 5: Validation Loop                                │
+│  Phase 5: Validation loop                                │
 │    - tsc --noEmit                                        │
 │    - pnpm lint                                           │
 │    - pnpm test                                           │
@@ -585,38 +585,38 @@ lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
 
 ---
 
-### 3. Frontend: npm → Vendor überführen
+### 3. Frontend: convert npm → vendor
 
-**Ausgangslage**: Existierendes Nuxt-Projekt im npm-Mode.
+**Starting point**: Existing Nuxt project in npm mode.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ENTWICKLER in projects/app/                             │
+│  DEVELOPER in projects/app/                              │
 │                                                          │
-│  Option A — Via Claude Code (mit Changelog):             │
+│  Option A — Via Claude Code (with changelog):            │
 │    /lt-dev:frontend:convert-to-vendor                    │
 │                                                          │
-│  Option B — Direkt via CLI:                              │
+│  Option B — Directly via CLI:                            │
 │    lt frontend convert-mode --to vendor                  │
 │                                                          │
-│  Option C — Dry-Run:                                     │
+│  Option C — Dry-run:                                     │
 │    lt frontend convert-mode --to vendor --dry-run        │
 └─────────────┬────────────────────────────────────────────┘
               │
               ▼
 ┌──────────────────────────────────────────────────────────┐
-│  vendor-mode-converter-frontend Agent (Option A)         │
+│  vendor-mode-converter-frontend agent (Option A)         │
 │                                                          │
 │  Phase 0: Prerequisites                                  │
-│  Phase 1: Version Detection                              │
+│  Phase 1: Version detection                              │
 │    - SOURCE = current @lenne.tech/nuxt-extensions        │
 │    - TARGET = latest                                     │
 │                                                          │
-│  Phase 2: Changelog Discovery                            │
+│  Phase 2: Changelog discovery                            │
 │    - Fetch CHANGELOG.md from nuxt-extensions repo        │
 │    - Fetch GitHub releases for version gap               │
 │                                                          │
-│  Phase 3: CLI Conversion                                 │
+│  Phase 3: CLI conversion                                 │
 │    - lt frontend convert-mode --to vendor                │
 │      --upstream-branch <TARGET>                          │
 │    - Transformations:                                    │
@@ -627,8 +627,8 @@ lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
 │      • remove @lenne.tech/nuxt-extensions dep            │
 │      • VENDOR.md                                         │
 │                                                          │
-│  Phase 4: Changelog Application                          │
-│    - Apply breaking changes from changelog               │
+│  Phase 4: Changelog application                          │
+│    - Apply breaking changes from changelog              │
 │                                                          │
 │  Phase 5: Validation                                     │
 │    - nuxt build                                          │
@@ -640,27 +640,27 @@ lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
 
 ---
 
-### 4. Backend: Vendor → npm Rückführung
+### 4. Backend: vendor → npm rollback
 
-**Ausgangslage**: Projekt im Vendor-Mode (`src/core/VENDOR.md` existiert).
+**Starting point**: Project in vendor mode (`src/core/VENDOR.md` exists).
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ENTWICKLER in projects/api/                             │
+│  DEVELOPER in projects/api/                              │
 │                                                          │
 │  Option A — Via Claude Code:                             │
 │    /lt-dev:backend:convert-to-npm                        │
 │                                                          │
-│  Option B — Direkt via CLI:                              │
+│  Option B — Directly via CLI:                            │
 │    lt server convert-mode --to npm                       │
 │                                                          │
-│  Mit spezifischer Version:                               │
+│  With specific version:                                  │
 │    lt server convert-mode --to npm --version 11.24.3     │
 └─────────────┬────────────────────────────────────────────┘
               │
               ▼
 ┌──────────────────────────────────────────────────────────┐
-│  lt CLI macht:                                           │
+│  lt CLI performs:                                        │
 │                                                          │
 │  1. Read baseline version from src/core/VENDOR.md        │
 │  2. Warn if local patches exist in VENDOR.md             │
@@ -680,30 +680,30 @@ lt fullstack init --name my-project --frontend nuxt --api-mode Rest \
 └──────────────────────────────────────────────────────────┘
 ```
 
-**⚠️ Warnung vor Rückführung:**
-Vor einem `convert-to-npm` sollten alle substantiellen lokalen Patches im vendored core über `/lt-dev:backend:contribute-nest-server-core` **upstream beigetragen** werden — sonst gehen sie verloren.
+**⚠️ Warning before rollback:**
+Before a `convert-to-npm`, all substantial local patches in the vendored core should be **contributed upstream** via `/lt-dev:backend:contribute-nest-server-core` — otherwise they will be lost.
 
 ---
 
-### 5. Frontend: Vendor → npm Rückführung
+### 5. Frontend: vendor → npm rollback
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ENTWICKLER in projects/app/                             │
+│  DEVELOPER in projects/app/                              │
 │                                                          │
 │  Option A — Via Claude Code:                             │
 │    /lt-dev:frontend:convert-to-npm                       │
 │                                                          │
-│  Option B — Direkt via CLI:                              │
+│  Option B — Directly via CLI:                            │
 │    lt frontend convert-mode --to npm                     │
 │                                                          │
-│  Mit spezifischer Version:                               │
+│  With specific version:                                  │
 │    lt frontend convert-mode --to npm --version 1.5.3     │
 └─────────────┬────────────────────────────────────────────┘
               │
               ▼
 ┌──────────────────────────────────────────────────────────┐
-│  lt CLI macht:                                           │
+│  lt CLI performs:                                        │
 │                                                          │
 │  1. Read baseline version from app/core/VENDOR.md        │
 │  2. Warn if local patches exist in VENDOR.md             │
@@ -721,9 +721,9 @@ Vor einem `convert-to-npm` sollten alle substantiellen lokalen Patches im vendor
 
 ---
 
-### 6. Update-Workflows
+### 6. Update workflows
 
-Der **empfohlene** Weg für alle Updates ist `/lt-dev:fullstack:update-all`. Er ist mode-aware und orchestriert die passenden Agents automatisch.
+The **recommended** path for all updates is `/lt-dev:fullstack:update-all`. It is mode-aware and orchestrates the appropriate agents automatically.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -733,29 +733,29 @@ Der **empfohlene** Weg für alle Updates ist `/lt-dev:fullstack:update-all`. Er 
 │    Backend:  test -f <api>/src/core/VENDOR.md  → vendor | npm    │
 │    Frontend: test -f <app>/app/core/VENDOR.md  → vendor | npm    │
 │                                                                  │
-│  Phase 2: Version analysis + UPDATE_PLAN.md + User Approval      │
+│  Phase 2: Version analysis + UPDATE_PLAN.md + user approval      │
 │                                                                  │
-│  Phase 3: Backend Framework Update                               │
+│  Phase 3: Backend framework update                               │
 │    IF npm:     spawn lt-dev:nest-server-updater                  │
 │    IF vendor:  spawn lt-dev:nest-server-core-updater             │
 │                                                                  │
-│  Phase 4: Frontend Framework Update                              │
+│  Phase 4: Frontend framework update                              │
 │    IF npm:     spawn lt-dev:fullstack-updater --skip-backend     │
 │    IF vendor:  spawn lt-dev:nuxt-extensions-core-updater         │
 │                                                                  │
-│  Phase 5: Package Maintenance                                    │
+│  Phase 5: Package maintenance                                    │
 │    → spawn lt-dev:npm-package-maintainer (FULL MODE)             │
-│    (für Backend UND Frontend package.json)                       │
+│    (for backend AND frontend package.json)                       │
 │                                                                  │
-│  Phase 6: CLAUDE.md Sync aus Upstream Starters                   │
+│  Phase 6: CLAUDE.md sync from upstream starters                  │
 │                                                                  │
-│  Phase 7: Cross-Validation (Build + Lint + Tests)                │
+│  Phase 7: Cross-validation (build + lint + tests)                │
 │                                                                  │
-│  Phase 8: Final Report                                           │
+│  Phase 8: Final report                                           │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-**Alle 4 Modus-Kombinationen werden unterstützt:**
+**All 4 mode combinations are supported:**
 
 | Backend | Frontend | Backend Agent | Frontend Agent |
 |---------|----------|---------------|----------------|
@@ -764,179 +764,178 @@ Der **empfohlene** Weg für alle Updates ist `/lt-dev:fullstack:update-all`. Er 
 | vendor | npm | `nest-server-core-updater` | `fullstack-updater --skip-backend` |
 | vendor | vendor | `nest-server-core-updater` | `nuxt-extensions-core-updater` |
 
-**Skip-Flags:**
+**Skip flags:**
 
 ```bash
-/lt-dev:fullstack:update-all --dry-run        # Nur Plan
-/lt-dev:fullstack:update-all --skip-backend   # Nur Frontend
-/lt-dev:fullstack:update-all --skip-frontend  # Nur Backend
-/lt-dev:fullstack:update-all --skip-packages  # Nur Framework, keine Package-Maintenance
+/lt-dev:fullstack:update-all --dry-run        # Plan only
+/lt-dev:fullstack:update-all --skip-backend   # Frontend only
+/lt-dev:fullstack:update-all --skip-frontend  # Backend only
+/lt-dev:fullstack:update-all --skip-packages  # Framework only, no package maintenance
 ```
 
-**Einzelne Updates** (wenn du nur einen Teil brauchst):
+**Individual updates** (if you only need one part):
 
 ```bash
-# Backend npm-Mode
+# Backend npm mode
 /lt-dev:backend:update-nest-server
 
-# Backend vendor-Mode
+# Backend vendor mode
 /lt-dev:backend:update-nest-server-core
 
-# Frontend vendor-Mode
+# Frontend vendor mode
 /lt-dev:frontend:update-nuxt-extensions-core
 
-# Nur Packages optimieren
+# Packages only
 /lt-dev:maintenance:maintain
 ```
 
 ---
 
-### 7. Upstream-Contribution
+### 7. Upstream contribution
 
-Wenn du im vendored core **generell nützliche** Änderungen gemacht hast (Bugfixes, Features), können diese als Pull-Request an das Upstream-Repo beigetragen werden.
+If you have made **generally useful** changes to the vendored core (bug fixes, features), they can be contributed back as pull requests to the upstream repo.
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│  BACKEND: /lt-dev:backend:contribute-nest-server-core      │
+┌──────────────────────────────────────────────────────────┐
+│  BACKEND:  /lt-dev:backend:contribute-nest-server-core   │
 │  FRONTEND: /lt-dev:frontend:contribute-nuxt-extensions-core│
-│                                                            │
-│  Phase 1: git log seit VENDOR.md baseline                  │
-│  Phase 2: Filter cosmetic commits (format, lint)           │
-│  Phase 3: Categorize:                                      │
-│    - upstream-candidate: generic bugfix, framework         │
-│      enhancement, type correction                          │
-│    - project-specific: business rules, branding            │
-│  Phase 4: Clone upstream fresh + cherry-pick candidates    │
-│  Phase 5: Generate PR draft with motivation                │
-│  Phase 6: Present summary for human review                 │
-│                                                            │
-│  Human: reviews + pushes PR via normal GitHub flow         │
-└────────────────────────────────────────────────────────────┘
+│                                                          │
+│  Phase 1: git log since VENDOR.md baseline               │
+│  Phase 2: Filter cosmetic commits (format, lint)         │
+│  Phase 3: Categorize:                                    │
+│    - upstream-candidate: generic bugfix, framework       │
+│      enhancement, type correction                        │
+│    - project-specific: business rules, branding          │
+│  Phase 4: Clone upstream fresh + cherry-pick candidates  │
+│  Phase 5: Generate PR draft with motivation              │
+│  Phase 6: Present summary for human review               │
+│                                                          │
+│  Human: reviews + pushes PR via normal GitHub flow       │
+└──────────────────────────────────────────────────────────┘
 ```
 
-Nach Merge des PR wird beim nächsten `/lt-dev:backend:update-nest-server-core` bzw. `/lt-dev:frontend:update-nuxt-extensions-core` der Patch als "upstream-delivered" erkannt und aus dem VENDOR.md Local-Changes-Log entfernt.
+After the PR is merged, the next `/lt-dev:backend:update-nest-server-core` or `/lt-dev:frontend:update-nuxt-extensions-core` run will recognize the patch as "upstream-delivered" and remove it from the VENDOR.md local-changes log.
 
 ---
 
-## Entscheidungsmatrix
+## Decision Matrix
 
-### Wann npm-Mode?
+### When to use npm mode?
 
-- ✅ Standard-Projekt ohne lokale Framework-Anpassungen
-- ✅ Schnelle Updates via `pnpm update`
-- ✅ Weniger komplexe CI/CD
-- ✅ Weniger Speicher-Footprint im Repo
+- ✅ Standard project without local framework modifications
+- ✅ Fast updates via `pnpm update`
+- ✅ Simpler CI/CD
+- ✅ Smaller memory footprint in the repo
 
-### Wann Vendor-Mode?
+### When to use vendor mode?
 
-- ✅ Claude Code soll den Framework-Code **verstehen** (besseres Kontextverständnis)
-- ✅ Lokale Patches am Framework sind erforderlich
-- ✅ Upstream-Beiträge sollen aus echter Entwicklung entstehen
-- ✅ Debugging in Framework-Code mit Source-Maps / Originalcode
-- ✅ Framework-Änderungen sofort testbar ohne npm-Release-Cycle
-- ⚠️ Erfordert gelegentliche Merge-Konflikte beim Sync
-- ⚠️ Längere Test-Import-Phase (TypeScript source)
-
----
-
-## Glossar
-
-| Begriff | Bedeutung |
-|---------|-----------|
-| **npm-Mode** | Framework als `@lenne.tech/nest-server` / `@lenne.tech/nuxt-extensions` npm-Dependency |
-| **Vendor-Mode** | Framework-Source kopiert in `src/core/` (Backend) bzw. `app/core/` (Frontend) |
-| **VENDOR.md** | Marker-Datei im vendored core mit Baseline-Version, Sync-Historie, Local-Patches |
-| **Flatten-Fix** | Import-Path-Rewrites in 4 Backend-Dateien nach dem Kopieren (nur Backend) |
-| **Consumer-Import-Codemod** | Rewrite von `@lenne.tech/nest-server` zu relativen Pfaden in Projekt-Code |
-| **Upstream-Sync** | Pull von Upstream-Änderungen ins vendored core |
-| **Upstream-Contribution** | Push von lokalen Patches als PR zum Upstream-Repo |
-| **Mode-aware** | Code der automatisch korrekte Pfade für npm oder vendor wählt |
-| **Starter** | `nest-server-starter` / `nuxt-base-starter` — Template-Repo mit Standard-Config |
+- ✅ Claude Code should **understand** the framework code (better context comprehension)
+- ✅ Local patches to the framework are required
+- ✅ Upstream contributions should emerge from real development
+- ✅ Debugging in framework code with source maps / original code
+- ✅ Framework changes immediately testable without npm release cycle
+- ⚠️ Requires occasional merge conflict handling during sync
+- ⚠️ Longer test import phase (TypeScript source)
 
 ---
 
-## Quellen & Referenzen
+## Glossary
 
-### GitHub-Repos
+| Term | Meaning |
+|------|---------|
+| **npm mode** | Framework as `@lenne.tech/nest-server` / `@lenne.tech/nuxt-extensions` npm dependency |
+| **Vendor mode** | Framework source copied into `src/core/` (backend) or `app/core/` (frontend) |
+| **VENDOR.md** | Marker file in the vendored core with baseline version, sync history, local patches |
+| **Flatten-fix** | Import path rewrites in 4 backend files after copying (backend only) |
+| **Consumer-import codemod** | Rewrite of `@lenne.tech/nest-server` to relative paths in project code |
+| **Upstream sync** | Pulling upstream changes into the vendored core |
+| **Upstream contribution** | Pushing local patches as PR to the upstream repo |
+| **Mode-aware** | Code that automatically chooses correct paths for npm or vendor |
+| **Starter** | `nest-server-starter` / `nuxt-base-starter` — template repo with standard config |
+
+---
+
+## Sources & References
+
+### GitHub repos
 
 | Repo | URL |
 |------|-----|
 | lt CLI | https://github.com/lenneTech/cli |
 | lt-dev Plugin | https://github.com/lenneTech/claude-code |
-| nest-server Framework | https://github.com/lenneTech/nest-server |
-| nest-server Starter | https://github.com/lenneTech/nest-server-starter |
-| nuxt-extensions Module | https://github.com/lenneTech/nuxt-extensions |
-| nuxt-base Starter | https://github.com/lenneTech/nuxt-base-starter |
-| lt-monorepo Template | https://github.com/lenneTech/lt-monorepo |
+| nest-server framework | https://github.com/lenneTech/nest-server |
+| nest-server starter | https://github.com/lenneTech/nest-server-starter |
+| nuxt-extensions module | https://github.com/lenneTech/nuxt-extensions |
+| nuxt-base starter | https://github.com/lenneTech/nuxt-base-starter |
+| lt-monorepo template | https://github.com/lenneTech/lt-monorepo |
 
-### Lokale Dokumentation
+### Local documentation
 
-- `cli/CLAUDE.md` — CLI-interne Dokumentation + Vendor-Touchpoints-Tabelle
-- `cli/docs/commands.md` — CLI Command-Reference
-- `cli/docs/lt.config.md` — CLI Config-Reference
-- `cli/scripts/test-vendor-init.sh` — Backend-Vendor-Integration-Tests (4 Szenarien × ~22 Assertions)
-- `cli/scripts/test-frontend-vendor-init.sh` — Frontend-Vendor-Integration-Tests (4 Szenarien)
-- `framework-vendoring-pilot-plan.md` — Original Vendor-Mode Blueprint
+- `cli/CLAUDE.md` — CLI internal documentation + vendor touchpoints table
+- `cli/docs/commands.md` — CLI command reference
+- `cli/docs/lt.config.md` — CLI config reference
+- `cli/scripts/test-vendor-init.sh` — Backend vendor integration tests (4 scenarios × ~22 assertions)
+- `cli/scripts/test-frontend-vendor-init.sh` — Frontend vendor integration tests (4 scenarios)
 
 ---
 
-## Schnellreferenz — Die wichtigsten Commands
+## Quick Reference — The Most Important Commands
 
 ```bash
 # ═══════════════════════════════════════════════════════════════
-# PROJEKT-SETUP
+# PROJECT SETUP
 # ═══════════════════════════════════════════════════════════════
 
-# Neues Projekt (beide im vendor mode)
+# New project (both in vendor mode)
 lt fullstack init --name <n> --frontend nuxt --api-mode Rest \
   --framework-mode vendor --frontend-framework-mode vendor --noConfirm
 
-# Neues Projekt (npm mode, Standard)
+# New project (npm mode, standard)
 lt fullstack init --name <n> --frontend nuxt --api-mode Rest --noConfirm
 
-# Status checken (zeigt beide Modi im Monorepo-Root)
+# Check status (shows both modes at monorepo root)
 lt status
 
 # ═══════════════════════════════════════════════════════════════
-# KONVERTIERUNG — Fullstack (beide Subprojekte in einem Schritt)
+# CONVERSION — Fullstack (both subprojects in one step)
 # ═══════════════════════════════════════════════════════════════
 
-# Beide Subprojekte: npm → vendor (vom Monorepo-Root)
+# Both subprojects: npm → vendor (from monorepo root)
 lt fullstack convert-mode --to vendor --noConfirm
 
-# Beide Subprojekte: vendor → npm (Rückführung)
+# Both subprojects: vendor → npm (rollback)
 lt fullstack convert-mode --to npm --noConfirm
 
-# Mit spezifischen Upstream-Versionen
+# With specific upstream versions
 lt fullstack convert-mode --to vendor \
   --framework-upstream-branch 11.24.3 \
   --frontend-framework-upstream-branch 1.5.3 \
   --noConfirm
 
-# Nur Backend bzw. nur Frontend
+# Only backend or only frontend
 lt fullstack convert-mode --to vendor --skip-frontend --noConfirm
 lt fullstack convert-mode --to vendor --skip-backend --noConfirm
 
-# Dry-run (Plan ohne Änderungen)
+# Dry-run (plan without changes)
 lt fullstack convert-mode --to vendor --dry-run
 
 # ═══════════════════════════════════════════════════════════════
-# KONVERTIERUNG — Einzeln (in den jeweiligen Subprojekten)
+# CONVERSION — Individual (in the respective subprojects)
 # ═══════════════════════════════════════════════════════════════
 
-# Backend: npm → vendor (mit Migrations via Claude Code)
+# Backend: npm → vendor (with migrations via Claude Code)
 /lt-dev:backend:convert-to-vendor
 
-# Backend: npm → vendor (direkt via CLI)
+# Backend: npm → vendor (directly via CLI)
 cd projects/api && lt server convert-mode --to vendor
 
-# Frontend: npm → vendor (mit Changelog via Claude Code)
+# Frontend: npm → vendor (with changelog via Claude Code)
 /lt-dev:frontend:convert-to-vendor
 
-# Frontend: npm → vendor (direkt via CLI)
+# Frontend: npm → vendor (directly via CLI)
 cd projects/app && lt frontend convert-mode --to vendor
 
-# Rückführung einzeln
+# Rollback individually
 cd projects/api && lt server convert-mode --to npm
 cd projects/app && lt frontend convert-mode --to npm
 
@@ -944,30 +943,30 @@ cd projects/app && lt frontend convert-mode --to npm
 # UPDATES
 # ═══════════════════════════════════════════════════════════════
 
-# Comprehensive Fullstack Update (empfohlen, mode-aware)
+# Comprehensive fullstack update (recommended, mode-aware)
 /lt-dev:fullstack:update-all
 
-# Nur Backend
+# Backend only
 /lt-dev:backend:update-nest-server        # npm mode
 /lt-dev:backend:update-nest-server-core   # vendor mode
 
-# Nur Frontend
+# Frontend only
 /lt-dev:frontend:update-nuxt-extensions-core  # vendor mode
 
-# Nur Packages
+# Packages only
 /lt-dev:maintenance:maintain
 
 # ═══════════════════════════════════════════════════════════════
 # UPSTREAM CONTRIBUTION
 # ═══════════════════════════════════════════════════════════════
 
-# Backend: Lokale Patches als PR vorbereiten
+# Backend: prepare local patches as PR
 /lt-dev:backend:contribute-nest-server-core
 
-# Frontend: Lokale Patches als PR vorbereiten
+# Frontend: prepare local patches as PR
 /lt-dev:frontend:contribute-nuxt-extensions-core
 ```
 
 ---
 
-*Diese Datei ist als lebende Dokumentation gedacht. Bei neuen Funktionen im lt-CLI oder lt-dev Plugin sollte sie aktualisiert werden.*
+*This file is intended as living documentation. It should be updated when new features are added to the lt CLI or lt-dev plugin.*
