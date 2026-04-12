@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -26,6 +26,7 @@
     "copy-templates": "npx shx cp -R ./src/templates ./build/templates && npx shx cp -R ./src/config ./build/config",
     "coverage": "jest --coverage",
     "test:vendor-init": "bash scripts/test-vendor-init.sh",
+    "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",
     "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
     "lint": "eslint './src/**/*.{ts,js,vue}'",
     "lint:fix": "eslint './src/**/*.{ts,js,vue}' --fix",

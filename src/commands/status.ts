@@ -3,15 +3,24 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { detectFrameworkMode, FrameworkMode, isVendoredProject } from '../lib/framework-detection';
+import { detectFrontendFrameworkMode, FrontendFrameworkMode, isVendoredAppProject } from '../lib/frontend-framework-detection';
+
+interface MonorepoSubproject {
+  frameworkMode: FrameworkMode | FrontendFrameworkMode | null;
+  kind: 'backend' | 'frontend';
+  path: string;
+}
 
 interface ProjectInfo {
   configFiles: string[];
   frameworkMode: FrameworkMode | null;
+  frontendFrameworkMode: FrontendFrameworkMode | null;
   gitBranch: null | string;
   gitRoot: null | string;
   hasGit: boolean;
   hasLtConfig: boolean;
   hasPackageJson: boolean;
+  monorepoSubprojects: MonorepoSubproject[];
   nodeVersion: null | string;
   npmVersion: null | string;
   packageName: null | string;
@@ -43,11 +52,13 @@ const StatusCommand: GluegunCommand = {
     const projectInfo: ProjectInfo = {
       configFiles: [],
       frameworkMode: null,
+      frontendFrameworkMode: null,
       gitBranch: null,
       gitRoot: null,
       hasGit: false,
       hasLtConfig: false,
       hasPackageJson: false,
+      monorepoSubprojects: [],
       nodeVersion: null,
       npmVersion: null,
       packageName: null,
@@ -85,6 +96,10 @@ const StatusCommand: GluegunCommand = {
           projectInfo.projectType = 'nestjs';
         } else if (deps['nuxt']) {
           projectInfo.projectType = 'nuxt';
+          // Detect frontend framework mode if nuxt-extensions is present
+          if (deps['@lenne.tech/nuxt-extensions'] || isVendoredAppProject(cwd)) {
+            projectInfo.frontendFrameworkMode = detectFrontendFrameworkMode(cwd);
+          }
         } else if (deps['@angular/core']) {
           projectInfo.projectType = 'angular';
         } else if (deps['react']) {
@@ -98,6 +113,49 @@ const StatusCommand: GluegunCommand = {
         }
       } catch {
         // Ignore parse errors
+      }
+    }
+
+    // Monorepo subproject detection: scan projects/api and projects/app for
+    // framework modes so that `lt status` at the monorepo root surfaces
+    // backend + frontend framework consumption modes even when the root
+    // itself is not a Nest/Nuxt project.
+    const monorepoCandidates: Array<{ kind: 'backend' | 'frontend'; path: string }> = [
+      { kind: 'backend', path: join(cwd, 'projects', 'api') },
+      { kind: 'backend', path: join(cwd, 'packages', 'api') },
+      { kind: 'frontend', path: join(cwd, 'projects', 'app') },
+      { kind: 'frontend', path: join(cwd, 'packages', 'app') },
+    ];
+    for (const candidate of monorepoCandidates) {
+      if (!filesystem.exists(join(candidate.path, 'package.json'))) continue;
+      if (candidate.kind === 'backend') {
+        try {
+          const subPkg = JSON.parse(filesystem.read(join(candidate.path, 'package.json')) || '{}');
+          const subDeps = { ...subPkg.dependencies, ...subPkg.devDependencies };
+          if (subDeps['@lenne.tech/nest-server'] || isVendoredProject(candidate.path)) {
+            projectInfo.monorepoSubprojects.push({
+              frameworkMode: detectFrameworkMode(candidate.path),
+              kind: 'backend',
+              path: candidate.path,
+            });
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        try {
+          const subPkg = JSON.parse(filesystem.read(join(candidate.path, 'package.json')) || '{}');
+          const subDeps = { ...subPkg.dependencies, ...subPkg.devDependencies };
+          if (subDeps['@lenne.tech/nuxt-extensions'] || isVendoredAppProject(candidate.path)) {
+            projectInfo.monorepoSubprojects.push({
+              frameworkMode: detectFrontendFrameworkMode(candidate.path),
+              kind: 'frontend',
+              path: candidate.path,
+            });
+          }
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -143,6 +201,35 @@ const StatusCommand: GluegunCommand = {
             ? 'vendor (src/core/, VENDOR.md)'
             : 'npm (@lenne.tech/nest-server dependency)';
         info(`  Framework: ${modeLabel}`);
+      }
+      if (projectInfo.frontendFrameworkMode) {
+        const frontendModeLabel =
+          projectInfo.frontendFrameworkMode === 'vendor'
+            ? 'vendor (app/core/, VENDOR.md)'
+            : 'npm (@lenne.tech/nuxt-extensions dependency)';
+        info(`  Frontend Framework: ${frontendModeLabel}`);
+      }
+    }
+
+    // Show monorepo subprojects if we detected any (typically at monorepo root)
+    if (projectInfo.monorepoSubprojects.length > 0) {
+      info('');
+      info(colors.bold('Monorepo Subprojects:'));
+      for (const sub of projectInfo.monorepoSubprojects) {
+        const relPath = sub.path.replace(`${cwd}/`, '');
+        if (sub.kind === 'backend') {
+          const label =
+            sub.frameworkMode === 'vendor'
+              ? 'vendor (src/core/, VENDOR.md)'
+              : 'npm (@lenne.tech/nest-server dependency)';
+          info(`  Backend:  ${relPath} → ${label}`);
+        } else {
+          const label =
+            sub.frameworkMode === 'vendor'
+              ? 'vendor (app/core/, VENDOR.md)'
+              : 'npm (@lenne.tech/nuxt-extensions dependency)';
+          info(`  Frontend: ${relPath} → ${label}`);
+        }
       }
     }
 

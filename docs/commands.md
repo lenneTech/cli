@@ -2,6 +2,12 @@
 
 This document provides a comprehensive reference for all `lt` CLI commands. For configuration file options, see [lt.config.md](./lt.config.md).
 
+## Related Documentation
+
+- **[LT-ECOSYSTEM-GUIDE](./LT-ECOSYSTEM-GUIDE.md)** — Complete reference for `lt` CLI **and** the `lt-dev` Claude-Code Plugin including architecture, vendor-mode workflows, agents, and skills
+- **[VENDOR-MODE-WORKFLOW](./VENDOR-MODE-WORKFLOW.md)** — Step-by-step guide for converting a project from npm mode to vendor mode, updating it, and optional rollback
+- **[lt.config.md](./lt.config.md)** — Configuration file reference
+
 ## Table of Contents
 
 - [CLI Commands](#cli-commands)
@@ -199,6 +205,67 @@ Runs server tests.
 ```bash
 lt server test
 ```
+
+---
+
+### `lt server convert-mode`
+
+Convert an existing API (NestJS) project between npm mode and vendor mode for `@lenne.tech/nest-server`.
+
+**Usage:**
+```bash
+lt server convert-mode --to <vendor|npm> [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--to <mode>` | Target mode: `vendor` or `npm` (required) |
+| `--upstream-branch <ref>` | Upstream branch/tag to vendor from (only with `--to vendor`) |
+| `--version <version>` | nest-server version to install (only with `--to npm`, default: from VENDOR.md baseline) |
+| `--dry-run` | Show the resolved plan without making any changes |
+| `--noConfirm` | Skip confirmation prompt |
+
+**Behavior:**
+
+- **npm → vendor:**
+  - Clones `@lenne.tech/nest-server` from GitHub at the specified tag (default: currently installed version)
+  - Copies `src/core/`, `src/index.ts`, `src/core.module.ts`, `src/test/`, `src/templates/`, `src/types/`, and `LICENSE` to `<api-root>/src/core/`
+  - Applies flatten-fix on `index.ts`, `core.module.ts`, `test.helper.ts`, `core-persistence-model.interface.ts`
+  - Rewrites all consumer imports from `'@lenne.tech/nest-server'` to relative paths
+  - Merges upstream dependencies dynamically into `package.json`
+  - Rewrites `migrate:*` scripts to use local `bin/migrate.js` with `ts-compiler.js` bootstrap
+  - Adds `check:vendor-freshness` script
+  - Creates `src/core/VENDOR.md` with baseline version + commit SHA
+  - Prepends a vendor-mode notice block to `CLAUDE.md`
+
+- **vendor → npm:**
+  - Extracts baseline version from `src/core/VENDOR.md` (warns if local patches exist)
+  - Rewrites consumer imports back to `@lenne.tech/nest-server`
+  - Deletes `src/core/`
+  - Restores `@lenne.tech/nest-server` dependency in `package.json`
+  - Restores `migrate:*` scripts to `node_modules/.bin/` paths
+  - Removes vendor artifacts (`bin/`, `migrations-utils/ts-compiler.js`, `migration-guides/`) and `CLAUDE.md` marker
+
+**Examples:**
+```bash
+# Convert existing npm project to vendor mode at a specific version
+cd projects/api
+lt server convert-mode --to vendor --upstream-branch 11.24.3 --noConfirm
+
+# Preview what the conversion would do
+lt server convert-mode --to vendor --dry-run
+
+# Convert vendored project back to npm with a specific version
+lt server convert-mode --to npm --version 11.24.3 --noConfirm
+```
+
+**Note:** nest-server tags have **no** `v` prefix — use e.g. `11.24.3`, not `v11.24.3`.
+
+For mode-aware update workflows after conversion, use:
+- `/lt-dev:backend:update-nest-server-core` (vendor mode)
+- `/lt-dev:backend:update-nest-server` (npm mode)
+- `/lt-dev:fullstack:update-all` (coordinated backend + frontend)
 
 ---
 
@@ -462,6 +529,10 @@ lt fullstack init [options]
 | `--frontend-branch <branch>` | Branch of frontend starter to use (ng-base-starter or nuxt-base-starter) |
 | `--frontend-copy <path>` | Copy frontend from local template directory |
 | `--frontend-link <path>` | Symlink frontend to local template (fastest, changes affect original) |
+| `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (pilot, core copied to `src/core/`) |
+| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag to vendor from (only with `--framework-mode vendor`) |
+| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (nuxt-extensions copied to `app/core/`) |
+| `--dry-run` | Print the resolved plan without making any changes |
 | `--git` | Push initial commit to remote repository (git is always initialized) |
 | `--git-link <url>` | Git remote repository URL (required when `--git` is true) |
 | `--noConfirm` | Skip confirmation prompts |
@@ -482,6 +553,74 @@ lt fullstack init [options]
 Additionally, the API's `CLAUDE.md` is patched to reflect the selected API mode — the generic "API Mode" description is replaced with the chosen mode, and in single-mode projects (`Rest` or `GraphQL`), the "API Mode System" section is condensed.
 
 **Configuration:** `commands.fullstack.*`, `defaults.noConfirm`
+
+---
+
+### `lt fullstack convert-mode`
+
+Convert **both** backend (`projects/api/`) and frontend (`projects/app/`) of a fullstack monorepo between npm mode and vendor mode in a single command. Auto-detects the subprojects, shows the plan for each side, and orchestrates the backend + frontend conversions sequentially.
+
+**Usage:**
+```bash
+lt fullstack convert-mode --to <vendor|npm> [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--to <mode>` | Target mode: `vendor` or `npm` (required) |
+| `--framework-upstream-branch <ref>` | Backend upstream branch/tag (only with `--to vendor`, e.g. `11.24.3`) |
+| `--frontend-framework-upstream-branch <ref>` | Frontend upstream branch/tag (only with `--to vendor`, e.g. `1.5.3`) |
+| `--framework-version <version>` | Backend nest-server version (only with `--to npm`, default: from `VENDOR.md` baseline) |
+| `--frontend-framework-version <version>` | Frontend nuxt-extensions version (only with `--to npm`, default: from `VENDOR.md` baseline) |
+| `--skip-backend` | Skip backend conversion (frontend only) |
+| `--skip-frontend` | Skip frontend conversion (backend only) |
+| `--dry-run` | Show the resolved plan without making any changes |
+| `--noConfirm` | Skip confirmation prompt |
+
+**Subproject Detection:**
+
+The command searches for subprojects in this order:
+- Backend: `projects/api/` → `packages/api/`
+- Frontend: `projects/app/` → `packages/app/`
+
+Subprojects that are already in the target mode or not found are gracefully skipped.
+
+**Behavior:**
+
+For each subproject that needs conversion:
+- **Backend**: delegates to the same pipeline as `lt server convert-mode`
+- **Frontend**: delegates to the same pipeline as `lt frontend convert-mode`
+- **Failure isolation**: If backend fails, frontend still runs (unless `--dry-run`). Final summary lists per-subproject status.
+
+**Examples:**
+```bash
+# Convert both subprojects to vendor mode at current versions (auto-detected)
+cd my-monorepo
+lt fullstack convert-mode --to vendor --noConfirm
+
+# Convert to vendor with explicit versions
+lt fullstack convert-mode --to vendor \
+  --framework-upstream-branch 11.24.3 \
+  --frontend-framework-upstream-branch 1.5.3 \
+  --noConfirm
+
+# Preview the plan without changes
+lt fullstack convert-mode --to vendor --dry-run
+
+# Convert back to npm (preserves local patches by warning before execution)
+lt fullstack convert-mode --to npm --noConfirm
+
+# Only convert backend (frontend stays as-is)
+lt fullstack convert-mode --to vendor --skip-frontend --noConfirm
+```
+
+**Note:** nest-server tags use **no** `v` prefix (e.g. `11.24.3`). nuxt-extensions tags also use **no** `v` prefix (e.g. `1.5.3`).
+
+For mode-aware update workflows after conversion, use:
+- `/lt-dev:fullstack:update-all` (comprehensive, mode-aware)
+- `/lt-dev:backend:update-nest-server-core` (backend vendor mode)
+- `/lt-dev:frontend:update-nuxt-extensions-core` (frontend vendor mode)
 
 ---
 
@@ -590,6 +729,63 @@ lt frontend nuxt --copy /path/to/nuxt-base-starter/nuxt-base-template
 ```
 
 **Configuration:** `commands.frontend.nuxt.*`
+
+---
+
+### `lt frontend convert-mode`
+
+Convert an existing frontend (Nuxt) project between npm mode and vendor mode for `@lenne.tech/nuxt-extensions`.
+
+**Usage:**
+```bash
+lt frontend convert-mode --to <vendor|npm> [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--to <mode>` | Target mode: `vendor` or `npm` (required) |
+| `--upstream-branch <ref>` | Upstream branch/tag to vendor from (only with `--to vendor`) |
+| `--version <version>` | nuxt-extensions version to install (only with `--to npm`, default: from VENDOR.md baseline) |
+| `--dry-run` | Show the resolved plan without making any changes |
+| `--noConfirm` | Skip confirmation prompt |
+
+**Behavior:**
+
+- **npm → vendor:**
+  - Clones `@lenne.tech/nuxt-extensions` from GitHub at the specified tag (default: currently installed version)
+  - Copies `src/module.ts`, `src/index.ts`, `src/runtime/`, and `LICENSE` to `<app-root>/app/core/`
+  - Rewrites `nuxt.config.ts` module entry from `'@lenne.tech/nuxt-extensions'` to `'./app/core/module'`
+  - Rewrites explicit consumer imports in `app/**/*.{ts,vue}` and `tests/**/*.ts` to relative paths
+  - Removes `@lenne.tech/nuxt-extensions` from `package.json` dependencies
+  - Merges upstream runtime dependencies (e.g. `@nuxt/kit`)
+  - Adds `check:vendor-freshness` script
+  - Creates `app/core/VENDOR.md` with baseline version + commit SHA
+  - Prepends a vendor-mode notice block to `CLAUDE.md`
+
+- **vendor → npm:**
+  - Extracts baseline version from `app/core/VENDOR.md` (warns if local patches exist)
+  - Rewrites consumer imports back to `@lenne.tech/nuxt-extensions`
+  - Deletes `app/core/`
+  - Restores `@lenne.tech/nuxt-extensions` dependency in `package.json`
+  - Rewrites `nuxt.config.ts` module entry back
+  - Removes vendor scripts and `CLAUDE.md` marker
+
+**Examples:**
+```bash
+# Convert existing npm project to vendor mode at a specific version
+cd projects/app
+lt frontend convert-mode --to vendor --upstream-branch 1.5.3 --noConfirm
+
+# Convert vendored project back to npm with a specific version
+lt frontend convert-mode --to npm --version 1.5.3 --noConfirm
+```
+
+**Note:** nuxt-extensions tags have **no** `v` prefix — use e.g. `1.5.3`, not `v1.5.3`.
+
+For mode-aware update workflows after conversion, use:
+- `/lt-dev:frontend:update-nuxt-extensions-core` (vendor mode)
+- `/lt-dev:fullstack:update-all` (coordinated backend + frontend)
 
 ---
 

@@ -354,6 +354,12 @@
               "description": "Path to local frontend template directory to copy instead of cloning",
               "examples": ["/path/to/local/ng-base-starter"]
             },
+            "frontendFrameworkMode": {
+              "type": "string",
+              "enum": ["npm", "vendor"],
+              "description": "Frontend framework consumption mode: npm (classic @lenne.tech/nuxt-extensions dependency) or vendor (module copied into app/core/)",
+              "examples": ["npm", "vendor"]
+            },
             "frontendLink": {
               "type": "string",
               "description": "Path to local frontend template directory to symlink instead of cloning (fastest, changes affect original)",

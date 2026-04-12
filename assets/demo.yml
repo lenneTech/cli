@@ -8,7 +8,7 @@ config:
 
   # Specify the current working directory path
   # the default is the current working directory path
-  cwd: /Users/kai/Projekte/lenne.Tech/gluegun-menu
+  cwd: .
 
   # Export additional ENV variables
   env:

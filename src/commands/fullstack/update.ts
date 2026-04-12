@@ -3,6 +3,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
+import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
 
 /**
  * Update a fullstack workspace — mode-aware.
@@ -123,10 +124,62 @@ const NewCommand: GluegunCommand = {
       success('  and delegates to nest-server-core-updater when VENDOR.md is present.');
     }
 
+    // ── Frontend mode-aware instructions ──────────────────────────────
     info('');
     info(colors.dim('─'.repeat(60)));
     info('');
-    return `fullstack update (${mode} mode)`;
+
+    // Detect frontend project
+    const appCandidates = [
+      join(cwd, 'projects', 'app'),
+      join(cwd, 'packages', 'app'),
+    ].filter((p): p is string => Boolean(p));
+
+    let appDir: string | undefined;
+    for (const candidate of appCandidates) {
+      if (filesystem.exists(join(candidate, 'nuxt.config.ts')) || filesystem.exists(join(candidate, 'package.json'))) {
+        appDir = candidate;
+        break;
+      }
+    }
+
+    if (appDir) {
+      const frontendMode = detectFrontendFrameworkMode(appDir);
+      const frontendVendored = isVendoredAppProject(appDir);
+
+      info(`  App project: ${appDir}`);
+      info(`  Frontend framework mode: ${frontendMode}${frontendVendored ? ' (app/core/VENDOR.md present)' : ''}`);
+      info('');
+
+      if (frontendMode === 'vendor') {
+        info(colors.bold('Frontend vendor-mode update flow:'));
+        info('');
+        info('  The nuxt-extensions module lives directly in this project at');
+        info('    app/core/');
+        info('  and is managed as first-class project code.');
+        info('');
+        info(colors.bold('  Recommended update commands:'));
+        info('');
+        info('    /lt-dev:frontend:update-nuxt-extensions-core');
+        info('');
+      } else {
+        info(colors.bold('Frontend npm-mode update flow:'));
+        info('');
+        info('    /lt-dev:fullstack:update --skip-backend');
+        info('');
+        info('    (or manually: pnpm update @lenne.tech/nuxt-extensions)');
+        info('');
+      }
+    }
+
+    info('');
+    info(colors.bold('For a comprehensive update of everything, use:'));
+    info('');
+    info('    /lt-dev:fullstack:update-all');
+    info('');
+    info(colors.dim('─'.repeat(60)));
+    info('');
+    return `fullstack update (backend: ${mode}, frontend: ${appDir ? detectFrontendFrameworkMode(appDir) : 'not found'})`;
   },
 };
 

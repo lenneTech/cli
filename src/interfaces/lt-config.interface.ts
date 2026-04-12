@@ -325,6 +325,23 @@ export interface LtConfig {
       frameworkMode?: 'npm' | 'vendor';
 
       /**
+       * Frontend framework consumption mode:
+       *
+       *   "npm"    — Classic: @lenne.tech/nuxt-extensions is installed as an
+       *              npm dependency. Framework source lives in
+       *              node_modules/@lenne.tech/nuxt-extensions. Updates via
+       *              pnpm update or /lt-dev:fullstack:update.
+       *
+       *   "vendor" — Pilot: the nuxt-extensions module is copied
+       *              directly into projects/app/app/core/ as first-class
+       *              project code. No @lenne.tech/nuxt-extensions dep.
+       *              Updates via /lt-dev:frontend:update-nuxt-extensions-core;
+       *              local patches are logged in app/core/VENDOR.md.
+       *
+       * Default is "npm" until the vendoring pilot is fully evaluated.
+       * @example "npm" | "vendor"
+       */
+      /**
        * Default frontend framework
        * @example "angular" | "nuxt"
        */
@@ -341,6 +358,23 @@ export interface LtConfig {
        * @example "/path/to/local/ng-base-starter"
        */
       frontendCopy?: string;
+
+      /**
+       * Frontend framework consumption mode:
+       *
+       *   "npm"    — Classic: @lenne.tech/nuxt-extensions is installed as an
+       *              npm dependency. Updates via pnpm update or
+       *              /lt-dev:fullstack:update.
+       *
+       *   "vendor" — Pilot: the nuxt-extensions module is copied
+       *              directly into projects/app/app/core/ as first-class
+       *              project code. Updates via
+       *              /lt-dev:frontend:update-nuxt-extensions-core.
+       *
+       * Default is "npm".
+       * @example "npm" | "vendor"
+       */
+      frontendFrameworkMode?: 'npm' | 'vendor';
 
       /**
        * Path to local frontend template directory to symlink instead of cloning

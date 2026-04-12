@@ -1,0 +1,4 @@
+{
+  "$comment": "Upstream @lenne.tech/nuxt-extensions devDependencies that must be promoted to regular dependencies in vendor mode. Currently empty because nuxt-extensions has only @nuxt/kit as a direct dependency (which is handled explicitly during vendoring).",
+  "runtimeHelpers": []
+}

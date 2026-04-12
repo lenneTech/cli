@@ -72,6 +72,7 @@ const NewCommand: GluegunCommand = {
       frontend: cliFrontend,
       'frontend-branch': cliFrontendBranch,
       'frontend-copy': cliFrontendCopy,
+      'frontend-framework-mode': cliFrontendFrameworkMode,
       'frontend-link': cliFrontendLink,
       git: cliGit,
       'git-link': cliGitLink,
@@ -215,6 +216,28 @@ const NewCommand: GluegunCommand = {
       frameworkMode = frameworkModeChoice.frameworkMode.startsWith('vendor') ? 'vendor' : 'npm';
     }
 
+    // ── Frontend framework mode ─────────────────────────────────────────
+    const configFrontendFrameworkMode = ltConfig?.commands?.fullstack?.frontendFrameworkMode as
+      | 'npm'
+      | 'vendor'
+      | undefined;
+
+    let frontendFrameworkMode: 'npm' | 'vendor';
+    if (cliFrontendFrameworkMode === 'npm' || cliFrontendFrameworkMode === 'vendor') {
+      frontendFrameworkMode = cliFrontendFrameworkMode;
+    } else if (cliFrontendFrameworkMode) {
+      error(`Invalid --frontend-framework-mode value "${cliFrontendFrameworkMode}". Use "npm" or "vendor".`);
+      return;
+    } else if (configFrontendFrameworkMode === 'npm' || configFrontendFrameworkMode === 'vendor') {
+      frontendFrameworkMode = configFrontendFrameworkMode;
+      info(`Using frontend framework mode from lt.config: ${frontendFrameworkMode}`);
+    } else if (noConfirm) {
+      frontendFrameworkMode = 'npm';
+    } else {
+      // Default to npm without asking (unless user sets it explicitly)
+      frontendFrameworkMode = 'npm';
+    }
+
     // Determine remote push settings with priority: CLI > config > interactive
     // Git is always initialized; the question is whether to push to a remote
     let pushToRemote = false;
@@ -286,6 +309,7 @@ const NewCommand: GluegunCommand = {
       info(`  frontend:                   ${frontend}`);
       info(`  apiMode:                    ${apiMode}`);
       info(`  frameworkMode:              ${frameworkMode}`);
+      info(`  frontendFrameworkMode:      ${frontendFrameworkMode}`);
       if (frameworkUpstreamBranch) {
         info(`  frameworkUpstreamBranch:    ${frameworkUpstreamBranch}`);
       }
@@ -317,6 +341,11 @@ const NewCommand: GluegunCommand = {
       } else {
         info(`  3. clone nest-server-starter → ${projectDir}/projects/api`);
         info(`  4. run processApiMode(${apiMode})`);
+      }
+      if (frontendFrameworkMode === 'vendor') {
+        info(`  M1. clone @lenne.tech/nuxt-extensions → /tmp`);
+        info(`  M2. vendor app/core/ (module.ts + runtime/) + codemod consumer imports`);
+        info(`  M3. rewrite nuxt.config.ts module entry`);
       }
       info('  N. pnpm install + initial git commit');
       info('');
@@ -410,6 +439,21 @@ const NewCommand: GluegunCommand = {
     // Patch frontend .env with project-specific values (skip for linked templates)
     if (frontendResult.method !== 'link') {
       frontendHelper.patchFrontendEnv(frontendDest, projectDir);
+    }
+
+    // ── Frontend vendoring (if requested) ───────────────────────────────
+    if (isNuxt && frontendFrameworkMode === 'vendor' && frontendResult.method !== 'link') {
+      const vendorSpinner = spin('Converting frontend to vendor mode...');
+      try {
+        await frontendHelper.convertAppCloneToVendored({
+          dest: frontendDest,
+          projectName: name,
+        });
+        vendorSpinner.succeed('Frontend converted to vendor mode (app/core/)');
+      } catch (err) {
+        vendorSpinner.fail(`Frontend vendor conversion failed: ${(err as Error).message}`);
+        toolbox.print.warning('Continuing with npm mode for frontend.');
+      }
     }
 
     // Remove gitkeep file

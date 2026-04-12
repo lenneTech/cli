@@ -52,7 +52,7 @@ Configuration files are searched from the **current directory up to the root** (
 ### Example: Monorepo Structure
 
 ```
-/home/user/
+$HOME/
 ├── lt.config.json          # Global defaults
 └── projects/
     └── my-monorepo/
@@ -64,10 +64,10 @@ Configuration files are searched from the **current directory up to the root** (
                 └── lt.config.yaml  # App-specific settings
 ```
 
-When running `lt server module` in `/home/user/projects/my-monorepo/projects/api/`:
-1. `/home/user/lt.config.json` is loaded first
-2. `/home/user/projects/my-monorepo/lt.config.json` is merged (overrides parent)
-3. `/home/user/projects/my-monorepo/projects/api/lt.config.json` is merged (overrides all)
+When running `lt server module` in `$HOME/projects/my-monorepo/projects/api/`:
+1. `$HOME/lt.config.json` is loaded first
+2. `$HOME/projects/my-monorepo/lt.config.json` is merged (overrides parent)
+3. `$HOME/projects/my-monorepo/projects/api/lt.config.json` is merged (overrides all)
 
 ## Configuration Structure
 
@@ -571,6 +571,8 @@ Creates a new fullstack workspace with API and frontend.
 | `commands.fullstack.frontendBranch` | `string` | - | Branch of frontend starter to use (ng-base-starter or nuxt-base-starter) |
 | `commands.fullstack.frontendCopy` | `string` | - | Path to local frontend template directory to copy instead of cloning |
 | `commands.fullstack.frontendLink` | `string` | - | Path to local frontend template directory to symlink (fastest, changes affect original) |
+| `commands.fullstack.frameworkMode` | `'npm'` \| `'vendor'` | `'npm'` | Backend framework consumption mode (npm dependency vs. vendored core in `src/core/`) |
+| `commands.fullstack.frontendFrameworkMode` | `'npm'` \| `'vendor'` | `'npm'` | Frontend framework consumption mode (npm dependency vs. vendored module in `app/core/`) |
 | `commands.fullstack.git` | `boolean` | - | Push initial commit to remote repository (git is always initialized with `dev` branch) |
 | `commands.fullstack.gitLink` | `string` | - | Git remote repository URL (required when `git` is true) |
 
@@ -1075,7 +1077,7 @@ meta:
 
 Set a value to `null` to remove it from parent configurations and use the default:
 
-**Parent config (`/home/user/lt.config.json`):**
+**Parent config (`$HOME/lt.config.json`):**
 ```json
 {
   "commands": {
@@ -1088,7 +1090,7 @@ Set a value to `null` to remove it from parent configurations and use the defaul
 }
 ```
 
-**Child config (`/home/user/project/lt.config.json`):**
+**Child config (`$HOME/project/lt.config.json`):**
 ```json
 {
   "commands": {

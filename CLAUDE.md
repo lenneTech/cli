@@ -119,6 +119,23 @@ source code must be mode-aware:
 | Status command | `src/commands/status.ts` | Reports `Framework: npm (...)` or `Framework: vendor (src/core/, VENDOR.md)` |
 | Integration test | `scripts/test-vendor-init.sh` | 4 scenarios × ~27 assertions each + dry-run pre-check = 108 total |
 
+### Vendor vs npm mode — frontend key touchpoints
+
+Frontend (Nuxt) projects can also run in npm or vendor mode for
+`@lenne.tech/nuxt-extensions`. The vendor location is `app/core/`
+instead of `src/core/`. No flatten-fix is needed.
+
+| Concern | File | Notes |
+|---|---|---|
+| Detection | `src/lib/frontend-framework-detection.ts` | `isVendoredAppProject()`, `detectFrontendFrameworkMode()`, `getFrontendFrameworkRootPath()`, `findAppDir()` |
+| Init (fullstack) | `src/commands/fullstack/init.ts` | `--frontend-framework-mode npm\|vendor`; calls `convertAppCloneToVendored` after frontend setup |
+| Vendor transform | `src/extensions/frontend-helper.ts#convertAppCloneToVendored` | Clones upstream nuxt-extensions, copies module.ts + runtime/, rewrites nuxt.config.ts + consumer imports (regex), merges deps, writes VENDOR.md |
+| Reverse transform | `src/extensions/frontend-helper.ts#convertAppToNpmMode` | Restores npm dep, rewrites imports back, deletes app/core/ |
+| Convert command | `src/commands/frontend/convert-mode.ts` | `lt frontend convert-mode --to vendor\|npm` |
+| Update command | `src/commands/fullstack/update.ts` | Detects frontend mode, prints mode-specific instructions |
+| Status command | `src/commands/status.ts` | Reports frontend framework mode |
+| Runtime-helper config | `src/config/vendor-frontend-runtime-deps.json` | Currently empty (nuxt-extensions has minimal deps) |
+
 **Golden rule:** Never hard-code `'@lenne.tech/nest-server'` as a
 specifier in generated code or `node_modules/@lenne.tech/nest-server/`
 as a path in command logic. Always derive the specifier via

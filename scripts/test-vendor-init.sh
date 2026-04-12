@@ -84,7 +84,11 @@ if ! command -v pnpm >/dev/null 2>&1; then
   exit 2
 fi
 
-# Fresh work dir
+# Fresh work dir — guarantee clean state even if previous run was aborted
+# (Ctrl+C, crash, or overlapping parallel runs). Without this, stale
+# `it-*` directories from prior failed runs can cause race conditions with
+# `lt fullstack init` trying to write into a partially-existing tree.
+rm -rf "${WORK_DIR}"
 mkdir -p "${WORK_DIR}"
 
 # ── Scenario runner ─────────────────────────────────────────────────────
@@ -144,43 +148,17 @@ run_scenario() {
     else
       fail "migrations-utils/migrate.js does NOT load ts-compiler"
     fi
-    # Vendor maintenance scripts
-    [[ -f "${api_dir}/scripts/vendor/check-vendor-freshness.mjs" ]] \
-      && pass "scripts/vendor/check-vendor-freshness.mjs present" \
-      || fail "scripts/vendor/check-vendor-freshness.mjs missing"
-    [[ -f "${api_dir}/scripts/vendor/sync-from-upstream.ts" ]] \
-      && pass "scripts/vendor/sync-from-upstream.ts present" \
-      || fail "scripts/vendor/sync-from-upstream.ts missing"
-    [[ -f "${api_dir}/scripts/vendor/propose-upstream-pr.ts" ]] \
-      && pass "scripts/vendor/propose-upstream-pr.ts present" \
-      || fail "scripts/vendor/propose-upstream-pr.ts missing"
-    # Vendor package.json scripts
+    # Vendor freshness check (inline in package.json, no separate files)
     if grep -q '"check:vendor-freshness"' "${api_dir}/package.json"; then
       pass "package.json has check:vendor-freshness script"
     else
       fail "package.json missing check:vendor-freshness script"
-    fi
-    if grep -q '"vendor:sync"' "${api_dir}/package.json"; then
-      pass "package.json has vendor:sync script"
-    else
-      fail "package.json missing vendor:sync script"
-    fi
-    if grep -q '"vendor:propose-upstream"' "${api_dir}/package.json"; then
-      pass "package.json has vendor:propose-upstream script"
-    else
-      fail "package.json missing vendor:propose-upstream script"
     fi
     # check / check:fix / check:naf wired to freshness check
     if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(s.check && s.check.includes('check:vendor-freshness') ? 0 : 1)"; then
       pass "check script hooks check:vendor-freshness"
     else
       fail "check script does NOT hook check:vendor-freshness"
-    fi
-    # .gitignore contains vendor output entries
-    if grep -q 'scripts/vendor/sync-results' "${api_dir}/.gitignore"; then
-      pass ".gitignore ignores scripts/vendor/sync-results/"
-    else
-      fail ".gitignore missing scripts/vendor/sync-results/"
     fi
     # CLAUDE.md vendor block
     if grep -q 'lt-vendor-marker' "${api_dir}/CLAUDE.md"; then
@@ -193,12 +171,6 @@ run_scenario() {
       pass "pnpm run check:vendor-freshness exits 0"
     else
       fail "pnpm run check:vendor-freshness failed"
-    fi
-    # Functional: vendor:propose-upstream runs and exits 0
-    if (cd "${api_dir}" && pnpm run vendor:propose-upstream >/dev/null 2>&1); then
-      pass "pnpm run vendor:propose-upstream exits 0"
-    else
-      fail "pnpm run vendor:propose-upstream failed"
     fi
     # No @lenne.tech/nest-server dep in vendor
     if grep -q '"@lenne.tech/nest-server"' "${api_dir}/package.json"; then

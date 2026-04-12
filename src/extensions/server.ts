@@ -1111,6 +1111,21 @@ export class Server {
       // deps should still cover most of the framework's needs.
     }
 
+    // Snapshot the upstream CLAUDE.md for section-merge into projects/api/CLAUDE.md.
+    // The nest-server CLAUDE.md contains framework-specific instructions that
+    // Claude Code needs to work correctly with the vendored source (API conventions,
+    // UnifiedField usage, CrudService patterns, etc.). We capture it before the
+    // temp clone is deleted and merge it after the vendor-marker block.
+    let upstreamClaudeMd = '';
+    try {
+      const claudeMdContent = filesystem.read(`${tmpClone}/CLAUDE.md`);
+      if (typeof claudeMdContent === 'string') {
+        upstreamClaudeMd = claudeMdContent;
+      }
+    } catch {
+      // Non-fatal — if missing, the project CLAUDE.md just won't get upstream sections.
+    }
+
     // Snapshot the upstream commit SHA for traceability in VENDOR.md.
     let upstreamCommit = '';
     try {
@@ -1151,14 +1166,39 @@ export class Server {
 
       // Copy bin/migrate.js so the project has a working migrate CLI
       // independent of node_modules/@lenne.tech/nest-server.
+      // Overwrite existing file if present (convert-mode on existing project).
       if (filesystem.exists(`${tmpClone}/bin/migrate.js`)) {
+        if (filesystem.exists(`${dest}/bin/migrate.js`)) {
+          filesystem.remove(`${dest}/bin/migrate.js`);
+        }
         filesystem.copy(`${tmpClone}/bin/migrate.js`, `${dest}/bin/migrate.js`);
       }
 
       // Copy migration-guides for vendor-sync agent reference (optional
       // but useful — small overhead, big value for the updater agent).
+      // Preserve any project-specific guides by merging instead of overwriting.
       if (filesystem.exists(`${tmpClone}/migration-guides`)) {
-        filesystem.copy(`${tmpClone}/migration-guides`, `${dest}/migration-guides`);
+        if (filesystem.exists(`${dest}/migration-guides`)) {
+          // Project already has migration-guides (maybe custom ones) — merge
+          // upstream files into the existing directory without removing locals.
+          const upstreamGuides = filesystem.find(`${tmpClone}/migration-guides`, {
+            matching: '*.md',
+            recursive: false,
+          }) || [];
+          for (const guide of upstreamGuides) {
+            const basename = require('node:path').basename(guide);
+            const source = `${tmpClone}/migration-guides/${basename}`;
+            const target = `${dest}/migration-guides/${basename}`;
+            if (filesystem.exists(target)) {
+              filesystem.remove(target);
+            }
+            if (filesystem.exists(source)) {
+              filesystem.copy(source, target);
+            }
+          }
+        } else {
+          filesystem.copy(`${tmpClone}/migration-guides`, `${dest}/migration-guides`);
+        }
       }
     } finally {
       // Always clean up the temp clone, even if copy fails midway.
@@ -1243,6 +1283,42 @@ export class Server {
         if (patched !== raw) {
           filesystem.write(betterAuthMapperPath, patched);
         }
+      }
+    }
+
+    // Edge: express exports Request/Response as TYPE-ONLY. In npm-mode this
+    // was not a problem because the framework shipped as pre-compiled dist/
+    // and type imports were erased before runtime. In vendor-mode, vitest/vite
+    // evaluates the TypeScript source directly and chokes with:
+    //   "The requested module 'express' does not provide an export named 'Response'"
+    // Fix: convert `import { Request, Response } from 'express'` (and variants
+    // with NextFunction etc.) to type-only imports wherever they appear in the
+    // vendored core. This is safe because the core code uses Request/Response
+    // only as type annotations — any runtime `new Request(...)` calls refer
+    // to the global Fetch API Request, not the express one.
+    const expressImportRegex = /^import\s+\{([^}]*)\}\s+from\s+['"]express['"]\s*;?\s*$/gm;
+    const vendoredTsFiles = filesystem.find(coreDir, {
+      matching: '**/*.ts',
+      recursive: true,
+    }) || [];
+    for (const filePath of vendoredTsFiles) {
+      // filesystem.find returns paths relative to jetpack cwd — use absolute resolution
+      const absPath = filePath.startsWith('/') ? filePath : require('node:path').resolve(filePath);
+      if (!filesystem.exists(absPath)) continue;
+      const content = filesystem.read(absPath) || '';
+      if (!content.includes("from 'express'") && !content.includes('from "express"')) continue;
+      const patched = content.replace(expressImportRegex, (_match, names) => {
+        const cleanNames = names
+          .split(',')
+          .map((n: string) => n.trim())
+          .filter((n: string) => n.length > 0 && n !== 'type')
+          // Strip any pre-existing 'type ' prefix on individual names
+          .map((n: string) => n.replace(/^type\s+/, ''))
+          .join(', ');
+        return `import type { ${cleanNames} } from 'express';`;
+      });
+      if (patched !== content) {
+        filesystem.write(absPath, patched);
       }
     }
 
@@ -1376,59 +1452,16 @@ export class Server {
       ].join('\n'),
     );
 
-    // ── 4b. Copy vendor maintenance scripts ──────────────────────────────
+    // ── 4b. (removed) ─────────────────────────────────────────────────────
     //
-    // These scripts are consumed by the `nest-server-core-updater` and
-    // `nest-server-core-contributor` Claude Code agents and by the
-    // `check`/`check:fix`/`check:naf` pipelines below. They live at
-    // `scripts/vendor/` in every vendored project:
+    // Previous versions copied three maintenance scripts into
+    // `scripts/vendor/` (check-vendor-freshness.mjs, sync-from-upstream.ts,
+    // propose-upstream-pr.ts). The sync + propose scripts duplicated what
+    // the lt-dev Claude Code agents (nest-server-core-updater and
+    // nest-server-core-contributor) do natively — they were dead weight.
     //
-    //   check-vendor-freshness.mjs — non-blocking warning that the
-    //     vendored core is behind the latest upstream release. Hooked
-    //     into `check` / `check:fix` / `check:naf`.
-    //
-    //   sync-from-upstream.ts — produces a structured diff (upstream
-    //     delta vs. baseline, local changes, conflict map) that the
-    //     updater agent parses when pulling a new upstream version.
-    //
-    //   propose-upstream-pr.ts — scans local commits that touched
-    //     src/core/ and emits per-commit patch files the contributor
-    //     agent uses to open upstream PRs.
-    //
-    // Templates live at `src/templates/vendor-scripts/` in the CLI and
-    // are copied into the new project's `scripts/vendor/`.
-    const vendorScriptsSrc = path.join(__dirname, '..', 'templates', 'vendor-scripts');
-    const vendorScriptsDest = `${dest}/scripts/vendor`;
-    if (filesystem.exists(vendorScriptsSrc)) {
-      if (!filesystem.exists(vendorScriptsDest)) {
-        filesystem.dir(vendorScriptsDest);
-      }
-      const vendorScriptFiles = filesystem.find(vendorScriptsSrc, { matching: '*' });
-      for (const src of vendorScriptFiles || []) {
-        const base = path.basename(src);
-        filesystem.copy(src, `${vendorScriptsDest}/${base}`, { overwrite: true });
-      }
-    }
-
-    // ── 4c. .gitignore: ignore transient vendor script outputs ──────────
-    //
-    // sync-from-upstream.ts writes diffs to scripts/vendor/sync-results/
-    // and propose-upstream-pr.ts writes patches to
-    // scripts/vendor/upstream-candidates/. Both are throw-away analysis
-    // artifacts and must not be committed.
-    const gitignorePath = `${dest}/.gitignore`;
-    if (filesystem.exists(gitignorePath)) {
-      const raw = filesystem.read(gitignorePath) || '';
-      const entries = ['scripts/vendor/sync-results/', 'scripts/vendor/upstream-candidates/'];
-      const missing = entries.filter((e) => !raw.includes(e));
-      if (missing.length > 0) {
-        const block =
-          `\n# Vendor-sync / upstream-contribute output (transient analysis artifacts)\n${ 
-          missing.join('\n') 
-          }\n`;
-        filesystem.write(gitignorePath, raw.trimEnd() + block);
-      }
-    }
+    // The freshness check is now an inline one-liner in package.json
+    // (see step 5 below). VENDOR.md is the sole vendor-specific file.
 
     // ── 5. package.json: remove @lenne.tech/nest-server, add migrate/bin ─
     //
@@ -1507,10 +1540,8 @@ export class Server {
         // existing migrate:* scripts are already correct for npm mode; we
         // need them pointing at the local bin + local ts-compiler.
         //
-        // Also wire the vendor maintenance scripts (check-vendor-freshness,
-        // vendor:sync, vendor:propose-upstream) and hook the freshness
-        // check into `check` / `check:fix` / `check:naf` as a non-blocking
-        // first step.
+        // Wire the inline vendor-freshness check and hook it into
+        // `check` / `check:fix` / `check:naf` as a non-blocking first step.
         if (pkg.scripts && typeof pkg.scripts === 'object') {
           const scripts = pkg.scripts as Record<string, string>;
           const migrateArgs =
@@ -1525,11 +1556,26 @@ export class Server {
           scripts['migrate:preview:up'] = `NODE_ENV=preview node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:prod:up'] = `NODE_ENV=production node ./bin/migrate.js up ${migrateArgs}`;
 
-          // Vendor maintenance scripts
-          scripts['check:vendor-freshness'] = 'node scripts/vendor/check-vendor-freshness.mjs';
-          scripts['vendor:sync'] = 'node -r ./migrations-utils/ts-compiler scripts/vendor/sync-from-upstream.ts';
-          scripts['vendor:propose-upstream'] =
-            'node -r ./migrations-utils/ts-compiler scripts/vendor/propose-upstream-pr.ts';
+          // Vendor freshness check: reads VENDOR.md baseline version and
+          // compares against npm registry. Non-blocking (always exits 0).
+          // Uses a short inline script — no external file needed.
+          // The heredoc-style approach avoids quote-escaping nightmares.
+          scripts['check:vendor-freshness'] = [
+            'node -e "',
+            "var f=require('fs'),h=require('https');",
+            "try{var c=f.readFileSync('src/core/VENDOR.md','utf8')}catch(e){process.exit(0)}",
+            'var m=c.match(/Baseline-Version[^0-9]*(\\d+\\.\\d+\\.\\d+)/);',
+            'if(!m){process.stderr.write(String.fromCharCode(9888)+\' vendor-freshness: no baseline\\n\');process.exit(0)}',
+            'var v=m[1];',
+            "h.get('https://registry.npmjs.org/@lenne.tech/nest-server/latest',function(r){",
+            "var d='';r.on('data',function(c){d+=c});r.on('end',function(){",
+            "try{var l=JSON.parse(d).version;",
+            "if(v===l)console.log('vendor core up-to-date (v'+v+')');",
+            "else process.stderr.write('vendor core v'+v+', latest v'+l+'\\n')",
+            '}catch(e){}})}).on(\'error\',function(){});',
+            'setTimeout(function(){process.exit(0)},5000)',
+            '"',
+          ].join('');
 
           // Hook vendor-freshness as the first step of check / check:fix /
           // check:naf. Non-blocking (exit 0 even on mismatch), so it just
@@ -1538,9 +1584,6 @@ export class Server {
             const existing = scripts[scriptName];
             if (!existing) return;
             if (existing.includes('check:vendor-freshness')) return;
-            // Inject the freshness check right after the initial `pnpm install`
-            // or at the very beginning of the chain. Looks for a leading
-            // `pnpm install && ` and inserts after it; otherwise prepends.
             const installPrefix = 'pnpm install && ';
             if (existing.startsWith(installPrefix)) {
               scripts[scriptName] = `${installPrefix}pnpm run check:vendor-freshness && ${existing.slice(installPrefix.length)}`;
@@ -1603,9 +1646,8 @@ export class Server {
     //
     // Replace it with a small informational stub that points the user at
     // the canonical vendor-update path (the `nest-server-core-updater`
-    // Claude Code agent / `pnpm run vendor:sync` if the project has that
-    // script). Keeps `pnpm run update` from dead-exiting with a confusing
-    // message.
+    // Claude Code agent). Keeps `pnpm run update` from dead-exiting with
+    // a confusing message.
     const syncPackagesPath = `${dest}/extras/sync-packages.mjs`;
     if (filesystem.exists(syncPackagesPath)) {
       filesystem.write(
@@ -1626,8 +1668,7 @@ export class Server {
           ' * This project runs in VENDOR mode: the framework core/ tree is',
           ' * copied directly into src/core/ and there is no framework npm',
           ' * dep to sync. To update the vendored core, use the',
-          ' * `nest-server-core-updater` Claude Code agent or run the',
-          ' * project-local vendor:sync script once it has been added.',
+          ' * `nest-server-core-updater` Claude Code agent.',
           ' */',
           '',
           "console.warn('');",
@@ -1705,6 +1746,36 @@ export class Server {
       }
     }
 
+    // ── 9c. Merge nest-server CLAUDE.md sections into project CLAUDE.md ──
+    //
+    // The nest-server CLAUDE.md contains framework-specific instructions for
+    // Claude Code (API conventions, UnifiedField usage, CrudService patterns,
+    // etc.). We merge its H2 sections into the project's CLAUDE.md so that
+    // downstream agents (backend-dev, code-reviewer, nest-server-updater)
+    // have accurate framework knowledge out of the box.
+    //
+    // Merge strategy (matches /lt-dev:fullstack:sync-claude-md):
+    // - Section in upstream but NOT in project → ADD at end
+    // - Section in BOTH → KEEP project version (may have customizations)
+    // - Section only in project → KEEP (project-specific content)
+    if (upstreamClaudeMd && filesystem.exists(apiClaudeMdPath)) {
+      const projectContent = filesystem.read(apiClaudeMdPath) || '';
+      const upstreamSections = this.parseH2Sections(upstreamClaudeMd);
+      const projectSections = this.parseH2Sections(projectContent);
+
+      const newSections: string[] = [];
+      for (const [heading, body] of upstreamSections) {
+        if (!projectSections.has(heading)) {
+          newSections.push(`## ${heading}\n\n${body.trim()}`);
+        }
+      }
+
+      if (newSections.length > 0) {
+        const separator = projectContent.endsWith('\n') ? '\n' : '\n\n';
+        filesystem.write(apiClaudeMdPath, `${projectContent}${separator}${newSections.join('\n\n')}\n`);
+      }
+    }
+
     // ── 10. VENDOR.md baseline ───────────────────────────────────────────
     //
     // Record the exact upstream version + commit SHA we vendored from, so
@@ -1715,7 +1786,7 @@ export class Server {
       const today = new Date().toISOString().slice(0, 10);
       const versionLine = upstreamVersion
         ? `- **Baseline-Version:** ${upstreamVersion}`
-        : '- **Baseline-Version:** (not detected — run `vendor:sync` to record)';
+        : '- **Baseline-Version:** (not detected — run `/lt-dev:backend:update-nest-server-core` to record)';
       const commitLine = upstreamCommit
         ? `- **Baseline-Commit:** \`${upstreamCommit}\``
         : '- **Baseline-Commit:** (not detected)';
@@ -1768,6 +1839,26 @@ export class Server {
           '',
         ].join('\n'),
       );
+    }
+
+    // ── Post-conversion verification ──────────────────────────────────────
+    //
+    // Scan all consumer files for stale bare-specifier imports that the
+    // codemod should have rewritten. A single miss causes a compile error,
+    // so catching it here with a clear message saves the user debugging time.
+    const staleImports = this.findStaleImports(dest, '@lenne.tech/nest-server');
+    if (staleImports.length > 0) {
+      const { print } = this.toolbox;
+      print.warning(
+        `⚠ ${staleImports.length} file(s) still contain '@lenne.tech/nest-server' imports after vendor conversion:`,
+      );
+      for (const f of staleImports.slice(0, 10)) {
+        print.info(`  ${f}`);
+      }
+      if (staleImports.length > 10) {
+        print.info(`  ... and ${staleImports.length - 10} more`);
+      }
+      print.info('These imports must be manually rewritten to relative paths pointing to src/core.');
     }
 
     return { upstreamDeps, upstreamDevDeps };
@@ -2068,6 +2159,31 @@ export class Server {
   }
 
   /**
+   * Parse a markdown file into a Map of H2 sections.
+   * Key = heading text (without `## `), Value = body text after the heading.
+   * Content before the first H2 heading is stored under key `__preamble__`.
+   */
+  private parseH2Sections(content: string): Map<string, string> {
+    const sections = new Map<string, string>();
+    const lines = content.split('\n');
+    let currentHeading = '__preamble__';
+    let currentBody: string[] = [];
+
+    for (const line of lines) {
+      const match = /^## (.+)$/.exec(line);
+      if (match) {
+        sections.set(currentHeading, currentBody.join('\n'));
+        currentHeading = match[1].trim();
+        currentBody = [];
+      } else {
+        currentBody.push(line);
+      }
+    }
+    sections.set(currentHeading, currentBody.join('\n'));
+    return sections;
+  }
+
+  /**
    * Replace secret or private keys in string (e.g. for config files)
    */
   replaceSecretOrPrivateKeys(configContent: string): string {
@@ -2096,6 +2212,397 @@ export class Server {
       // Return the secret with quotes
       return `'${secretMap.get(placeholder)}'`;
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Public mode-conversion API (called by `lt server convert-mode`)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Convert an existing npm-mode API project to vendor mode.
+   *
+   * This is a wrapper around {@link convertCloneToVendored} for use on
+   * projects that were **already created** (not during `lt fullstack init`).
+   * The method detects the currently installed `@lenne.tech/nest-server`
+   * version and vendors from that tag unless `upstreamBranch` overrides it.
+   */
+  async convertToVendorMode(options: {
+    dest: string;
+    upstreamBranch?: string;
+    upstreamRepoUrl?: string;
+  }): Promise<void> {
+    const { dest, upstreamBranch, upstreamRepoUrl } = options;
+    const { isVendoredProject } = require('../lib/framework-detection');
+
+    if (isVendoredProject(dest)) {
+      throw new Error('Project is already in vendor mode (src/core/VENDOR.md exists).');
+    }
+
+    // Verify @lenne.tech/nest-server is currently a dependency
+    const pkg = this.filesystem.read(`${dest}/package.json`, 'json') as Record<string, any>;
+    if (!pkg) {
+      throw new Error('Cannot read package.json');
+    }
+    const allDeps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+    if (!allDeps['@lenne.tech/nest-server']) {
+      throw new Error(
+        '@lenne.tech/nest-server is not in dependencies or devDependencies. ' +
+        'Is this an npm-mode lenne.tech API project?',
+      );
+    }
+
+    await this.convertCloneToVendored({
+      dest,
+      upstreamBranch,
+      upstreamRepoUrl,
+    });
+  }
+
+  /**
+   * Convert an existing vendor-mode API project back to npm mode.
+   *
+   * Performs the inverse of {@link convertCloneToVendored}:
+   * 1. Read baseline version from VENDOR.md
+   * 2. Delete `src/core/` (the vendored framework)
+   * 3. Rewrite all consumer imports from relative paths back to `@lenne.tech/nest-server`
+   * 4. Restore `@lenne.tech/nest-server` dependency in package.json
+   * 5. Restore migrate scripts to npm paths
+   * 6. Remove vendor-specific scripts and artifacts
+   * 7. Clean up CLAUDE.md vendor marker
+   * 8. Restore tsconfig to npm-mode defaults
+   */
+  async convertToNpmMode(options: {
+    dest: string;
+    targetVersion?: string;
+  }): Promise<void> {
+    const { dest, targetVersion } = options;
+    const path = require('path');
+    const { Project, SyntaxKind } = require('ts-morph');
+
+    const { isVendoredProject } = require('../lib/framework-detection');
+
+    if (!isVendoredProject(dest)) {
+      throw new Error('Project is not in vendor mode (src/core/VENDOR.md not found).');
+    }
+
+    const filesystem = this.filesystem;
+    const srcDir = `${dest}/src`;
+    const coreDir = `${srcDir}/core`;
+
+    // ── 1. Determine target version + warn about local patches ──────────
+    const vendorMd = filesystem.read(`${coreDir}/VENDOR.md`) || '';
+
+    let version = targetVersion;
+    if (!version) {
+      const match = vendorMd.match(/Baseline-Version:\*{0,2}\s+(\d+\.\d+\.\d+\S*)/);
+      if (match) {
+        version = match[1];
+      }
+    }
+    if (!version) {
+      throw new Error(
+        'Cannot determine target version. Specify --version or ensure VENDOR.md has a Baseline-Version.',
+      );
+    }
+
+    // Warn if VENDOR.md documents local patches that will be lost
+    const localChangesSection = vendorMd.match(/## Local changes[\s\S]*?(?=## |$)/i);
+    if (localChangesSection) {
+      const hasRealPatches = localChangesSection[0].includes('|') &&
+        !localChangesSection[0].includes('(none, pristine)') &&
+        /\|\s*\d{4}-/.test(localChangesSection[0]);
+      if (hasRealPatches) {
+        const { print } = this.toolbox;
+        print.warning('');
+        print.warning('⚠  VENDOR.md documents local patches in src/core/ that will be LOST:');
+        // Extract non-header table rows
+        const rows = localChangesSection[0]
+          .split('\n')
+          .filter((l: string) => /^\|\s*\d{4}-/.test(l));
+        for (const row of rows.slice(0, 5)) {
+          print.info(`  ${row.trim()}`);
+        }
+        if (rows.length > 5) {
+          print.info(`  ... and ${rows.length - 5} more`);
+        }
+        print.warning('Consider running /lt-dev:backend:contribute-nest-server-core first to upstream them.');
+        print.warning('');
+      }
+    }
+
+    // ── 2. Rewrite consumer imports: relative → @lenne.tech/nest-server ─
+    const project = new Project({ skipAddingFilesFromTsConfig: true });
+    const globs = [
+      `${srcDir}/server/**/*.ts`,
+      `${srcDir}/main.ts`,
+      `${srcDir}/config.env.ts`,
+      `${dest}/tests/**/*.ts`,
+      `${dest}/migrations/**/*.ts`,
+      `${dest}/migrations-utils/*.ts`,
+      `${dest}/scripts/**/*.ts`,
+    ];
+    for (const glob of globs) {
+      project.addSourceFilesAtPaths(glob);
+    }
+
+    const targetSpecifier = '@lenne.tech/nest-server';
+    const coreAbsPath = path.resolve(coreDir);
+
+    for (const sourceFile of project.getSourceFiles()) {
+      let modified = false;
+
+      // Static imports + re-exports
+      for (const decl of [
+        ...sourceFile.getImportDeclarations(),
+        ...sourceFile.getExportDeclarations(),
+      ]) {
+        const spec = decl.getModuleSpecifierValue();
+        if (!spec) continue;
+        // Check if this import resolves to src/core (the vendored framework)
+        if (this.isVendoredCoreImport(spec, sourceFile.getFilePath(), coreAbsPath)) {
+          decl.setModuleSpecifier(targetSpecifier);
+          modified = true;
+        }
+      }
+
+      // Dynamic imports + CJS require
+      sourceFile.forEachDescendant((node: any) => {
+        if (node.getKind() === SyntaxKind.CallExpression) {
+          const expr = node.getExpression().getText();
+          if (expr === 'require' || expr === 'import') {
+            const args = node.getArguments();
+            if (args.length > 0) {
+              const argText = args[0].getText().replace(/['"]/g, '');
+              if (this.isVendoredCoreImport(argText, sourceFile.getFilePath(), coreAbsPath)) {
+                args[0].replaceWithText(`'${targetSpecifier}'`);
+                modified = true;
+              }
+            }
+          }
+        }
+      });
+
+      if (modified) {
+        sourceFile.saveSync();
+      }
+    }
+
+    // Also rewrite .js files in migrations-utils/
+    const jsFiles = filesystem.find(`${dest}/migrations-utils`, { matching: '*.js' }) || [];
+    for (const jsFile of jsFiles) {
+      const content = filesystem.read(jsFile) || '';
+      // Replace any relative require/import that points to src/core
+      const replaced = content.replace(
+        /require\(['"]([^'"]*\/core(?:\/index)?)['"]\)/g,
+        `require('${targetSpecifier}')`,
+      );
+      if (replaced !== content) {
+        filesystem.write(jsFile, replaced);
+      }
+    }
+
+    // ── 3. Delete src/core/ (vendored framework) ────────────────────────
+    filesystem.remove(coreDir);
+
+    // ── 4. Restore @lenne.tech/nest-server dep + clean package.json ─────
+    const pkg = filesystem.read(`${dest}/package.json`, 'json') as Record<string, any>;
+    if (pkg) {
+      // Add @lenne.tech/nest-server as dependency
+      pkg.dependencies = pkg.dependencies || {};
+      pkg.dependencies['@lenne.tech/nest-server'] = version;
+
+      // Remove vendor-specific deps that are transitive via nest-server
+      // (they'll come back via node_modules when nest-server is installed)
+      // We only remove deps that are ALSO in nest-server's package.json.
+      // For safety, we don't remove any dep the consumer might use directly.
+
+      // Remove vendor-specific scripts
+      const scripts = pkg.scripts || {};
+      delete scripts['check:vendor-freshness'];
+      delete scripts['vendor:sync'];
+      delete scripts['vendor:propose-upstream'];
+
+      // Unhook vendor-freshness from check / check:fix / check:naf
+      for (const key of ['check', 'check:fix', 'check:naf']) {
+        if (scripts[key] && typeof scripts[key] === 'string') {
+          scripts[key] = scripts[key].replace(/pnpm run check:vendor-freshness && /g, '');
+        }
+      }
+
+      // Restore migrate scripts to npm-mode paths
+      const migrateCompiler = 'ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js';
+      const migrateStore = '--store ./migrations-utils/migrate.js --migrations-dir ./migrations';
+      const migrateTemplate = './node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/templates/migration-project.template.ts';
+
+      scripts['migrate:create'] = `f() { migrate create "$1" --template-file ${migrateTemplate} --migrations-dir ./migrations --compiler ${migrateCompiler}; }; f`;
+      scripts['migrate:up'] = `migrate up ${migrateStore} --compiler ${migrateCompiler}`;
+      scripts['migrate:down'] = `migrate down ${migrateStore} --compiler ${migrateCompiler}`;
+      scripts['migrate:list'] = `migrate list ${migrateStore} --compiler ${migrateCompiler}`;
+
+      // Env-prefixed migrate scripts
+      for (const env of ['develop', 'test', 'preview', 'prod']) {
+        const nodeEnv = env === 'prod' ? 'production' : env;
+        scripts[`migrate:${env}:up`] = `NODE_ENV=${nodeEnv} migrate up ${migrateStore} --compiler ${migrateCompiler}`;
+      }
+
+      filesystem.write(`${dest}/package.json`, pkg);
+    }
+
+    // ── 5. Remove vendor artifacts ──────────────────────────────────────
+    if (filesystem.exists(`${dest}/scripts/vendor`)) {
+      filesystem.remove(`${dest}/scripts/vendor`);
+    }
+    if (filesystem.exists(`${dest}/bin/migrate.js`)) {
+      filesystem.remove(`${dest}/bin/migrate.js`);
+      // Remove bin/ dir if empty
+      const binContents = filesystem.list(`${dest}/bin`) || [];
+      if (binContents.length === 0) {
+        filesystem.remove(`${dest}/bin`);
+      }
+    }
+    if (filesystem.exists(`${dest}/migration-guides`)) {
+      filesystem.remove(`${dest}/migration-guides`);
+    }
+
+    // Remove migrations-utils/ts-compiler.js (vendor-mode bootstrap)
+    const tsCompilerPath = `${dest}/migrations-utils/ts-compiler.js`;
+    if (filesystem.exists(tsCompilerPath)) {
+      const content = filesystem.read(tsCompilerPath) || '';
+      // Only remove if it's the vendor-mode bootstrap (contains ts-node reference)
+      if (content.includes('ts-node') || content.includes('tsconfig-paths')) {
+        filesystem.remove(tsCompilerPath);
+      }
+    }
+
+    // Restore extras/sync-packages.mjs if it was replaced with a stub
+    const syncPkgPath = `${dest}/extras/sync-packages.mjs`;
+    if (filesystem.exists(syncPkgPath)) {
+      const content = filesystem.read(syncPkgPath) || '';
+      if (content.includes('vendor mode') || content.includes('vendor:sync')) {
+        // It's the vendor stub — remove it. The user can re-fetch from starter.
+        filesystem.remove(syncPkgPath);
+      }
+    }
+
+    // ── 6. Clean CLAUDE.md vendor marker ────────────────────────────────
+    const claudeMdPath = `${dest}/CLAUDE.md`;
+    if (filesystem.exists(claudeMdPath)) {
+      let content = filesystem.read(claudeMdPath) || '';
+      const marker = '<!-- lt-vendor-marker -->';
+      if (content.includes(marker)) {
+        // Remove everything from marker to the first `---` separator (end of vendor block)
+        content = content.replace(
+          new RegExp(`${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?---\\s*\\n?`, ''),
+          '',
+        );
+        // Remove leading whitespace/newlines
+        content = content.replace(/^\n+/, '');
+        filesystem.write(claudeMdPath, content);
+      }
+    }
+
+    // ── 7. Restore tsconfig excludes ────────────────────────────────────
+    // tsconfig files use JSONC (comments + trailing commas), so we cannot
+    // use `filesystem.read(path, 'json')` which calls strict `JSON.parse`.
+    // Instead we do a regex-based removal of vendor-specific exclude entries.
+    for (const tsconfigName of ['tsconfig.json', 'tsconfig.build.json']) {
+      const tsconfigPath = `${dest}/${tsconfigName}`;
+      if (!filesystem.exists(tsconfigPath)) continue;
+
+      let raw = filesystem.read(tsconfigPath) || '';
+
+      // Remove vendor-specific exclude entries (the string literal + optional trailing comma)
+      raw = raw.replace(/,?\s*"src\/core\/modules\/migrate\/templates\/\*\*\/\*\.template\.ts"/g, '');
+      raw = raw.replace(/,?\s*"src\/core\/test\/\*\*\/\*\.ts"/g, '');
+
+      // Clean up potential double commas or trailing commas before ]
+      raw = raw.replace(/,\s*,/g, ',');
+      raw = raw.replace(/,\s*]/g, ']');
+
+      filesystem.write(tsconfigPath, raw);
+    }
+
+    // ── 8. Remove .gitignore vendor entries ──────────────────────────────
+    const gitignorePath = `${dest}/.gitignore`;
+    if (filesystem.exists(gitignorePath)) {
+      let content = filesystem.read(gitignorePath) || '';
+      content = content
+        .split('\n')
+        .filter((line: string) =>
+          !line.includes('scripts/vendor/sync-results') &&
+          !line.includes('scripts/vendor/upstream-candidates'),
+        )
+        .join('\n');
+      filesystem.write(gitignorePath, content);
+    }
+
+    // ── Post-conversion verification ──────────────────────────────────────
+    //
+    // Scan all consumer files for stale relative imports that still resolve
+    // to the (now deleted) src/core/ directory. These would be silent
+    // compile errors.
+    const staleRelativeImports = this.findStaleImports(dest, '../core', /['"]\.\.?\/[^'"]*core['"]|from\s+['"]\.\.?\/[^'"]*core['"]/);
+    if (staleRelativeImports.length > 0) {
+      const { print } = this.toolbox;
+      print.warning(
+        `⚠ ${staleRelativeImports.length} file(s) still contain relative core imports after npm conversion:`,
+      );
+      for (const f of staleRelativeImports.slice(0, 10)) {
+        print.info(`  ${f}`);
+      }
+      print.info('These imports must be manually rewritten to \'@lenne.tech/nest-server\'.');
+    }
+  }
+
+  /**
+   * Scans consumer source files for import specifiers that should have been
+   * rewritten by a mode conversion. Returns a list of file paths that still
+   * contain matches.
+   *
+   * @param dest      Project root directory
+   * @param needle    Literal string to search for (used when no regex provided)
+   * @param pattern   Optional regex for more flexible matching
+   */
+  private findStaleImports(dest: string, needle: string, pattern?: RegExp): string[] {
+    const globs = [
+      `${dest}/src/server/**/*.ts`,
+      `${dest}/src/main.ts`,
+      `${dest}/src/config.env.ts`,
+      `${dest}/tests/**/*.ts`,
+      `${dest}/migrations/**/*.ts`,
+      `${dest}/scripts/**/*.ts`,
+    ];
+    const stale: string[] = [];
+    for (const glob of globs) {
+      const files = this.filesystem.find(dest, {
+        matching: glob.replace(`${dest}/`, ''),
+        recursive: true,
+      }) || [];
+      for (const file of files) {
+        const content = this.filesystem.read(file) || '';
+        if (pattern ? pattern.test(content) : content.includes(needle)) {
+          stale.push(file.replace(`${dest}/`, ''));
+        }
+      }
+    }
+    return stale;
+  }
+
+  /**
+   * Checks whether an import specifier resolves to the vendored core directory.
+   * Used during vendor→npm import rewriting.
+   */
+  private isVendoredCoreImport(
+    specifier: string,
+    fromFilePath: string,
+    coreAbsPath: string,
+  ): boolean {
+    if (!specifier.startsWith('.')) return false;
+    const path = require('path');
+    const resolved = path.resolve(path.dirname(fromFilePath), specifier);
+    // Match if the resolved path IS the core dir or is inside it
+    // (e.g., '../../../core' resolves to src/core, '../../../core/index' resolves to src/core/index)
+    return resolved === coreAbsPath || resolved.startsWith(coreAbsPath + path.sep);
   }
 }
 

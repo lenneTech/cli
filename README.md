@@ -38,9 +38,11 @@ $ lt
 
 ## Documentation
 
-- [Command Reference](docs/commands.md) - Complete list of all commands with options
-- [Configuration Guide](docs/lt.config.md) - Configuration file documentation
-- [Plugin Guide](docs/plugins.md) - How to create plugins
+- **[LT-ECOSYSTEM-GUIDE](docs/LT-ECOSYSTEM-GUIDE.md)** — Complete reference for `lt` CLI **and** the `lt-dev` Claude-Code Plugin (architecture, functions, vendor-mode workflows, agents, skills)
+- **[VENDOR-MODE-WORKFLOW](docs/VENDOR-MODE-WORKFLOW.md)** — Step-by-step guide for npm → vendor conversion, updates, and rollback
+- [Command Reference](docs/commands.md) — Complete list of all commands with options
+- [Configuration Guide](docs/lt.config.md) — Configuration file documentation
+- [Plugin Guide](docs/plugins.md) — How to create plugins
 
 ## Quick Start
 
