@@ -51,6 +51,48 @@ export class ApiMode {
 
     // Remove strip-markers script from package.json
     this.removeScriptFromPackageJson(projectPath, 'strip-markers');
+
+    // NOTE: auto-format of the stripped files happens separately in
+    // `formatProject()`, which MUST be called by the caller AFTER
+    // `pnpm install`. At this point the project's formatter (oxfmt) is
+    // not yet on disk, so running it here would silently no-op.
+  }
+
+  /**
+   * Run the project's `format` (or `format:fix`) npm script, if it exists.
+   * Call this AFTER the project's dependencies have been installed —
+   * otherwise the formatter (e.g. oxfmt) isn't available yet and the
+   * pass silently no-ops.
+   *
+   * Used after region stripping to normalize whitespace artifacts the
+   * formatter would otherwise flag in `format:check` (e.g. collapsing
+   * `providers: [\n  X,\n]` to `providers: [X]` once graphql items were
+   * removed). Failures are non-fatal so a misbehaving formatter never
+   * blocks init.
+   */
+  public async formatProject(projectPath: string): Promise<void> {
+    const pkgPath = join(projectPath, 'package.json');
+    const pkgRaw = this.filesystem.read(pkgPath);
+    if (!pkgRaw) return;
+
+    let pkg: { scripts?: Record<string, string> };
+    try {
+      pkg = JSON.parse(pkgRaw);
+    } catch {
+      return;
+    }
+
+    const scripts = pkg.scripts ?? {};
+    const formatScript = scripts.format ? 'format' : scripts['format:fix'] ? 'format:fix' : null;
+    if (!formatScript) return;
+
+    const { pm, system } = this.toolbox;
+    const runner = pm?.run?.(formatScript, pm.detect(projectPath)) ?? `pnpm run ${formatScript}`;
+    try {
+      await system.run(`cd "${projectPath}" && ${runner}`);
+    } catch {
+      // Non-fatal: the user can run format manually if this misbehaves.
+    }
   }
 
   /**
@@ -152,12 +194,79 @@ export class ApiMode {
           continue;
         }
 
-        const processed = this.processFileRegions(content, removeMarker, keepMarker);
+        // Special-case config.env.ts in REST mode: simply deleting the
+        // `graphQl: { … }` property is not enough — `CoreModule.forRoot`
+        // treats `graphQl === undefined` as enabled and tries to build
+        // the GraphQL schema anyway (which then fails on core models
+        // like CoreHealthCheckResult that reference the JSON scalar).
+        // Replace each stripped `// #region graphql … // #endregion
+        // graphql` block with an explicit `graphQl: false,` so GraphQL
+        // is cleanly disabled.
+        let processed: string;
+        if (removeMarker === 'graphql' && file.endsWith('/config.env.ts')) {
+          processed = this.replaceGraphqlRegionsWithDisabled(content, keepMarker);
+        } else {
+          processed = this.processFileRegions(content, removeMarker, keepMarker);
+        }
         if (processed !== content) {
           this.filesystem.write(file, processed);
         }
       }
     }
+  }
+
+  /**
+   * Like `processFileRegions` with removeMarker='graphql', but a
+   * stripped region that contains a `graphQl:` property assignment is
+   * replaced with `graphQl: false,` (at the region's indent) instead of
+   * being deleted outright. Other graphql-regions (e.g. wrapping
+   * `execAfterInit: 'pnpm run docs:bootstrap'`) are deleted as usual.
+   *
+   * Rationale: `CoreModule.forRoot` treats `options.graphQl === undefined`
+   * as enabled, so dropping the property silently keeps GraphQL active
+   * and later crashes when the schema references scalars that were
+   * purged in REST mode.
+   *
+   * Preserves keepMarker behaviour (strip marker lines only, keep content).
+   */
+  private replaceGraphqlRegionsWithDisabled(content: string, keepMarker: string): string {
+    const lines = content.split('\n');
+    const result: string[] = [];
+    let inRegion = false;
+    let regionIndent = '';
+    let regionBuffer: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+
+      if (trimmed === '// #region graphql') {
+        inRegion = true;
+        regionIndent = line.slice(0, line.indexOf('//'));
+        regionBuffer = [];
+        continue;
+      }
+      if (trimmed === '// #endregion graphql') {
+        inRegion = false;
+        // Only emit a replacement if the stripped block actually
+        // contained a `graphQl:` assignment.
+        if (regionBuffer.some((l) => /\bgraphQl\s*:/.test(l))) {
+          result.push(`${regionIndent}graphQl: false,`);
+        }
+        regionBuffer = [];
+        continue;
+      }
+      if (inRegion) {
+        regionBuffer.push(line);
+        continue;
+      }
+      // Keep-marker lines (e.g. `// #region rest`) are dropped; content between them stays.
+      if (trimmed === `// #region ${keepMarker}` || trimmed === `// #endregion ${keepMarker}`) {
+        continue;
+      }
+      result.push(line);
+    }
+
+    return result.join('\n');
   }
 
   /**
@@ -286,8 +395,21 @@ export class ApiMode {
       sourceFile.saveSync();
     } catch {
       // If ts-morph is not available or fails, fall back to regex
-      this.modifyConfigEnvForRestFallback(projectPath);
     }
+
+    // Safety net: always run the regex fallback too. ts-morph only
+    // traverses direct ObjectLiteralExpression properties, so configs
+    // that wrap env-blocks in helper functions (e.g. `local:
+    // localConfig(...)`) are skipped silently. The regex is idempotent
+    // — if ts-morph already replaced `graphQl: {...}` with
+    // `graphQl: false` it's a no-op, but if ts-morph missed a wrapped
+    // occurrence the regex catches it. Without this, REST-mode
+    // projects built from a starter that lacks explicit
+    // `// #region graphql` markers would end up with `graphQl:
+    // undefined`, which `CoreModule.forRoot` treats as ENABLED, and
+    // the GraphQL schema build crashes on core models that still
+    // reference the JSON scalar.
+    this.modifyConfigEnvForRestFallback(projectPath);
   }
 
   /**
@@ -430,9 +552,7 @@ export class ApiMode {
         importLineSet.add(j);
       }
     }
-    const codeContent = lines
-      .map((line, idx) => (importLineSet.has(idx) ? '' : line))
-      .join('\n');
+    const codeContent = lines.map((line, idx) => (importLineSet.has(idx) ? '' : line)).join('\n');
 
     // Check each import
     const linesToRemove = new Set<number>();

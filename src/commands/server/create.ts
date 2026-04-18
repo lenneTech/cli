@@ -70,10 +70,7 @@ const NewCommand: GluegunCommand = {
     const configCopy = ltConfig?.commands?.server?.create?.copy;
     const configLink = ltConfig?.commands?.server?.create?.link;
     const configApiMode = ltConfig?.commands?.server?.create?.apiMode;
-    const configFrameworkMode = ltConfig?.commands?.server?.create?.frameworkMode as
-      | 'npm'
-      | 'vendor'
-      | undefined;
+    const configFrameworkMode = ltConfig?.commands?.server?.create?.frameworkMode as 'npm' | 'vendor' | undefined;
 
     // Load global defaults
     const globalAuthor = config.getGlobalDefault<string>(ltConfig, 'author');
@@ -89,9 +86,7 @@ const NewCommand: GluegunCommand = {
     const cliLink = parameters.options.link;
     const cliApiMode = parameters.options['api-mode'] || parameters.options.apiMode;
     const cliFrameworkMode = parameters.options['framework-mode'] as 'npm' | 'vendor' | undefined;
-    const cliFrameworkUpstreamBranch = parameters.options['framework-upstream-branch'] as
-      | string
-      | undefined;
+    const cliFrameworkUpstreamBranch = parameters.options['framework-upstream-branch'] as string | undefined;
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
     const noConfirm = config.getNoConfirm({

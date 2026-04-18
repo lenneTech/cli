@@ -129,6 +129,46 @@ assert_not_grep() {
   fi
 }
 
+# Fullstack-compat verifier (SOFT — advisory only).
+# Runs the per-project quality gates (audit, format:check, lint, test)
+# that would run as part of `pnpm run check` in the workspace. Failures
+# are REPORTED but do not fail the suite: they usually reflect template
+# drift (upstream CVEs, new lint rules) that the CLI cannot control.
+# CLI-caused transformation regressions are covered by dedicated hard
+# structural assertions elsewhere.
+verify_fullstack_check() {
+  local project_dir="$1"
+  local proj_name
+  proj_name="$(basename "${project_dir}")"
+
+  if (cd "${project_dir}" && pnpm audit >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm audit clean"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm audit reports upstream CVEs (template responsibility)"
+  fi
+
+  if (cd "${project_dir}" && pnpm run format:check >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm run format:check clean"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm run format:check reports issues (template drift)"
+    (cd "${project_dir}" && pnpm run format:check 2>&1 | tail -5) || true
+  fi
+
+  if (cd "${project_dir}" && pnpm run lint >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm run lint clean"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm run lint reports issues (template drift)"
+    (cd "${project_dir}" && pnpm run lint 2>&1 | tail -5) || true
+  fi
+
+  if (cd "${project_dir}" && pnpm test >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm test passes"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm test fails (investigate; CLI-caused regressions covered by hard structural checks)"
+    (cd "${project_dir}" && pnpm test 2>&1 | grep -E "(Test Files|Tests |FAIL|beforeAllError|Error:)" | tail -6) || true
+  fi
+}
+
 ensure_template_cache() {
   if [ -d "$TEMPLATE_CACHE/nuxt-base-template" ]; then
     return 0
@@ -186,6 +226,10 @@ assert_vendor_structure() {
 
   assert_grep "@lenne.tech/nuxt-extensions" "$app_dir/app/core/VENDOR.md" "VENDOR.md references nuxt-extensions"
   assert_grep "Baseline-Version:" "$app_dir/app/core/VENDOR.md" "VENDOR.md has baseline version"
+  assert_grep "^## Modification Policy" "$app_dir/app/core/VENDOR.md" "VENDOR.md has Modification Policy section"
+  assert_grep "contribute-nuxt-extensions-core" "$app_dir/app/core/VENDOR.md" "VENDOR.md references upstream-PR command"
+  assert_grep "generally useful to every" "$app_dir/app/core/VENDOR.md" "VENDOR.md Modification Policy states when edits are allowed"
+  assert_grep "MUST.* submitted as an upstream PR" "$app_dir/app/core/VENDOR.md" "VENDOR.md Modification Policy mandates upstream flow-back"
 
   assert_grep "'./app/core/module'" "$app_dir/nuxt.config.ts" "nuxt.config.ts uses local module path"
   assert_not_grep "'@lenne.tech/nuxt-extensions'" "$app_dir/nuxt.config.ts" "nuxt.config.ts no longer references npm module"
@@ -313,6 +357,16 @@ scenario_init_both_vendor() {
 
   # Backend vendor checks
   assert_file "$project/projects/api/src/core/VENDOR.md" "Backend VENDOR.md"
+  assert_grep "^## Modification Policy" "$project/projects/api/src/core/VENDOR.md" "Backend VENDOR.md has Modification Policy section"
+  assert_grep "contribute-nest-server-core" "$project/projects/api/src/core/VENDOR.md" "Backend VENDOR.md references upstream-PR command"
+  assert_grep "generally useful to every" "$project/projects/api/src/core/VENDOR.md" "Backend VENDOR.md Modification Policy states when edits are allowed"
+  assert_grep "MUST.* submitted as an upstream PR" "$project/projects/api/src/core/VENDOR.md" "Backend VENDOR.md Modification Policy mandates upstream flow-back"
+  assert_file "$project/projects/api/src/templates/email-verification-en.ejs" "Backend src/templates/email-verification-en.ejs (runtime-resolver path)"
+  if [[ -d "$project/projects/api/src/core/templates" ]]; then
+    fail "Backend src/core/templates unexpectedly present — templates should live at src/templates/"
+  else
+    pass "Backend src/core/templates absent (not accidentally vendored under core/)"
+  fi
   if ! grep -q '"@lenne.tech/nest-server"' "$project/projects/api/package.json" 2>/dev/null; then
     pass "Backend package.json: @lenne.tech/nest-server removed"
   else
@@ -322,6 +376,39 @@ scenario_init_both_vendor() {
   # Frontend vendor checks
   assert_vendor_structure "$project/projects/app"
   assert_consumer_imports_vendor "$project/projects/app"
+
+  # Hard structural checks for CLI-caused transforms (see
+  # test-vendor-init.sh step 11 for rationale): REST-mode graphQl
+  # disable, region-marker cleanup, pnpm workspace hoist.
+  if grep -q "graphQl: false" "$project/projects/api/src/config.env.ts"; then
+    pass "Backend config.env.ts has 'graphQl: false' after REST strip"
+  else
+    fail "Backend config.env.ts missing 'graphQl: false' — REST mode would crash on GraphQL schema build"
+  fi
+  if ! grep -rq "// #region graphql\|// #region rest\|// #endregion graphql\|// #endregion rest" \
+    "$project/projects/api/src" 2>/dev/null; then
+    pass "Backend src/ has no leftover region markers after strip"
+  else
+    fail "Backend src/ contains leftover '// #region {graphql,rest}' markers"
+  fi
+  for sub in "projects/api" "projects/app"; do
+    if python3 -c "
+import json,sys
+d = json.load(open('$project/${sub}/package.json'))
+pnpm = d.get('pnpm', {})
+fields = ['overrides', 'onlyBuiltDependencies', 'ignoredOptionalDependencies']
+leftover = [f for f in fields if f in pnpm]
+sys.exit(1 if leftover else 0)
+" 2>/dev/null; then
+      pass "Sub-project $sub has workspace-scoped pnpm fields hoisted out"
+    else
+      fail "Sub-project $sub package.json still has workspace-scoped pnpm fields (hoist regression)"
+    fi
+  done
+
+  # Soft compat gate — template drift doesn't fail the suite.
+  verify_fullstack_check "$project/projects/api"
+  verify_fullstack_check "$project/projects/app"
 }
 
 scenario_init_frontend_vendor_only() {
@@ -351,6 +438,9 @@ scenario_init_frontend_vendor_only() {
   # Frontend should be vendored
   assert_vendor_structure "$project/projects/app"
   assert_consumer_imports_vendor "$project/projects/app"
+
+  # Fullstack-compat for frontend-only-vendor scenario
+  verify_fullstack_check "$project/projects/app"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────

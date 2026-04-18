@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
 
 /**
  * Create a new fullstack workspace
@@ -55,10 +56,7 @@ const NewCommand: GluegunCommand = {
     const configFrontendCopy = ltConfig?.commands?.fullstack?.frontendCopy;
     const configApiLink = ltConfig?.commands?.fullstack?.apiLink;
     const configFrontendLink = ltConfig?.commands?.fullstack?.frontendLink;
-    const configFrameworkMode = ltConfig?.commands?.fullstack?.frameworkMode as
-      | 'npm'
-      | 'vendor'
-      | undefined;
+    const configFrameworkMode = ltConfig?.commands?.fullstack?.frameworkMode as 'npm' | 'vendor' | undefined;
 
     // Parse CLI arguments
     const {
@@ -518,6 +516,15 @@ const NewCommand: GluegunCommand = {
         serverSpinner.warn('Nest Server Starter not integrated');
       }
 
+      // Hoist workspace-scoped pnpm config out of sub-projects. pnpm only
+      // honors `pnpm.overrides`, `pnpm.onlyBuiltDependencies`, and
+      // `pnpm.ignoredOptionalDependencies` at the workspace root; leaving
+      // them in projects/api/package.json or projects/app/package.json
+      // causes `WARN The field … was found in … This will not take
+      // effect. You should configure … at the root of the workspace
+      // instead.` and silently disables CVE overrides.
+      hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
+
       // Install all packages
       const installSpinner = spin('Install all packages');
       try {
@@ -529,6 +536,19 @@ const NewCommand: GluegunCommand = {
       } catch (err) {
         installSpinner.fail(`Failed to install packages: ${err.message}`);
         return;
+      }
+
+      // Post-install format pass. processApiMode (run earlier in
+      // setupServerForFullstack) and convertAppCloneToVendored rewrite
+      // source files, leaving whitespace artifacts that oxfmt flags in
+      // `pnpm run format:check` (multi-line arrays/imports after region
+      // stripping, import-path rewrites that now fit single-line). The
+      // formatter is only available after install, so we normalize here.
+      if (apiMode && filesystem.isDirectory(`${projectDir}/projects/api`)) {
+        await toolbox.apiMode.formatProject(`${projectDir}/projects/api`);
+      }
+      if (isNuxt && filesystem.isDirectory(`${projectDir}/projects/app`)) {
+        await toolbox.apiMode.formatProject(`${projectDir}/projects/app`);
       }
 
       // Create initial commit after everything is set up

@@ -134,8 +134,8 @@ const ConvertModeCommand: GluegunCommand = {
     if (!noConfirm) {
       const proceed = await confirm(
         `Convert project from ${currentMode} mode to ${targetMode} mode?\n` +
-        `  Project: ${appDir}\n` +
-        `  This will modify nuxt.config.ts, package.json, imports, and CLAUDE.md.`,
+          `  Project: ${appDir}\n` +
+          `  This will modify nuxt.config.ts, package.json, imports, and CLAUDE.md.`,
       );
       if (!proceed) {
         info('Aborted.');

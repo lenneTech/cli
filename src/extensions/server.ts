@@ -7,6 +7,7 @@ import * as ts from 'typescript';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
+import { formatMarkdownTable } from '../lib/markdown-table';
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(
   questions:
@@ -842,6 +843,14 @@ export class Server {
       } catch (err) {
         return { method: result.method, path: dest, success: false };
       }
+
+      // Post-install format pass. processApiMode may have left whitespace
+      // artifacts (multi-line arrays/imports) that the formatter flags in
+      // format:check; oxfmt is only available after install, so we run it
+      // here.
+      if (apiMode) {
+        await apiModeHelper.formatProject(dest);
+      }
     }
 
     return { method: result.method, path: dest, success: true };
@@ -1017,9 +1026,11 @@ export class Server {
    *
    * In vendor mode we additionally clone `@lenne.tech/nest-server` to
    * /tmp, copy its framework kernel (`src/core/`, `src/index.ts`,
-   * `src/core.module.ts`, `src/test/`, `src/templates/`, `src/types/`,
-   * `LICENSE`, `bin/migrate.js`) into the project at `src/core/`
-   * applying the flatten-fix, remove `@lenne.tech/nest-server` from the
+   * `src/core.module.ts`, `src/test/`, `src/types/`, `LICENSE`,
+   * `bin/migrate.js`) into the project at `src/core/` applying the
+   * flatten-fix, place upstream `src/templates/` at `<project>/src/templates/`
+   * (outside core/ so the runtime resolver finds it at the same relative
+   * path as in npm mode), remove `@lenne.tech/nest-server` from the
    * project's `package.json`, merge the framework's transitive deps into
    * the project's own deps, and run an AST-based codemod that rewrites
    * every `from '@lenne.tech/nest-server'` import in consumer code
@@ -1033,18 +1044,16 @@ export class Server {
    *
    * Idempotent — running twice is a no-op.
    */
-  protected async convertCloneToVendored(
-    options: {
-      /** Absolute path of the project's api root (where package.json lives). */
-      dest: string;
-      /** Project name. Currently used only for logging/diagnostics. */
-      projectName?: string;
-      /** Branch, tag or commit to check out from the upstream repo. Default: HEAD. */
-      upstreamBranch?: string;
-      /** Override the upstream framework repo URL (for testing / forks). */
-      upstreamRepoUrl?: string;
-    },
-  ): Promise<{ upstreamDeps: Record<string, string>; upstreamDevDeps: Record<string, string> }> {
+  protected async convertCloneToVendored(options: {
+    /** Absolute path of the project's api root (where package.json lives). */
+    dest: string;
+    /** Project name. Currently used only for logging/diagnostics. */
+    projectName?: string;
+    /** Branch, tag or commit to check out from the upstream repo. Default: HEAD. */
+    upstreamBranch?: string;
+    /** Override the upstream framework repo URL (for testing / forks). */
+    upstreamRepoUrl?: string;
+  }): Promise<{ upstreamDeps: Record<string, string>; upstreamDevDeps: Record<string, string> }> {
     const { dest, upstreamBranch, upstreamRepoUrl = 'https://github.com/lenneTech/nest-server.git' } = options;
 
     const filesystem = this.filesystem;
@@ -1140,7 +1149,10 @@ export class Server {
       //
       // Upstream layout: src/core/ (framework sub-dir) + src/index.ts +
       // src/core.module.ts + src/test/ + src/templates/ + src/types/.
-      // Target layout: everything flat under <project>/src/core/.
+      // Target layout: most things flat under <project>/src/core/, with
+      // one exception: src/templates/ stays at the same upstream location
+      // (<project>/src/templates/) because the runtime email-template
+      // resolver uses __dirname-relative lookup that must match npm mode.
       //
       // We WIPE the starter's (non-existent in npm mode) src/core/ first
       // just to guarantee idempotency when users run this twice.
@@ -1153,7 +1165,15 @@ export class Server {
         [`${tmpClone}/src/index.ts`, `${coreDir}/index.ts`],
         [`${tmpClone}/src/core.module.ts`, `${coreDir}/core.module.ts`],
         [`${tmpClone}/src/test`, `${coreDir}/test`],
-        [`${tmpClone}/src/templates`, `${coreDir}/templates`],
+        // src/templates/ stays OUTSIDE src/core/ at its upstream location so
+        // the runtime template resolver (which computes
+        // `__dirname + '../../../templates'` from within
+        // src/core/modules/better-auth/) finds E-Mail templates at the same
+        // relative path as in npm mode (node_modules/@lenne.tech/nest-server/
+        // src/templates/). Keeping templates as first-class project files
+        // outside core/ also lets projects customize them without touching
+        // the vendored framework tree.
+        [`${tmpClone}/src/templates`, `${dest}/src/templates`],
         [`${tmpClone}/src/types`, `${coreDir}/types`],
         [`${tmpClone}/LICENSE`, `${coreDir}/LICENSE`],
       ];
@@ -1162,7 +1182,6 @@ export class Server {
           filesystem.copy(from, to);
         }
       }
-
 
       // Copy bin/migrate.js so the project has a working migrate CLI
       // independent of node_modules/@lenne.tech/nest-server.
@@ -1181,10 +1200,11 @@ export class Server {
         if (filesystem.exists(`${dest}/migration-guides`)) {
           // Project already has migration-guides (maybe custom ones) — merge
           // upstream files into the existing directory without removing locals.
-          const upstreamGuides = filesystem.find(`${tmpClone}/migration-guides`, {
-            matching: '*.md',
-            recursive: false,
-          }) || [];
+          const upstreamGuides =
+            filesystem.find(`${tmpClone}/migration-guides`, {
+              matching: '*.md',
+              recursive: false,
+            }) || [];
           for (const guide of upstreamGuides) {
             const basename = require('node:path').basename(guide);
             const source = `${tmpClone}/migration-guides/${basename}`;
@@ -1297,10 +1317,11 @@ export class Server {
     // only as type annotations — any runtime `new Request(...)` calls refer
     // to the global Fetch API Request, not the express one.
     const expressImportRegex = /^import\s+\{([^}]*)\}\s+from\s+['"]express['"]\s*;?\s*$/gm;
-    const vendoredTsFiles = filesystem.find(coreDir, {
-      matching: '**/*.ts',
-      recursive: true,
-    }) || [];
+    const vendoredTsFiles =
+      filesystem.find(coreDir, {
+        matching: '**/*.ts',
+        recursive: true,
+      }) || [];
     for (const filePath of vendoredTsFiles) {
       // filesystem.find returns paths relative to jetpack cwd — use absolute resolution
       const absPath = filePath.startsWith('/') ? filePath : require('node:path').resolve(filePath);
@@ -1347,7 +1368,7 @@ export class Server {
       const fromDir = path.dirname(filePath);
       let relToCore = path.relative(fromDir, coreDir).split(path.sep).join('/');
       if (!relToCore.startsWith('.')) {
-        relToCore = `./${  relToCore}`;
+        relToCore = `./${relToCore}`;
       }
 
       let touched = false;
@@ -1404,13 +1425,10 @@ export class Server {
             const fromDir = path.dirname(f);
             let relToCore = path.relative(fromDir, coreDir).split(path.sep).join('/');
             if (!relToCore.startsWith('.')) {
-              relToCore = `./${  relToCore}`;
+              relToCore = `./${relToCore}`;
             }
             const patched = content
-              .replace(
-                /require\(['"]@lenne\.tech\/nest-server['"]\)/g,
-                `require('${relToCore}')`,
-              )
+              .replace(/require\(['"]@lenne\.tech\/nest-server['"]\)/g, `require('${relToCore}')`)
               .replace(
                 /require\(['"]@lenne\.tech\/nest-server\/dist\/([^'"]+)['"]\)/g,
                 (_m: string, sub: string) => `require('${relToCore}/${sub}')`,
@@ -1565,14 +1583,14 @@ export class Server {
             "var f=require('fs'),h=require('https');",
             "try{var c=f.readFileSync('src/core/VENDOR.md','utf8')}catch(e){process.exit(0)}",
             'var m=c.match(/Baseline-Version[^0-9]*(\\d+\\.\\d+\\.\\d+)/);',
-            'if(!m){process.stderr.write(String.fromCharCode(9888)+\' vendor-freshness: no baseline\\n\');process.exit(0)}',
+            "if(!m){process.stderr.write(String.fromCharCode(9888)+' vendor-freshness: no baseline\\n');process.exit(0)}",
             'var v=m[1];',
             "h.get('https://registry.npmjs.org/@lenne.tech/nest-server/latest',function(r){",
             "var d='';r.on('data',function(c){d+=c});r.on('end',function(){",
-            "try{var l=JSON.parse(d).version;",
+            'try{var l=JSON.parse(d).version;',
             "if(v===l)console.log('vendor core up-to-date (v'+v+')');",
             "else process.stderr.write('vendor core v'+v+', latest v'+l+'\\n')",
-            '}catch(e){}})}).on(\'error\',function(){});',
+            "}catch(e){}})}).on('error',function(){});",
             'setTimeout(function(){process.exit(0)},5000)',
             '"',
           ].join('');
@@ -1586,7 +1604,8 @@ export class Server {
             if (existing.includes('check:vendor-freshness')) return;
             const installPrefix = 'pnpm install && ';
             if (existing.startsWith(installPrefix)) {
-              scripts[scriptName] = `${installPrefix}pnpm run check:vendor-freshness && ${existing.slice(installPrefix.length)}`;
+              scripts[scriptName] =
+                `${installPrefix}pnpm run check:vendor-freshness && ${existing.slice(installPrefix.length)}`;
             } else {
               scripts[scriptName] = `pnpm run check:vendor-freshness && ${existing}`;
             }
@@ -1661,7 +1680,7 @@ export class Server {
           ' * Vendor-mode stub for extras/sync-packages.mjs.',
           ' *',
           ' * The original script is designed for npm-mode projects where',
-          " * `@lenne.tech/nest-server` is an installed dependency and",
+          ' * `@lenne.tech/nest-server` is an installed dependency and',
           ' * `pnpm run update` pulls the latest upstream deps into the',
           ' * project package.json.',
           ' *',
@@ -1726,7 +1745,7 @@ export class Server {
           '',
           '- **Read framework code from `src/core/**`** — not from `node_modules/`.',
           '- **Generated imports use relative paths** to `src/core`, e.g.',
-          '  `import { CrudService } from \'../../../core\';`',
+          "  `import { CrudService } from '../../../core';`",
           '  The exact depth depends on the file location. `lt server module`',
           '  computes it automatically.',
           '- **Baseline + patch log** live in `src/core/VENDOR.md`. Log any',
@@ -1800,16 +1819,47 @@ export class Server {
           '',
           'This directory is a curated vendor copy of the `core/` tree from',
           '@lenne.tech/nest-server. It is first-class project code, not a',
-          'node_modules shadow copy. Edit freely; log substantial changes in',
-          'the "Local changes" table below so the `nest-server-core-updater`',
-          'agent can classify them at sync time.',
+          'node_modules shadow copy — but it is **not a fork**. The copy',
+          'exists so Claude Code (and humans) can read framework internals',
+          'directly. Log substantial local changes in the "Local changes"',
+          'table below so the `nest-server-core-updater` agent can classify',
+          'them at sync time.',
           '',
           'The flatten-fix was applied during `lt fullstack init`: the',
           'upstream `src/index.ts`, `src/core.module.ts`, `src/test/`,',
-          '`src/templates/`, `src/types/`, and `LICENSE` were moved under',
-          '`src/core/` and their relative `./core/…` specifiers were',
-          'stripped. See the init code in',
+          '`src/types/`, and `LICENSE` were moved under `src/core/` and',
+          'their relative `./core/…` specifiers were stripped. The upstream',
+          '`src/templates/` tree (E-Mail templates) was placed at the',
+          'project root `src/templates/` (outside `src/core/`) so the',
+          'runtime template resolver finds them at the same relative path',
+          'as in npm mode. See the init code in',
           '`lenneTech/cli/src/extensions/server.ts#convertCloneToVendored`.',
+          '',
+          '## Modification Policy',
+          '',
+          'Edit `src/core/` **only** when the change is generally useful to every',
+          '@lenne.tech/nest-server consumer:',
+          '',
+          '- Bugfixes that apply to every consumer',
+          '- Broad framework enhancements',
+          '- Security vulnerability fixes',
+          '- Build/TypeScript compatibility fixes every consumer would hit',
+          '',
+          'Everything else stays **outside** `src/core/`. Project-specific',
+          'business rules, customer enums, and proprietary integrations',
+          'belong in project code via modification, inheritance, extension,',
+          'or `ICoreModuleOverrides`.',
+          '',
+          'Generally-useful changes **MUST** be submitted as an upstream PR',
+          'to https://github.com/lenneTech/nest-server. Run',
+          '`/lt-dev:backend:contribute-nest-server-core` to prepare it — the',
+          'agent filters cosmetic commits, categorizes local changes as',
+          'upstream-candidate vs. project-specific, and writes PR drafts for',
+          "human review. Letting useful fixes rot in one project's vendor",
+          'tree is an anti-pattern: they belong upstream so every consumer',
+          'benefits and the local patch disappears on the next sync.',
+          '',
+          'When in doubt, ask before editing `src/core/`.',
           '',
           '## Baseline',
           '',
@@ -1821,22 +1871,21 @@ export class Server {
           '',
           '## Sync history',
           '',
-          '| Date | From | To | Notes |',
-          '| ---- | ---- | -- | ----- |',
-          `| ${today} | — | ${syncHistoryTo} | scaffolded by lt CLI |`,
+          ...formatMarkdownTable(
+            ['Date', 'From', 'To', 'Notes'],
+            [[today, '—', syncHistoryTo, 'scaffolded by lt CLI']],
+          ),
           '',
           '## Local changes',
           '',
-          '| Date | Commit | Scope | Reason | Status |',
-          '| ---- | ------ | ----- | ------ | ------ |',
-          '| — | — | (none, pristine) | initial vendor | — |',
+          ...formatMarkdownTable(
+            ['Date', 'Commit', 'Scope', 'Reason', 'Status'],
+            [['—', '—', '(none, pristine)', 'initial vendor', '—']],
+          ),
           '',
           '## Upstream PRs',
           '',
-          '| PR | Title | Commits | Status |',
-          '| -- | ----- | ------- | ------ |',
-          '| — | (none yet) | — | — |',
-          '',
+          ...formatMarkdownTable(['PR', 'Title', 'Commits', 'Status'], [['—', '(none yet)', '—', '—']]),
         ].join('\n'),
       );
     }
@@ -1889,7 +1938,6 @@ export class Server {
   protected isVendorRuntimeDep(pkgName: string): boolean {
     if (!this._vendorRuntimeHelpers) {
       try {
-         
         const path = require('path');
         const configPath = path.join(__dirname, '..', 'config', 'vendor-runtime-deps.json');
         const raw = this.filesystem.read(configPath, 'json') as undefined | { runtimeHelpers?: string[] };
@@ -1944,16 +1992,14 @@ export class Server {
    * versions — drift between starter and upstream is handled automatically
    * at the next init.
    */
-  protected restoreVendorCoreEssentials(
-    options: {
-      /** Absolute path of the project's api root. */
-      dest: string;
-      /** Essential package names (captured before processApiMode). */
-      essentials: string[];
-      /** Upstream `@lenne.tech/nest-server` dependencies snapshot (for pinning). */
-      upstreamDeps?: Record<string, string>;
-    },
-  ): void {
+  protected restoreVendorCoreEssentials(options: {
+    /** Absolute path of the project's api root. */
+    dest: string;
+    /** Essential package names (captured before processApiMode). */
+    essentials: string[];
+    /** Upstream `@lenne.tech/nest-server` dependencies snapshot (for pinning). */
+    upstreamDeps?: Record<string, string>;
+  }): void {
     const { dest, essentials, upstreamDeps = {} } = options;
     if (!essentials || essentials.length === 0) return;
 
@@ -2040,10 +2086,7 @@ export class Server {
     if (!this.filesystem.exists(tsconfigPath)) {
       return;
     }
-    const EXCLUDE_ENTRIES = [
-      'src/core/modules/migrate/templates/**/*.template.ts',
-      'src/core/test/**/*.ts',
-    ];
+    const EXCLUDE_ENTRIES = ['src/core/modules/migrate/templates/**/*.template.ts', 'src/core/test/**/*.ts'];
     try {
       // The upstream tsconfig files may contain comments — standard JSON parse
       // breaks on them. Use a regex-based patch as a fallback.
@@ -2247,7 +2290,7 @@ export class Server {
     if (!allDeps['@lenne.tech/nest-server']) {
       throw new Error(
         '@lenne.tech/nest-server is not in dependencies or devDependencies. ' +
-        'Is this an npm-mode lenne.tech API project?',
+          'Is this an npm-mode lenne.tech API project?',
       );
     }
 
@@ -2271,10 +2314,7 @@ export class Server {
    * 7. Clean up CLAUDE.md vendor marker
    * 8. Restore tsconfig to npm-mode defaults
    */
-  async convertToNpmMode(options: {
-    dest: string;
-    targetVersion?: string;
-  }): Promise<void> {
+  async convertToNpmMode(options: { dest: string; targetVersion?: string }): Promise<void> {
     const { dest, targetVersion } = options;
     const path = require('path');
     const { Project, SyntaxKind } = require('ts-morph');
@@ -2300,15 +2340,14 @@ export class Server {
       }
     }
     if (!version) {
-      throw new Error(
-        'Cannot determine target version. Specify --version or ensure VENDOR.md has a Baseline-Version.',
-      );
+      throw new Error('Cannot determine target version. Specify --version or ensure VENDOR.md has a Baseline-Version.');
     }
 
     // Warn if VENDOR.md documents local patches that will be lost
     const localChangesSection = vendorMd.match(/## Local changes[\s\S]*?(?=## |$)/i);
     if (localChangesSection) {
-      const hasRealPatches = localChangesSection[0].includes('|') &&
+      const hasRealPatches =
+        localChangesSection[0].includes('|') &&
         !localChangesSection[0].includes('(none, pristine)') &&
         /\|\s*\d{4}-/.test(localChangesSection[0]);
       if (hasRealPatches) {
@@ -2316,9 +2355,7 @@ export class Server {
         print.warning('');
         print.warning('⚠  VENDOR.md documents local patches in src/core/ that will be LOST:');
         // Extract non-header table rows
-        const rows = localChangesSection[0]
-          .split('\n')
-          .filter((l: string) => /^\|\s*\d{4}-/.test(l));
+        const rows = localChangesSection[0].split('\n').filter((l: string) => /^\|\s*\d{4}-/.test(l));
         for (const row of rows.slice(0, 5)) {
           print.info(`  ${row.trim()}`);
         }
@@ -2352,10 +2389,7 @@ export class Server {
       let modified = false;
 
       // Static imports + re-exports
-      for (const decl of [
-        ...sourceFile.getImportDeclarations(),
-        ...sourceFile.getExportDeclarations(),
-      ]) {
+      for (const decl of [...sourceFile.getImportDeclarations(), ...sourceFile.getExportDeclarations()]) {
         const spec = decl.getModuleSpecifierValue();
         if (!spec) continue;
         // Check if this import resolves to src/core (the vendored framework)
@@ -2430,11 +2464,14 @@ export class Server {
       }
 
       // Restore migrate scripts to npm-mode paths
-      const migrateCompiler = 'ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js';
+      const migrateCompiler =
+        'ts:./node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js';
       const migrateStore = '--store ./migrations-utils/migrate.js --migrations-dir ./migrations';
-      const migrateTemplate = './node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/templates/migration-project.template.ts';
+      const migrateTemplate =
+        './node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/templates/migration-project.template.ts';
 
-      scripts['migrate:create'] = `f() { migrate create "$1" --template-file ${migrateTemplate} --migrations-dir ./migrations --compiler ${migrateCompiler}; }; f`;
+      scripts['migrate:create'] =
+        `f() { migrate create "$1" --template-file ${migrateTemplate} --migrations-dir ./migrations --compiler ${migrateCompiler}; }; f`;
       scripts['migrate:up'] = `migrate up ${migrateStore} --compiler ${migrateCompiler}`;
       scripts['migrate:down'] = `migrate down ${migrateStore} --compiler ${migrateCompiler}`;
       scripts['migrate:list'] = `migrate list ${migrateStore} --compiler ${migrateCompiler}`;
@@ -2528,9 +2565,9 @@ export class Server {
       let content = filesystem.read(gitignorePath) || '';
       content = content
         .split('\n')
-        .filter((line: string) =>
-          !line.includes('scripts/vendor/sync-results') &&
-          !line.includes('scripts/vendor/upstream-candidates'),
+        .filter(
+          (line: string) =>
+            !line.includes('scripts/vendor/sync-results') && !line.includes('scripts/vendor/upstream-candidates'),
         )
         .join('\n');
       filesystem.write(gitignorePath, content);
@@ -2541,7 +2578,11 @@ export class Server {
     // Scan all consumer files for stale relative imports that still resolve
     // to the (now deleted) src/core/ directory. These would be silent
     // compile errors.
-    const staleRelativeImports = this.findStaleImports(dest, '../core', /['"]\.\.?\/[^'"]*core['"]|from\s+['"]\.\.?\/[^'"]*core['"]/);
+    const staleRelativeImports = this.findStaleImports(
+      dest,
+      '../core',
+      /['"]\.\.?\/[^'"]*core['"]|from\s+['"]\.\.?\/[^'"]*core['"]/,
+    );
     if (staleRelativeImports.length > 0) {
       const { print } = this.toolbox;
       print.warning(
@@ -2550,7 +2591,7 @@ export class Server {
       for (const f of staleRelativeImports.slice(0, 10)) {
         print.info(`  ${f}`);
       }
-      print.info('These imports must be manually rewritten to \'@lenne.tech/nest-server\'.');
+      print.info("These imports must be manually rewritten to '@lenne.tech/nest-server'.");
     }
   }
 
@@ -2574,10 +2615,11 @@ export class Server {
     ];
     const stale: string[] = [];
     for (const glob of globs) {
-      const files = this.filesystem.find(dest, {
-        matching: glob.replace(`${dest}/`, ''),
-        recursive: true,
-      }) || [];
+      const files =
+        this.filesystem.find(dest, {
+          matching: glob.replace(`${dest}/`, ''),
+          recursive: true,
+        }) || [];
       for (const file of files) {
         const content = this.filesystem.read(file) || '';
         if (pattern ? pattern.test(content) : content.includes(needle)) {
@@ -2592,11 +2634,7 @@ export class Server {
    * Checks whether an import specifier resolves to the vendored core directory.
    * Used during vendor→npm import rewriting.
    */
-  private isVendoredCoreImport(
-    specifier: string,
-    fromFilePath: string,
-    coreAbsPath: string,
-  ): boolean {
+  private isVendoredCoreImport(specifier: string, fromFilePath: string, coreAbsPath: string): boolean {
     if (!specifier.startsWith('.')) return false;
     const path = require('path');
     const resolved = path.resolve(path.dirname(fromFilePath), specifier);

@@ -77,10 +77,7 @@ export function findProjectDir(startDir: string): string | undefined {
  * // → '../../../core'   (vendor mode)
  * // → '@lenne.tech/nest-server'  (npm mode)
  */
-export function getFrameworkImportSpecifier(
-  projectDir: string,
-  sourceFilePath: string,
-): string {
+export function getFrameworkImportSpecifier(projectDir: string, sourceFilePath: string): string {
   if (!isVendoredProject(projectDir)) {
     return '@lenne.tech/nest-server';
   }

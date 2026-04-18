@@ -47,10 +47,7 @@ export function findAppDir(startDir: string): string | undefined {
   let current = path.resolve(startDir);
   const root = path.parse(current).root;
   while (current !== root) {
-    if (
-      existsSync(path.join(current, 'nuxt.config.ts')) ||
-      existsSync(path.join(current, 'nuxt.config.js'))
-    ) {
+    if (existsSync(path.join(current, 'nuxt.config.ts')) || existsSync(path.join(current, 'nuxt.config.js'))) {
       return current;
     }
     current = path.dirname(current);

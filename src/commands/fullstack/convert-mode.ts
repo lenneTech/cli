@@ -142,7 +142,9 @@ const ConvertModeCommand: GluegunCommand = {
     }
 
     if (!backendDir && !frontendDir) {
-      error('Could not find any api or app subproject. Expected projects/api, projects/app, packages/api, or packages/app.');
+      error(
+        'Could not find any api or app subproject. Expected projects/api, projects/app, packages/api, or packages/app.',
+      );
       return;
     }
 
@@ -151,8 +153,7 @@ const ConvertModeCommand: GluegunCommand = {
     const frontendCurrentMode = frontendDir ? detectFrontendFrameworkMode(frontendDir) : null;
 
     // Decide what will actually happen
-    const willConvertBackend =
-      !skipBackend && backendDir && backendCurrentMode && backendCurrentMode !== targetMode;
+    const willConvertBackend = !skipBackend && backendDir && backendCurrentMode && backendCurrentMode !== targetMode;
     const willConvertFrontend =
       !skipFrontend && frontendDir && frontendCurrentMode && frontendCurrentMode !== targetMode;
 
@@ -231,7 +232,7 @@ const ConvertModeCommand: GluegunCommand = {
     }
 
     // ── Execute ─────────────────────────────────────────────────────────
-    const results: { message?: string; part: string; status: 'failed' | 'ok' | 'skipped'; }[] = [];
+    const results: { message?: string; part: string; status: 'failed' | 'ok' | 'skipped' }[] = [];
 
     // 1. Backend conversion
     if (willConvertBackend && backendDir) {
@@ -349,7 +350,8 @@ const ConvertModeCommand: GluegunCommand = {
     info(colors.bold('Summary:'));
     info(colors.dim('─'.repeat(60)));
     for (const result of results) {
-      const icon = result.status === 'ok' ? colors.green('✓') : result.status === 'skipped' ? colors.dim('–') : colors.red('✗');
+      const icon =
+        result.status === 'ok' ? colors.green('✓') : result.status === 'skipped' ? colors.dim('–') : colors.red('✗');
       const label = result.part.padEnd(10);
       info(`  ${icon}  ${label} ${result.message || result.status}`);
     }

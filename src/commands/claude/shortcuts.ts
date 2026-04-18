@@ -28,6 +28,11 @@ const CLAUDE_SHORTCUTS: ShellAlias[] = [
     command: 'claude --dangerously-skip-permissions --resume',
     description: 'Select and resume previous session',
   },
+  {
+    alias: 'cf',
+    command: 'LT_PLUGIN_HOOKS_SKIP=1 claude --dangerously-skip-permissions',
+    description: 'Start Claude Code in fast mode (skip lenne.tech plugin detect hooks)',
+  },
 ];
 
 /**

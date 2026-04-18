@@ -53,8 +53,10 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Check remote
-    const remoteBranch = await system.run(`git ls-remote --heads origin ${branch}`);
+    // Check remote (use short SSH timeout so ls-remote doesn't hang in offline environments)
+    const remoteBranch = await system.run(
+      `GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git ls-remote --heads origin ${branch} 2>/dev/null || true`,
+    );
     if (!remoteBranch) {
       error(`No remote branch ${branch} found!`);
       return;

@@ -136,6 +136,16 @@ run_scenario() {
     [[ -f "${api_dir}/src/core/index.ts" ]] \
       && pass "src/core/index.ts present (flatten-fix applied)" \
       || fail "src/core/index.ts missing"
+    # Templates must stay OUTSIDE src/core/ at the upstream location so
+    # the runtime email-template resolver (which uses __dirname-relative
+    # lookup from src/core/modules/better-auth/) finds them at
+    # src/templates/ — same layout as npm-mode's node_modules tree.
+    [[ -f "${api_dir}/src/templates/email-verification-en.ejs" ]] \
+      && pass "src/templates/email-verification-en.ejs present (runtime-resolver path)" \
+      || fail "src/templates/email-verification-en.ejs missing — vendor templates in wrong location"
+    [[ ! -d "${api_dir}/src/core/templates" ]] \
+      && pass "src/core/templates absent (not accidentally vendored under core/)" \
+      || fail "src/core/templates unexpectedly present — templates should live at src/templates/"
     [[ -f "${api_dir}/bin/migrate.js" ]] \
       && pass "bin/migrate.js present" \
       || fail "bin/migrate.js missing"
@@ -183,6 +193,28 @@ run_scenario() {
       pass "VENDOR.md has Baseline-Version"
     else
       fail "VENDOR.md Baseline-Version not recorded"
+    fi
+    # Modification Policy section present (prevents silent regression)
+    if grep -q "^## Modification Policy" "${api_dir}/src/core/VENDOR.md"; then
+      pass "VENDOR.md has Modification Policy section"
+    else
+      fail "VENDOR.md Modification Policy section missing"
+    fi
+    if grep -q "contribute-nest-server-core" "${api_dir}/src/core/VENDOR.md"; then
+      pass "VENDOR.md references contribute-nest-server-core command"
+    else
+      fail "VENDOR.md Modification Policy lacks upstream-PR command reference"
+    fi
+    # Content-level assertions — guard the policy spirit, not just the header
+    if grep -q "generally useful to every" "${api_dir}/src/core/VENDOR.md"; then
+      pass "VENDOR.md Modification Policy states when edits are allowed"
+    else
+      fail "VENDOR.md Modification Policy lacks 'generally useful to every' criterion"
+    fi
+    if grep -q "MUST.* submitted as an upstream PR" "${api_dir}/src/core/VENDOR.md"; then
+      pass "VENDOR.md Modification Policy mandates upstream flow-back"
+    else
+      fail "VENDOR.md Modification Policy lacks upstream flow-back mandate"
     fi
   else
     [[ -d "${api_dir}/node_modules/@lenne.tech/nest-server" ]] \
@@ -290,6 +322,93 @@ run_scenario() {
     else
       fail "lt status did not report npm mode"
     fi
+  fi
+
+  # 11. Fullstack-compat: CLI-caused transformations that MUST work
+  #
+  # These are structural assertions on what the lt-CLI transform produces
+  # — things the CLI directly controls. Template-caused drift (new
+  # audit CVE, lint rule update, test flake) is covered softly in
+  # step 12 so template churn does not break CLI CI.
+  if [[ "${api_mode}" == "Rest" ]]; then
+    # After REST strip, graphQl MUST be explicitly set to `false` so
+    # CoreModule doesn't try to build a GraphQL schema. `graphQl:
+    # undefined` → crash on core models referencing JSON scalar.
+    if grep -q "graphQl: false" "${api_dir}/src/config.env.ts"; then
+      pass "config.env.ts has 'graphQl: false' after REST strip"
+    else
+      fail "config.env.ts missing 'graphQl: false' — REST mode would build GraphQL schema and crash"
+    fi
+    # No leftover graphql/rest region markers in the stripped tree
+    if ! grep -rq "// #region graphql\|// #region rest\|// #endregion graphql\|// #endregion rest" \
+      "${api_dir}/src" 2>/dev/null; then
+      pass "no leftover region markers in src/ after strip"
+    else
+      fail "leftover '// #region {graphql,rest}' markers in stripped tree"
+    fi
+  fi
+  # pnpm workspace-scoped config hoisted out of sub-project package.json
+  if ! python3 -c "
+import json,sys
+d = json.load(open('${api_dir}/package.json'))
+pnpm = d.get('pnpm', {})
+fields = ['overrides', 'onlyBuiltDependencies', 'ignoredOptionalDependencies']
+leftover = [f for f in fields if f in pnpm]
+sys.exit(1 if leftover else 0)
+" 2>/dev/null; then
+    fail "sub-project package.json still has workspace-scoped pnpm fields (hoist regression)"
+  else
+    pass "workspace-scoped pnpm fields hoisted out of sub-project package.json"
+  fi
+
+  # 12. Fullstack-compat: per-project quality gates (SOFT — template drift)
+  #
+  # These run the actual `pnpm run check` pieces (audit, format:check,
+  # lint, test) in the generated project. Failures here are REPORTED but
+  # do not fail the scenario: they usually reflect template drift
+  # (upstream CVEs, new lint rules, stale snapshots) that the CLI cannot
+  # control. The starter/template repos own those; `pnpm run check`
+  # there is the authoritative gate.
+  #
+  # If a CLI transformation regression manifests as a test failure here,
+  # it is also covered by one of the hard structural checks above (see
+  # step 11 — graphQl:false, region markers, pnpm hoist).
+  section "Scenario: ${scenario} — fullstack compatibility (soft)"
+  verify_fullstack_check_soft "${api_dir}"
+}
+
+# ── Fullstack compatibility verifier (soft — advisory only) ─────────────
+
+verify_fullstack_check_soft() {
+  local project_dir="$1"
+  local proj_name
+  proj_name="$(basename "${project_dir}")"
+
+  if (cd "${project_dir}" && pnpm audit >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm audit clean"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm audit reports upstream CVEs (template responsibility)"
+  fi
+
+  if (cd "${project_dir}" && pnpm run format:check >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm run format:check clean"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm run format:check reports issues (template drift)"
+    (cd "${project_dir}" && pnpm run format:check 2>&1 | tail -5) || true
+  fi
+
+  if (cd "${project_dir}" && pnpm run lint >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm run lint clean"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm run lint reports issues (template drift)"
+    (cd "${project_dir}" && pnpm run lint 2>&1 | tail -5) || true
+  fi
+
+  if (cd "${project_dir}" && pnpm test >/dev/null 2>&1); then
+    pass "[SOFT] ${proj_name}: pnpm test passes"
+  else
+    echo "  [SOFT][WARN] ${proj_name}: pnpm test fails (investigate; hard checks at step 11 cover CLI-caused regressions)"
+    (cd "${project_dir}" && pnpm test 2>&1 | grep -E "(Test Files|Tests |FAIL|beforeAllError|Error:)" | tail -6) || true
   fi
 }
 

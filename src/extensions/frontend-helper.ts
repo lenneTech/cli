@@ -1,4 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { formatMarkdownTable } from '../lib/markdown-table';
 
 /**
  * Options for Angular frontend setup
@@ -271,7 +272,7 @@ export class FrontendHelper {
     if (!allDeps['@lenne.tech/nuxt-extensions']) {
       throw new Error(
         '@lenne.tech/nuxt-extensions is not in dependencies or devDependencies. ' +
-        'Is this an npm-mode lenne.tech frontend project?',
+          'Is this an npm-mode lenne.tech frontend project?',
       );
     }
 
@@ -293,10 +294,7 @@ export class FrontendHelper {
    * 5. Rewrite nuxt.config.ts module entry
    * 6. Remove vendor-specific scripts and CLAUDE.md marker
    */
-  async convertAppToNpmMode(options: {
-    dest: string;
-    targetVersion?: string;
-  }): Promise<void> {
+  async convertAppToNpmMode(options: { dest: string; targetVersion?: string }): Promise<void> {
     const { dest, targetVersion } = options;
     const { filesystem } = this.toolbox;
     const path = require('node:path');
@@ -320,24 +318,21 @@ export class FrontendHelper {
       }
     }
     if (!version) {
-      throw new Error(
-        'Cannot determine target version. Specify --version or ensure VENDOR.md has a Baseline-Version.',
-      );
+      throw new Error('Cannot determine target version. Specify --version or ensure VENDOR.md has a Baseline-Version.');
     }
 
     // Warn if VENDOR.md documents local patches that will be lost
     const localChangesSection = vendorMd.match(/## Local changes[\s\S]*?(?=## |$)/i);
     if (localChangesSection) {
-      const hasRealPatches = localChangesSection[0].includes('|') &&
+      const hasRealPatches =
+        localChangesSection[0].includes('|') &&
         !localChangesSection[0].includes('(none, pristine)') &&
         /\|\s*\d{4}-/.test(localChangesSection[0]);
       if (hasRealPatches) {
         const { print } = this.toolbox;
         print.warning('');
         print.warning('VENDOR.md documents local patches in app/core/ that will be LOST:');
-        const rows = localChangesSection[0]
-          .split('\n')
-          .filter((l: string) => /^\|\s*\d{4}-/.test(l));
+        const rows = localChangesSection[0].split('\n').filter((l: string) => /^\|\s*\d{4}-/.test(l));
         for (const row of rows.slice(0, 5)) {
           print.info(`  ${row.trim()}`);
         }
@@ -372,8 +367,7 @@ export class FrontendHelper {
           // Unhook freshness from check/check:fix/check:naf
           for (const scriptName of ['check', 'check:fix', 'check:naf']) {
             if (scripts[scriptName]?.includes('check:vendor-freshness')) {
-              scripts[scriptName] = scripts[scriptName]
-                .replace(/pnpm run check:vendor-freshness && /g, '');
+              scripts[scriptName] = scripts[scriptName].replace(/pnpm run check:vendor-freshness && /g, '');
             }
           }
         }
@@ -406,9 +400,7 @@ export class FrontendHelper {
     const stale = this.findStaleFrontendImports(dest, /from\s+['"]\..*\/core['"]/);
     if (stale.length > 0) {
       const { print } = this.toolbox;
-      print.warning(
-        `${stale.length} file(s) still contain relative core imports after npm conversion:`,
-      );
+      print.warning(`${stale.length} file(s) still contain relative core imports after npm conversion:`);
       for (const f of stale.slice(0, 10)) {
         print.info(`  ${f}`);
       }
@@ -429,11 +421,7 @@ export class FrontendHelper {
     upstreamBranch?: string;
     upstreamRepoUrl?: string;
   }): Promise<{ upstreamDeps: Record<string, string> }> {
-    const {
-      dest,
-      upstreamBranch,
-      upstreamRepoUrl = 'https://github.com/lenneTech/nuxt-extensions.git',
-    } = options;
+    const { dest, upstreamBranch, upstreamRepoUrl = 'https://github.com/lenneTech/nuxt-extensions.git' } = options;
 
     const path = require('node:path');
     const { filesystem, system } = this.toolbox;
@@ -456,7 +444,7 @@ export class FrontendHelper {
       if (upstreamBranch && /Remote branch .* not found|did not match any file\(s\) known to git/i.test(raw)) {
         hints.push(
           `Upstream ref "${upstreamBranch}" does not exist. Check ${upstreamRepoUrl}/tags for valid refs. ` +
-          'Note: nuxt-extensions tags have NO "v" prefix — use e.g. "1.5.3", not "v1.5.3".',
+            'Note: nuxt-extensions tags have NO "v" prefix — use e.g. "1.5.3", not "v1.5.3".',
         );
       }
       if (/already exists and is not an empty/i.test(raw)) {
@@ -591,14 +579,14 @@ export class FrontendHelper {
             "var f=require('fs'),h=require('https');",
             "try{var c=f.readFileSync('app/core/VENDOR.md','utf8')}catch(e){process.exit(0)}",
             'var m=c.match(/Baseline-Version[^0-9]*(\\d+\\.\\d+\\.\\d+)/);',
-            'if(!m){process.stderr.write(String.fromCharCode(9888)+\' vendor-freshness: no baseline\\n\');process.exit(0)}',
+            "if(!m){process.stderr.write(String.fromCharCode(9888)+' vendor-freshness: no baseline\\n');process.exit(0)}",
             'var v=m[1];',
             "h.get('https://registry.npmjs.org/@lenne.tech/nuxt-extensions/latest',function(r){",
             "var d='';r.on('data',function(c){d+=c});r.on('end',function(){",
-            "try{var l=JSON.parse(d).version;",
+            'try{var l=JSON.parse(d).version;',
             "if(v===l)console.log('vendor core up-to-date (v'+v+')');",
             "else process.stderr.write('vendor core v'+v+', latest v'+l+'\\n')",
-            '}catch(e){}})}).on(\'error\',function(){});',
+            "}catch(e){}})}).on('error',function(){});",
             'setTimeout(function(){process.exit(0)},5000)',
             '"',
           ].join('');
@@ -615,7 +603,19 @@ export class FrontendHelper {
           hookFreshness('check:naf');
         }
 
-        filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
+        // Sort dependency maps alphabetically so merged-in entries
+        // (e.g. upstream `@nuxt/kit`) end up in the expected position
+        // and the generated package.json passes oxfmt/format:check.
+        const sortObjectKeys = (obj: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+          if (!obj) return obj;
+          return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
+        };
+        pkg.dependencies = sortObjectKeys(pkg.dependencies as Record<string, unknown>);
+        pkg.devDependencies = sortObjectKeys(pkg.devDependencies as Record<string, unknown>);
+        pkg.peerDependencies = sortObjectKeys(pkg.peerDependencies as Record<string, unknown>);
+        // Ensure trailing newline — oxfmt with the starter's .editorconfig
+        // `insert_final_newline = true` requires it.
+        filesystem.write(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
       }
     }
 
@@ -635,8 +635,8 @@ export class FrontendHelper {
           'project code. There is **no** `@lenne.tech/nuxt-extensions` npm dependency.',
           '',
           '- **Read framework code from `app/core/**`** — not from `node_modules/`.',
-          '- **nuxt.config.ts** references `\'./app/core/module\'` instead of',
-          '  `\'@lenne.tech/nuxt-extensions\'`.',
+          "- **nuxt.config.ts** references `'./app/core/module'` instead of",
+          "  `'@lenne.tech/nuxt-extensions'`.",
           '- **Baseline + patch log** live in `app/core/VENDOR.md`. Log any',
           '  substantial local change there so the `nuxt-extensions-core-updater`',
           '  agent can classify it at sync time.',
@@ -691,12 +691,40 @@ export class FrontendHelper {
           '# @lenne.tech/nuxt-extensions (vendored)',
           '',
           'This directory is a curated vendor copy of `@lenne.tech/nuxt-extensions`.',
-          'It is first-class project code, not a node_modules shadow copy.',
-          'Edit freely; log substantial changes in the "Local changes" table below',
-          'so the `nuxt-extensions-core-updater` agent can classify them at sync time.',
+          'It is first-class project code, not a node_modules shadow copy — but it',
+          'is **not a fork**. The copy exists so Claude Code (and humans) can read',
+          'framework internals directly. Log substantial local changes in the',
+          '"Local changes" table below so the `nuxt-extensions-core-updater` agent',
+          'can classify them at sync time.',
           '',
           'Unlike the backend (nest-server) vendoring, no flatten-fix is needed —',
           'the nuxt-extensions source structure is already flat.',
+          '',
+          '## Modification Policy',
+          '',
+          'Edit `app/core/` **only** when the change is generally useful to every',
+          '@lenne.tech/nuxt-extensions consumer:',
+          '',
+          '- Bugfixes that apply to every consumer',
+          '- Broad framework enhancements (new composables, better defaults, SSR fixes)',
+          '- Security vulnerability fixes',
+          '- Type/config compatibility fixes every consumer would hit',
+          '',
+          'Everything else stays **outside** `app/core/`. Project-specific business',
+          'rules, customer branding, and proprietary integrations belong in project',
+          'code (`app/composables/`, `app/components/`, `app/middleware/`, plugin',
+          'overrides).',
+          '',
+          'Generally-useful changes **MUST** be submitted as an upstream PR to',
+          'https://github.com/lenneTech/nuxt-extensions. Run',
+          '`/lt-dev:frontend:contribute-nuxt-extensions-core` to prepare it — the',
+          'agent filters cosmetic commits, categorizes local changes as',
+          'upstream-candidate vs. project-specific, and writes PR drafts for human',
+          "review. Letting useful fixes rot in one project's vendor tree is an",
+          'anti-pattern: they belong upstream so every consumer benefits and the',
+          'local patch disappears on the next sync.',
+          '',
+          'When in doubt, ask before editing `app/core/`.',
           '',
           '## Baseline',
           '',
@@ -708,22 +736,21 @@ export class FrontendHelper {
           '',
           '## Sync history',
           '',
-          '| Date | From | To | Notes |',
-          '| ---- | ---- | -- | ----- |',
-          `| ${today} | — | ${syncHistoryTo} | scaffolded by lt CLI |`,
+          ...formatMarkdownTable(
+            ['Date', 'From', 'To', 'Notes'],
+            [[today, '—', syncHistoryTo, 'scaffolded by lt CLI']],
+          ),
           '',
           '## Local changes',
           '',
-          '| Date | Commit | Scope | Reason | Status |',
-          '| ---- | ------ | ----- | ------ | ------ |',
-          '| — | — | (none, pristine) | initial vendor | — |',
+          ...formatMarkdownTable(
+            ['Date', 'Commit', 'Scope', 'Reason', 'Status'],
+            [['—', '—', '(none, pristine)', 'initial vendor', '—']],
+          ),
           '',
           '## Upstream PRs',
           '',
-          '| PR | Title | Commits | Status |',
-          '| -- | ----- | ------- | ------ |',
-          '| — | (none yet) | — | — |',
-          '',
+          ...formatMarkdownTable(['PR', 'Title', 'Commits', 'Status'], [['—', '(none yet)', '—', '—']]),
         ].join('\n'),
       );
     }
@@ -770,15 +797,9 @@ export class FrontendHelper {
 
     let content = filesystem.read(configPath) || '';
     if (mode === 'vendor') {
-      content = content.replace(
-        /['"]@lenne\.tech\/nuxt-extensions['"]/g,
-        "'./app/core/module'",
-      );
+      content = content.replace(/['"]@lenne\.tech\/nuxt-extensions['"]/g, "'./app/core/module'");
     } else {
-      content = content.replace(
-        /['"]\.\/app\/core\/module['"]/g,
-        "'@lenne.tech/nuxt-extensions'",
-      );
+      content = content.replace(/['"]\.\/app\/core\/module['"]/g, "'@lenne.tech/nuxt-extensions'");
     }
     filesystem.write(configPath, content);
   }
@@ -816,10 +837,7 @@ export class FrontendHelper {
         `from '${relToCore}/runtime/testing'`,
       );
       // Main imports: @lenne.tech/nuxt-extensions → relative core
-      patched = patched.replace(
-        /from\s+['"]@lenne\.tech\/nuxt-extensions['"]/g,
-        `from '${relToCore}'`,
-      );
+      patched = patched.replace(/from\s+['"]@lenne\.tech\/nuxt-extensions['"]/g, `from '${relToCore}'`);
 
       if (patched !== content) {
         filesystem.write(absFile, patched);
@@ -857,10 +875,7 @@ export class FrontendHelper {
       );
       patched = patched.replace(testingPattern, "from '@lenne.tech/nuxt-extensions/testing'");
       // Main imports: relative core → @lenne.tech/nuxt-extensions
-      const corePattern = new RegExp(
-        `from\\s+['"]${relToCore.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`,
-        'g',
-      );
+      const corePattern = new RegExp(`from\\s+['"]${relToCore.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"]`, 'g');
       patched = patched.replace(corePattern, "from '@lenne.tech/nuxt-extensions'");
 
       if (patched !== content) {
@@ -872,11 +887,7 @@ export class FrontendHelper {
   /**
    * Scan consumer files for stale imports matching a pattern.
    */
-  private findStaleFrontendImports(
-    appDir: string,
-    needle: RegExp | string,
-    skipPathContaining?: string,
-  ): string[] {
+  private findStaleFrontendImports(appDir: string, needle: RegExp | string, skipPathContaining?: string): string[] {
     const { filesystem } = this.toolbox;
     const allFiles = this.walkConsumerFiles(appDir);
     const stale: string[] = [];
@@ -884,9 +895,7 @@ export class FrontendHelper {
     for (const absFile of allFiles) {
       if (skipPathContaining && absFile.includes(skipPathContaining)) continue;
       const content = filesystem.read(absFile) || '';
-      const matches = typeof needle === 'string'
-        ? content.includes(needle)
-        : needle.test(content);
+      const matches = typeof needle === 'string' ? content.includes(needle) : needle.test(content);
       if (matches) {
         stale.push(absFile.replace(`${appDir}/`, ''));
       }
@@ -922,9 +931,7 @@ export class FrontendHelper {
       try {
         const path = require('node:path');
         const configPath = path.join(__dirname, '..', 'config', 'vendor-frontend-runtime-deps.json');
-        const raw = this.toolbox.filesystem.read(configPath, 'json') as
-          | undefined
-          | { runtimeHelpers?: string[] };
+        const raw = this.toolbox.filesystem.read(configPath, 'json') as undefined | { runtimeHelpers?: string[] };
         const list = Array.isArray(raw?.runtimeHelpers) ? raw!.runtimeHelpers : [];
         this._vendorFrontendRuntimeHelpers = new Set(list.filter((e) => typeof e === 'string'));
       } catch {
@@ -947,10 +954,7 @@ export class FrontendHelper {
     const fs = require('node:fs');
     const path = require('node:path');
 
-    const searchDirs = [
-      path.join(appDir, 'app'),
-      path.join(appDir, 'tests'),
-    ];
+    const searchDirs = [path.join(appDir, 'app'), path.join(appDir, 'tests')];
     const allFiles: string[] = [];
 
     const walk = (dir: string): void => {

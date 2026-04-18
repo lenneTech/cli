@@ -54,8 +54,10 @@ const NewCommand: GluegunCommand = {
       info(`Current branch: ${branch}`);
       info('');
 
-      // Fetch to see incoming changes
-      await run('git fetch');
+      // Fetch to see incoming changes (use short SSH timeout so it doesn't hang offline)
+      await run(
+        'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null || true',
+      );
 
       // Check for incoming commits
       const incomingCommits = await run(`git log ${branch}..origin/${branch} --oneline 2>/dev/null || echo ""`);
@@ -93,7 +95,9 @@ const NewCommand: GluegunCommand = {
 
     // Update
     const updateSpin = spin(`Update branch ${branch}`);
-    await run('git fetch && git pull --rebase');
+    await run(
+      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null || true && GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git pull --rebase',
+    );
     updateSpin.succeed();
 
     // Install packages (unless skipped) with correctly detected package manager (supports monorepo lockfiles)

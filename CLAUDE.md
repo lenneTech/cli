@@ -112,12 +112,14 @@ source code must be mode-aware:
 | Vendor transform | `src/extensions/server.ts#convertCloneToVendored` | Clones upstream nest-server, flatten-fixes core, rewrites consumer imports (ts-morph), merges deps dynamically, writes VENDOR.md, copies vendor scripts, hooks check:vendor-freshness |
 | Vendor core essentials | `src/extensions/server.ts#restoreVendorCoreEssentials` | Restores graphql-* deps after processApiMode REST strips them |
 | Runtime-helper config | `src/config/vendor-runtime-deps.json` | Upstream devDeps that must be promoted to dependencies (e.g. `find-file-up`) |
+| Vendor E-Mail templates | `src/extensions/server.ts#convertCloneToVendored` (copy mapping) | Upstream `src/templates/` is placed at `<project>/src/templates/` — deliberately **outside** `src/core/` — because the runtime resolver in `src/core/modules/better-auth/core-better-auth-email-verification.service.ts` uses `__dirname + '../../../templates'` and must match the relative layout of npm mode. Also keeps project-specific E-Mail customization outside the vendored framework tree. Never move these under `src/core/templates/`. |
+| Vendor markdown helper | `src/lib/markdown-table.ts` | `formatMarkdownTable(headers, rows)` produces oxfmt-compatible padded-column Markdown tables for VENDOR.md. Remember: no trailing newline in `.md` files (oxfmt strips it), so omit the final `''` before `.join('\n')`. |
 | Template imports | `src/templates/nest-server-{module,object,tests}/*.ejs` | All use `<%= props.frameworkImport %>` placeholder — the generator computes the correct relative path per file |
 | Generators | `src/commands/server/{module,object,test,add-property}.ts` | Inject `frameworkImport` via `importFor(target)` helper; `add-property` looks up existing imports by both specifier forms |
 | Permissions scanner | `src/commands/server/permissions.ts` | `loadScanner()` falls back to `dist/src/core/modules/permissions/` in vendor mode |
 | Update command | `src/commands/fullstack/update.ts` | Detects mode and prints the correct `/lt-dev:backend:…` agent entry point |
 | Status command | `src/commands/status.ts` | Reports `Framework: npm (...)` or `Framework: vendor (src/core/, VENDOR.md)` |
-| Integration test | `scripts/test-vendor-init.sh` | 4 scenarios × ~27 assertions each + dry-run pre-check = 108 total |
+| Integration test | `scripts/test-vendor-init.sh` | 4 scenarios (1 npm + 3 vendor), ~120 assertions total incl. dry-run pre-check; vendor scenarios additionally assert Modification Policy content + template path (`src/templates/` present, `src/core/templates/` absent) |
 
 ### Vendor vs npm mode — frontend key touchpoints
 
@@ -142,6 +144,27 @@ as a path in command logic. Always derive the specifier via
 `getFrameworkImportSpecifier(projectDir, sourceFilePath)` and the root
 path via `getFrameworkRootPath(projectDir)`.
 
+### Vendor Modification Policy (for CLI-generated content)
+
+The vendored core (`projects/api/src/core/` or `projects/app/app/core/`)
+exists as a **comprehension aid** for Claude Code, not as a fork. Any
+code the CLI generates or scaffolds into a user project must respect
+this separation:
+
+- **Never** generate project-specific code (modules, objects, tests)
+  into `src/core/` or `app/core/`. Those trees mirror upstream and
+  should only change for generally-useful reasons (bugfixes, security
+  fixes, broad enhancements) — which flow back upstream via
+  `/lt-dev:backend:contribute-nest-server-core` or
+  `/lt-dev:frontend:contribute-nuxt-extensions-core`.
+- Generators (`server module`, `server object`, `server test`,
+  `server add-property`) always emit into project code outside of
+  `src/core/` and import from the framework (specifier resolved via
+  `getFrameworkImportSpecifier`).
+- When adding new commands that touch vendored trees, keep the mental
+  model: **project code extends, inherits from, or overrides core —
+  it never patches core in place for project-specific needs.**
+
 **When adding a new `lt server` subcommand:** read existing generators
 (`module.ts`, `object.ts`, `test.ts`) first — they already do the
 mode detection + import-specifier computation correctly. Copy the
@@ -153,7 +176,9 @@ props block.
 `pnpm run test:vendor-init` to verify all 4 init scenarios still pass.
 The script creates fresh projects in `/tmp/lt-it/*`, runs the full
 init → generate → tsc → build → migrate:list pipeline, and asserts
-108 invariants. Runs in ~15-20 minutes on a decent machine.
+~120 invariants. Runs in ~15-20 minutes on a decent machine. Also run
+`pnpm run test:frontend-vendor-init` to cover the frontend-vendor and
+fullstack-both-vendor paths.
 
 ---
 

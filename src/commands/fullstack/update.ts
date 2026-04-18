@@ -130,10 +130,9 @@ const NewCommand: GluegunCommand = {
     info('');
 
     // Detect frontend project
-    const appCandidates = [
-      join(cwd, 'projects', 'app'),
-      join(cwd, 'packages', 'app'),
-    ].filter((p): p is string => Boolean(p));
+    const appCandidates = [join(cwd, 'projects', 'app'), join(cwd, 'packages', 'app')].filter((p): p is string =>
+      Boolean(p),
+    );
 
     let appDir: string | undefined;
     for (const candidate of appCandidates) {

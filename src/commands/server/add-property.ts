@@ -506,9 +506,7 @@ const NewCommand: ExtendedGluegunCommand = {
         // path to src/core whose depth depends on the model file location.
         // We search for BOTH forms so this works regardless of how the file
         // was originally generated.
-        const vendoredSpec = isVendoredProject(path)
-          ? getFrameworkImportSpecifier(path, modelPath)
-          : null;
+        const vendoredSpec = isVendoredProject(path) ? getFrameworkImportSpecifier(path, modelPath) : null;
         let existingImports = moduleFile.getImportDeclaration('@lenne.tech/nest-server');
         if (!existingImports && vendoredSpec) {
           existingImports = moduleFile.getImportDeclaration(vendoredSpec);

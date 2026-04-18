@@ -1,9 +1,5 @@
 {
   "$schema": "./vendor-runtime-deps.schema.json",
   "description": "Upstream @lenne.tech/nest-server devDependencies that are actually needed at runtime in a consumer project. When vendoring, these entries are promoted from upstream devDependencies into the project's dependencies so production runtime has them available.",
-  "runtimeHelpers": [
-    "find-file-up"
-  ]
+  "runtimeHelpers": ["find-file-up"]
 }
-</content>
-</invoke>

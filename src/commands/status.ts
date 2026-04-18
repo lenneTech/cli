@@ -3,7 +3,11 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { detectFrameworkMode, FrameworkMode, isVendoredProject } from '../lib/framework-detection';
-import { detectFrontendFrameworkMode, FrontendFrameworkMode, isVendoredAppProject } from '../lib/frontend-framework-detection';
+import {
+  detectFrontendFrameworkMode,
+  FrontendFrameworkMode,
+  isVendoredAppProject,
+} from '../lib/frontend-framework-detection';
 
 interface MonorepoSubproject {
   frameworkMode: FrameworkMode | FrontendFrameworkMode | null;

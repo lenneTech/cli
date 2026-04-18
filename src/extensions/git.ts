@@ -141,8 +141,10 @@ export class Git {
     // Toolbox features
     const { system } = this.toolbox;
 
-    // Get branches
-    const branches = await system.run('git fetch && git show-branch --list');
+    // Get branches (use short SSH timeout so fetch doesn't hang in offline environments)
+    const branches = await system.run(
+      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null; git show-branch --list',
+    );
     branches.split('\n').forEach((item) => {
       const matches = item.match(/\[(.*?)]/);
       if (matches) {
@@ -315,16 +317,17 @@ export class Git {
     } = this.toolbox;
 
     // Prepare spinner
-    let searchSpin;
+    let searchSpin: ReturnType<typeof spin> | undefined;
     if (opts.spin) {
       searchSpin = spin(opts.spinText);
     }
 
-    // Update infos
-    const fetch = await system.run('git fetch');
+    // Update infos (use short SSH timeout so fetch doesn't hang in offline environments)
+    const fetch = await system.run(
+      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null || true',
+    );
     if (fetch.length && !fetch.startsWith('remote')) {
       info(`Could not update infos ${fetch.length}`);
-      process.exit(1);
     }
 
     // Search branch

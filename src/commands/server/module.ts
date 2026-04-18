@@ -480,7 +480,7 @@ const NewCommand: ExtendedGluegunCommand = {
           // plus the `from '@nestjs/common'` clause. The replacement wedges
           // `, forwardRef` in between.
           await patching.patch(serverModule, {
-            insert: "$1, forwardRef$2",
+            insert: '$1, forwardRef$2',
             replace: /(import\s*\{\s*[^}]*?)(\s*\}\s*from\s+['"]@nestjs\/common['"])/,
           });
         }

@@ -230,7 +230,7 @@ lt server convert-mode --to <vendor|npm> [options]
 
 - **npm → vendor:**
   - Clones `@lenne.tech/nest-server` from GitHub at the specified tag (default: currently installed version)
-  - Copies `src/core/`, `src/index.ts`, `src/core.module.ts`, `src/test/`, `src/templates/`, `src/types/`, and `LICENSE` to `<api-root>/src/core/`
+  - Copies `src/core/`, `src/index.ts`, `src/core.module.ts`, `src/test/`, `src/types/`, and `LICENSE` to `<api-root>/src/core/`; places upstream `src/templates/` at `<api-root>/src/templates/` (outside `core/` so the runtime E-Mail template resolver works)
   - Applies flatten-fix on `index.ts`, `core.module.ts`, `test.helper.ts`, `core-persistence-model.interface.ts`
   - Rewrites all consumer imports from `'@lenne.tech/nest-server'` to relative paths
   - Merges upstream dependencies dynamically into `package.json`
