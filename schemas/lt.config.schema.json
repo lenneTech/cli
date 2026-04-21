@@ -702,6 +702,85 @@
           },
           "additionalProperties": false
         },
+        "tools": {
+          "type": "object",
+          "description": "Tools-related configuration",
+          "properties": {
+            "crawl": {
+              "type": "object",
+              "description": "Configuration for 'lt tools crawl' command",
+              "properties": {
+                "concurrency": {
+                  "type": "integer",
+                  "description": "Parallel HTTP requests while crawling",
+                  "minimum": 1,
+                  "examples": [4]
+                },
+                "depth": {
+                  "description": "Link depth to follow. 0 = only start page; 1 = + direct links; N = up to N hops; \"all\" (or any negative integer) = follow every same-origin link, bounded by maxPages",
+                  "oneOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["all"]
+                    }
+                  ],
+                  "examples": [0, 1, 2, "all"]
+                },
+                "includeImages": {
+                  "type": "boolean",
+                  "description": "Download images and inline them with local paths"
+                },
+                "includeSitemap": {
+                  "type": "boolean",
+                  "description": "Also seed queue from <origin>/sitemap.xml"
+                },
+                "maxPages": {
+                  "type": "integer",
+                  "description": "Maximum number of pages to crawl (safety cap)",
+                  "minimum": 1,
+                  "examples": [200]
+                },
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts"
+                },
+                "out": {
+                  "type": "string",
+                  "description": "Default output directory",
+                  "examples": ["./knowledge"]
+                },
+                "prune": {
+                  "type": "boolean",
+                  "description": "Remove orphaned .md / image files from the output directory after a multi-page crawl"
+                },
+                "renderJs": {
+                  "type": "boolean",
+                  "description": "Render pages through a headless browser before extracting (for SPAs). Uses playwright-core with system Chrome / Edge, falling back to Playwright's bundled Chromium."
+                },
+                "selector": {
+                  "type": "string",
+                  "description": "CSS selector for the main content container",
+                  "examples": ["article", "main"]
+                },
+                "timeout": {
+                  "type": "integer",
+                  "description": "HTTP request timeout in ms",
+                  "minimum": 1000,
+                  "examples": [20000]
+                }
+              },
+              "additionalProperties": false
+            },
+            "noConfirm": {
+              "type": "boolean",
+              "description": "Skip confirmation prompts for all tools commands"
+            }
+          },
+          "additionalProperties": false
+        },
         "typescript": {
           "type": "object",
           "description": "TypeScript-related configuration",

@@ -739,6 +739,95 @@ export interface LtConfig {
     };
 
     /**
+     * Tools-related configuration
+     */
+    tools?: {
+      /**
+       * Configuration for 'lt tools crawl' command
+       */
+      crawl?: {
+        /**
+         * Parallel HTTP requests while crawling
+         * @example 4
+         */
+        concurrency?: number;
+
+        /**
+         * Link depth to follow.
+         *
+         * `0` = only start page; `1` = + direct links; `N` = up to N
+         * hops; `'all'` (or any negative number) = follow every
+         * same-origin link, bounded by `maxPages`.
+         * @example 1
+         * @example "all"
+         */
+        depth?: 'all' | number;
+
+        /**
+         * Download images and inline them with local paths
+         */
+        includeImages?: boolean;
+
+        /**
+         * Also seed queue from <origin>/sitemap.xml
+         */
+        includeSitemap?: boolean;
+
+        /**
+         * Maximum number of pages to crawl (safety cap)
+         * @example 200
+         */
+        maxPages?: number;
+
+        /**
+         * Skip confirmation prompts
+         */
+        noConfirm?: boolean;
+
+        /**
+         * Default output directory
+         * @example "./knowledge"
+         */
+        out?: string;
+
+        /**
+         * Remove orphaned .md / image files from the output
+         * directory after a multi-page crawl. Keeps the knowledge
+         * base aligned when pages disappear upstream.
+         * @default true
+         */
+        prune?: boolean;
+
+        /**
+         * Render pages through a headless browser before extraction.
+         * Required for SPAs (Vue/Nuxt/React/Angular). Uses
+         * playwright-core with system Chrome / Edge, falling back
+         * to Playwright's bundled Chromium. Set to `false` for a
+         * plain HTTP fetch on known-static sites.
+         * @default true
+         */
+        renderJs?: boolean;
+
+        /**
+         * CSS selector for the main content container
+         * @example "article"
+         */
+        selector?: string;
+
+        /**
+         * HTTP request timeout in ms
+         * @example 20000
+         */
+        timeout?: number;
+      };
+
+      /**
+       * Skip confirmation prompts for all tools commands
+       */
+      noConfirm?: boolean;
+    };
+
+    /**
      * TypeScript-related configuration
      */
     typescript?: {

@@ -923,6 +923,43 @@ Reinitializes npm packages.
 }
 ```
 
+#### `lt tools crawl`
+
+Crawls a website into Markdown files (knowledge base builder).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.tools.crawl.out` | `string` | `.` | Output directory |
+| `commands.tools.crawl.depth` | `number \| "all"` | `0` | Link depth (0 = only start page, 1 = direct links, ..., `"all"` or `-1` = follow every same-origin link, bounded by `maxPages`) |
+| `commands.tools.crawl.includeImages` | `boolean` | `true` | Download images and inline with local paths |
+| `commands.tools.crawl.includeSitemap` | `boolean` | `true` | Also seed queue from `<origin>/sitemap.xml` |
+| `commands.tools.crawl.concurrency` | `number` | `4` | Parallel HTTP requests |
+| `commands.tools.crawl.maxPages` | `number` | `200` | Safety cap on total pages |
+| `commands.tools.crawl.selector` | `string` | – | CSS selector for main content |
+| `commands.tools.crawl.timeout` | `number` | `20000` | HTTP request timeout in ms |
+| `commands.tools.crawl.renderJs` | `boolean` | `true` | Render pages through a headless browser (for SPAs). Uses playwright-core. Set to `false` for plain HTTP. |
+| `commands.tools.crawl.prune` | `boolean` | `true` | Remove orphaned `.md` / image files after a multi-page crawl (update-in-place). Set to `false` to preserve old files. |
+| `commands.tools.crawl.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+
+**Example:**
+```json
+{
+  "commands": {
+    "tools": {
+      "crawl": {
+        "out": "./knowledge",
+        "depth": 2,
+        "includeImages": true,
+        "includeSitemap": true,
+        "concurrency": 4,
+        "maxPages": 200,
+        "noConfirm": true
+      }
+    }
+  }
+}
+```
+
 ---
 
 ### Metadata

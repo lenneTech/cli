@@ -107,6 +107,22 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
         path: 'string',
       },
     },
+    tools: {
+      crawl: {
+        concurrency: 'number',
+        depth: 'number|all',
+        includeImages: 'boolean',
+        includeSitemap: 'boolean',
+        maxPages: 'number',
+        noConfirm: 'boolean',
+        out: 'string',
+        prune: 'boolean',
+        renderJs: 'boolean',
+        selector: 'string',
+        timeout: 'number',
+      },
+      noConfirm: 'boolean',
+    },
     typescript: {
       create: { author: 'string', noConfirm: 'boolean', updatePackages: 'boolean' },
     },
@@ -169,8 +185,21 @@ function validateConfig(config: any, knownKeys: Record<string, any>, path = ''):
 
     // Validate type
     if (typeof expectedType === 'string') {
-      // Simple type check
-      if (expectedType === 'string' && typeof value !== 'string') {
+      // Simple type check. `'a|b'` means union (e.g. "number|all").
+      if (expectedType.includes('|')) {
+        const tokens = expectedType.split('|').map((t) => t.trim());
+        const ok = tokens.some((token) => {
+          if (token === 'string') return typeof value === 'string';
+          if (token === 'number') return typeof value === 'number';
+          if (token === 'boolean') return typeof value === 'boolean';
+          if (token === 'array') return Array.isArray(value);
+          // Everything else is treated as a string literal enum member.
+          return value === token;
+        });
+        if (!ok) {
+          result.errors.push(`${currentPath}: expected ${tokens.join(' | ')}, got ${typeof value}`);
+        }
+      } else if (expectedType === 'string' && typeof value !== 'string') {
         result.errors.push(`${currentPath}: expected string, got ${typeof value}`);
       } else if (expectedType === 'boolean' && typeof value !== 'boolean') {
         result.errors.push(`${currentPath}: expected boolean, got ${typeof value}`);

@@ -1409,6 +1409,58 @@ lt tools regex [pattern] [text]
 
 ---
 
+### `lt tools crawl`
+
+Crawls a website and stores each page as a Markdown file (with YAML frontmatter containing `source_url`, `download_date`, `first_downloaded`, `description`, language, word count, etc.) so it can be consumed as a Claude Code knowledge base. Optionally follows same-origin links up to a configurable depth, seeds the queue from `<origin>/sitemap.xml`, and downloads referenced images into a shared `images/` folder (deduplicated by content hash). Re-running the command against the same output directory updates existing pages while preserving their original `first_downloaded` timestamp.
+
+**Alias:** `cr`
+
+**Usage:**
+```bash
+lt tools crawl <url> [options]
+```
+
+**Options:**
+- `--out <dir>` — Output directory (default: current directory). Single-page crawls write the `.md` directly here; multi-page crawls generate `<out>/README.md` plus `<out>/pages/` and `<out>/images/`.
+- `--depth <n|all>` — Link depth (default `0`). `0` = only the start page, `1` = start page + direct same-origin links, `2` = and their links, ... Use `--depth all` (or `--depth -1`, or the shortcut flag `--all`) to follow every same-origin link transitively; the crawl then stops when `--max-pages` is reached.
+- `--all` — Shortcut for `--depth all`.
+- `--render` / `--no-render` — Render each page through a headless browser before extraction (default **on**). Required for SPAs (Vue/Nuxt/React/Angular) whose content is client-rendered. Uses `playwright-core` with system Chrome / Edge first, then Playwright's bundled Chromium. Use `--no-render` for a plain HTTP fetch when you know the site is static (faster, no browser needed).
+- `--install-browser` — If `--render` finds no browser, auto-install Playwright's Chromium (one-time ~170 MB download).
+- `--prune` / `--no-prune` — After a multi-page crawl, remove any `.md` or image files inside `<out>/pages` and `<out>/images` that were not written by the current run (default **on**). Keeps the knowledge base aligned with the live site on update runs. Empty subdirectories are cleaned up too. Ignored in single-page mode. Use `--no-prune` to preserve old files.
+- `--no-images` — Disable image downloads.
+- `--no-sitemap` — Skip discovery via `<origin>/sitemap.xml`.
+- `--concurrency <n>` — Parallel HTTP requests (default `4`).
+- `--max-pages <n>` — Safety cap on total pages (default `200`).
+- `--selector <css>` — CSS selector scoping the main content (e.g. `article`, `main`).
+- `--timeout <ms>` — HTTP request timeout in ms (default `20000`).
+- `--noConfirm` — Skip confirmation prompts.
+
+**Examples:**
+```bash
+# Single page into the current directory
+lt tools crawl https://example.com/article --noConfirm
+
+# Crawl start page + direct links into ./knowledge
+lt tools crawl https://example.com --out ./knowledge --depth 1 --noConfirm
+
+# Full mini-site with sitemap seeding and images
+lt tools crawl https://example.com --out ./kb --depth 2 --max-pages 100 --noConfirm
+
+# Crawl every reachable same-origin page (safety cap via --max-pages)
+lt tools crawl https://example.com --out ./kb --depth all --max-pages 500 --noConfirm
+
+# Same, using the --all shortcut
+lt tools crawl https://example.com --out ./kb --all --max-pages 500 --noConfirm
+
+# Full SPA-aware crawl (render + prune are on by default)
+lt tools crawl https://lenne.tech --all --noConfirm
+
+# Opt-out: plain HTTP fetch for a known-static site, keep orphans
+lt tools crawl https://example.com --all --no-render --no-prune --noConfirm
+```
+
+---
+
 ## Configuration Priority
 
 All configurable commands follow this priority order (highest to lowest):
