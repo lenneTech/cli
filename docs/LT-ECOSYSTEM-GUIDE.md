@@ -117,6 +117,7 @@ Flags:
 - `--frontend-framework-mode npm|vendor` — Frontend mode
 - `--framework-upstream-branch <tag>` — Specific nest-server version for vendor
 - `--dry-run` — Show plan without making changes
+- `--next` — **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) for the API instead of `nest-server-starter`. Forces `--api-mode Rest`, `--framework-mode npm`, and skips workspace install (run `pnpm install` for app and `bun install` for api manually). Downstream `lt server module/object/addProp/test/permissions` are NOT compatible with the resulting layout.
 
 ---
 
