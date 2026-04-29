@@ -687,6 +687,11 @@ export class Server {
       copyPath?: string;
       description?: string;
       /**
+       * Experimental nest-base template (Bun + Prisma + Postgres + Better-Auth).
+       * Skips all nest-server-starter specific post-processing.
+       */
+      experimental?: boolean;
+      /**
        * Framework consumption mode. See `setupServerForFullstack` for the
        * full explanation; the semantics here are identical — standalone
        * `lt server create` now supports vendor mode too.
@@ -708,6 +713,7 @@ export class Server {
       branch,
       copyPath,
       description = '',
+      experimental = false,
       frameworkMode = 'npm',
       frameworkUpstreamBranch,
       linkPath,
@@ -717,12 +723,16 @@ export class Server {
       skipPatching = false,
     } = options;
 
+    const repoUrl = experimental
+      ? 'https://github.com/lenneTech/nest-base.git'
+      : 'https://github.com/lenneTech/nest-server-starter.git';
+
     // Setup template
     const result = await templateHelper.setup(dest, {
       branch,
       copyPath,
       linkPath,
-      repoUrl: 'https://github.com/lenneTech/nest-server-starter.git',
+      repoUrl,
     });
 
     if (!result.success) {
@@ -737,22 +747,24 @@ export class Server {
     // Apply patches (config.env.ts, package.json, main.ts, meta.json)
     if (!skipPatching) {
       try {
-        // Generate README
-        await template.generate({
-          props: { description, name },
-          target: `${dest}/README.md`,
-          template: 'nest-server-starter/README.md.ejs',
-        });
+        if (!experimental) {
+          // Generate README
+          await template.generate({
+            props: { description, name },
+            target: `${dest}/README.md`,
+            template: 'nest-server-starter/README.md.ejs',
+          });
 
-        // Replace secret or private keys and update database names via AST
-        this.patchConfigEnvTs(`${dest}/src/config.env.ts`, projectDir);
+          // Replace secret or private keys and update database names via AST
+          this.patchConfigEnvTs(`${dest}/src/config.env.ts`, projectDir);
 
-        // Update Swagger configuration in main.ts
-        await patching.update(`${dest}/src/main.ts`, (content: string) =>
-          content
-            .replace(/\.setTitle\('.*?'\)/, `.setTitle('${name}')`)
-            .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`),
-        );
+          // Update Swagger configuration in main.ts
+          await patching.update(`${dest}/src/main.ts`, (content: string) =>
+            content
+              .replace(/\.setTitle\('.*?'\)/, `.setTitle('${name}')`)
+              .replace(/\.setDescription\('.*?'\)/, `.setDescription('${description || name}')`),
+          );
+        }
 
         // Update package.json
         await patching.update(`${dest}/package.json`, (config: Record<string, unknown>) => {
@@ -766,13 +778,15 @@ export class Server {
           return config;
         });
 
-        // Update meta.json if exists
-        if (this.filesystem.exists(`${dest}/src/meta`)) {
-          await patching.update(`${dest}/src/meta`, (config: Record<string, unknown>) => {
-            config.name = name;
-            config.description = description;
-            return config;
-          });
+        if (!experimental) {
+          // Update meta.json if exists
+          if (this.filesystem.exists(`${dest}/src/meta`)) {
+            await patching.update(`${dest}/src/meta`, (config: Record<string, unknown>) => {
+              config.name = name;
+              config.description = description;
+              return config;
+            });
+          }
         }
       } catch (err) {
         return { method: result.method, path: dest, success: false };
@@ -796,7 +810,7 @@ export class Server {
     // manifest (same dance as in setupServerForFullstack).
     let standaloneVendorUpstreamDeps: Record<string, string> = {};
     let standaloneVendorCoreEssentials: string[] = [];
-    if (frameworkMode === 'vendor') {
+    if (!experimental && frameworkMode === 'vendor') {
       try {
         const converted = await this.convertCloneToVendored({
           dest,
@@ -811,7 +825,7 @@ export class Server {
     }
 
     // Process API mode (before install so package.json is correct)
-    if (apiMode) {
+    if (!experimental && apiMode) {
       try {
         await apiModeHelper.processApiMode(dest, apiMode);
       } catch (err) {
@@ -820,7 +834,7 @@ export class Server {
     }
 
     // Restore core essentials after processApiMode stripped them (vendor + REST only).
-    if (frameworkMode === 'vendor' && apiMode === 'Rest') {
+    if (!experimental && frameworkMode === 'vendor' && apiMode === 'Rest') {
       try {
         this.restoreVendorCoreEssentials({
           dest,
@@ -833,10 +847,12 @@ export class Server {
     }
 
     // Patch CLAUDE.md with API mode info
-    this.patchClaudeMdApiMode(dest, apiMode);
+    if (!experimental) {
+      this.patchClaudeMdApiMode(dest, apiMode);
+    }
 
     // Install packages
-    if (!skipInstall) {
+    if (!skipInstall && !experimental) {
       try {
         const { pm } = this.toolbox;
         await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
@@ -869,6 +885,11 @@ export class Server {
       apiMode?: 'Both' | 'GraphQL' | 'Rest';
       branch?: string;
       copyPath?: string;
+      /**
+       * Experimental nest-base template (Bun + Prisma + Postgres + Better-Auth).
+       * Skips all nest-server-starter specific post-processing.
+       */
+      experimental?: boolean;
       frameworkMode?: 'npm' | 'vendor';
       /**
        * Branch, tag, or commit of the upstream @lenne.tech/nest-server repo
@@ -886,12 +907,17 @@ export class Server {
       apiMode,
       branch,
       copyPath,
+      experimental = false,
       frameworkMode = 'npm',
       frameworkUpstreamBranch,
       linkPath,
       name,
       projectDir,
     } = options;
+
+    const repoUrl = experimental
+      ? 'https://github.com/lenneTech/nest-base.git'
+      : 'https://github.com/lenneTech/nest-server-starter';
 
     // Both npm and vendor mode clone nest-server-starter as the base. The
     // starter ships the minimal consumer conventions a project needs
@@ -912,7 +938,7 @@ export class Server {
       branch,
       copyPath,
       linkPath,
-      repoUrl: 'https://github.com/lenneTech/nest-server-starter',
+      repoUrl,
     });
 
     if (!result.success) {
@@ -925,18 +951,31 @@ export class Server {
     }
 
     // Apply minimal patches for fullstack
-    try {
-      // Write meta.json
-      this.filesystem.write(`${dest}/src/meta.json`, {
-        description: `API for ${name} app`,
-        name: `${name}-api-server`,
-        version: '0.0.0',
-      });
+    if (!experimental) {
+      try {
+        // Write meta.json
+        this.filesystem.write(`${dest}/src/meta.json`, {
+          description: `API for ${name} app`,
+          name: `${name}-api-server`,
+          version: '0.0.0',
+        });
 
-      // Replace secret or private keys and update database names via AST
-      this.patchConfigEnvTs(`${dest}/src/config.env.ts`, projectDir);
-    } catch (err) {
-      return { method: result.method, path: dest, success: false };
+        // Replace secret or private keys and update database names via AST
+        this.patchConfigEnvTs(`${dest}/src/config.env.ts`, projectDir);
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
+    } else {
+      try {
+        await this.toolbox.patching.update(`${dest}/package.json`, (config: Record<string, unknown>) => {
+          config.name = projectDir;
+          config.description = `API for ${name} app`;
+          config.version = '0.0.0';
+          return config;
+        });
+      } catch (err) {
+        return { method: result.method, path: dest, success: false };
+      }
     }
 
     // Clean up copied template artifacts
@@ -959,7 +998,7 @@ export class Server {
     // without hard-coding package lists.
     let vendorUpstreamDeps: Record<string, string> = {};
     let vendorCoreEssentials: string[] = [];
-    if (frameworkMode === 'vendor') {
+    if (!experimental && frameworkMode === 'vendor') {
       try {
         const converted = await this.convertCloneToVendored({
           dest,
@@ -983,7 +1022,7 @@ export class Server {
     }
 
     // Process API mode (before install which happens at monorepo level)
-    if (apiMode) {
+    if (!experimental && apiMode) {
       try {
         await apiModeHelper.processApiMode(dest, apiMode);
       } catch (err) {
@@ -994,7 +1033,7 @@ export class Server {
     // In vendor mode + REST, re-add the graphql essentials that
     // processApiMode just stripped. Both and GraphQL keep all packages
     // by construction and don't need restoration.
-    if (frameworkMode === 'vendor' && apiMode === 'Rest') {
+    if (!experimental && frameworkMode === 'vendor' && apiMode === 'Rest') {
       try {
         this.restoreVendorCoreEssentials({
           dest,
@@ -1008,7 +1047,9 @@ export class Server {
     }
 
     // Patch CLAUDE.md with API mode info
-    this.patchClaudeMdApiMode(dest, apiMode);
+    if (!experimental) {
+      this.patchClaudeMdApiMode(dest, apiMode);
+    }
 
     return { method: result.method, path: dest, success: true };
   }

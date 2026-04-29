@@ -94,6 +94,37 @@ $ lt fullstack init --name myapp --framework-mode vendor --dry-run --noConfirm
 $ lt server create --name myapp --framework-mode vendor
 ```
 
+### Experimental: `--next` (nest-base)
+
+Both `lt fullstack init` and `lt server create` support an experimental
+`--next` flag that swaps the API template from
+[`nest-server-starter`](https://github.com/lenneTech/nest-server-starter)
+(MongoDB) to [`nest-base`](https://github.com/lenneTech/nest-base) — a new
+NestJS stack on **Bun + Prisma 7 + Postgres + Better-Auth** with a built-in
+`/dev` cockpit.
+
+```bash
+# experimental standalone api
+$ lt server create my-next-api --next --noConfirm
+
+# experimental fullstack (nuxt + nest-base)
+$ lt fullstack init --name my-next-app --frontend nuxt --next --noConfirm
+```
+
+When `--next` is set the CLI:
+
+- clones `nest-base` instead of `nest-server-starter`,
+- forces `--api-mode Rest` and `--framework-mode npm` (other modes are not
+  applicable to nest-base),
+- skips `nest-server-starter`-specific patching (`config.env.ts`,
+  `main.ts` Swagger setup, `meta.json`, `lt.config.json`),
+- skips the workspace install in fullstack mode — run `pnpm install` for
+  the frontend and `bun install` for the API yourself.
+
+This option is **experimental** and may change. The downstream `lt server
+module/object/addProp/test/permissions` commands target the classic
+`nest-server` layout and are not yet compatible with `nest-base`.
+
 ### Working on an existing project
 
 All `lt server …` commands (module, object, addProp, test, permissions)

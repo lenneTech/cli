@@ -50,6 +50,13 @@ const NewCommand: GluegunCommand = {
           { description: 'Symlink to local path instead of cloning', flag: '--link', required: false, type: 'string' },
           {
             default: false,
+            description: 'Use experimental nest-base template (Bun + Prisma + Postgres)',
+            flag: '--next',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
             description: 'Skip all interactive prompts',
             flag: '--noConfirm',
             required: false,
@@ -87,6 +94,7 @@ const NewCommand: GluegunCommand = {
     const cliApiMode = parameters.options['api-mode'] || parameters.options.apiMode;
     const cliFrameworkMode = parameters.options['framework-mode'] as 'npm' | 'vendor' | undefined;
     const cliFrameworkUpstreamBranch = parameters.options['framework-upstream-branch'] as string | undefined;
+    const experimental = parameters.options.next === true || parameters.options.next === 'true';
 
     // Determine noConfirm with priority: CLI > config > global > default (false)
     const noConfirm = config.getNoConfirm({
@@ -102,7 +110,9 @@ const NewCommand: GluegunCommand = {
     info('Create a new server');
 
     // Hint for non-interactive callers (e.g. Claude Code)
-    toolbox.tools.nonInteractiveHint('lt server create --name <name> --api-mode <Rest|GraphQL|Both> --noConfirm');
+    toolbox.tools.nonInteractiveHint(
+      'lt server create --name <name> --api-mode <Rest|GraphQL|Both> [--next] --noConfirm',
+    );
 
     // Check git
     if (!(await git.gitInstalled())) {
@@ -168,7 +178,10 @@ const NewCommand: GluegunCommand = {
 
     // Determine API mode with priority: CLI > config > global > interactive (default: Rest)
     let apiMode: 'Both' | 'GraphQL' | 'Rest';
-    if (cliApiMode) {
+    if (experimental) {
+      apiMode = 'Rest';
+      info('Using experimental nest-base template (Bun + Prisma + Postgres + Better-Auth)');
+    } else if (cliApiMode) {
       apiMode = cliApiMode as 'Both' | 'GraphQL' | 'Rest';
     } else if (configApiMode) {
       apiMode = configApiMode;
@@ -199,7 +212,9 @@ const NewCommand: GluegunCommand = {
     // Determine framework consumption mode — same resolution cascade as
     // lt fullstack init: CLI flag > lt.config > interactive (default npm).
     let frameworkMode: 'npm' | 'vendor';
-    if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
+    if (experimental) {
+      frameworkMode = 'npm';
+    } else if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
       frameworkMode = cliFrameworkMode;
     } else if (cliFrameworkMode) {
       error(`Invalid --framework-mode value "${cliFrameworkMode}". Use "npm" or "vendor".`);
@@ -239,6 +254,7 @@ const NewCommand: GluegunCommand = {
       branch,
       copyPath,
       description,
+      experimental,
       frameworkMode,
       frameworkUpstreamBranch,
       linkPath,
@@ -302,28 +318,30 @@ const NewCommand: GluegunCommand = {
     // Derive controller type from API mode and save project config
     const controllerType: 'Both' | 'GraphQL' | 'Rest' = apiMode;
 
-    // Create lt.config.json
-    const projectConfig = {
-      commands: {
-        server: {
-          module: {
-            controller: controllerType,
+    if (!experimental) {
+      // Create lt.config.json
+      const projectConfig = {
+        commands: {
+          server: {
+            module: {
+              controller: controllerType,
+            },
           },
         },
-      },
-      meta: {
-        apiMode,
-        version: '1.0.0',
-      },
-    };
+        meta: {
+          apiMode,
+          version: '1.0.0',
+        },
+      };
 
-    const configPath = filesystem.path(projectDir, 'lt.config.json');
-    filesystem.write(configPath, projectConfig, { jsonIndent: 2 });
+      const configPath = filesystem.path(projectDir, 'lt.config.json');
+      filesystem.write(configPath, projectConfig, { jsonIndent: 2 });
 
-    info('');
-    success(`Configuration saved to ${projectDir}/lt.config.json`);
-    info(`   API mode: ${apiMode}`);
-    info(`   Default controller type: ${controllerType}`);
+      info('');
+      success(`Configuration saved to ${projectDir}/lt.config.json`);
+      info(`   API mode: ${apiMode}`);
+      info(`   Default controller type: ${controllerType}`);
+    }
 
     // We're done, so show what to do next
     info('');
@@ -332,11 +350,19 @@ const NewCommand: GluegunCommand = {
     );
     info('');
     info('Next:');
-    info('  Start database server (e.g. MongoDB)');
-    info(`  Check config: ${projectDir}/src/config.env.ts`);
-    info(`  Go to project directory: cd ${projectDir}`);
-    info(`  Run tests: ${toolbox.pm.run('test:e2e')}`);
-    info(`  Start server: ${toolbox.pm.run('start')}`);
+    if (experimental) {
+      info(`  Go to project directory: cd ${projectDir}`);
+      info('  Install dependencies: bun install');
+      info('  Configure .env (see .env.example)');
+      info('  Start Postgres + run prisma generate / migrate');
+      info('  Start server: bun run dev');
+    } else {
+      info('  Start database server (e.g. MongoDB)');
+      info(`  Check config: ${projectDir}/src/config.env.ts`);
+      info(`  Go to project directory: cd ${projectDir}`);
+      info(`  Run tests: ${toolbox.pm.run('test:e2e')}`);
+      info(`  Start server: ${toolbox.pm.run('start')}`);
+    }
     info('');
 
     if (!toolbox.parameters.options.fromGluegunMenu) {

@@ -79,13 +79,16 @@ lt server create [name] [options]
 |--------|-------------|
 | `--description <text>` | Project description |
 | `--author <name>` | Author name |
+| `--api-mode <Rest\|GraphQL\|Both>` | API mode (ignored with `--next`) |
+| `--framework-mode <npm\|vendor>` | Framework consumption mode (ignored with `--next`) |
 | `--branch <branch>` / `-b` | Branch of nest-server-starter to use as template |
 | `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
 | `--git` | Initialize git repository |
+| `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) instead of `nest-server-starter`. Skips API-mode / vendor-mode / install / lt.config.json processing. |
 | `--noConfirm` | Skip confirmation prompts |
 
-**CLAUDE.md Patching:** If the project contains a `CLAUDE.md`, the generic API mode description is replaced with the selected mode. In single-mode projects (`Rest` or `GraphQL`), the "API Mode System" documentation section is condensed to a brief note.
+**CLAUDE.md Patching:** If the project contains a `CLAUDE.md`, the generic API mode description is replaced with the selected mode. In single-mode projects (`Rest` or `GraphQL`), the "API Mode System" documentation section is condensed to a brief note. Skipped when `--next` is used.
 
 **Configuration:** `commands.server.create.*`, `defaults.author`, `defaults.noConfirm`
 
@@ -532,6 +535,7 @@ lt fullstack init [options]
 | `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (pilot, core copied to `src/core/`) |
 | `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag to vendor from (only with `--framework-mode vendor`) |
 | `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (nuxt-extensions copied to `app/core/`) |
+| `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) for the API instead of `nest-server-starter`. Forces `--api-mode Rest` and `--framework-mode npm`, skips workspace install (run `pnpm install` for app and `bun install` for api manually). |
 | `--dry-run` | Print the resolved plan without making any changes |
 | `--git` | Push initial commit to remote repository (git is always initialized) |
 | `--git-link <url>` | Git remote repository URL (required when `--git` is true) |

@@ -36,7 +36,7 @@ const NewCommand: GluegunCommand = {
 
     // Hint for non-interactive callers (e.g. Claude Code)
     toolbox.tools.nonInteractiveHint(
-      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> [--framework-upstream-branch <ref>] [--dry-run] --noConfirm',
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> [--framework-upstream-branch <ref>] [--next] [--dry-run] --noConfirm',
     );
 
     // Check git
@@ -75,9 +75,11 @@ const NewCommand: GluegunCommand = {
       git: cliGit,
       'git-link': cliGitLink,
       name: cliName,
+      next: cliNext,
     } = parameters.options;
 
     const dryRun = cliDryRun === true || cliDryRun === 'true';
+    const experimental = cliNext === true || cliNext === 'true';
     const frameworkUpstreamBranch =
       typeof cliFrameworkUpstreamBranch === 'string' && cliFrameworkUpstreamBranch.length > 0
         ? cliFrameworkUpstreamBranch
@@ -147,7 +149,10 @@ const NewCommand: GluegunCommand = {
     // Determine API mode with priority: CLI > config > global > interactive (default: Rest)
     const globalApiMode = config.getGlobalDefault<'Both' | 'GraphQL' | 'Rest'>(ltConfig, 'apiMode');
     let apiMode: 'Both' | 'GraphQL' | 'Rest';
-    if (cliApiMode) {
+    if (experimental) {
+      apiMode = 'Rest';
+      info('Using experimental nest-base template (Bun + Prisma + Postgres + Better-Auth)');
+    } else if (cliApiMode) {
       apiMode = cliApiMode as 'Both' | 'GraphQL' | 'Rest';
     } else if (configApiMode) {
       apiMode = configApiMode;
@@ -189,7 +194,9 @@ const NewCommand: GluegunCommand = {
     //
     // Default is still 'npm' until the vendoring pilot is fully evaluated.
     let frameworkMode: 'npm' | 'vendor';
-    if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
+    if (experimental) {
+      frameworkMode = 'npm';
+    } else if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
       frameworkMode = cliFrameworkMode;
     } else if (cliFrameworkMode) {
       error(`Invalid --framework-mode value "${cliFrameworkMode}". Use "npm" or "vendor".`);
@@ -325,7 +332,9 @@ const NewCommand: GluegunCommand = {
       info('Would execute:');
       info(`  1. git clone lt-monorepo → ${projectDir}/`);
       info(`  2. setup frontend (${frontend}) → ${projectDir}/projects/app`);
-      if (frameworkMode === 'vendor') {
+      if (experimental) {
+        info(`  3. clone nest-base (experimental) → ${projectDir}/projects/api`);
+      } else if (frameworkMode === 'vendor') {
         info(`  3. clone nest-server-starter → ${projectDir}/projects/api`);
         info(
           `  4. clone @lenne.tech/nest-server${frameworkUpstreamBranch ? ` (branch/tag: ${frameworkUpstreamBranch})` : ''} → /tmp`,
@@ -472,6 +481,7 @@ const NewCommand: GluegunCommand = {
         apiMode,
         branch: apiBranch,
         copyPath: apiCopy,
+        experimental,
         frameworkMode,
         frameworkUpstreamBranch,
         linkPath: apiLink,
@@ -526,16 +536,20 @@ const NewCommand: GluegunCommand = {
       hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
 
       // Install all packages
-      const installSpinner = spin('Install all packages');
-      try {
-        const detectedPm = toolbox.pm.detect(projectDir);
-        await system.run(
-          `cd ${projectDir} && ${toolbox.pm.install(detectedPm)} && ${toolbox.pm.run('init', detectedPm)}`,
-        );
-        installSpinner.succeed('Successfully installed all packages');
-      } catch (err) {
-        installSpinner.fail(`Failed to install packages: ${err.message}`);
-        return;
+      if (!experimental) {
+        const installSpinner = spin('Install all packages');
+        try {
+          const detectedPm = toolbox.pm.detect(projectDir);
+          await system.run(
+            `cd ${projectDir} && ${toolbox.pm.install(detectedPm)} && ${toolbox.pm.run('init', detectedPm)}`,
+          );
+          installSpinner.succeed('Successfully installed all packages');
+        } catch (err) {
+          installSpinner.fail(`Failed to install packages: ${err.message}`);
+          return;
+        }
+      } else {
+        info('Skipping workspace install — run `bun install` (api) and `pnpm install` (app) manually.');
       }
 
       // Post-install format pass. processApiMode (run earlier in
@@ -544,10 +558,10 @@ const NewCommand: GluegunCommand = {
       // `pnpm run format:check` (multi-line arrays/imports after region
       // stripping, import-path rewrites that now fit single-line). The
       // formatter is only available after install, so we normalize here.
-      if (apiMode && filesystem.isDirectory(`${projectDir}/projects/api`)) {
+      if (!experimental && apiMode && filesystem.isDirectory(`${projectDir}/projects/api`)) {
         await toolbox.apiMode.formatProject(`${projectDir}/projects/api`);
       }
-      if (isNuxt && filesystem.isDirectory(`${projectDir}/projects/app`)) {
+      if (!experimental && isNuxt && filesystem.isDirectory(`${projectDir}/projects/app`)) {
         await toolbox.apiMode.formatProject(`${projectDir}/projects/app`);
       }
 
@@ -578,9 +592,17 @@ const NewCommand: GluegunCommand = {
       );
       info('');
       info('Next:');
-      info(`  Run ${name}`);
-      info(`  $ cd ${projectDir}`);
-      info(`  $ ${toolbox.pm.run('start')}`);
+      if (experimental) {
+        info(`  $ cd ${projectDir}`);
+        info('  Frontend: cd projects/app && pnpm install');
+        info('  API:      cd projects/api && bun install');
+        info('  Configure projects/api/.env (see .env.example)');
+        info('  Start Postgres + run prisma generate / migrate');
+      } else {
+        info(`  Run ${name}`);
+        info(`  $ cd ${projectDir}`);
+        info(`  $ ${toolbox.pm.run('start')}`);
+      }
       info('');
 
       if (!toolbox.parameters.options.fromGluegunMenu) {
