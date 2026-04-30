@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.16.0](https://github.com/lenneTech/cli/compare/v1.15.0...v1.16.0) (2026-04-30)
+
+
+### Features
+
+* **fullstack init --next:** auto-run `bun run rename` after nest-base clone ([#83](https://github.com/lenneTech/cli/issues/83)) ([a5335d9](https://github.com/lenneTech/cli/commit/a5335d93809a264307bc50c49380311b842194dd))
+
 ## [1.15.0](https://github.com/lenneTech/cli/compare/v0.0.125...v1.15.0) (2026-04-30)
 
 
