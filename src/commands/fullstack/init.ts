@@ -525,6 +525,42 @@ const NewCommand: GluegunCommand = {
         return;
       }
 
+      // Auto-run `bun run rename <projectDir>` for the experimental nest-base
+      // template. The template ships with hard-coded `nest-base` references in
+      // four files (package.json, README.md, portless.yml, docker-compose.yml).
+      // The rename script patches all four idempotently. Since the consumer
+      // already gave us --name, doing this for them is strictly less
+      // friction-prone than relying on a manual follow-up step (which agents
+      // and humans both forget). Failure is non-fatal: the workspace is still
+      // usable, the user can re-run `bun run rename <name>` manually.
+      //
+      // Note: setupServerForFullstack already patched projects/api/package.json
+      // to set `name = projectDir`. The rename planner reads that name as the
+      // "old" slug, which would short-circuit the README/portless/compose
+      // rewrites because they still say `nest-base`. We restore the canonical
+      // `name = "nest-base"` first so the planner has a coherent starting
+      // state across all four files; the rename then writes the project name
+      // into every spot consistently.
+      if (experimental && apiResult.method !== 'link') {
+        const apiPackageJsonPath = `${apiDest}/package.json`;
+        if (filesystem.exists(apiPackageJsonPath)) {
+          await patching.update(apiPackageJsonPath, (config: Record<string, unknown>) => {
+            config.name = 'nest-base';
+            return config;
+          });
+        }
+
+        const renameSpinner = spin(`Rename nest-base → ${projectDir}`);
+        try {
+          await system.run(`cd ${apiDest} && bun run rename ${projectDir}`);
+          renameSpinner.succeed(`Renamed nest-base → ${projectDir} in projects/api`);
+        } catch (err) {
+          renameSpinner.warn(
+            `Auto-rename failed (${(err as Error).message}). Run \`bun run rename ${projectDir}\` manually inside projects/api.`,
+          );
+        }
+      }
+
       // Create lt.config.json for API
       // Note: frameworkMode is persisted under meta so that subsequent `lt
       // server module` / `addProp` / `permissions` calls can detect the mode
