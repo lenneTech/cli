@@ -25,11 +25,28 @@ const branchExists = async (branch: string): Promise<boolean> => {
   }
 };
 
-// Check if working directory is clean (no uncommitted changes)
+// Check if working directory is clean — only modifications to tracked
+// files count, since untracked files do not block `git pull --rebase`
+// and parallel jest tests in this suite scatter `temp-*` directories
+// across the working tree (see __tests__/temp-api-mode-*).
 const isWorkingDirectoryClean = async (): Promise<boolean> => {
   try {
-    const status = await system.run('git status --porcelain');
+    const status = await system.run('git status --porcelain --untracked-files=no');
     return !status?.trim();
+  } catch {
+    return false;
+  }
+};
+
+// Check if the current branch has an upstream tracking branch (so
+// `git pull --rebase` has somewhere to pull from). Local-only branches
+// — e.g. a freshly created feature branch before its first push — fail
+// `lt git update` with "no tracking information" through no fault of
+// the command, so the test must skip rather than treat it as a bug.
+const hasUpstreamBranch = async (): Promise<boolean> => {
+  try {
+    const upstream = await system.run('git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null');
+    return !!upstream?.trim();
   } catch {
     return false;
   }
@@ -41,11 +58,13 @@ describe('Git Commands', () => {
   let onBranch: boolean;
   let hasMainBranch: boolean;
   let cleanWorkingDir: boolean;
+  let hasUpstream: boolean;
 
   beforeAll(async () => {
     onBranch = await isOnBranch();
     hasMainBranch = await branchExists('main');
     cleanWorkingDir = await isWorkingDirectoryClean();
+    hasUpstream = await hasUpstreamBranch();
   });
 
   describe('lt git update', () => {
@@ -59,6 +78,13 @@ describe('Git Commands', () => {
         // With uncommitted changes, git pull --rebase will fail
         // This is expected behavior - verify the command fails appropriately
         await expect(cli('git update')).rejects.toThrow(/unstaged changes|uncommitted/i);
+        return;
+      }
+      if (!hasUpstream) {
+        // Fresh feature branch without `git push -u` yet: `git pull --rebase`
+        // exits 1 with "no tracking information". That is a configuration
+        // gap in the local checkout, not a regression in `lt git update`.
+        await expect(cli('git update')).rejects.toThrow();
         return;
       }
       const output = await cli('git update');

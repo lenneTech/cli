@@ -1,0 +1,45 @@
+# CLAUDE.md — `<%= props.name %>` workspace
+
+This is a fullstack workspace with separate Claude Code contexts per
+subproject. Pick the right one for your task and read its `CLAUDE.md`
+first — that's where the conventions, architecture, and quickstart
+live.
+
+## Routing
+
+| Task                                           | Where to read                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------- |
+| Backend / API / database / Prisma migrations   | [`projects/api/CLAUDE.md`](./projects/api/CLAUDE.md)                |
+| Frontend / Nuxt / pages / components           | [`projects/app/CLAUDE.md`](./projects/app/CLAUDE.md)                |
+| 60-second agent onboarding                     | [`.claude/QUICKSTART.md`](./.claude/QUICKSTART.md)                  |
+
+## Tech stack at a glance
+
+- **API** — Bun 1.x · NestJS 11 · Prisma 7 · Postgres 18 · Better-Auth · REST + OpenAPI 3.1
+- **App** — Nuxt 4 · Vue 3 · TypeScript
+
+Detailed conventions live in the subproject `CLAUDE.md` files. Don't
+add convention rules to this root file — they belong in the subproject
+they apply to.
+
+## Out of scope (do not add to either subproject)
+
+- GraphQL / Apollo
+- Mongoose / MongoDB
+- Vendor mode for the framework core (the `--next` template ships
+  `nest-base` directly, no `@lenne.tech/nest-server` npm dependency)
+- The legacy `@Restricted` / `@Roles` decorators
+
+These are explicitly removed in the `nest-base` template and a real
+project should never reintroduce them. See
+[`projects/api/docs/architecture.md`](./projects/api/docs/architecture.md)
+"Out of scope" for the rationale.
+
+## When you open this repo cold
+
+1. Identify whether the task is backend, frontend, or cross-project.
+2. `cd projects/api` (or `projects/app`) and read its `CLAUDE.md`.
+3. Run the subproject's quality gates before committing.
+4. Cross-project changes (Docker compose, repo hygiene, deploy config)
+   stay at this root and follow each subproject's conventions when they
+   touch its files.
