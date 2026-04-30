@@ -1,0 +1,213 @@
+name: Init smoke (--next)
+
+# End-to-end bring-up test for `lt fullstack init --next`. Runs on every PR
+# and every push to main so that mechanical regressions in the scaffolding
+# flow (P1000 auth from leftover Postgres state, missing `pg_uuidv7`,
+# empty `datasource.url`, hard-coded `container_name:` clashes, missing
+# `prepare:schema` step before `prisma:generate`, etc.) are caught before
+# they reach humans.
+#
+# The workflow exercises the CLI from THIS PR — never the published npm
+# version — by doing `npm pack` and a global install of the resulting
+# tarball. After scaffolding it boots Postgres, materialises the feature-
+# gated migrations, runs Prisma migrate, and compiles the generated API.
+# Boot/health-check is intentionally OUT of scope for now; the migrate-
+# and-build step already catches the bulk of the bring-up bugs that have
+# shown up in the friction log, and adding a live server would just make
+# the workflow flakier.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Cancel superseded runs on the same branch — saves CI minutes when a
+# contributor pushes follow-up commits while the previous run is still
+# building the Postgres image.
+concurrency:
+  group: init-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: lt fullstack init --next
+    runs-on: ubuntu-latest
+    # The Postgres image build (compiles pg_uuidv7 from source) is the
+    # dominant cost: ~2-3 min on a cold runner. 25 min gives generous
+    # headroom for npm install + clone + migrate + compile on top.
+    timeout-minutes: 25
+
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Build the CLI from the PR's source so the smoke test exercises
+      # the actual code under review, not whatever is on npm. `npm run
+      # build` already runs lint + tests + compile + copy-templates.
+      - name: Install CLI dependencies
+        run: npm install
+
+      - name: Build CLI
+        run: npm run build
+
+      # `npm pack` produces the same tarball that `npm publish` would
+      # ship, so installing it globally exercises the published surface
+      # (bin/lt, build/, files[]) — not the dev-mode ts-node path.
+      - name: Pack CLI
+        id: pack
+        run: |
+          set -euo pipefail
+          tarball="$(npm pack --silent)"
+          echo "tarball=${tarball}" >> "$GITHUB_OUTPUT"
+          echo "Packed: ${tarball}"
+
+      - name: Install CLI globally
+        run: npm install -g "./${{ steps.pack.outputs.tarball }}"
+
+      - name: Verify lt is on PATH
+        run: |
+          which lt
+          lt --version || true
+
+      # Scaffold into $RUNNER_TEMP so the cli checkout stays clean. The
+      # generated workspace clones lt-monorepo + nest-base over HTTPS;
+      # GitHub-hosted runners have outbound internet by default.
+      - name: Scaffold --next workspace
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          lt fullstack init \
+            --name smoke \
+            --frontend nuxt \
+            --next \
+            --noConfirm
+
+      # The generated API lives under projects/api/. Everything from here
+      # mirrors the documented bring-up sequence in the workspace's
+      # .claude/QUICKSTART.md (added in PR #81).
+      - name: Install API dependencies (bun)
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: bun install
+
+      # `bun run setup` substitutes random secrets into .env.example. It
+      # is idempotent (refuses to overwrite an existing .env), which is
+      # fine — the workspace is freshly scaffolded so no .env exists yet.
+      - name: Generate .env (bun run setup)
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: bun run setup
+
+      # Build only the postgres service. The custom image compiles
+      # pg_uuidv7 from source, so first build takes a few minutes.
+      # Pre-building / caching this image is deliberately out of scope
+      # for this PR — that's an optimisation we can layer in later.
+      - name: Start Postgres (docker compose)
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: docker compose up -d --build postgres
+
+      # Poll the compose-defined healthcheck instead of `pg_isready`
+      # against a fixed port — the compose project name is auto-derived
+      # from the workspace dir (since nest-base 25963e0 dropped the
+      # hard-coded `name:`/`container_name:`), so locating the container
+      # by service name is the stable approach. `docker inspect` on the
+      # service container avoids parsing JSON-line output of `compose ps`.
+      - name: Wait for Postgres healthcheck
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: |
+          set -euo pipefail
+          cid="$(docker compose ps -q postgres)"
+          if [ -z "${cid}" ]; then
+            echo "No postgres container — compose up did not produce one."
+            docker compose ps
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' "${cid}" 2>/dev/null || echo "starting")"
+            echo "attempt ${i}: ${status}"
+            if [ "${status}" = "healthy" ]; then
+              echo "Postgres is healthy."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres did not become healthy in time."
+          docker compose logs postgres
+          exit 1
+
+      # PR #81 (nest-base side) introduced `prepare:schema`, which
+      # concatenates the feature-gated schemas under prisma/features/
+      # into the final schema and materialises matching migrations.
+      # MUST run before `prisma:generate` and `prisma:migrate` — without
+      # it Prisma sees an empty datasource and exits with the kind of
+      # opaque error the friction log was full of.
+      - name: Prepare Prisma schema
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: bun run prepare:schema
+
+      - name: Generate Prisma client
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: bun run prisma:generate
+
+      - name: Run Prisma migrations
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: bun run prisma:migrate
+
+      - name: Build API
+        working-directory: ${{ runner.temp }}/smoke/projects/api
+        run: bun run build
+
+      # On failure, dump the most useful diagnostics inline BEFORE the
+      # teardown removes the containers. The full workspace is uploaded
+      # as an artifact below so the bring-up can be reproduced after
+      # the runner is recycled. We `cd` inside the script so the step
+      # still runs (and prints something useful) even when scaffolding
+      # itself failed and the API dir doesn't exist yet.
+      - name: Dump compose logs on failure
+        if: failure()
+        run: |
+          api_dir="${{ runner.temp }}/smoke/projects/api"
+          if [ ! -d "${api_dir}" ]; then
+            echo "API directory not present — scaffolding likely failed before docker came up."
+            exit 0
+          fi
+          cd "${api_dir}"
+          echo "--- docker compose ps ---"
+          docker compose ps || true
+          echo "--- docker compose logs (postgres, last 200 lines) ---"
+          docker compose logs --tail=200 postgres || true
+
+      - name: Upload generated workspace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-workspace-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/smoke
+            !${{ runner.temp }}/smoke/**/node_modules
+            !${{ runner.temp }}/smoke/**/.git
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Hygiene — runners are ephemeral but leaking state inside a single
+      # job makes re-running the same step locally with `act` painful.
+      # `down -v` drops the named volume, so a re-run starts from a
+      # clean slate (no P1000 auth errors from a stale data dir). Runs
+      # AFTER the failure-dump step so the logs are still available.
+      - name: Tear down docker compose
+        if: always()
+        run: |
+          api_dir="${{ runner.temp }}/smoke/projects/api"
+          if [ -d "${api_dir}" ]; then
+            cd "${api_dir}"
+            docker compose down -v || true
+          fi
