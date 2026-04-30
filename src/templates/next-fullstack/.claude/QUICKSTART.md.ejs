@@ -1,0 +1,61 @@
+# QUICKSTART — `<%= props.name %>` workspace
+
+A fresh AI agent that just opened this workspace. Read this once, then
+switch to a subproject.
+
+## You almost certainly want a subproject
+
+| If you are doing                                    | Go to                                                                   |
+| --------------------------------------------------- | ----------------------------------------------------------------------- |
+| Backend / API / DB / Prisma / auth / permissions    | `cd projects/api` → [`projects/api/.claude/QUICKSTART.md`](../projects/api/.claude/QUICKSTART.md) |
+| Frontend / Nuxt / pages / components                | `cd projects/app` → its `README.md` and `CLAUDE.md`                     |
+| Cross-project work (deploy, CI, monorepo tooling)   | this root level                                                         |
+
+The moment you're touching domain code or framework conventions, you
+belong in a subproject. This root level is just the workspace shell.
+
+## Bring up the dev environment
+
+```bash
+# API
+cd projects/api
+bun install
+bun run setup            # generates .env with strong random secrets
+docker compose up -d postgres
+bun run prepare:schema   # only needed before first migrate / when feature flags change
+bun run prisma:generate
+bun run prisma:migrate
+bun run dev              # boots Postgres if needed, opens the Dev Hub at /dev
+
+# Frontend (in another shell)
+cd projects/app
+pnpm install
+pnpm dev
+```
+
+If `bun run prisma:migrate` fails with a P1000 auth error after
+re-running `bun run setup`, the Postgres volume still holds the old
+password — run `docker compose down -v && docker compose up -d
+postgres` to wipe it, then migrate again.
+
+## Stack
+
+|          | API                | App                |
+| -------- | ------------------ | ------------------ |
+| Runtime  | Bun 1.x            | Node 22            |
+| Framework| NestJS 11          | Nuxt 4             |
+| Database | Postgres 18        | —                  |
+| ORM      | Prisma 7           | —                  |
+| Auth     | Better-Auth        | —                  |
+| Lang     | TypeScript strict  | TypeScript strict  |
+
+For everything else (architecture, conventions, gates, debugging),
+switch to the subproject.
+
+## Don'ts
+
+- Don't add repo conventions in this root — they belong in the
+  subproject they apply to.
+- Don't introduce GraphQL / MongoDB / Mongoose / vendor-mode
+  framework cores. Those are explicitly out of scope for `--next`
+  workspaces; see the API's `docs/architecture.md` for context.

@@ -26,6 +26,7 @@ const NewCommand: GluegunCommand = {
       server,
       strings: { kebabCase },
       system,
+      template,
     } = toolbox;
 
     // Start timer
@@ -383,18 +384,48 @@ const NewCommand: GluegunCommand = {
     // Remove git folder after clone
     filesystem.remove(`${projectDir}/.git`);
 
-    // Patch CLAUDE.md with project-specific values
-    const claudeMdPath = `${projectDir}/CLAUDE.md`;
-    if (filesystem.exists(claudeMdPath)) {
-      const frontendName = frontend === 'nuxt' ? 'Nuxt 4' : 'Angular';
-      await patching.update(claudeMdPath, (content: string) =>
-        content
-          .replace(/\{\{PROJECT_NAME\}\}/g, () => name)
-          .replace(/\{\{PROJECT_DIR\}\}/g, () => projectDir)
-          .replace(/\{\{API_MODE\}\}/g, () => apiMode)
-          .replace(/\{\{FRAMEWORK_MODE\}\}/g, () => frameworkMode)
-          .replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendName),
-      );
+    // Patch root files for the project.
+    //
+    // For the classic flow we patch the cloned `lt-monorepo` CLAUDE.md with
+    // template variables. For `--next` (experimental) we replace the root
+    // README.md, CLAUDE.md, and create `.claude/QUICKSTART.md` outright,
+    // because `lt-monorepo`'s root files describe the legacy MongoDB +
+    // GraphQL stack which is explicitly out of scope for the nest-base
+    // template — leaving them in place poisons every AI agent's context.
+    if (experimental) {
+      const nextTemplateProps = { name, projectDir };
+
+      // Render new root files. `template.generate({ target })` overwrites
+      // anything at `target`, which is what we want — the freshly cloned
+      // monorepo's stale README/CLAUDE.md must be replaced wholesale.
+      await template.generate({
+        props: nextTemplateProps,
+        target: `${projectDir}/README.md`,
+        template: 'next-fullstack/README.md.ejs',
+      });
+      await template.generate({
+        props: nextTemplateProps,
+        target: `${projectDir}/CLAUDE.md`,
+        template: 'next-fullstack/CLAUDE.md.ejs',
+      });
+      await template.generate({
+        props: nextTemplateProps,
+        target: `${projectDir}/.claude/QUICKSTART.md`,
+        template: 'next-fullstack/.claude/QUICKSTART.md.ejs',
+      });
+    } else {
+      const claudeMdPath = `${projectDir}/CLAUDE.md`;
+      if (filesystem.exists(claudeMdPath)) {
+        const frontendName = frontend === 'nuxt' ? 'Nuxt 4' : 'Angular';
+        await patching.update(claudeMdPath, (content: string) =>
+          content
+            .replace(/\{\{PROJECT_NAME\}\}/g, () => name)
+            .replace(/\{\{PROJECT_DIR\}\}/g, () => projectDir)
+            .replace(/\{\{API_MODE\}\}/g, () => apiMode)
+            .replace(/\{\{FRAMEWORK_MODE\}\}/g, () => frameworkMode)
+            .replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendName),
+        );
+      }
     }
 
     // Always initialize git

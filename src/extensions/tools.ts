@@ -72,14 +72,24 @@ export class Tools {
    * Suggests using CLI parameters instead of interactive prompts.
    * Only shows once per session.
    *
+   * Skipped when the caller already passed `--noConfirm` — they're
+   * deliberately running headless and don't need a hint to repeat the
+   * command, which would just be confusing noise (the friction-log
+   * complaint that triggered this guard).
+   *
    * @param usage - Example command with parameters, e.g. "lt fullstack init --name <name> --frontend <nuxt|angular> --noConfirm"
    */
   nonInteractiveHint(usage: string): void {
     if (this.hintShown || process.stdin.isTTY) {
       return;
     }
+    const { parameters, print } = this.toolbox;
+    const noConfirm = parameters?.options?.noConfirm;
+    if (noConfirm === true || noConfirm === 'true') {
+      this.hintShown = true;
+      return;
+    }
     this.hintShown = true;
-    const { print } = this.toolbox;
     print.info(print.colors.yellow(`Hint: Non-interactive mode detected. Use parameters to skip prompts:`));
     print.info(print.colors.yellow(`  ${usage}`));
     print.info('');
