@@ -37,7 +37,7 @@ const NewCommand: GluegunCommand = {
 
     // Hint for non-interactive callers (e.g. Claude Code)
     toolbox.tools.nonInteractiveHint(
-      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> [--framework-upstream-branch <ref>] [--next] [--dry-run] --noConfirm',
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> [--framework-upstream-branch <ref>] [--next: implies nuxt-base-starter#next unless --frontend-branch overrides] [--dry-run] --noConfirm',
     );
 
     // Check git
@@ -297,7 +297,12 @@ const NewCommand: GluegunCommand = {
 
     // Determine branches and copy/link paths with priority: CLI > config
     const apiBranch = cliApiBranch || configApiBranch;
-    const frontendBranch = cliFrontendBranch || configFrontendBranch;
+    // Under `--next`, default the nuxt-base-starter ref to the `next`
+    // branch — that branch ships an auth basePath (`/api/auth`) that
+    // matches the experimental nest-base API. Explicit
+    // `--frontend-branch` (or lt.config) still wins so consumers can
+    // target a custom branch on either line.
+    const frontendBranch = cliFrontendBranch || configFrontendBranch || (experimental ? 'next' : undefined);
     const apiCopy = cliApiCopy || configApiCopy;
     const apiLink = cliApiLink || configApiLink;
     const frontendCopy = cliFrontendCopy || configFrontendCopy;
