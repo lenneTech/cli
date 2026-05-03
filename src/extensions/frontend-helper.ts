@@ -91,6 +91,71 @@ export class FrontendHelper {
   }
 
   /**
+   * Flatten the cloned nuxt-base-starter wrapper layout so the project's
+   * `projects/app/` directory IS the Nuxt app.
+   *
+   * `lenneTech/nuxt-base-starter` ships a wrapper repo: the root
+   * `package.json` is the `create-nuxt-base` scaffolder (a separate npm
+   * package — `bin/create-nuxt-base` lives at `index.js`), and the
+   * actual Nuxt app lives one level deeper at `nuxt-base-template/`.
+   * Without this flatten, the generated monorepo's `pnpm-workspace.yaml`
+   * and the README's `cd projects/app && pnpm install && pnpm dev`
+   * point at the wrapper, not the app, so `pnpm install` resolves the
+   * wrong dependencies and `pnpm dev` has nothing to run
+   * (LLM-test 2026-05-03 friction #3 entry 20:30).
+   *
+   * Defense-in-depth: only mutate the layout if extraction succeeds.
+   * If `nuxt-base-template/` is missing or isn't a directory (corrupt
+   * clone, future repo reshape that drops the wrapper), we return
+   * `{ flattened: false, reason }` and leave the original tree alone.
+   * The pre-flatten layout is annoying but functional — better than
+   * wiping a user's clone over an unexpected layout.
+   *
+   * @param dest - The cloned `projects/app/` directory.
+   * @returns Whether the flatten ran, plus a reason if it didn't.
+   */
+  public async flattenNuxtBaseTemplate(dest: string): Promise<{ flattened: boolean; reason?: string }> {
+    const { filesystem } = this.toolbox;
+    const subdir = filesystem.path(dest, 'nuxt-base-template');
+
+    if (!filesystem.exists(subdir)) {
+      return { flattened: false, reason: 'no nuxt-base-template subdirectory' };
+    }
+    if (!filesystem.isDirectory(subdir)) {
+      // Stray file at the path we'd flatten — abort to avoid clobbering
+      // the user's tree on a corrupt clone.
+      return { flattened: false, reason: 'nuxt-base-template path exists but is not a directory' };
+    }
+
+    // Stage the template into a sibling directory before touching `dest`,
+    // so a copy failure leaves the original layout intact.
+    const parent = filesystem.path(dest, '..');
+    const stage = filesystem.path(parent, `.nuxt-base-template-staging-${Date.now()}-${process.pid}`);
+    try {
+      filesystem.copy(subdir, stage, { overwrite: true });
+    } catch (err) {
+      // Couldn't stage — leave `dest` untouched and bubble the reason up.
+      filesystem.remove(stage);
+      return { flattened: false, reason: `failed to stage template: ${(err as Error).message}` };
+    }
+
+    try {
+      // Wipe the cloned root (wrapper package.json, index.js, lock file,
+      // README, etc.) and replace it with the staged template contents.
+      // gluegun's `filesystem.remove(dest)` removes the directory, so
+      // we re-create it before copying back so dotfiles land at the
+      // right level.
+      filesystem.remove(dest);
+      filesystem.dir(dest);
+      filesystem.copy(stage, dest, { overwrite: true });
+    } finally {
+      filesystem.remove(stage);
+    }
+
+    return { flattened: true };
+  }
+
+  /**
    * Setup Nuxt frontend
    * Handles template setup (link/copy/clone) and optional npm install
    *
@@ -114,6 +179,15 @@ export class FrontendHelper {
 
       if (!result.success) {
         return { method: result.method, path: result.path, success: false };
+      }
+
+      // After a clone, flatten the wrapper layout so `projects/app/`
+      // IS the Nuxt app (the cloned root is the `create-nuxt-base`
+      // scaffolder, not the app — see flattenNuxtBaseTemplate).
+      // Skip on link mode: a symlink points at the user's local
+      // checkout and must not have its template subdir torn out.
+      if (result.method === 'clone') {
+        await this.flattenNuxtBaseTemplate(dest);
       }
 
       // Run install if not skipped and not a symlink
