@@ -28,11 +28,19 @@
  * ship the wrapper layout, so this fix applies to both `--next` and
  * the legacy default-branch path. We name the test file after `--next`
  * because that's the friction surface that prompted the change.
+ *
+ * Implementation note: ts-jest treats every test file as part of one
+ * TypeScript program, so a top-level `const { filesystem } = require(
+ * 'gluegun')` collides with the same declaration in
+ * `fullstack-claude-md-patching.test.ts` (TS2451). We require gluegun
+ * lazily inside the describe block — the same pattern the other
+ * `fullstack-init-next-*.test.ts` files use.
  */
 
-const { filesystem } = require('gluegun');
-
 describe('Fullstack init nuxt-base-template flatten', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { filesystem } = require('gluegun');
+
   let tempDir: string;
 
   beforeEach(() => {
