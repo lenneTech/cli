@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.18.0](https://github.com/lenneTech/cli/compare/v1.17.0...v1.18.0) (2026-05-03)
+
+
+### Features
+
+* **fullstack init --next:** flatten nuxt-base-template into projects/app/ post-clone ([#86](https://github.com/lenneTech/cli/issues/86)) ([c35aeb9](https://github.com/lenneTech/cli/commit/c35aeb9a14594fc549ab3ae80941125412eb399f)), closes [#3](https://github.com/lenneTech/cli/issues/3)
+
 ## [1.17.0](https://github.com/lenneTech/cli/compare/v1.16.0...v1.17.0) (2026-05-03)
 
 
