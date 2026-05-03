@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.17.0](https://github.com/lenneTech/cli/compare/v1.16.0...v1.17.0) (2026-05-03)
+
+
+### Features
+
+* **fullstack init --next:** default frontend branch to 'next' on nuxt-base-starter ([#84](https://github.com/lenneTech/cli/issues/84)) ([36eb7cc](https://github.com/lenneTech/cli/commit/36eb7ccd44dfc9a2a214c348b3316e6b6206a12a)), closes [#5](https://github.com/lenneTech/cli/issues/5)
+
 ## [1.16.0](https://github.com/lenneTech/cli/compare/v1.15.0...v1.16.0) (2026-04-30)
 
 
