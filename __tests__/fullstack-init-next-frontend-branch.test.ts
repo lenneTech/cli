@@ -1,5 +1,11 @@
-const fs = require('fs');
-const path = require('path');
+// Test file shares one TypeScript program with the rest of `__tests__/`
+// under ts-jest, so any top-level `const fs = require('fs')` clashes
+// with other files' globals (TS2451). The neighbouring
+// `fullstack-init-next-rename.test.ts` already owns the unprefixed
+// `fs` / `path` names, so this file requires Node's built-ins inside
+// the describe block where their scope is local. See the header
+// comment in `fullstack-init-next-rename.test.ts` for the same
+// rationale around `filesystem` / `patching`.
 
 /**
  * `--next` defaults the frontend git ref to `nuxt-base-starter#next`.
@@ -32,8 +38,14 @@ const path = require('path');
  * without buying meaningful coverage for a one-liner derivation.
  */
 describe('Fullstack init --next frontend branch default', () => {
-  const initSource = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'commands', 'fullstack', 'init.ts'),
+  // Lazy require to avoid colliding with the top-level `fs` / `path`
+  // declarations in other test files (see header comment).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodeFs = require('fs');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const nodePath = require('path');
+  const initSource: string = nodeFs.readFileSync(
+    nodePath.join(__dirname, '..', 'src', 'commands', 'fullstack', 'init.ts'),
     'utf8',
   );
 
