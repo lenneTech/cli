@@ -1,3 +1,9 @@
+// `export {}` keeps this file a TypeScript module so its top-level
+// `filesystem` does not collide with neighbouring test files that
+// use the same name (TS2451 under ts-jest's shared program).
+export {};
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { filesystem } = require('gluegun');
 
 /**

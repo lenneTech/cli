@@ -1463,6 +1463,53 @@ lt tools crawl https://lenne.tech --all --noConfirm
 lt tools crawl https://example.com --all --no-render --no-prune --noConfirm
 ```
 
+### `lt tools ocr`
+
+Converts PDFs to clean Markdown using [marker-pdf](https://github.com/datalab-to/marker) — a PyTorch-based, layout-aware OCR engine that produces real Markdown tables, headings and lists. On Apple Silicon (M-series) inference runs on the GPU via Metal Performance Shaders (MPS) and is typically 5–15× faster than CPU-only PDF text extractors. Marker is auto-installed into an isolated virtualenv at `~/.lt/marker/.venv/` on first use; subsequent runs reuse the cached environment and ~3 GB of model weights.
+
+**Aliases:** `ocr`, `pdf2md`
+
+**Usage:**
+```bash
+lt tools ocr <file.pdf|directory> [options]
+lt tools ocr --status              # Show installation status
+lt tools ocr --install             # Install marker-pdf without converting anything
+```
+
+**Options:**
+- `--output-dir <dir>` — Output directory (default: `<input>-MD/` for batch, `<input>.md-out/` for single).
+- `--workers <n>` — Parallel worker processes for batch mode (default `3`).
+- `--device <auto|mps|cuda|cpu>` — Override `TORCH_DEVICE`. Default `auto` picks `mps` on Apple Silicon, `cpu` elsewhere. Set `cuda` if running on a Linux machine with an NVIDIA GPU and the appropriate PyTorch CUDA build.
+- `--skip-existing` / `--no-skip-existing` — Skip already-converted files in batch mode (default **on**).
+- `--keep-images` — Extract embedded images alongside the Markdown (default **off** — Markdown only).
+- `--format <markdown|json|html|chunks>` — Output format (default `markdown`).
+
+**Setup notes:**
+- Requires `python3` (≥ 3.10) on PATH.
+- Uses `uv` if available (fastest install path); falls back to `python3 -m venv` + `pip` otherwise.
+- The first conversion is slower because the model weights download (~3 GB). Subsequent runs start instantly.
+- Apple Silicon: `device: mps` is auto-selected. Linux/CUDA: pass `--device cuda`.
+
+**Examples:**
+```bash
+# Inspect tooling status (python3, uv, venv path, auto-detected device)
+lt tools ocr --status
+
+# One-time install (skip if you just want to convert and let auto-install handle it)
+lt tools ocr --install
+
+# Convert a single PDF (creates ./report.pdf.md-out/report/report.md)
+lt tools ocr ./report.pdf
+
+# Batch a directory with 4 parallel workers
+lt tools ocr ./pdfs --output-dir ./md --workers 4
+
+# Force CPU mode (e.g. when MPS-related crashes occur on Sonoma)
+lt tools ocr ./report.pdf --device cpu
+```
+
+**When to reach for this command vs. the lt-knowledge ingest pipeline:** `lt tools ocr` is for **local developer workflows** — quick PDF → Markdown for research, demos, validation sets, sanity checks. For productive ingestion (Vector / Graph / Wiki layers, confidence-based fallback, Whisper for audio, archive-aware processing) use the lt-knowledge stack with its Docling + LightOnOCR sidecars. Marker is intentionally **not** added there because its MPS advantage doesn't apply in Linux containers and Docling already covers the same use cases with native confidence scoring (see `lt-knowledge/docs/OCR-COMPARISON-MARKER.md`).
+
 ---
 
 ## Configuration Priority

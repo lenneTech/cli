@@ -1,3 +1,10 @@
+// `export {}` keeps this file a TypeScript module so its top-level
+// `filesystem` / `patching` do not collide with neighbouring test
+// files that use the same names (TS2451 under ts-jest's shared
+// program).
+export {};
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { filesystem, patching } = require('gluegun');
 
 describe('Fullstack init CLAUDE.md patching', () => {
