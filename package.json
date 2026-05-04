@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -31,6 +31,7 @@
     "coverage": "jest --coverage",
     "test:vendor-init": "bash scripts/test-vendor-init.sh",
     "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",
+    "test:incremental-fullstack": "bash scripts/test-incremental-fullstack.sh",
     "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
     "lint": "eslint './src/**/*.{ts,js,vue}'",
     "lint:fix": "eslint './src/**/*.{ts,js,vue}' --fix",

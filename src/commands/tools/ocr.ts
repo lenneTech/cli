@@ -23,7 +23,12 @@ const NewCommand: GluegunCommand = {
   description: 'OCR PDFs to Markdown via marker-pdf (MPS-accelerated on Apple Silicon)',
   hidden: false,
   name: 'ocr',
-  run: async (toolbox: ExtendedGluegunToolbox) => {
+  // GluegunCommand types `run` against the base `Toolbox`, but the lt CLI
+  // augments it with `helper`, `git`, etc. Cast inside so the implementation
+  // remains typed against the project-specific `ExtendedGluegunToolbox` while
+  // satisfying the upstream `(toolbox: Toolbox) => void` signature.
+  run: async (rawToolbox) => {
+    const toolbox = rawToolbox as ExtendedGluegunToolbox;
     const {
       parameters,
       print: { error, info, spin, warning },

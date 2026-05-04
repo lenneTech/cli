@@ -8,6 +8,7 @@ import {
   FrontendFrameworkMode,
   isVendoredAppProject,
 } from '../lib/frontend-framework-detection';
+import { detectSubProjectContext, detectWorkspaceLayout, type WorkspaceLayout } from '../lib/workspace-integration';
 
 interface MonorepoSubproject {
   frameworkMode: FrameworkMode | FrontendFrameworkMode | null;
@@ -30,6 +31,14 @@ interface ProjectInfo {
   packageName: null | string;
   packageVersion: null | string;
   projectType: string;
+  /** Workspace shape at cwd (`pnpm-workspace.yaml`, projects/, …). */
+  workspaceLayout: WorkspaceLayout;
+  /**
+   * Set when cwd is INSIDE `projects/api/` or `projects/app/` of a
+   * workspace — surfaces a "you're in a sub-project, root is at …"
+   * hint so users (and AI agents) recognise the situation immediately.
+   */
+  workspaceSubProject: null | { kind: 'api' | 'app'; root: string };
 }
 
 /**
@@ -68,6 +77,18 @@ const StatusCommand: GluegunCommand = {
       packageName: null,
       packageVersion: null,
       projectType: 'unknown',
+      // Probe layout at the workspace root if cwd is inside a
+      // sub-project; otherwise probe at cwd. Without this, status
+      // shown from `projects/api/src/` would report both halves
+      // missing because there's no `projects/` underneath cwd.
+      workspaceLayout: ((): WorkspaceLayout => {
+        const ctx = detectSubProjectContext(cwd, filesystem);
+        return detectWorkspaceLayout(ctx ? ctx.workspaceRoot : cwd, filesystem);
+      })(),
+      workspaceSubProject: ((): null | { kind: 'api' | 'app'; root: string } => {
+        const ctx = detectSubProjectContext(cwd, filesystem);
+        return ctx ? { kind: ctx.kind, root: ctx.workspaceRoot } : null;
+      })(),
     };
 
     // Check for lt.config
@@ -212,6 +233,34 @@ const StatusCommand: GluegunCommand = {
             ? 'vendor (app/core/, VENDOR.md)'
             : 'npm (@lenne.tech/nuxt-extensions dependency)';
         info(`  Frontend Framework: ${frontendModeLabel}`);
+      }
+    }
+
+    // Workspace overview — surfaces the layout that drives the
+    // `add-api` / `add-app` / standalone gate decisions. Shown
+    // whenever we're inside a workspace OR a sub-project of one,
+    // so users immediately see what's missing and where the
+    // workspace root is.
+    if (projectInfo.workspaceLayout.hasWorkspace || projectInfo.workspaceSubProject) {
+      info('');
+      info(colors.bold('Workspace:'));
+      if (projectInfo.workspaceSubProject) {
+        const { kind, root } = projectInfo.workspaceSubProject;
+        warning(`  You are inside projects/${kind}/ of a workspace.`);
+        info(`  Root:     ${root}`);
+        info(colors.dim(`  Hint: cd to the workspace root for \`lt fullstack add-${kind === 'api' ? 'app' : 'api'}\``));
+      } else {
+        success('  Detected (pnpm-workspace.yaml, package.json#workspaces, or projects/)');
+      }
+      const apiMark = projectInfo.workspaceLayout.hasApi ? colors.green('✓') : colors.yellow('✗');
+      const appMark = projectInfo.workspaceLayout.hasApp ? colors.green('✓') : colors.yellow('✗');
+      info(`  ${apiMark} projects/api/`);
+      info(`  ${appMark} projects/app/`);
+      // Suggest the next step when only one half is present.
+      if (projectInfo.workspaceLayout.hasApp && !projectInfo.workspaceLayout.hasApi) {
+        info(colors.dim('  Hint: `lt fullstack add-api` to integrate a NestJS server.'));
+      } else if (projectInfo.workspaceLayout.hasApi && !projectInfo.workspaceLayout.hasApp) {
+        info(colors.dim('  Hint: `lt fullstack add-app` to integrate a Nuxt or Angular app.'));
       }
     }
 

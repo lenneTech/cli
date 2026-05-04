@@ -2,6 +2,9 @@ import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
+import { detectWorkspaceLayout } from '../../lib/workspace-integration';
+import addApiCommand from './add-api';
+import addAppCommand from './add-app';
 
 /**
  * Create a new fullstack workspace
@@ -92,6 +95,47 @@ const NewCommand: GluegunCommand = {
       commandConfig: ltConfig?.commands?.fullstack,
       config: ltConfig,
     });
+
+    // ── Auto-detect existing workspace ─────────────────────────────────
+    //
+    // If `lt fullstack init` runs inside a directory that already looks
+    // like a workspace (pnpm-workspace.yaml or projects/) and the user
+    // didn't pass a workspace name, dispatch to the matching incremental
+    // command instead of trying to clone a new lt-monorepo on top of the
+    // existing one. Three branches:
+    //
+    //   - both projects/api and projects/app exist  → nothing to do.
+    //   - only projects/app exists                  → delegate to add-api.
+    //   - only projects/api exists                  → delegate to add-app.
+    //
+    // Users who really want to create a *new* workspace from inside an
+    // existing one bypass detection by supplying `--name <slug>` (or a
+    // positional argument); the slug then becomes the new project dir
+    // and the original detection-skipping path runs normally.
+    const noNameProvided = !cliName && !parameters.first;
+    if (noNameProvided) {
+      const cwdLayout = detectWorkspaceLayout('.', filesystem);
+      if (cwdLayout.hasWorkspace) {
+        if (cwdLayout.hasApi && cwdLayout.hasApp) {
+          error('Workspace already has both projects/api and projects/app — nothing to add.');
+          info('Use `lt fullstack add-api --help-json` or `lt fullstack add-app --help-json` to inspect options.');
+          return;
+        }
+        if (cwdLayout.hasApp && !cwdLayout.hasApi) {
+          info('Detected existing workspace with projects/app — delegating to `lt fullstack add-api`.');
+          // gluegun's `GluegunCommand.run` is typed as
+          // `void | Promise<any>`. Cast through `unknown` so the await
+          // is statically meaningful for our async implementations.
+          return (await (addApiCommand.run as (t: ExtendedGluegunToolbox) => Promise<unknown>)(toolbox)) as string;
+        }
+        if (cwdLayout.hasApi && !cwdLayout.hasApp) {
+          info('Detected existing workspace with projects/api — delegating to `lt fullstack add-app`.');
+          return (await (addAppCommand.run as (t: ExtendedGluegunToolbox) => Promise<unknown>)(toolbox)) as string;
+        }
+        // Workspace dir but neither sub-project present — fall through
+        // to normal init. The user can still pass --name to override.
+      }
+    }
 
     // Get name of the workspace
     const name =

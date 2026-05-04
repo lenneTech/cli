@@ -1,9 +1,15 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
 
 /**
  * Create a new Angular workspace
+ *
+ * Standalone counterpart to `lt fullstack init` / `lt fullstack add-app`
+ * for Angular: clones ng-base-starter into a brand-new directory.
+ * Mirrors the same dry-run / workspace-detection surface as the Nuxt
+ * sibling so behaviour is consistent across the four flows.
  */
 const NewCommand: GluegunCommand = {
   alias: ['a'],
@@ -25,6 +31,57 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
+    if (
+      toolbox.tools.helpJson({
+        aliases: ['a'],
+        configuration: 'commands.frontend.angular.*',
+        description: 'Create a new Angular workspace from ng-base-starter',
+        name: 'angular',
+        options: [
+          { description: 'Workspace name', flag: '--name', required: false, type: 'string' },
+          { description: 'Branch of ng-base-starter to clone', flag: '--branch', required: false, type: 'string' },
+          { description: 'Copy from local template directory', flag: '--copy', required: false, type: 'string' },
+          { description: 'Symlink to local template directory', flag: '--link', required: false, type: 'string' },
+          { description: 'Initialize Angular localize', flag: '--localize', required: false, type: 'boolean' },
+          {
+            description: 'Skip Angular localize initialisation',
+            flag: '--noLocalize',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            description: 'Git remote URL to push initial commit to',
+            flag: '--gitLink',
+            required: false,
+            type: 'string',
+          },
+          {
+            default: false,
+            description: 'Print resolved plan and exit without making any changes',
+            flag: '--dry-run',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Override the workspace-detection abort under --noConfirm',
+            flag: '--force',
+            required: false,
+            type: 'boolean',
+          },
+          {
+            default: false,
+            description: 'Skip all interactive prompts',
+            flag: '--noConfirm',
+            required: false,
+            type: 'boolean',
+          },
+        ],
+      })
+    ) {
+      return;
+    }
+
     // Load configuration
     const ltConfig = config.loadConfig();
     const configLocalize = ltConfig?.commands?.frontend?.angular?.localize;
@@ -36,6 +93,11 @@ const NewCommand: GluegunCommand = {
     const cliBranch = parameters.options.branch || parameters.options.b;
     const cliCopy = parameters.options.copy || parameters.options.c;
     const cliLink = parameters.options.link;
+    const cliName = parameters.options.name as string | undefined;
+    const cliDryRun = parameters.options['dry-run'];
+    const cliForce = parameters.options.force;
+    const dryRun = cliDryRun === true || cliDryRun === 'true';
+    const force = cliForce === true || cliForce === 'true';
 
     // Determine branch and copy/link paths with priority: CLI > config
     const branch = cliBranch || configBranch;
@@ -60,11 +122,29 @@ const NewCommand: GluegunCommand = {
       return;
     }
 
-    // Get name of the workspace
-    const name = await helper.getInput(parameters.first, {
-      name: 'workspace name',
-      showError: true,
+    // Workspace-awareness — bundled into runStandaloneWorkspaceGate.
+    const proceed = await runStandaloneWorkspaceGate({
+      cwd: '.',
+      filesystem,
+      force,
+      fromGluegunMenu: Boolean(toolbox.parameters.options.fromGluegunMenu),
+      noConfirmFlag: noConfirm,
+      pieceName: 'app',
+      print: { confirm, error, info },
+      projectKind: 'Angular app',
+      suggestion: 'lt fullstack add-app --frontend angular',
     });
+    if (!proceed) return;
+
+    // Get name of the workspace. Honour `--name` flag before falling
+    // back to the first positional or interactive prompt — same fix
+    // applied to `server create` in this iteration.
+    const name =
+      cliName ||
+      (await helper.getInput(parameters.first, {
+        name: 'workspace name',
+        showError: true,
+      }));
     if (!name) {
       return;
     }
@@ -105,6 +185,34 @@ const NewCommand: GluegunCommand = {
           showError: false,
         })
       ).trim();
+    }
+
+    if (dryRun) {
+      info('');
+      info('Dry-run plan:');
+      info(`  name:                       ${name}`);
+      info(`  projectDir:                 ${projectDir}`);
+      info(`  branch:                     ${branch || '(default)'}`);
+      info(`  copy:                       ${copyPath || '(none)'}`);
+      info(`  link:                       ${linkPath || '(none)'}`);
+      info(`  localize:                   ${localize}`);
+      info(`  gitLink:                    ${gitLink || '(none)'}`);
+      info('');
+      info('Would execute:');
+      if (linkPath) {
+        info(`  1. symlink ${linkPath} → ./${projectDir}`);
+      } else if (copyPath) {
+        info(`  1. copy ${copyPath} → ./${projectDir}`);
+      } else {
+        info(`  1. clone ng-base-starter${branch ? ` (branch: ${branch})` : ''} → ./${projectDir}`);
+      }
+      info(`  2. pnpm install + git init + remove husky`);
+      if (gitLink) info(`  3. push initial commit to ${gitLink}`);
+      info('');
+      if (!toolbox.parameters.options.fromGluegunMenu) {
+        process.exit();
+      }
+      return `dry-run angular workspace ${projectDir}`;
     }
 
     const workspaceSpinner = spin(

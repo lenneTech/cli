@@ -67,7 +67,7 @@ lt cli rename <new-name>
 
 ### `lt server create`
 
-Creates a new NestJS server project.
+Creates a new standalone NestJS server project in a sibling directory. For an in-workspace API, prefer [`lt fullstack add-api`](#lt-fullstack-add-api).
 
 **Usage:**
 ```bash
@@ -77,16 +77,26 @@ lt server create [name] [options]
 **Options:**
 | Option | Description |
 |--------|-------------|
+| `--name <name>` | Server name (preferred over the positional argument) |
 | `--description <text>` | Project description |
 | `--author <name>` | Author name |
 | `--api-mode <Rest\|GraphQL\|Both>` | API mode (ignored with `--next`) |
 | `--framework-mode <npm\|vendor>` | Framework consumption mode (ignored with `--next`) |
+| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag/commit to vendor (only with `--framework-mode vendor`) |
 | `--branch <branch>` / `-b` | Branch of nest-server-starter to use as template |
 | `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
 | `--git` | Initialize git repository |
 | `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) instead of `nest-server-starter`. Skips API-mode / vendor-mode / install / lt.config.json processing. |
+| `--dry-run` | Print the resolved plan and exit without making any changes |
+| `--force` | Override the workspace-detection abort under `--noConfirm` |
 | `--noConfirm` | Skip confirmation prompts |
+
+**Workspace-awareness:** When run inside a directory that already looks like a fullstack workspace (contains `pnpm-workspace.yaml` or `projects/`), the command behaves differently per mode:
+
+- **interactive** → asks for confirmation before creating a stray standalone clone
+- **`--noConfirm` without `--force`** → **refuses** with exit code 1 and points the caller to `lt fullstack add-api`. This is the default behaviour for AI agents and CI scripts: fail loud rather than produce a stray clone that pnpm-workspace.yaml does not pick up.
+- **`--noConfirm --force`** → proceeds and logs a hint so the override is visible in CI logs.
 
 **CLAUDE.md Patching:** If the project contains a `CLAUDE.md`, the generic API mode description is replaced with the selected mode. In single-mode projects (`Rest` or `GraphQL`), the "API Mode System" documentation section is condensed to a brief note. Skipped when `--next` is used.
 
@@ -558,6 +568,82 @@ Additionally, the API's `CLAUDE.md` is patched to reflect the selected API mode 
 
 **Configuration:** `commands.fullstack.*`, `defaults.noConfirm`
 
+**Auto-detection in existing workspaces:** When `lt fullstack init` runs without a name argument inside a directory that already looks like a fullstack workspace (contains `pnpm-workspace.yaml` or `projects/`), it inspects the layout and dispatches to the matching incremental command:
+
+- both `projects/api` and `projects/app` exist → refuses with a hint to use `add-api` / `add-app` directly
+- only `projects/app` exists → delegates to `lt fullstack add-api` (with all original flags forwarded)
+- only `projects/api` exists → delegates to `lt fullstack add-app`
+- neither exists → falls through to the regular new-workspace flow
+
+To force a brand-new workspace from inside an existing one, pass `--name <slug>`.
+
+---
+
+### `lt fullstack add-api`
+
+Add a NestJS API (`projects/api/`) to an existing fullstack workspace that currently only contains a frontend (`projects/app/`). Mirrors every API-related flag from `lt fullstack init` so configuration stays consistent across both flows.
+
+**Usage:**
+```bash
+lt fullstack add-api [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--api-mode <mode>` | API mode: `Rest`, `GraphQL`, or `Both` |
+| `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (core copied to `src/core/`) |
+| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag/commit to vendor (only with `--framework-mode vendor`) |
+| `--api-branch <branch>` | Branch of `nest-server-starter` to clone |
+| `--api-copy <path>` | Copy API from a local template directory |
+| `--api-link <path>` | Symlink API to a local template directory (fastest, changes affect original) |
+| `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) instead of `nest-server-starter`. Forces `--api-mode Rest` and `--framework-mode npm`, runs `bun run rename` post-clone, skips workspace install. |
+| `--workspace-dir <path>` | Workspace root. When omitted, defaults to cwd; if cwd is not a workspace, the command walks up until it finds one (so it works from inside `projects/api/src/`). |
+| `--skip-install` | Skip `pnpm install` and the post-install format pass |
+| `--dry-run` | Print the resolved plan without making any changes |
+| `--noConfirm` | Skip all interactive prompts |
+
+**Refusal cases:**
+- `projects/api/` already exists → suggests `lt fullstack init` in a fresh directory
+- no workspace detected at the target path → asks the user to run `lt fullstack init` first
+
+**Side effects:** writes `projects/api/lt.config.json` with the resolved `apiMode` + `frameworkMode`, hoists workspace-scoped `pnpm.overrides` from sub-projects to the root, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set).
+
+**Configuration:** Reads `commands.fullstack.*` (same keys as `lt fullstack init`).
+
+---
+
+### `lt fullstack add-app`
+
+Add a frontend app (`projects/app/`) to an existing fullstack workspace that currently only contains an API (`projects/api/`). Mirrors every frontend-related flag from `lt fullstack init`.
+
+**Usage:**
+```bash
+lt fullstack add-app [options]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--frontend <type>` | Frontend framework: `nuxt` or `angular` |
+| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (nuxt-extensions copied to `app/core/`) |
+| `--frontend-branch <branch>` | Branch of the frontend starter to clone (`ng-base-starter` or `nuxt-base-starter`) |
+| `--frontend-copy <path>` | Copy frontend from a local template directory |
+| `--frontend-link <path>` | Symlink frontend to a local template directory (fastest, changes affect original) |
+| `--next` | Default the nuxt-base-starter ref to the `next` branch (auth `basePath` aligned with the experimental `--next` API) |
+| `--workspace-dir <path>` | Workspace root. When omitted, defaults to cwd; if cwd is not a workspace, the command walks up until it finds one (so it works from inside `projects/api/src/`). |
+| `--skip-install` | Skip `pnpm install` and the post-install format pass |
+| `--dry-run` | Print the resolved plan without making any changes |
+| `--noConfirm` | Skip all interactive prompts |
+
+**Refusal cases:**
+- `projects/app/` already exists → suggests `lt fullstack init` in a fresh directory
+- no workspace detected at the target path → asks the user to run `lt fullstack init` first
+
+**Side effects:** patches `projects/app/.env` with a project-specific `NUXT_PUBLIC_STORAGE_PREFIX`, optionally vendorizes `nuxt-extensions` into `app/core/`, hoists workspace-scoped `pnpm.overrides`, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set).
+
+**Configuration:** Reads `commands.fullstack.*` (same keys as `lt fullstack init`).
+
 ---
 
 ### `lt fullstack convert-mode`
@@ -689,7 +775,7 @@ lt npm update
 
 ### `lt frontend angular`
 
-Creates a new Angular workspace using ng-base-starter.
+Creates a new standalone Angular workspace using ng-base-starter. For an in-workspace app, prefer [`lt fullstack add-app --frontend angular`](#lt-fullstack-add-app).
 
 **Usage:**
 ```bash
@@ -699,13 +785,18 @@ lt frontend angular [name] [options]
 **Options:**
 | Option | Description |
 |--------|-------------|
+| `--name <name>` | Workspace name (preferred over the positional argument) |
 | `--branch <branch>` / `-b` | Branch of ng-base-starter to use as template |
 | `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
 | `--localize` | Enable Angular localize |
 | `--noLocalize` | Disable Angular localize |
 | `--gitLink <url>` | Git repository URL to link |
+| `--dry-run` | Print the resolved plan and exit without making any changes |
+| `--force` | Override the workspace-detection abort under `--noConfirm` |
 | `--noConfirm` / `-y` | Skip confirmation prompts |
+
+**Workspace-awareness:** Inside a fullstack workspace the command is interactive (confirm prompt), but under `--noConfirm` it **refuses** with exit code 1 and points the caller to `lt fullstack add-app --frontend angular`. Pass `--noConfirm --force` to override (rare).
 
 **Configuration:** `commands.frontend.angular.*`, `defaults.noConfirm`
 
@@ -713,7 +804,7 @@ lt frontend angular [name] [options]
 
 ### `lt frontend nuxt`
 
-Creates a new Nuxt workspace using nuxt-base-starter.
+Creates a new standalone Nuxt workspace using nuxt-base-starter. For an in-workspace app, prefer [`lt fullstack add-app --frontend nuxt`](#lt-fullstack-add-app).
 
 **Usage:**
 ```bash
@@ -723,16 +814,24 @@ lt frontend nuxt [options]
 **Options:**
 | Option | Description |
 |--------|-------------|
+| `--name <name>` | Workspace name |
 | `--branch <branch>` / `-b` | Branch of nuxt-base-starter to use (uses git clone instead of create-nuxt-base) |
 | `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
+| `--frontend-framework-mode <npm\|vendor>` | Frontend framework consumption mode (`vendor` copies `nuxt-extensions` into `app/core/`) |
+| `--next` | Default branch to `nuxt-base-starter#next` (auth `basePath` aligned with the experimental `--next` API) |
+| `--dry-run` | Print the resolved plan and exit without making any changes |
+| `--force` | Override the workspace-detection abort under `--noConfirm` |
+| `--noConfirm` | Skip confirmation prompts (requires `--name`) |
 
 **Note:** For `--copy` and `--link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root:
 ```bash
 lt frontend nuxt --copy /path/to/nuxt-base-starter/nuxt-base-template
 ```
 
-**Configuration:** `commands.frontend.nuxt.*`
+**Workspace-awareness:** Inside a fullstack workspace the command is interactive (confirm prompt), but under `--noConfirm` it **refuses** with exit code 1 and points the caller to `lt fullstack add-app --frontend nuxt`. Pass `--noConfirm --force` to override (rare).
+
+**Configuration:** `commands.frontend.nuxt.*`, `commands.fullstack.frontendFrameworkMode` (shared with `init` / `add-app`)
 
 ---
 

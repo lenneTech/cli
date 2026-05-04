@@ -144,6 +144,47 @@ as a path in command logic. Always derive the specifier via
 `getFrameworkImportSpecifier(projectDir, sourceFilePath)` and the root
 path via `getFrameworkRootPath(projectDir)`.
 
+### Incremental fullstack & workspace gate — key touchpoints
+
+The fullstack workflow ships three "create" entry points that share
+shape but target different starting states. The 4th column lists the
+flag every command exposes for AI agents.
+
+| Command | Use when | Output | Common flags |
+|---|---|---|---|
+| `lt fullstack init` | Fresh dir, want a new monorepo | `lt-monorepo` clone with `projects/api/` + `projects/app/` (auto-delegates to `add-api`/`add-app` if cwd is already a workspace with one half present) | `--name --frontend --api-mode --framework-mode --frontend-framework-mode --next --dry-run --noConfirm` |
+| `lt fullstack add-api` | Workspace with `projects/app/` only | Adds `projects/api/` | `--api-mode --framework-mode --framework-upstream-branch --api-branch --api-copy --api-link --next --dry-run --skip-install --noConfirm` |
+| `lt fullstack add-app` | Workspace with `projects/api/` only | Adds `projects/app/` | `--frontend --frontend-framework-mode --frontend-branch --frontend-copy --frontend-link --next --dry-run --skip-install --noConfirm` |
+
+The standalone scaffolders are workspace-aware: when run inside a
+fullstack workspace they refuse non-interactive callers (KI/CI
+default — fail loud) and steer them at the matching `add-*` command.
+
+| Standalone command | In-workspace replacement | Refusal trigger |
+|---|---|---|
+| `lt server create` | `lt fullstack add-api` | non-interactive (TTY off OR `--noConfirm`) without `--force` |
+| `lt frontend nuxt` | `lt fullstack add-app --frontend nuxt` | same |
+| `lt frontend angular` | `lt fullstack add-app --frontend angular` | same |
+
+| Concern | File | Notes |
+|---|---|---|
+| Workspace marker detection | `src/lib/workspace-integration.ts#hasWorkspaceMarker` | Recognises `pnpm-workspace.yaml`, `package.json#workspaces` (npm/yarn/bun, both array and `{packages:[]}` shape), and `projects/` directory |
+| Layout inspection | `src/lib/workspace-integration.ts#detectWorkspaceLayout` | Reports `{ hasWorkspace, hasApi, hasApp }`. Used by `init` for auto-delegation and by the gate for the "already exists" hint |
+| Upward search | `src/lib/workspace-integration.ts#findWorkspaceRoot` | Walks parent dirs (max 6 levels) looking for any marker — used by sub-project detection |
+| Sub-project detection | `src/lib/workspace-integration.ts#detectSubProjectContext` | Returns `{ kind: 'api'\|'app', workspaceRoot, subProjectDir }` when cwd is inside `projects/api/` or `projects/app/` |
+| Non-interactive heuristic | `src/lib/workspace-integration.ts#isNonInteractive` | True when `--noConfirm` OR stdin is not a TTY — catches AI agents that don't pass `--noConfirm` |
+| Gate decision | `src/lib/workspace-integration.ts#shouldProceedAsStandalone` | Pure function — input: `{ force, nonInteractive, projectKind, suggestion, userConfirmed? }`, output: `{ proceed, reason? }` |
+| Gate runner | `src/lib/workspace-integration.ts#runStandaloneWorkspaceGate` | Side-effecting wrapper: prints, prompts, errors, calls `process.exit(1)` on refusal. Used identically by all three standalone commands |
+| `lt status` | `src/commands/status.ts` | Reports the workspace layout (`Workspace: yes`, `projects/api`, `projects/app`) so users can quickly see what's missing |
+| API/app bridges | `src/lib/workspace-integration.ts#writeApiConfig`, `runExperimentalNestBaseRename` | Glue between `extensions/server.ts` primitives and `lt.config.json` / `bun run rename` post-processing in `add-api` |
+
+**Override mechanism for power users:** every standalone command
+accepts `--force` to bypass the workspace gate. Combine with
+`--noConfirm` (`--noConfirm --force`) to silently produce a
+side-by-side standalone clone inside an existing workspace. AI agents
+should not pass `--force` unless the user explicitly asked for a
+side-by-side standalone tree.
+
 ### Vendor Modification Policy (for CLI-generated content)
 
 The vendored core (`projects/api/src/core/` or `projects/app/app/core/`)
