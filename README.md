@@ -57,6 +57,25 @@ $ lt status
 $ lt completion install
 ```
 
+## Local dev orchestration (parallel projects)
+
+Run multiple lt projects on the same machine without manually shuffling ports.
+Each project gets a deterministic port slot (`3000+slot*10` / `3001+slot*10`) and
+the matching env vars are injected into spawned dev servers automatically.
+
+```bash
+# Once per project:
+$ lt local init                    # register slot + patch legacy hardcoded ports
+
+# Daily:
+$ lt local up                      # start API + App
+$ lt local status                  # show running PIDs + bound ports
+$ lt local down                    # SIGTERM the process group
+$ lt ports                         # cross-project port overview
+```
+
+Full reference: [docs/commands.md → Local Development Commands](docs/commands.md#local-development-commands).
+
 ## Framework consumption modes (nest-server)
 
 When you create a new api project (`lt fullstack init` or `lt server create`),

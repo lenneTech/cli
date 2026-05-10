@@ -22,7 +22,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 - `tsconfig.test.json` extends tsconfig.json with `rootDir: "."` to cover both `src/` and `__tests__/`
 - Jest config: explicit `transform: { "^.+\\.tsx?$": ["ts-jest", {"tsconfig": "tsconfig.test.json"}] }` + `testTimeout: 60000`
 
-### Known Blocked Updates (as of 2026-04-17)
+### Known Blocked Updates (as of 2026-05-10)
 - **eslint 9.x -> 10.x**: Still blocked by `@lenne.tech/eslint-config-ts@2.1.4` using internal bundled `@typescript-eslint/utils` incompatible with ESLint 10 API (`Class extends value undefined` error). ESLint is pinned at **9.39.4** (latest 9.x). If `@lenne.tech/eslint-config-ts` releases a version >2.1.4 that supports ESLint 10, this can be unblocked.
 
 ### Maintenance Patterns
@@ -35,6 +35,9 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 - `typescript` IS a runtime dependency (imported as `import * as ts from 'typescript'` in `src/extensions/server.ts` line 6, used at runtime for `ts.readConfigFile()`, `ts.sys.readFile`) - MUST stay in `dependencies`, NOT `devDependencies`
 - `axios` IS used directly in `src/lib/nuxt-base-components.ts` - must be a direct `dependencies` entry (not just transitive)
 - `ejs` IS used directly in `src/commands/completion.ts` - moved to `devDependencies` with `@types/ejs` (gluegun provides ejs at runtime when CLI is installed via npm)
+- `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`, `eslint-config-prettier` REMOVED from devDependencies on 2026-05-10: they are bundled as direct deps inside `@lenne.tech/eslint-config-ts@2.1.4` (versions 8.46.1 and 10.1.8 respectively). The eslint config (`eslint.config.mjs`) only does `import typescript from '@lenne.tech/eslint-config-ts'`; it never imports these packages directly. Adding them at the top level was dead weight that npm hoisted parallel to the bundled versions. Re-add ONLY if `eslint.config.mjs` ever needs to reference them directly.
+- `@lenne.tech/npm-package-helper` is used by `extras/sync-version.mjs` which is invoked from `.husky/pre-commit` - keep as devDep
+- `defuddle` 0.x bumps (e.g. 0.17.0 → 0.18.1) appear safe; the public API (`new Defuddle(doc, opts)` from `src/lib/crawler.ts`) remained stable through 0.18.1 with all 271 tests green
 
 ### Remaining Overrides (still needed)
 - `semver@*: 7.7.4` - force latest semver across all sub-deps (gluegun@5.2.2 bundles semver 7.7.0 which is stale)
@@ -44,7 +47,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 - `follow-redirects@<1.16.0: 1.16.0` - REMOVED (2026-04-17): follow-redirects@1.16.0 is the latest version AND axios@1.15.0 requires `^1.15.11` which npm naturally resolves to 1.16.0. Override was redundant.
 
 ### Pre-existing Test Failure (do NOT fix)
-- None currently (all 155 tests passing as of 2026-04-17)
+- None currently (all 271 tests in 26 suites passing as of 2026-05-10)
 
 ### Husky Hooks
 - `.husky/pre-commit`: sync-version + lint

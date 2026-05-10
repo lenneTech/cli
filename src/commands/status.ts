@@ -8,6 +8,7 @@ import {
   FrontendFrameworkMode,
   isVendoredAppProject,
 } from '../lib/frontend-framework-detection';
+import { isPidAlive, loadLocalState, loadRegistry, portsForSlot, projectSlug } from '../lib/port-registry';
 import { detectSubProjectContext, detectWorkspaceLayout, type WorkspaceLayout } from '../lib/workspace-integration';
 
 interface MonorepoSubproject {
@@ -261,6 +262,38 @@ const StatusCommand: GluegunCommand = {
         info(colors.dim('  Hint: `lt fullstack add-api` to integrate a NestJS server.'));
       } else if (projectInfo.workspaceLayout.hasApi && !projectInfo.workspaceLayout.hasApp) {
         info(colors.dim('  Hint: `lt fullstack add-app` to integrate a Nuxt or Angular app.'));
+      }
+    }
+
+    // Local dev orchestration registry — surface slot/ports if registered.
+    // Helps users discover that `lt local` is set up for this project, and
+    // gives a quick inline answer to "what ports does this project use?".
+    {
+      const registryRoot =
+        projectInfo.workspaceSubProject?.root ||
+        (projectInfo.workspaceLayout.hasWorkspace ? projectInfo.workspaceLayout.workspaceDir : cwd);
+      if (registryRoot) {
+        const slug = projectSlug(registryRoot);
+        const entry = loadRegistry().projects[slug];
+        if (entry) {
+          info('');
+          info(colors.bold('Local dev orchestration (lt local):'));
+          const ports = portsForSlot(entry.slot);
+          info(`  Slot:     ${entry.slot}`);
+          info(`  API:      http://localhost:${ports.api}`);
+          info(`  App:      http://localhost:${ports.app}`);
+          if (entry.dbName) info(`  DB:       mongodb://127.0.0.1/${entry.dbName}`);
+          const state = loadLocalState(registryRoot);
+          const apiAlive = state?.pids.api ? isPidAlive(state.pids.api) : false;
+          const appAlive = state?.pids.app ? isPidAlive(state.pids.app) : false;
+          if (apiAlive || appAlive) {
+            info(
+              `  Running:  api ${apiAlive ? colors.green('●') : colors.dim('○')}  app ${appAlive ? colors.green('●') : colors.dim('○')}`,
+            );
+          } else {
+            info(colors.dim('  Hint: `lt local up` to start API + App with these ports.'));
+          }
+        }
       }
     }
 

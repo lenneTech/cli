@@ -185,6 +185,24 @@ side-by-side standalone clone inside an existing workspace. AI agents
 should not pass `--force` unless the user explicitly asked for a
 side-by-side standalone tree.
 
+### Local dev orchestration (`lt local`, `lt ports`) — key touchpoints
+
+Run multiple lt projects in parallel without port collisions. Slot allocation
+is deterministic per project slug (FNV-1a hash → `3000+slot*10` / `3001+slot*10`)
+and shared across machines via a central registry at `~/.lenneTech/ports.json`.
+
+| Concern | File | Notes |
+|---|---|---|
+| Slot allocation, registry I/O | `src/lib/port-registry.ts` | `slotFromSlug` (FNV-1a), `allocateSlot` (linear fall-through on collision), `loadRegistry` / `saveRegistry`. Registry path overridable via `LT_PORTS_REGISTRY_PATH` (used by tests + corporate setups). |
+| Single-call port snapshot | `src/lib/port-registry.ts#listenSnapshot` | Issues ONE `lsof -iTCP -sTCP:LISTEN -nP` and filters in memory; ~50ms regardless of port count. Used by `ports.ts`, `up.ts`, `status.ts`. **Never spawn `lsof` per port in a loop** — that was the original 6-second bug. |
+| PID safety | `src/lib/port-registry.ts#isValidPid`, `#isPidAlive`, `src/commands/local/down.ts` | Authoritative gate: `loadLocalState` rejects malformed/system-range PIDs; `down.ts` re-validates before any `process.kill(-pid, …)` so a tampered `state.json` cannot signal arbitrary process groups. |
+| Workspace/standalone detection | `src/lib/local-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. |
+| Idempotent legacy port patches | `src/lib/local-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md port block. All four return a no-op `PatchResult` for missing files. |
+| Run-loop env contract | `src/commands/local/up.ts` (env literal + JSDoc) | Single source of truth for `PORT`/`BASE_URL`/`APP_URL`/`NUXT_*`/`NSC__MONGOOSE__URI`. **If you change a name, also update the CLAUDE.md port block in `local-patches.ts#patchClaudeMd`.** |
+| Process-group teardown | `src/commands/local/down.ts` | Uses negative-PID `SIGTERM` to reach the Nest watcher + Vite + Nuxt children; falls back to single-PID kill on `EPERM`. |
+| Detached-spawn binary override | `src/commands/local/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups). |
+| Project-local state | `<project>/.lt-local/{state.json,api.log,app.log}` | Auto-added to `.gitignore` by `lt local init`. State JSON is schema-validated on load. |
+
 ### Vendor Modification Policy (for CLI-generated content)
 
 The vendored core (`projects/api/src/core/` or `projects/app/app/core/`)

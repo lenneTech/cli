@@ -12,6 +12,8 @@ This document provides a comprehensive reference for all `lt` CLI commands. For 
 
 - [CLI Commands](#cli-commands)
 - [Server Commands](#server-commands)
+- [Local Development Commands](#local-development-commands)
+- [Ports Commands](#ports-commands)
 - [Git Commands](#git-commands)
 - [Fullstack Commands](#fullstack-commands)
 - [Deployment Commands](#deployment-commands)
@@ -279,6 +281,193 @@ For mode-aware update workflows after conversion, use:
 - `/lt-dev:backend:update-nest-server-core` (vendor mode)
 - `/lt-dev:backend:update-nest-server` (npm mode)
 - `/lt-dev:fullstack:update-all` (coordinated backend + frontend)
+
+---
+
+## Local Development Commands
+
+Orchestrate parallel lt projects on the same machine without port collisions. Each project gets a deterministic port slot derived from its slug; API/App ports are always slot-paired (`3000+slot*10` / `3001+slot*10`). Slot allocation is reproducible across machines (FNV-1a hash) and persisted in `~/.lenneTech/ports.json`.
+
+### `lt local`
+
+Open the local-orchestration submenu.
+
+**Usage:**
+```bash
+lt local
+```
+
+**Alias:** `lt l`
+
+---
+
+### `lt local init`
+
+Register the current project in the central port registry, optionally patching legacy hardcoded ports to be env-aware.
+
+**Usage:**
+```bash
+lt local init [options]
+```
+
+**Alias:** `lt l i`
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--slot <n>` | Force a specific slot index (0..89) instead of the deterministic slug hash |
+| `--patch` | Apply env-aware port patches non-interactively |
+| `--no-patch` | Skip the patch detection / prompt entirely |
+| `--noConfirm` | Skip confirmation prompts (without `--patch`, patches are skipped) |
+
+**What it does:**
+1. Detects the workspace layout (monorepo with `projects/api/` + `projects/app/`, or standalone API/App project).
+2. Looks up or allocates a slot via FNV-1a hash of the project slug. If the slot is taken, falls through linearly to the next free slot.
+3. Detects legacy hardcoded ports in `config.env.ts` (`port: 3000`), `nuxt.config.ts` (`port: 3001`, vite proxy `target: 'http://localhost:3000'`), and `playwright.config.ts` (`baseURL`/`host`/`url: 'http://localhost:3001'`). If `--patch` (or interactive confirm), rewrites them to env-overridable form (`Number(process.env.PORT) || 3000`, `process.env.NUXT_API_URL || …`, etc.) — defaults preserved, idempotent.
+4. Persists the entry to `~/.lenneTech/ports.json`.
+5. Adds `.lt-local/` to the project's `.gitignore`.
+6. Injects (or refreshes) a "Local Development (lt local)" port block into `CLAUDE.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers so it can be replaced cleanly when ports change.
+
+**Examples:**
+```bash
+# Inside a workspace or standalone project
+lt local init
+
+# Force slot 5 for predictable cross-team ports
+lt local init --slot 5 --noConfirm --patch
+
+# Register without touching any source files
+lt local init --no-patch --noConfirm
+```
+
+---
+
+### `lt local up`
+
+Start the API + App with project-specific ports. Spawns `pnpm start` (api) and `pnpm dev` (app) detached; persists PIDs to `<root>/.lt-local/state.json`.
+
+**Usage:**
+```bash
+lt local up
+```
+
+**Alias:** `lt l u`
+
+**Environment variables injected into both children:**
+| Variable | Consumer | Example value |
+|----------|----------|---------------|
+| `PORT` | Nest (api) / Nuxt dev server (app) | slot-derived |
+| `BASE_URL` | nest-server config.env.ts (canonical API base) | `http://localhost:3030` |
+| `APP_URL` | nest-server config.env.ts (frontend origin for redirects/CORS) | `http://localhost:3031` |
+| `NUXT_API_URL` | Nuxt vite-proxy target for `/api`, `/iam`, … | `http://localhost:3030` |
+| `NUXT_PUBLIC_API_URL` | Nuxt `useRuntimeConfig().public.apiUrl` | `http://localhost:3030` |
+| `NUXT_PUBLIC_SITE_URL` | Nuxt `useRuntimeConfig().public.siteUrl` + Playwright | `http://localhost:3031` |
+| `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage so parallel projects don't share auth tokens | `crm-local` |
+| `NSC__MONGOOSE__URI` | nest-server-config Mongoose URI (only when `dbName` is known) | `mongodb://127.0.0.1/crm-local` |
+
+**Override the binary** used for both spawns by setting `LT_PNPM_BIN` (e.g. `LT_PNPM_BIN=/usr/local/bin/pnpm lt local up`).
+
+**Pre-flight guards (exit code 1 each):**
+- Project not registered (`lt local init` first)
+- Already running (run `lt local down` first)
+- Port already in use by another process
+
+**Logs:** `<root>/.lt-local/api.log`, `<root>/.lt-local/app.log` (append-mode).
+
+---
+
+### `lt local down`
+
+Stop processes started by `lt local up`. Sends `SIGTERM` to the detached process group (negative PID) so descendants — Vite, the Nest watcher, etc. — receive the signal too. Falls back to single-PID kill if the process group send fails (`EPERM`).
+
+**Usage:**
+```bash
+lt local down
+```
+
+**Alias:** `lt l d`
+
+PID values from `state.json` are validated (positive integer in `[100, 2^31)`) before any signal is sent, so a tampered state file cannot cause `lt local down` to signal arbitrary process groups.
+
+---
+
+### `lt local status`
+
+Show what is registered + running for the current project: slot, ports, db URI, PIDs (alive/dead), and live `lsof` state of the assigned ports.
+
+**Usage:**
+```bash
+lt local status
+```
+
+**Alias:** `lt l s`
+
+---
+
+## Ports Commands
+
+Inspect the port registry and currently-bound dev ports across all your lt projects. Useful for diagnosing collisions and rebuilding the registry from disk.
+
+### `lt ports`
+
+List all reserved registry entries side-by-side with the live `lsof` state. Issues a single `lsof` call internally for the entire slot range (3000–3899) instead of per port — runs in ~150ms regardless of how many projects are registered.
+
+**Usage:**
+```bash
+lt ports
+```
+
+**Alias:** `lt p`
+
+**Output sections:**
+1. **Reserved ports (registry)** — every project entry with a `●` (bound) or `○` (free) indicator per port.
+2. **Currently bound dev ports (3000–3899)** — every port in the slot range that currently has a LISTEN socket, with command + PID + owning registry entry (if any).
+
+---
+
+### `lt ports check <port>`
+
+Exit-coded port probe — useful in shell scripts.
+
+**Usage:**
+```bash
+lt ports check <port>
+```
+
+**Exit codes:**
+| Code | Meaning |
+|------|---------|
+| `0` | Port is free |
+| `1` | Port is in use |
+| `2` | `lsof` not available, or `<port>` argument missing/invalid |
+
+**Example:**
+```bash
+if lt ports check 3000; then
+  echo "API port free"
+else
+  echo "API port already bound"
+fi
+```
+
+---
+
+### `lt ports scan [dir]`
+
+Rebuild the registry from the filesystem. Walks the given directory (default: cwd) up to depth 3, looking for `lt.config.json` + `package.json` pairs or workspace markers (`pnpm-workspace.yaml`, `projects/`). Re-allocates a slot for new projects; preserves slots for existing entries (only refreshing the path if it moved). Writes only when the registry actually changed (no mtime churn for cloud-sync tools).
+
+**Usage:**
+```bash
+lt ports scan [dir]
+```
+
+**Examples:**
+```bash
+lt ports scan                       # scan from cwd
+lt ports scan ~/code/lenneTech      # scan a specific tree
+```
+
+Symlinks are skipped to avoid traversal loops; dotdirs and `node_modules` are not descended into.
 
 ---
 
