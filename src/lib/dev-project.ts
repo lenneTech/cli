@@ -1,0 +1,106 @@
+/**
+ * Resolve the project layout for `lt dev` commands.
+ *
+ * Walks up from `cwd` to find the workspace root (lt-monorepo style)
+ * or treats the current directory as a standalone project. Wraps
+ * existing helpers from `workspace-integration.ts` to keep detection
+ * consistent with the rest of the CLI.
+ */
+import type { GluegunFilesystem } from 'gluegun';
+
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+
+import { detectSubProjectContext, detectWorkspaceLayout, findWorkspaceRoot } from './workspace-integration';
+
+export interface DevProjectLayout {
+  /** Absolute path to the API subproject root (or null). */
+  apiDir: null | string;
+  /** Absolute path to the App subproject root (or null). */
+  appDir: null | string;
+  /** Project root — workspace root for monorepos, project itself for standalones. */
+  root: string;
+  /** True if this is a fullstack monorepo with `projects/api` + `projects/app`. */
+  workspace: boolean;
+}
+
+/**
+ * Detect whether the API project still has the legacy hardcoded `port: 3000`.
+ * Returns the file path if a patch is needed, null otherwise.
+ */
+export function apiNeedsPortPatch(apiDir: string): null | string {
+  const file = join(apiDir, 'src', 'config.env.ts');
+  if (!existsSync(file)) return null;
+  const content = readFileSync(file, 'utf8');
+  return /port:\s*3000\s*,/.test(content) ? file : null;
+}
+
+/**
+ * Detect whether the App project still has hardcoded `port: 3001` or a
+ * hardcoded vite-proxy `target: 'http://localhost:3000'`. Returns an
+ * array of file paths that need patching.
+ */
+export function appNeedsPortPatch(appDir: string): string[] {
+  const candidates = [join(appDir, 'nuxt.config.ts'), join(appDir, 'playwright.config.ts')];
+  return candidates.filter((file) => {
+    if (!existsSync(file)) return false;
+    const c = readFileSync(file, 'utf8');
+    return (
+      /port:\s*3001\s*,/.test(c) ||
+      /target:\s*'http:\/\/localhost:3000'/.test(c) ||
+      /baseURL:\s*'http:\/\/localhost:3001'/.test(c) ||
+      /url:\s*'http:\/\/localhost:3001'/.test(c) ||
+      /host:\s*'http:\/\/localhost:3001'/.test(c)
+    );
+  });
+}
+
+/** Read `dbName` from the API config (defaults to `<slug>-local`). */
+export function deriveDbName(apiDir: null | string, slug: string): string {
+  if (apiDir) {
+    const cfg = join(apiDir, 'src', 'config.env.ts');
+    if (existsSync(cfg)) {
+      const content = readFileSync(cfg, 'utf8');
+      const match = content.match(/dbName:\s*['"`]([^'"`]+)['"`]/);
+      if (match) return match[1];
+    }
+  }
+  return `${slug}-local`;
+}
+
+/**
+ * Resolve layout starting from `cwd`. Walks up to find a workspace if
+ * cwd is inside `projects/api/` or `projects/app/`.
+ */
+export function resolveLayout(cwd: string, filesystem: GluegunFilesystem): DevProjectLayout {
+  const subContext = detectSubProjectContext(cwd, filesystem);
+  if (subContext) return monorepoLayout(subContext.workspaceRoot);
+
+  const layout = detectWorkspaceLayout(cwd, filesystem);
+  if (layout.hasWorkspace) return monorepoLayout(layout.workspaceDir);
+
+  const workspaceRoot = findWorkspaceRoot(cwd, filesystem);
+  if (workspaceRoot) return monorepoLayout(workspaceRoot);
+
+  // Standalone project — figure out if it's API or App.
+  const isApi = existsSync(join(cwd, 'src', 'config.env.ts')) || existsSync(join(cwd, 'nest-cli.json'));
+  const isApp = existsSync(join(cwd, 'nuxt.config.ts'));
+  return {
+    apiDir: isApi ? cwd : null,
+    appDir: isApp ? cwd : null,
+    root: cwd,
+    workspace: false,
+  };
+}
+
+/** Build the layout for an lt-monorepo workspace root. */
+function monorepoLayout(workspaceRoot: string): DevProjectLayout {
+  const apiDir = join(workspaceRoot, 'projects', 'api');
+  const appDir = join(workspaceRoot, 'projects', 'app');
+  return {
+    apiDir: existsSync(apiDir) ? apiDir : null,
+    appDir: existsSync(appDir) ? appDir : null,
+    root: workspaceRoot,
+    workspace: true,
+  };
+}

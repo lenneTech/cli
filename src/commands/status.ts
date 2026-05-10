@@ -2,13 +2,14 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { projectSlug } from '../lib/dev-identity';
+import { isPidAlive, loadRegistry, loadSession } from '../lib/dev-state';
 import { detectFrameworkMode, FrameworkMode, isVendoredProject } from '../lib/framework-detection';
 import {
   detectFrontendFrameworkMode,
   FrontendFrameworkMode,
   isVendoredAppProject,
 } from '../lib/frontend-framework-detection';
-import { isPidAlive, loadLocalState, loadRegistry, portsForSlot, projectSlug } from '../lib/port-registry';
 import { detectSubProjectContext, detectWorkspaceLayout, type WorkspaceLayout } from '../lib/workspace-integration';
 
 interface MonorepoSubproject {
@@ -265,9 +266,9 @@ const StatusCommand: GluegunCommand = {
       }
     }
 
-    // Local dev orchestration registry — surface slot/ports if registered.
-    // Helps users discover that `lt local` is set up for this project, and
-    // gives a quick inline answer to "what ports does this project use?".
+    // Local dev orchestration registry — surface URLs if registered.
+    // Helps users discover that `lt dev` is set up for this project, and
+    // gives a quick inline answer to "what URLs does this project use?".
     {
       const registryRoot =
         projectInfo.workspaceSubProject?.root ||
@@ -277,21 +278,20 @@ const StatusCommand: GluegunCommand = {
         const entry = loadRegistry().projects[slug];
         if (entry) {
           info('');
-          info(colors.bold('Local dev orchestration (lt local):'));
-          const ports = portsForSlot(entry.slot);
-          info(`  Slot:     ${entry.slot}`);
-          info(`  API:      http://localhost:${ports.api}`);
-          info(`  App:      http://localhost:${ports.app}`);
-          if (entry.dbName) info(`  DB:       mongodb://127.0.0.1/${entry.dbName}`);
-          const state = loadLocalState(registryRoot);
-          const apiAlive = state?.pids.api ? isPidAlive(state.pids.api) : false;
-          const appAlive = state?.pids.app ? isPidAlive(state.pids.app) : false;
+          info(colors.bold('Local dev orchestration (lt dev):'));
+          for (const [sub, host] of Object.entries(entry.subdomains)) {
+            info(`  ${sub.padEnd(6)} https://${host}`);
+          }
+          if (entry.dbName) info(`  db     mongodb://127.0.0.1/${entry.dbName}`);
+          const session = loadSession(registryRoot);
+          const apiAlive = session?.pids.api ? isPidAlive(session.pids.api) : false;
+          const appAlive = session?.pids.app ? isPidAlive(session.pids.app) : false;
           if (apiAlive || appAlive) {
             info(
               `  Running:  api ${apiAlive ? colors.green('●') : colors.dim('○')}  app ${appAlive ? colors.green('●') : colors.dim('○')}`,
             );
           } else {
-            info(colors.dim('  Hint: `lt local up` to start API + App with these ports.'));
+            info(colors.dim('  Hint: `lt dev up` to start API + App behind Caddy.'));
           }
         }
       }

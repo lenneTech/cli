@@ -185,23 +185,37 @@ side-by-side standalone clone inside an existing workspace. AI agents
 should not pass `--force` unless the user explicitly asked for a
 side-by-side standalone tree.
 
-### Local dev orchestration (`lt local`, `lt ports`) — key touchpoints
+### Local dev orchestration (`lt dev`) — key touchpoints
 
-Run multiple lt projects in parallel without port collisions. Slot allocation
-is deterministic per project slug (FNV-1a hash → `3000+slot*10` / `3001+slot*10`)
-and shared across machines via a central registry at `~/.lenneTech/ports.json`.
+Run multiple lt projects in parallel without port collisions or cross-wiring.
+**URL-first**: every project gets stable HTTPS URLs (`<slug>.localhost`,
+`api.<slug>.localhost`) served by Caddy, which proxies to opaque internal
+ports. Developers and Claude Code never see the internal ports.
 
 | Concern | File | Notes |
 |---|---|---|
-| Slot allocation, registry I/O | `src/lib/port-registry.ts` | `slotFromSlug` (FNV-1a), `allocateSlot` (linear fall-through on collision), `loadRegistry` / `saveRegistry`. Registry path overridable via `LT_PORTS_REGISTRY_PATH` (used by tests + corporate setups). |
-| Single-call port snapshot | `src/lib/port-registry.ts#listenSnapshot` | Issues ONE `lsof -iTCP -sTCP:LISTEN -nP` and filters in memory; ~50ms regardless of port count. Used by `ports.ts`, `up.ts`, `status.ts`. **Never spawn `lsof` per port in a loop** — that was the original 6-second bug. |
-| PID safety | `src/lib/port-registry.ts#isValidPid`, `#isPidAlive`, `src/commands/local/down.ts` | Authoritative gate: `loadLocalState` rejects malformed/system-range PIDs; `down.ts` re-validates before any `process.kill(-pid, …)` so a tampered `state.json` cannot signal arbitrary process groups. |
-| Workspace/standalone detection | `src/lib/local-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. |
-| Idempotent legacy port patches | `src/lib/local-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md port block. All four return a no-op `PatchResult` for missing files. |
-| Run-loop env contract | `src/commands/local/up.ts` (env literal + JSDoc) | Single source of truth for `PORT`/`BASE_URL`/`APP_URL`/`NUXT_*`/`NSC__MONGOOSE__URI`. **If you change a name, also update the CLAUDE.md port block in `local-patches.ts#patchClaudeMd`.** |
-| Process-group teardown | `src/commands/local/down.ts` | Uses negative-PID `SIGTERM` to reach the Nest watcher + Vite + Nuxt children; falls back to single-PID kill on `EPERM`. |
-| Detached-spawn binary override | `src/commands/local/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups). |
-| Project-local state | `<project>/.lt-local/{state.json,api.log,app.log}` | Auto-added to `.gitignore` by `lt local init`. State JSON is schema-validated on load. |
+| Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
+| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. |
+| Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
+| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. **Never spawn caddy with sudo** — daemon must already be running (`brew services start caddy`). |
+| Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. |
+| Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`. |
+| Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. |
+| Detached-spawn binary override | `src/commands/dev/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups, or bun-based projects via wrapper script). |
+| Project-local state | `<project>/.lt-dev/{state.json,api.log,app.log,.env}` | Auto-added to `.gitignore` by `lt dev migrate`. State JSON is schema-validated on load. The `.env` file is the **ENV bridge** (see below). |
+| ENV bridge for external tools | `src/lib/dev-env-bridge.ts` | `lt dev up` writes `<root>/.lt-dev/.env` with all URLs + `NODE_EXTRA_CA_CERTS` (Caddy root CA path). External test runners (Playwright, IDE extensions, custom scripts) load this file via the auto-injected bridge block in `playwright.config.ts` (see `dev-patches.ts#patchPlaywrightConfig`). `lt dev down` removes it. |
+| One-shot test wrapper | `src/commands/dev/test.ts` | `lt dev test` ensures `up`, waits for the App URL, and runs `pnpm run test:e2e` with the bridge env loaded. Forwards args after `--`. Optional `--teardown` runs `down` after. Used in TDD loops; for IDE/CI runs the playwright config bridge block is sufficient. |
+
+**Lifecycle:**
+1. **`lt dev install`** — one-time per machine. Verifies Caddy, suggests `brew install caddy` and `brew services start caddy` if missing. Creates `~/.lenneTech/Caddyfile` stub.
+2. **`lt dev migrate`** — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`.
+3. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached.
+4. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
+5. **`lt dev status [--all]`** — current project or all registered.
+6. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics.
+7. **`lt dev test [--api] [--teardown] [--debug] [-- args]`** — one-shot E2E wrapper: ensure `up`, run tests, optional `down`.
+
+**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`.
 
 ### Vendor Modification Policy (for CLI-generated content)
 

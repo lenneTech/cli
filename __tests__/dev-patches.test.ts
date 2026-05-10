@@ -1,0 +1,179 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+import {
+  addToGitignore,
+  autoPatch,
+  patchApiConfig,
+  patchClaudeMd,
+  patchNuxtConfig,
+  patchPlaywrightConfig,
+} from '../src/lib/dev-patches';
+import { DevIdentity } from '../src/lib/dev-identity';
+
+const fullIdentity: DevIdentity = {
+  root: '/tmp/fake',
+  slug: 'crm',
+  subdomains: {
+    api: { hostname: 'api.crm.localhost', isPrimaryApp: false, subdir: 'projects/api' },
+    app: { hostname: 'crm.localhost', isPrimaryApp: true, subdir: 'projects/app' },
+  },
+};
+
+describe('dev-patches', () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'lt-dev-patches-'));
+  });
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  describe('patchApiConfig', () => {
+    test('replaces hardcoded port', () => {
+      const f = join(tmp, 'config.env.ts');
+      writeFileSync(f, 'export default {\n    port: 3000,\n};');
+      const r = patchApiConfig(f);
+      expect(r.patched).toBe(true);
+      expect(r.replacements).toBe(1);
+      expect(readFileSync(f, 'utf8')).toContain('port: Number(process.env.PORT) || 3000');
+    });
+    test('idempotent on already-patched file', () => {
+      const f = join(tmp, 'config.env.ts');
+      writeFileSync(f, '    port: Number(process.env.PORT) || 3000,');
+      const r = patchApiConfig(f);
+      expect(r.patched).toBe(false);
+    });
+    test('missing file is no-op', () => {
+      const r = patchApiConfig(join(tmp, 'missing.ts'));
+      expect(r.patched).toBe(false);
+    });
+  });
+
+  describe('patchNuxtConfig', () => {
+    test('replaces hardcoded port + vite proxy target', () => {
+      const f = join(tmp, 'nuxt.config.ts');
+      writeFileSync(f, "    port: 3001,\n    target: 'http://localhost:3000',\n");
+      const r = patchNuxtConfig(f);
+      expect(r.patched).toBe(true);
+      expect(r.replacements).toBe(2);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('port: Number(process.env.PORT) || 3001');
+      expect(out).toContain("target: process.env.NUXT_API_URL || 'http://localhost:3000'");
+    });
+  });
+
+  describe('patchPlaywrightConfig', () => {
+    test('replaces baseURL/host/url', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(
+        f,
+        [
+          "    baseURL: 'http://localhost:3001',",
+          "    host: 'http://localhost:3001',",
+          "    url: 'http://localhost:3001',",
+        ].join('\n'),
+      );
+      const r = patchPlaywrightConfig(f);
+      // 3 URL replacements + 1 bridge-block insertion = 4
+      expect(r.replacements).toBe(4);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain("baseURL: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001'");
+      expect(out).toContain("host: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001'");
+      expect(out).toContain("url: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001'");
+    });
+
+    test('inserts the .lt-dev/.env bridge loader at the top of the file', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toMatch(/^\/\/ >>> lt-dev:bridge >>>/);
+      expect(out).toContain('// <<< lt-dev:bridge <<<');
+      expect(out).toContain(".lt-dev/.env");
+      expect(out).toMatch(/process\.env\[.+\] === undefined/); // existing env wins
+    });
+
+    test('idempotent — bridge inserted only once', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      const matches = (out.match(/>>> lt-dev:bridge >>>/g) || []).length;
+      expect(matches).toBe(1);
+    });
+
+    test('only inserts bridge when at least one URL patch happens or bridge is missing', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      // Already env-aware, no bridge yet → bridge should be added
+      writeFileSync(f, "    baseURL: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001',\n");
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(true);
+      expect(readFileSync(f, 'utf8')).toContain('lt-dev:bridge');
+    });
+
+    test('completely already-patched file: no-op', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, '// >>> lt-dev:bridge >>>\nstub\n// <<< lt-dev:bridge <<<\n');
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(false);
+    });
+  });
+
+  describe('autoPatch dispatcher', () => {
+    test('routes by filename suffix', () => {
+      const a = join(tmp, 'config.env.ts');
+      writeFileSync(a, '    port: 3000,');
+      expect(autoPatch(a).patched).toBe(true);
+      const b = join(tmp, 'unknown.ts');
+      writeFileSync(b, 'whatever');
+      expect(autoPatch(b).patched).toBe(false);
+    });
+  });
+
+  describe('patchClaudeMd', () => {
+    test('appends URL block to existing CLAUDE.md', () => {
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(f, '# Project notes\n');
+      const r = patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      expect(r.patched).toBe(true);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('https://crm.localhost');
+      expect(out).toContain('https://api.crm.localhost');
+      expect(out).toContain('mongodb://127.0.0.1/crm-local');
+      expect(out).toContain('<!-- lt-dev:url-block:start -->');
+      expect(out).toContain('<!-- lt-dev:url-block:end -->');
+    });
+    test('idempotent: re-applies replace block in-place', () => {
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(f, '# X\n');
+      patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      const r = patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      expect(r.patched).toBe(false);
+      const matches = (readFileSync(f, 'utf8').match(/<!-- lt-dev:url-block:start -->/g) || []).length;
+      expect(matches).toBe(1);
+    });
+    test('does not create CLAUDE.md from scratch', () => {
+      const r = patchClaudeMd(join(tmp, 'missing.md'), { identity: fullIdentity });
+      expect(r.patched).toBe(false);
+    });
+  });
+
+  describe('addToGitignore', () => {
+    test('appends entry when missing', () => {
+      writeFileSync(join(tmp, '.gitignore'), 'node_modules/\n');
+      expect(addToGitignore(tmp, '.lt-dev/')).toBe(true);
+      expect(readFileSync(join(tmp, '.gitignore'), 'utf8')).toContain('.lt-dev/');
+    });
+    test('idempotent when already present', () => {
+      writeFileSync(join(tmp, '.gitignore'), 'node_modules/\n.lt-dev/\n');
+      expect(addToGitignore(tmp, '.lt-dev/')).toBe(false);
+    });
+    test('creates .gitignore when missing', () => {
+      expect(addToGitignore(tmp, '.lt-dev/')).toBe(true);
+      expect(readFileSync(join(tmp, '.gitignore'), 'utf8')).toContain('.lt-dev/');
+    });
+  });
+});

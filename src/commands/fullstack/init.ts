@@ -1,6 +1,9 @@
-import { GluegunCommand } from 'gluegun';
+import { filesystem as fs, GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { caddyAvailable } from '../../lib/caddy';
+import { runMigrate } from '../../lib/dev-migrate-helper';
+import { resolveLayout } from '../../lib/dev-project';
 import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
 import { detectWorkspaceLayout } from '../../lib/workspace-integration';
 import addApiCommand from './add-api';
@@ -24,7 +27,7 @@ const NewCommand: GluegunCommand = {
       helper,
       parameters,
       patching,
-      print: { error, info, spin, success },
+      print: { colors, error, info, spin, success },
       prompt: { ask, confirm },
       server,
       strings: { kebabCase },
@@ -699,6 +702,22 @@ const NewCommand: GluegunCommand = {
         }
       }
 
+      // Best-effort `lt dev migrate` so the workspace is ready for `lt dev up`
+      // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
+      // injects the URL block into CLAUDE.md, adds `.lt-dev/` to .gitignore.
+      // Failures here are non-fatal — `init` itself remains successful.
+      let devMigrateOk = false;
+      try {
+        const layout = resolveLayout(projectDir, fs);
+        const migrate = runMigrate({ layout });
+        devMigrateOk = true;
+        if (!migrate.alreadyMigrated) {
+          info(colors.dim(`  registered "${migrate.identity.slug}" with \`lt dev\``));
+        }
+      } catch {
+        /* best-effort — never block init */
+      }
+
       // We're done, so show what to do next
       info('');
       success(
@@ -717,7 +736,19 @@ const NewCommand: GluegunCommand = {
       } else {
         info(`  Run ${name}`);
         info(`  $ cd ${projectDir}`);
-        info(`  $ ${toolbox.pm.run('start')}`);
+        if (devMigrateOk) {
+          // Prefer lt dev up — sets up Caddy + HTTPS URLs + cross-wiring guards.
+          const caddyOk = await caddyAvailable();
+          if (caddyOk) {
+            info('  $ lt dev up   # start API + App behind Caddy with project-specific URLs');
+          } else {
+            info('  $ lt dev install   # one-time per machine: verify Caddy + CA');
+            info('  $ lt dev up        # then: start API + App behind Caddy');
+          }
+          info(colors.dim(`  (fallback: ${toolbox.pm.run('start')} runs the classic localhost:3000/3001 mode)`));
+        } else {
+          info(`  $ ${toolbox.pm.run('start')}`);
+        }
       }
       info('');
 

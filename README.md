@@ -57,21 +57,27 @@ $ lt status
 $ lt completion install
 ```
 
-## Local dev orchestration (parallel projects)
+## Local dev orchestration (parallel projects, HTTPS URLs)
 
-Run multiple lt projects on the same machine without manually shuffling ports.
-Each project gets a deterministic port slot (`3000+slot*10` / `3001+slot*10`) and
-the matching env vars are injected into spawned dev servers automatically.
+Run multiple lt projects on the same machine without port collisions or
+cross-wiring. Each project gets stable HTTPS URLs (`<slug>.localhost`,
+`api.<slug>.localhost`) served by Caddy, and the matching env vars
+(`BASE_URL`, `APP_URL`, `NUXT_PUBLIC_*`, `NSC__MONGOOSE__URI`, …) are
+injected into the spawned dev servers automatically.
 
 ```bash
-# Once per project:
-$ lt local init                    # register slot + patch legacy hardcoded ports
+# Once per machine:
+$ lt dev install                   # verify Caddy, prep Caddyfile + local CA
+
+# Once per project (idempotent):
+$ lt dev migrate                   # patch legacy hardcoded ports + register
 
 # Daily:
-$ lt local up                      # start API + App
-$ lt local status                  # show running PIDs + bound ports
-$ lt local down                    # SIGTERM the process group
-$ lt ports                         # cross-project port overview
+$ lt dev up                        # start API + App behind Caddy
+$ lt dev status                    # current project status
+$ lt dev status --all              # all registered projects
+$ lt dev down                      # SIGTERM the process group + remove Caddy block
+$ lt dev doctor                    # diagnose Caddy / CA / DNS / port issues
 ```
 
 Full reference: [docs/commands.md → Local Development Commands](docs/commands.md#local-development-commands).

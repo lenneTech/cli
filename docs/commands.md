@@ -286,188 +286,201 @@ For mode-aware update workflows after conversion, use:
 
 ## Local Development Commands
 
-Orchestrate parallel lt projects on the same machine without port collisions. Each project gets a deterministic port slot derived from its slug; API/App ports are always slot-paired (`3000+slot*10` / `3001+slot*10`). Slot allocation is reproducible across machines (FNV-1a hash) and persisted in `~/.lenneTech/ports.json`.
+Run multiple lt projects in parallel without port collisions or cross-wiring.
+**URL-first**: every project gets stable HTTPS URLs (`<slug>.localhost`,
+`api.<slug>.localhost`) served by Caddy. Internal ports are opaque and
+auto-allocated. Cross-project state (database, storage, cookies) is
+namespaced by slug so projects cannot accidentally interfere.
 
-### `lt local`
+### `lt dev`
 
 Open the local-orchestration submenu.
 
 **Usage:**
 ```bash
-lt local
+lt dev
 ```
 
-**Alias:** `lt l`
+**Alias:** `lt d`
 
 ---
 
-### `lt local init`
+### `lt dev install`
 
-Register the current project in the central port registry, optionally patching legacy hardcoded ports to be env-aware.
+One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing.
 
 **Usage:**
 ```bash
-lt local init [options]
+lt dev install
 ```
 
-**Alias:** `lt l i`
-
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `--slot <n>` | Force a specific slot index (0..89) instead of the deterministic slug hash |
-| `--patch` | Apply env-aware port patches non-interactively |
-| `--no-patch` | Skip the patch detection / prompt entirely |
-| `--noConfirm` | Skip confirmation prompts (without `--patch`, patches are skipped) |
+**Alias:** `lt d i`
 
 **What it does:**
-1. Detects the workspace layout (monorepo with `projects/api/` + `projects/app/`, or standalone API/App project).
-2. Looks up or allocates a slot via FNV-1a hash of the project slug. If the slot is taken, falls through linearly to the next free slot.
-3. Detects legacy hardcoded ports in `config.env.ts` (`port: 3000`), `nuxt.config.ts` (`port: 3001`, vite proxy `target: 'http://localhost:3000'`), and `playwright.config.ts` (`baseURL`/`host`/`url: 'http://localhost:3001'`). If `--patch` (or interactive confirm), rewrites them to env-overridable form (`Number(process.env.PORT) || 3000`, `process.env.NUXT_API_URL || …`, etc.) — defaults preserved, idempotent.
-4. Persists the entry to `~/.lenneTech/ports.json`.
-5. Adds `.lt-local/` to the project's `.gitignore`.
-6. Injects (or refreshes) a "Local Development (lt local)" port block into `CLAUDE.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers so it can be replaced cleanly when ports change.
-
-**Examples:**
-```bash
-# Inside a workspace or standalone project
-lt local init
-
-# Force slot 5 for predictable cross-team ports
-lt local init --slot 5 --noConfirm --patch
-
-# Register without touching any source files
-lt local init --no-patch --noConfirm
-```
+1. Verifies `caddy` is on PATH (suggests `brew install caddy` if missing).
+2. Creates `~/.lenneTech/Caddyfile` stub if absent.
+3. Verifies the Caddy daemon is running (suggests `brew services start caddy`).
+4. Validates the Caddyfile.
+5. Reminds you to run `sudo caddy trust` once so browsers accept `https://*.localhost`.
 
 ---
 
-### `lt local up`
+### `lt dev migrate`
 
-Start the API + App with project-specific ports. Spawns `pnpm start` (api) and `pnpm dev` (app) detached; persists PIDs to `<root>/.lt-local/state.json`.
+Register an existing project with `lt dev` and apply idempotent env-aware patches. Safe to run multiple times; safe to run after `lt fullstack init`.
 
 **Usage:**
 ```bash
-lt local up
+lt dev migrate
 ```
 
-**Alias:** `lt l u`
+**Alias:** `lt d m`
 
-**Environment variables injected into both children:**
+**What it does:**
+1. Detects the workspace layout (monorepo `projects/api`+`projects/app`, or standalone).
+2. Builds the project identity (slug from `package.json` "name", subdomains).
+3. Patches legacy hardcoded ports in `config.env.ts` (`port: 3000`), `nuxt.config.ts` (`port: 3001`, vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`) to env-overridable form. Defaults preserved, idempotent.
+4. Persists the entry to `~/.lenneTech/projects.json` (override path via `LT_DEV_REGISTRY_PATH`).
+5. Adds `.lt-dev/` to the project's `.gitignore`.
+6. Injects (or refreshes) a "Local Development (lt dev)" URL block into `CLAUDE.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers.
+
+---
+
+### `lt dev up`
+
+Start API + App behind Caddy. Allocates internal ports (4000+), spawns processes detached, persists PIDs to `<root>/.lt-dev/state.json`.
+
+**Usage:**
+```bash
+lt dev up
+```
+
+**Alias:** `lt d u`
+
+**Environment variables injected:**
 | Variable | Consumer | Example value |
 |----------|----------|---------------|
-| `PORT` | Nest (api) / Nuxt dev server (app) | slot-derived |
-| `BASE_URL` | nest-server config.env.ts (canonical API base) | `http://localhost:3030` |
-| `APP_URL` | nest-server config.env.ts (frontend origin for redirects/CORS) | `http://localhost:3031` |
-| `NUXT_API_URL` | Nuxt vite-proxy target for `/api`, `/iam`, … | `http://localhost:3030` |
-| `NUXT_PUBLIC_API_URL` | Nuxt `useRuntimeConfig().public.apiUrl` | `http://localhost:3030` |
-| `NUXT_PUBLIC_SITE_URL` | Nuxt `useRuntimeConfig().public.siteUrl` + Playwright | `http://localhost:3031` |
-| `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage so parallel projects don't share auth tokens | `crm-local` |
-| `NSC__MONGOOSE__URI` | nest-server-config Mongoose URI (only when `dbName` is known) | `mongodb://127.0.0.1/crm-local` |
+| `PORT` | Nest (api) / Nuxt (app) | auto-allocated 4000+ |
+| `BASE_URL` / `NSC__BASE_URL` | nest-server canonical API URL | `https://api.crm.localhost` |
+| `APP_URL` / `NSC__APP_URL` | nest-server frontend origin (CORS, BetterAuth) | `https://crm.localhost` |
+| `NUXT_API_URL` | Nuxt vite-proxy target for `/api`, `/iam`, … | `https://api.crm.localhost` |
+| `NUXT_PUBLIC_API_URL` | Nuxt `useRuntimeConfig().public.apiUrl` | `https://api.crm.localhost` |
+| `NUXT_PUBLIC_SITE_URL` | Nuxt `useRuntimeConfig().public.siteUrl` + Playwright | `https://crm.localhost` |
+| `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage | `crm` |
+| `NUXT_PUBLIC_API_PROXY` | always `false` — Caddy + cookie-domain make it obsolete | `false` |
+| `NSC__MONGOOSE__URI` | nest-server Mongoose URI | `mongodb://127.0.0.1/crm-local` |
+| `DATABASE_URL` | Postgres convenience URL (for nest-base-style projects) | `postgresql://crm-local:crm-local@localhost:5432/crm-local` |
 
-**Override the binary** used for both spawns by setting `LT_PNPM_BIN` (e.g. `LT_PNPM_BIN=/usr/local/bin/pnpm lt local up`).
+**Override the binary** for both spawns via `LT_PNPM_BIN` (e.g. `LT_PNPM_BIN=/usr/local/bin/pnpm lt dev up`).
 
 **Pre-flight guards (exit code 1 each):**
-- Project not registered (`lt local init` first)
-- Already running (run `lt local down` first)
-- Port already in use by another process
+- Caddy not installed (`lt dev install` first)
+- Caddy daemon not running (`brew services start caddy`)
+- Already running for this project (`lt dev down` first)
+- Internal port already in use
 
-**Logs:** `<root>/.lt-local/api.log`, `<root>/.lt-local/app.log` (append-mode).
-
----
-
-### `lt local down`
-
-Stop processes started by `lt local up`. Sends `SIGTERM` to the detached process group (negative PID) so descendants — Vite, the Nest watcher, etc. — receive the signal too. Falls back to single-PID kill if the process group send fails (`EPERM`).
-
-**Usage:**
-```bash
-lt local down
-```
-
-**Alias:** `lt l d`
-
-PID values from `state.json` are validated (positive integer in `[100, 2^31)`) before any signal is sent, so a tampered state file cannot cause `lt local down` to signal arbitrary process groups.
+**Logs:** `<root>/.lt-dev/api.log`, `<root>/.lt-dev/app.log` (append-mode).
 
 ---
 
-### `lt local status`
+### `lt dev down`
 
-Show what is registered + running for the current project: slot, ports, db URI, PIDs (alive/dead), and live `lsof` state of the assigned ports.
+Stop processes started by `lt dev up` and remove the project's Caddy block.
 
 **Usage:**
 ```bash
-lt local status
+lt dev down
 ```
 
-**Alias:** `lt l s`
+**Alias:** `lt d d`
+
+Sends `SIGTERM` to the detached process group (negative PID) so descendants — Vite, the Nest watcher, etc. — receive the signal too. PID values from `state.json` are validated before signaling. Best-effort: removes the project's Caddy block and reloads even if no session was active.
 
 ---
 
-## Ports Commands
+### `lt dev status`
 
-Inspect the port registry and currently-bound dev ports across all your lt projects. Useful for diagnosing collisions and rebuilding the registry from disk.
-
-### `lt ports`
-
-List all reserved registry entries side-by-side with the live `lsof` state. Issues a single `lsof` call internally for the entire slot range (3000–3899) instead of per port — runs in ~150ms regardless of how many projects are registered.
+Show what is registered + running.
 
 **Usage:**
 ```bash
-lt ports
+lt dev status         # current project
+lt dev status --all   # every project in the registry
 ```
 
-**Alias:** `lt p`
+**Alias:** `lt d s`
 
-**Output sections:**
-1. **Reserved ports (registry)** — every project entry with a `●` (bound) or `○` (free) indicator per port.
-2. **Currently bound dev ports (3000–3899)** — every port in the slot range that currently has a LISTEN socket, with command + PID + owning registry entry (if any).
+The current-project view shows subdomains → upstream ports, db URI, session PIDs (alive/dead), and live `lsof` state. The `--all` view lists every project, with a `●`/`○` indicator for running state.
 
 ---
 
-### `lt ports check <port>`
+### `lt dev doctor`
 
-Exit-coded port probe — useful in shell scripts.
+Diagnose Caddy / CA / DNS / port issues. Exit code 0 = all green, 1 = at least one FAIL.
 
 **Usage:**
 ```bash
-lt ports check <port>
+lt dev doctor
 ```
 
-**Exit codes:**
-| Code | Meaning |
-|------|---------|
-| `0` | Port is free |
-| `1` | Port is in use |
-| `2` | `lsof` not available, or `<port>` argument missing/invalid |
+**Alias:** `lt d doc`
 
-**Example:**
-```bash
-if lt ports check 3000; then
-  echo "API port free"
-else
-  echo "API port already bound"
-fi
-```
+**Checks:**
+1. `caddy` on PATH
+2. Caddy daemon running (admin endpoint `:2019` reachable)
+3. Caddyfile validates
+4. Ports 80 + 443 free or held by Caddy
+5. `*.localhost` resolves to `127.0.0.1` (RFC 6761)
+6. Registry status
 
 ---
 
-### `lt ports scan [dir]`
+### `lt dev test`
 
-Rebuild the registry from the filesystem. Walks the given directory (default: cwd) up to depth 3, looking for `lt.config.json` + `package.json` pairs or workspace markers (`pnpm-workspace.yaml`, `projects/`). Re-allocates a slot for new projects; preserves slots for existing entries (only refreshing the path if it moved). Writes only when the registry actually changed (no mtime churn for cloud-sync tools).
+One-shot E2E wrapper: ensure `up`, wait for the App URL, run `pnpm run test:e2e` with the `.lt-dev/.env` bridge loaded. Optional teardown after.
 
 **Usage:**
 ```bash
-lt ports scan [dir]
+lt dev test                      # App E2E (projects/app)
+lt dev test --api                # API E2E (projects/api) — no Caddy required
+lt dev test --teardown           # plus `lt dev down` after
+lt dev test --debug              # PWDEBUG=1 + HEADED=1
+lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwright
 ```
 
-**Examples:**
-```bash
-lt ports scan                       # scan from cwd
-lt ports scan ~/code/lenneTech      # scan a specific tree
-```
+**Alias:** `lt d t`
 
-Symlinks are skipped to avoid traversal loops; dotdirs and `node_modules` are not descended into.
+**Behaviour:**
+1. Pre-flight: Caddy installed + daemon running (App mode only).
+2. If no `lt dev up` session is alive: invokes `lt dev up` first.
+3. Waits up to 30 s for the App URL to respond.
+4. Reads `<root>/.lt-dev/.env` and merges into the spawn env (existing process.env wins for keys it defines).
+5. Spawns `pnpm run test:e2e [forwarded args]` in `projects/api` (with `--api`) or `projects/app` (default).
+6. With `--teardown`, runs `lt dev down` after.
+
+**When to use this vs. `pnpm run test:e2e` directly:**
+- Use **`lt dev test`** for TDD loops, ad-hoc reproduction, or when you want a single-command "ensure-up + run + teardown" flow.
+- Use **direct `pnpm run test:e2e`** (or VS Code Playwright Extension, IDE test runners) for everyday work — the auto-injected `playwright.config.ts` bridge loads the `.lt-dev/.env` automatically, so the env is correct without the wrapper.
+
+---
+
+### ENV bridge for external test runners
+
+`lt dev up` writes a `<root>/.lt-dev/.env` file with the following keys:
+
+| Key | Source |
+|-----|--------|
+| `BASE_URL`, `APP_URL`, `NSC__BASE_URL`, `NSC__APP_URL` | Identity → `https://api.<slug>.localhost` / `https://<slug>.localhost` |
+| `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL` | Same URLs for Nuxt |
+| `NUXT_PUBLIC_STORAGE_PREFIX` | Project slug |
+| `NUXT_PUBLIC_API_PROXY` | Always `false` under `lt dev` |
+| `NSC__MONGOOSE__URI`, `DATABASE_URL` | Project-namespaced DB URI (when `dbName` known) |
+| `LT_DEV_ACTIVE`, `LT_DEV_DB_NAME` | Marker keys for consumers |
+| `NODE_EXTRA_CA_CERTS` | Path to Caddy's root CA cert (auto-detected) |
+
+`lt dev migrate` injects a tiny `// >>> lt-dev:bridge >>>` block at the top of `playwright.config.ts` that loads this file at config-load time — making Playwright (CLI, IDE, VS Code extension) automatically use the `lt dev` URLs and trust the local CA, without inheriting the parent shell.
+
+`lt dev down` removes the bridge file so subsequent runs without `lt dev up` fall back cleanly to the classic `localhost:3000`/`localhost:3001` defaults.
 
 ---
 
