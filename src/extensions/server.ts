@@ -2187,21 +2187,31 @@ export class Server {
           continue;
         }
 
-        // Replace database names (nest-server-ci -> projectDir-ci)
+        // Replace database names so the project gets project-specific DB
+        // names. Matches BOTH the legacy `nest-server-{env}` form AND the
+        // current `nest-server-starter-{env}` form used by the public
+        // nest-server-starter repo. Examples:
+        //   nest-server-starter-local       → ${projectDir}-local
+        //   nest-server-starter-production  → ${projectDir}-production
+        //   nest-server-ci                  → ${projectDir}-ci  (legacy)
+        // The optional `(?:starter-)?` non-capturing group is what fixes
+        // the previously-broken case where dbName: 'nest-server-starter-local'
+        // turned into 'svl-sports-system-starter-local' (-starter- stayed).
         if (text.includes('nest-server-')) {
-          literal.setLiteralValue(text.replace(/nest-server-/g, `${projectDir}-`));
+          literal.setLiteralValue(text.replace(/nest-server-(?:starter-)?/g, `${projectDir}-`));
         }
       }
 
       sourceFile.saveSync();
     } catch {
-      // Fallback to regex-based approach if ts-morph fails
+      // Fallback to regex-based approach if ts-morph fails. Same matcher
+      // as the AST branch — keep them in sync.
       let content = this.filesystem.read(configPath);
       if (!content) {
         return;
       }
       content = this.replaceSecretOrPrivateKeys(content);
-      content = content.replace(/nest-server-(\w+)/g, `${projectDir}-$1`);
+      content = content.replace(/nest-server-(?:starter-)?(\w+)/g, `${projectDir}-$1`);
       this.filesystem.write(configPath, content);
     }
   }
