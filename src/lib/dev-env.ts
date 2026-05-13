@@ -11,7 +11,14 @@
  * - `NUXT_PUBLIC_*` lock the App to its own API
  * - `NUXT_PUBLIC_STORAGE_PREFIX` namespaces localStorage/sessionStorage
  * - `NSC__MONGOOSE__URI` / `DATABASE_URL` namespace the database per project
+ *
+ * CA trust for SSR fetches:
+ * - Both API and App receive `NODE_EXTRA_CA_CERTS` pointing at the
+ *   Caddy local root CA so server-side fetches between the two
+ *   subdomains succeed. Without this Nuxt SSR fails with "unable to
+ *   get local issuer certificate" when the app calls its own API.
  */
+import { detectCaddyRootCa } from './dev-env-bridge';
 import { DevIdentity } from './dev-identity';
 
 export interface BuildDevEnvInput {
@@ -49,10 +56,14 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
   const apiUrl = apiSub ? `https://${apiSub.hostname}` : '';
   const appUrl = appSub ? `https://${appSub.hostname}` : '';
 
+  const caPath = detectCaddyRootCa();
   const sharedKeys: NodeJS.ProcessEnv = {
     ...(apiUrl ? { BASE_URL: apiUrl, NSC__BASE_URL: apiUrl } : {}),
     ...(appUrl ? { APP_URL: appUrl, NSC__APP_URL: appUrl } : {}),
     ...(dbName ? { DATABASE_URL: buildPostgresUrl(dbName), NSC__MONGOOSE__URI: `mongodb://127.0.0.1/${dbName}` } : {}),
+    // Caddy's local root CA — without this, Node's TLS rejects
+    // self-signed certs and Nuxt SSR + API server-side fetches fail.
+    ...(caPath ? { NODE_EXTRA_CA_CERTS: caPath } : {}),
   };
 
   return {
@@ -60,6 +71,12 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
       env: {
         ...baseEnv,
         ...sharedKeys,
+        // Force IPv4 loopback binding so Caddy's `127.0.0.1` upstream
+        // (see `caddy.ts#renderProjectBlock`) always matches the
+        // listener. Without this, Nuxt + Nest sometimes bind to
+        // `[::1]` only, and Caddy gets connection-refused on IPv4.
+        HOST: '127.0.0.1',
+        NITRO_HOST: '127.0.0.1',
         PORT: String(apiInternalPort),
       },
       internalPort: apiInternalPort,
@@ -68,8 +85,19 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
       env: {
         ...baseEnv,
         ...sharedKeys,
-        ...(apiUrl ? { NUXT_API_URL: apiUrl, NUXT_PUBLIC_API_URL: apiUrl } : {}),
-        ...(appUrl ? { NUXT_PUBLIC_SITE_URL: appUrl } : {}),
+        // See API note above: pin the dev server to IPv4 so Caddy's
+        // `127.0.0.1` upstream is unambiguous.
+        HOST: '127.0.0.1',
+        NITRO_HOST: '127.0.0.1',
+        // `API_URL` / `SITE_URL` are common legacy aliases used by
+        // projects that pre-date the `NUXT_*` convention (e.g. when
+        // nuxt.config.ts reads `process.env.API_URL` directly into
+        // runtimeConfig.public). Exporting them transparently means
+        // those projects "just work" under `lt dev up` without code
+        // changes. The `NUXT_*` variants below win at runtime where
+        // both are read.
+        ...(apiUrl ? { API_URL: apiUrl, NUXT_API_URL: apiUrl, NUXT_PUBLIC_API_URL: apiUrl } : {}),
+        ...(appUrl ? { NUXT_PUBLIC_SITE_URL: appUrl, SITE_URL: appUrl } : {}),
         // Vite-API-Proxy is OFF by default in lt dev mode — Caddy serves
         // both subdomains under HTTPS with shared cookie domain, so
         // same-origin trickery is no longer required.

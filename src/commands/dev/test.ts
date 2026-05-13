@@ -75,7 +75,7 @@ const TestCommand: GluegunCommand = {
         return 'dev test: caddy missing';
       }
       if (!(await caddyDaemonRunning())) {
-        error('caddy daemon not running. `brew services start caddy` first.');
+        error('caddy daemon not running. Run `lt dev install` first.');
         if (!parameters.options.fromGluegunMenu) process.exit(1);
         return 'dev test: caddy daemon down';
       }

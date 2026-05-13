@@ -108,7 +108,7 @@ const StatusCommand: GluegunCommand = {
       if (!caddyOk) {
         warning('  Caddy not installed — run `lt dev install` first.');
       } else if (!daemonOk) {
-        warning('  Caddy daemon not running — `brew services start caddy`.');
+        warning('  Caddy daemon not running — run `lt dev install` to (re)start the lt-dev service.');
       } else {
         info(colors.dim('  Caddy: ready'));
       }

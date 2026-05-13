@@ -307,7 +307,7 @@ lt dev
 
 ### `lt dev install`
 
-One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing.
+One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing. Owns the full Caddy lifecycle via a dedicated LaunchAgent (macOS) / systemd-user unit (Linux) — **does not** use `brew services caddy`, whose hardcoded `/opt/homebrew/etc/Caddyfile` path would crash-loop against our `~/.lenneTech/Caddyfile`.
 
 **Usage:**
 ```bash
@@ -319,9 +319,39 @@ lt dev install
 **What it does:**
 1. Verifies `caddy` is on PATH (suggests `brew install caddy` if missing).
 2. Creates `~/.lenneTech/Caddyfile` stub if absent.
-3. Verifies the Caddy daemon is running (suggests `brew services start caddy`).
-4. Validates the Caddyfile.
-5. Reminds you to run `sudo caddy trust` once so browsers accept `https://*.localhost`.
+3. Detects a conflicting `brew services caddy` registration and asks you to stop it.
+4. Writes + bootstraps a dedicated service:
+   - **macOS:** `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`.
+   - **Linux:** `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`.
+5. Waits up to 8s for Caddy's admin endpoint (`http://127.0.0.1:2019/config/`) to respond.
+6. Validates the Caddyfile.
+7. Reminds you to run the CA trust command **with HOME preserved**:
+   ```bash
+   sudo -E HOME="$HOME" caddy trust
+   ```
+   Without `-E HOME="$HOME"`, sudo switches HOME to `/var/root` and caddy cannot find its user-scoped CA — this was the bug that blocked the very first install attempt.
+
+**Logs:** `~/.lenneTech/caddy.log`, `~/.lenneTech/caddy.err.log`.
+
+---
+
+### `lt dev uninstall`
+
+Symmetric counterpart to `lt dev install`. Removes the LaunchAgent / systemd-user unit and stops the Caddy daemon. Does **not** remove the caddy binary itself.
+
+**Usage:**
+```bash
+lt dev uninstall              # interactive: asks whether to purge Caddyfile + logs
+lt dev uninstall --purge      # also remove ~/.lenneTech/Caddyfile + caddy logs
+lt dev uninstall --noConfirm  # skip the purge prompt (keep files)
+```
+
+**Alias:** `lt d un`
+
+**What it does NOT touch:**
+- the `caddy` binary (use `brew uninstall caddy` if you want to remove the tool too)
+- per-project state under `<project>/.lt-dev/` (use `lt dev down`)
+- the trusted CA in the system keychain (use `sudo -E HOME="$HOME" caddy untrust` if desired)
 
 ---
 
@@ -375,7 +405,7 @@ lt dev up
 
 **Pre-flight guards (exit code 1 each):**
 - Caddy not installed (`lt dev install` first)
-- Caddy daemon not running (`brew services start caddy`)
+- Caddy daemon not running (run `lt dev install` — it bootstraps the lt-dev service)
 - Already running for this project (`lt dev down` first)
 - Internal port already in use
 
@@ -411,6 +441,36 @@ lt dev status --all   # every project in the registry
 **Alias:** `lt d s`
 
 The current-project view shows subdomains → upstream ports, db URI, session PIDs (alive/dead), and live `lsof` state. The `--all` view lists every project, with a `●`/`○` indicator for running state.
+
+---
+
+### `lt dev tunnel`
+
+Expose a running `lt dev up` project to the public internet via a Cloudflare Quick Tunnel. Foreground command — runs until Ctrl-C.
+
+**Usage:**
+```bash
+lt dev tunnel              # tunnel the App
+lt dev tunnel --api        # tunnel the API instead
+```
+
+**Alias:** `lt d tun`
+
+**What it does:**
+1. Checks `cloudflared` is on PATH (suggests `brew install cloudflared` otherwise).
+2. Confirms the Caddy daemon is up (`lt dev install` must have run).
+3. Spawns `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`. The host-header rewrite is required — without it Caddy would not match the project block for the random `*.trycloudflare.com` hostname.
+4. Waits for cloudflared to publish the public URL (usually 5-10s) and prints it prominently.
+
+**Caveats (also printed at runtime):**
+- Auth cookies on the localhost domain are NOT valid on the `*.trycloudflare.com` URL — users log in again on the tunnel URL.
+- Better-Auth's `trustedOrigins` won't include the random tunnel URL — login flows that validate the origin reject the request unless the URL is added explicitly to the API config.
+- Default tunnels expose ONLY the App. For full external usage (e.g. external client calling the API), start a second `lt dev tunnel --api` in another shell — the API will be reachable on its own `*.trycloudflare.com` URL.
+
+**Not yet supported (intentional scope limit):**
+- Named tunnels with a persistent URL (`cloudflared tunnel create`)
+- Multi-host tunneling in one process
+- Background/detached mode
 
 ---
 

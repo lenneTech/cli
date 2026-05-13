@@ -28,6 +28,18 @@ describe('caddy / Caddyfile management', () => {
       expect(block).toContain('reverse_proxy 127.0.0.1:4010');
       expect(block).toContain('# <<< lt-dev:crm <<<');
     });
+
+    test('upstream is `127.0.0.1` (paired with HOST=127.0.0.1 in dev-env) — never `localhost`, never `[::1]`', () => {
+      // Regression: `localhost` as upstream resolves to `::1` first on
+      // macOS, which can land in a stray IPv6 listener (HMR, vite-proxy,
+      // a different process) and hang the request. `HOST=127.0.0.1` in
+      // dev-env pins the dev servers to IPv4, so a `127.0.0.1` upstream
+      // is unambiguous.
+      const block = renderProjectBlock('shop', [{ hostname: 'shop.localhost', upstreamPort: 4021 }]);
+      expect(block).toContain('reverse_proxy 127.0.0.1:4021');
+      expect(block).not.toMatch(/reverse_proxy\s+localhost/);
+      expect(block).not.toMatch(/reverse_proxy\s+\[::1]/);
+    });
   });
 
   describe('upsertProjectBlock', () => {

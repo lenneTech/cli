@@ -86,7 +86,21 @@ export function removeProjectBlock(slug: string): boolean {
   return true;
 }
 
-/** Generate the Caddyfile block for one project's routes. */
+/**
+ * Generate the Caddyfile block for one project's routes.
+ *
+ * Upstream uses `127.0.0.1:<port>` explicitly — paired with
+ * `HOST=127.0.0.1` injected into the dev-server processes (see
+ * `dev-env.ts`). This guarantees a single, unambiguous loopback path:
+ *
+ *   - Vite/Nuxt/Nest, when given `HOST=127.0.0.1`, bind exclusively
+ *     to IPv4. There is no second IPv6 listener that could shadow
+ *     the port (which had been the source of the 502 / hanging
+ *     requests when two processes both registered on `[::1]:<port>`).
+ *   - `localhost` as Caddy upstream resolves to `::1` first on macOS,
+ *     so it would still pick the IPv6 family and miss the IPv4 bind.
+ *     Pinning to `127.0.0.1` removes that ambiguity entirely.
+ */
 export function renderProjectBlock(slug: string, routes: CaddyRoute[]): string {
   const lines: string[] = [`# >>> lt-dev:${slug} >>>`];
   for (const route of routes) {

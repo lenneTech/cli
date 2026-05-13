@@ -197,7 +197,8 @@ ports. Developers and Claude Code never see the internal ports.
 | Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
 | ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
-| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. **Never spawn caddy with sudo** — daemon must already be running (`brew services start caddy`). |
+| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
+| Caddy service lifecycle | `src/lib/dev-service.ts` + `src/commands/dev/{install,uninstall}.ts` | Per-OS service runner. macOS: per-user LaunchAgent `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`. Linux: `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`. Render helpers (`renderLaunchAgentPlist`, `renderSystemdUnit`) are pure + unit-tested; side-effecting ops accept an injectable `ShellRunner`. **Critical:** plist sets `HOME=$userHome` env so caddy persists its CA under `~/Library/Application Support/Caddy/`, not the launchd-empty default. `userHome()` is `process.env.HOME || homedir()` because real `os.homedir()` on macOS goes through `getpwuid()` and ignores HOME — required so test files can redirect side-effects to a tmpdir. The `caddy trust` instructions surfaced to users **must** include `-E HOME="$HOME"` for the same reason in sudo context. |
 | Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. |
 | Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`. |
 | Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. |
@@ -207,13 +208,15 @@ ports. Developers and Claude Code never see the internal ports.
 | One-shot test wrapper | `src/commands/dev/test.ts` | `lt dev test` ensures `up`, waits for the App URL, and runs `pnpm run test:e2e` with the bridge env loaded. Forwards args after `--`. Optional `--teardown` runs `down` after. Used in TDD loops; for IDE/CI runs the playwright config bridge block is sufficient. |
 
 **Lifecycle:**
-1. **`lt dev install`** — one-time per machine. Verifies Caddy, suggests `brew install caddy` and `brew services start caddy` if missing. Creates `~/.lenneTech/Caddyfile` stub.
-2. **`lt dev migrate`** — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`.
-3. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached.
-4. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
-5. **`lt dev status [--all]`** — current project or all registered.
-6. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics.
-7. **`lt dev test [--api] [--teardown] [--debug] [-- args]`** — one-shot E2E wrapper: ensure `up`, run tests, optional `down`.
+1. **`lt dev install`** — one-time per machine. Verifies Caddy is on PATH (suggests `brew install caddy`), creates `~/.lenneTech/Caddyfile` stub, writes + bootstraps the dedicated LaunchAgent / systemd-user unit, waits up to 8s for port 2019, validates the Caddyfile. Surfaces `sudo -E HOME="$HOME" caddy trust` for the CA install.
+2. **`lt dev uninstall [--purge] [--noConfirm]`** — symmetric counterpart. Boots out the LaunchAgent / systemd unit, removes the unit file, optionally purges the Caddyfile + caddy logs.
+3. **`lt dev migrate`** — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`.
+4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached.
+5. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
+6. **`lt dev status [--all]`** — current project or all registered.
+7. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics (checks our LaunchAgent, **not** `brew services caddy`).
+8. **`lt dev test [--api] [--teardown] [--debug] [-- args]`** — one-shot E2E wrapper: ensure `up`, run tests, optional `down`.
+9. **`lt dev tunnel [--api]`** — Cloudflare Quick Tunnel: foreground `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`, prints the public `*.trycloudflare.com` URL. The host-header rewrite is mandatory — without it Caddy's vhost match fails for the random tunnel URL. Tunnels only expose ONE subdomain at a time; start a second `lt dev tunnel --api` in another shell for full external usage.
 
 **Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`.
 

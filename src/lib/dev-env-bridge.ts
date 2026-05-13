@@ -85,6 +85,9 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
     'NUXT_PUBLIC_API_PROXY',
     'NSC__MONGOOSE__URI',
     'DATABASE_URL',
+    // Legacy aliases — see dev-env.ts for the rationale.
+    'API_URL',
+    'SITE_URL',
   ];
   for (const key of exported) {
     const v = devEnv.app.env[key as string];

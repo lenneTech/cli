@@ -9,6 +9,7 @@ const fakeDevEnv: DevEnv = {
   api: { internalPort: 4010, env: { PORT: '4010' } },
   app: {
     env: {
+      API_URL: 'https://api.crm.localhost',
       APP_URL: 'https://crm.localhost',
       BASE_URL: 'https://api.crm.localhost',
       NSC__APP_URL: 'https://crm.localhost',
@@ -20,6 +21,7 @@ const fakeDevEnv: DevEnv = {
       NUXT_PUBLIC_SITE_URL: 'https://crm.localhost',
       NUXT_PUBLIC_STORAGE_PREFIX: 'crm',
       PORT: '4011',
+      SITE_URL: 'https://crm.localhost',
     },
     internalPort: 4011,
   },
@@ -46,6 +48,16 @@ describe('dev-env-bridge', () => {
       expect(content).toContain('NSC__MONGOOSE__URI=mongodb://127.0.0.1/crm-local');
       expect(content).toContain('LT_DEV_ACTIVE=true');
       expect(content).toContain('LT_DEV_DB_NAME=crm-local');
+    });
+
+    test('exports legacy aliases API_URL + SITE_URL', () => {
+      // Regression: projects that read `process.env.API_URL` directly
+      // (no `NUXT_PUBLIC_` prefix) need the alias in the bridge too,
+      // otherwise external tools picking up the bridge miss them.
+      const file = writeEnvBridge(project, fakeDevEnv, 'crm-local');
+      const content = readFileSync(file, 'utf8');
+      expect(content).toContain('API_URL=https://api.crm.localhost');
+      expect(content).toContain('SITE_URL=https://crm.localhost');
     });
 
     test('idempotent: same content does not rewrite', () => {

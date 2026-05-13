@@ -67,7 +67,7 @@ const UpCommand: GluegunCommand = {
       return 'dev up: caddy missing';
     }
     if (!(await caddyDaemonRunning())) {
-      error('caddy daemon is not running. Start it: `brew services start caddy`.');
+      error('caddy daemon is not running. Run `lt dev install` to start the lt-dev service.');
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: caddy daemon down';
     }
