@@ -287,9 +287,12 @@ const NewCommand: GluegunCommand = {
       return `created server symlink ${name}`;
     }
 
-    // Git initialization (after npm install which is done in setupServer)
+    // Git initialization (after npm install which is done in setupServer).
+    // When cwd is not inside a repo, `git rev-parse` exits 128 — treat as false.
     if (git) {
-      const inGit = (await system.run('git rev-parse --is-inside-work-tree'))?.trim();
+      const inGit = (
+        await system.run('git rev-parse --is-inside-work-tree 2>/dev/null || echo false')
+      )?.trim();
       if (inGit !== 'true') {
         // Determine initGit with priority: CLI > config > interactive
         let initializeGit: boolean;
