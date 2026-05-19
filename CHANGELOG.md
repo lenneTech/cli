@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.24.0](https://github.com/lenneTech/cli/compare/v1.18.0...v1.24.0) (2026-05-19)
+
+
+### Features
+
+* incremental fullstack workspace + KI-safe standalone gates (1.20.0) ([4128ec2](https://github.com/lenneTech/cli/commit/4128ec282250d908d67965b8d1a67d62ace66d70))
+
+
+### Bug Fixes
+
+* **fullstack:** patchConfigEnvTs leaves -starter- in DB names ([534cb44](https://github.com/lenneTech/cli/commit/534cb4460e0f8f9f1cca12a3488f531b378011a8))
+* **server create:** tolerate non-git cwd when checking work tree ([#88](https://github.com/lenneTech/cli/issues/88)) ([72b00f9](https://github.com/lenneTech/cli/commit/72b00f920d6722742f6a7bef546add288a20a9fa))
+
 ## [1.18.0](https://github.com/lenneTech/cli/compare/v1.17.0...v1.18.0) (2026-05-03)
 
 
