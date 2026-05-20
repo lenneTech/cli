@@ -198,6 +198,75 @@ export function isNonInteractive(noConfirmFlag: boolean): boolean {
 }
 
 /**
+ * Reconfigure the cloned nest-base template's `.claude/upstream.json`
+ * into its downstream shape.
+ *
+ * WHY: nest-base ships `.claude/upstream.json` with `isTemplate: true`
+ * and `upstream: null` — the template-self default. The `/upstream-pr`
+ * slash command and the `contributing-upstream` skill key off
+ * `isTemplate` and refuse to open upstream PRs when it is still `true`
+ * ("this repo IS the template"). The template's own notes document a
+ * manual post-fork step (flip `isTemplate` to false, fill `upstream`)
+ * that humans and agents both forget. The `bun run rename` step only
+ * rewrites four files and never touches this one, so without this
+ * helper every scaffolded project keeps `isTemplate: true` and can
+ * never contribute core fixes back to nest-base.
+ *
+ * Behaviour:
+ *   - Missing file (or unparseable JSON) → `{ updated: false }`, no
+ *     throw. Older templates may not ship the file at all; that is not
+ *     an error, just nothing to do.
+ *   - Otherwise sets `isTemplate = false` and
+ *     `upstream = { repo, branch }`, preserving `$schema` and
+ *     `syncedPaths` exactly as the template defined them.
+ *
+ * Idempotent: running twice yields identical output.
+ */
+export function reconfigureUpstreamForDownstream(options: {
+  apiDir: string;
+  filesystem: GluegunFilesystem;
+  /** Upstream branch. Default: 'main'. */
+  upstreamBranch?: string;
+  /** Upstream repo slug. Default: 'lenneTech/nest-base'. */
+  upstreamRepo?: string;
+}): { updated: boolean } {
+  const { apiDir, filesystem, upstreamBranch, upstreamRepo } = options;
+  const upstreamPath = filesystem.path(apiDir, '.claude', 'upstream.json');
+
+  // Non-fatal when absent — older templates may not ship the file.
+  if (filesystem.exists(upstreamPath) !== 'file') {
+    return { updated: false };
+  }
+
+  const current = filesystem.read(upstreamPath, 'json') as null | Record<string, unknown>;
+  if (!current) {
+    // Unparseable / empty JSON — leave it untouched rather than risk
+    // clobbering hand-edited content with a guessed shape.
+    return { updated: false };
+  }
+
+  const next: Record<string, unknown> = {
+    ...current,
+    // The whole point of the fix: this is a fork, not the template.
+    isTemplate: false,
+    // Replace the template-self notes (no longer applicable) with a
+    // short downstream-appropriate marker. Kept as a fixed array so the
+    // operation is idempotent.
+    notes: [
+      'Downstream project forked from the nest-base template.',
+      'Core fixes flow back upstream via the /upstream-pr command.',
+    ],
+    upstream: {
+      branch: upstreamBranch ?? 'main',
+      repo: upstreamRepo ?? 'lenneTech/nest-base',
+    },
+  };
+
+  filesystem.write(upstreamPath, next, { jsonIndent: 2 });
+  return { updated: true };
+}
+
+/**
  * Run the experimental `bun run rename <projectDir>` step. Only relevant
  * for the `--next` nest-base template (it ships hard-coded `nest-base`
  * references in package.json, README.md, portless.yml, and

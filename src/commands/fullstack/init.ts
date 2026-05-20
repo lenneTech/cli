@@ -5,7 +5,7 @@ import { caddyAvailable } from '../../lib/caddy';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
-import { detectWorkspaceLayout } from '../../lib/workspace-integration';
+import { detectWorkspaceLayout, reconfigureUpstreamForDownstream } from '../../lib/workspace-integration';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
 
@@ -610,6 +610,19 @@ const NewCommand: GluegunCommand = {
           renameSpinner.warn(
             `Auto-rename failed (${(err as Error).message}). Run \`bun run rename ${projectDir}\` manually inside projects/api.`,
           );
+        }
+
+        // Flip .claude/upstream.json from the template-self default to the
+        // downstream shape so `/upstream-pr` can contribute core fixes back
+        // to nest-base. Independent of the rename above — run it even if the
+        // rename failed. Non-fatal when the file is absent.
+        const upstreamResult = reconfigureUpstreamForDownstream({
+          apiDir: apiDest,
+          filesystem,
+          upstreamBranch: apiBranch,
+        });
+        if (upstreamResult.updated) {
+          info('Configured .claude/upstream.json for downstream contributions');
         }
       }
 

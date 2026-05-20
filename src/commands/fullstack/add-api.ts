@@ -5,6 +5,7 @@ import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config'
 import {
   detectWorkspaceLayout,
   findWorkspaceRoot,
+  reconfigureUpstreamForDownstream,
   runExperimentalNestBaseRename,
   writeApiConfig,
 } from '../../lib/workspace-integration';
@@ -324,6 +325,19 @@ const NewCommand: GluegunCommand = {
         );
       } else {
         renameSpinner.succeed(`Renamed nest-base → ${projectDir} in projects/api`);
+      }
+
+      // Flip .claude/upstream.json from the template-self default to the
+      // downstream shape so `/upstream-pr` can contribute core fixes back
+      // to nest-base. Independent of the rename above — run it even if
+      // the rename failed. Non-fatal when the file is absent.
+      const upstreamResult = reconfigureUpstreamForDownstream({
+        apiDir: apiDest,
+        filesystem,
+        upstreamBranch: apiBranch,
+      });
+      if (upstreamResult.updated) {
+        info('Configured .claude/upstream.json for downstream contributions');
       }
     }
 
