@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [1.24.1](https://github.com/lenneTech/cli/compare/v1.24.0...v1.24.1) (2026-05-20)
+
+
+### Bug Fixes
+
+* **scaffold:** reconfigure .claude/upstream.json for downstream on nest-base scaffold ([#89](https://github.com/lenneTech/cli/issues/89)) ([be75fb7](https://github.com/lenneTech/cli/commit/be75fb792955bcd5732176aa71733ecc77552faa))
+
 ## [1.24.0](https://github.com/lenneTech/cli/compare/v1.18.0...v1.24.0) (2026-05-19)
 
 
