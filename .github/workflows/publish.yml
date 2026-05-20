@@ -4,6 +4,15 @@ on:
   release:
     types:
       - released
+  workflow_dispatch:
+
+# Trusted Publishing (OIDC): npm mints a short-lived, workflow-scoped token
+# at run time — no long-lived NPM_TOKEN secret to expire or rotate.
+# Requires a Trusted Publisher configured on npmjs.com for this repo +
+# workflow filename, npm >= 11.5.1, and Node >= 22.14.0.
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   publish:
@@ -11,15 +20,16 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v4
-      - name: Node 20
+      - name: Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@latest
       - name: NPM install
         run: npm install
       - name: Build
         run: npm run build
       - name: Publish
-        uses: JS-DevTools/npm-publish@v3
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
