@@ -1,7 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
+import { reconfigureUpstreamForDownstream, runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
 
 /**
  * Create a new server
@@ -396,6 +396,22 @@ const NewCommand: GluegunCommand = {
         process.exit();
       }
       return `created server symlink ${name}`;
+    }
+
+    // For the experimental nest-base template, flip .claude/upstream.json
+    // from the template-self default to the downstream shape so
+    // `/upstream-pr` can contribute core fixes back to nest-base. The
+    // standalone clone lands directly at `projectDir`. Non-fatal when the
+    // file is absent (older templates).
+    if (experimental) {
+      const upstreamResult = reconfigureUpstreamForDownstream({
+        apiDir: projectDir,
+        filesystem,
+        upstreamBranch: branch,
+      });
+      if (upstreamResult.updated) {
+        info('Configured .claude/upstream.json for downstream contributions');
+      }
     }
 
     // Git initialization (after npm install which is done in setupServer).

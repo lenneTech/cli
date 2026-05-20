@@ -16,6 +16,7 @@ import {
   detectWorkspaceLayout,
   findWorkspaceRoot,
   isNonInteractive,
+  reconfigureUpstreamForDownstream,
   runExperimentalNestBaseRename,
   runStandaloneWorkspaceGate,
   shouldProceedAsStandalone,
@@ -175,6 +176,89 @@ describe('runExperimentalNestBaseRename', () => {
     });
     expect(result.attempted).toBe(true);
     expect(result.error).toBe(boom);
+  });
+});
+
+describe('reconfigureUpstreamForDownstream', () => {
+  // The nest-base template ships `.claude/upstream.json` with
+  // `isTemplate: true`, which makes the `/upstream-pr` slash command
+  // refuse to open upstream PRs. After forking the template into a
+  // downstream project, that file must be flipped to the downstream
+  // shape. These tests exercise the helper that does this.
+
+  let tempDir: string;
+
+  // Mirrors the template default that nest-base ships.
+  const templateDefault = {
+    $schema: './upstream.schema.json',
+    isTemplate: true,
+    notes: [
+      'This repo IS the nest-base template.',
+      'After forking, set isTemplate: false and fill upstream.',
+    ],
+    syncedPaths: ['src/core/'],
+    upstream: null,
+  };
+
+  beforeEach(() => {
+    tempDir = filesystem.path('__tests__', `temp-upstream-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    filesystem.dir(tempDir);
+  });
+
+  afterEach(() => {
+    filesystem.remove(tempDir);
+  });
+
+  const seedTemplate = (data: Record<string, unknown> = templateDefault): void => {
+    filesystem.write(filesystem.path(tempDir, '.claude', 'upstream.json'), data, { jsonIndent: 2 });
+  };
+
+  const readUpstream = (): Record<string, unknown> =>
+    filesystem.read(filesystem.path(tempDir, '.claude', 'upstream.json'), 'json') as Record<string, unknown>;
+
+  test('flips isTemplate true → false and fills upstream with defaults', () => {
+    seedTemplate();
+    const result = reconfigureUpstreamForDownstream({ apiDir: tempDir, filesystem });
+    expect(result.updated).toBe(true);
+    const cfg = readUpstream();
+    expect(cfg.isTemplate).toBe(false);
+    expect(cfg.upstream).toEqual({ branch: 'main', repo: 'lenneTech/nest-base' });
+  });
+
+  test('preserves syncedPaths and $schema exactly', () => {
+    seedTemplate();
+    reconfigureUpstreamForDownstream({ apiDir: tempDir, filesystem });
+    const cfg = readUpstream();
+    expect(cfg.syncedPaths).toEqual(['src/core/']);
+    expect(cfg.$schema).toBe('./upstream.schema.json');
+  });
+
+  test('honours custom upstreamRepo / upstreamBranch args', () => {
+    seedTemplate();
+    reconfigureUpstreamForDownstream({
+      apiDir: tempDir,
+      filesystem,
+      upstreamBranch: 'develop',
+      upstreamRepo: 'acme/forked-base',
+    });
+    const cfg = readUpstream();
+    expect(cfg.upstream).toEqual({ branch: 'develop', repo: 'acme/forked-base' });
+  });
+
+  test('returns { updated: false } and does not throw when the file is missing', () => {
+    // No .claude/upstream.json seeded.
+    const result = reconfigureUpstreamForDownstream({ apiDir: tempDir, filesystem });
+    expect(result.updated).toBe(false);
+    expect(filesystem.exists(filesystem.path(tempDir, '.claude', 'upstream.json'))).toBe(false);
+  });
+
+  test('is idempotent: running twice yields identical output', () => {
+    seedTemplate();
+    reconfigureUpstreamForDownstream({ apiDir: tempDir, filesystem });
+    const first = readUpstream();
+    reconfigureUpstreamForDownstream({ apiDir: tempDir, filesystem });
+    const second = readUpstream();
+    expect(second).toEqual(first);
   });
 });
 
