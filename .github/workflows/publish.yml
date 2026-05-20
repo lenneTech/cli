@@ -20,10 +20,15 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v4
-      - name: Node 22
+      # Node 24 ships a working npm 11.x. Node 22.22.2's toolcache npm
+      # (10.9.7) has a broken module tree (missing promise-retry) that makes
+      # `npm install -g` abort with MODULE_NOT_FOUND — see
+      # actions/runner-images#13883 / nodejs/node#62425. Upgrading from a
+      # healthy npm 11.x base avoids that and guarantees OIDC support (>= 11.5.1).
+      - name: Node 24
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@latest
