@@ -34,7 +34,7 @@ const StatusCommand: GluegunCommand = {
       info(colors.dim('─'.repeat(60)));
       const slugs = Object.keys(reg.projects).sort();
       if (slugs.length === 0) {
-        warning('No projects registered. Run `lt dev migrate` in a project.');
+        warning('No projects registered. Run `lt dev init` in a project.');
       } else {
         for (const slug of slugs) {
           const e = reg.projects[slug];
@@ -60,7 +60,7 @@ const StatusCommand: GluegunCommand = {
     info(colors.dim('─'.repeat(60)));
 
     if (!entry) {
-      warning('Not registered. Run `lt dev migrate` first.');
+      warning('Not registered. Run `lt dev init` first.');
       // Show what migrate would do (legacy code present?) so the user
       // can judge urgency before running it.
       const legacyFiles: string[] = [];
@@ -70,10 +70,10 @@ const StatusCommand: GluegunCommand = {
       }
       if (layout.appDir) legacyFiles.push(...appNeedsPortPatch(layout.appDir));
       if (legacyFiles.length > 0) {
-        info(colors.dim('  Legacy hardcoded ports detected — `lt dev migrate` will patch:'));
+        info(colors.dim('  Legacy hardcoded ports detected — `lt dev init` will patch:'));
         legacyFiles.forEach((f) => info(colors.dim(`    - ${f}`)));
       } else {
-        info(colors.dim('  Code is already env-aware; `lt dev migrate` will only register + patch CLAUDE.md.'));
+        info(colors.dim('  Code is already env-aware; `lt dev init` will only register + patch CLAUDE.md.'));
       }
       info('');
       if (!parameters.options.fromGluegunMenu) process.exit();
@@ -97,7 +97,7 @@ const StatusCommand: GluegunCommand = {
       info('');
       warning('  Legacy hardcoded ports still present:');
       legacyFiles.forEach((f) => info(colors.dim(`    - ${f}`)));
-      info(colors.dim('  Run `lt dev migrate` to patch them; otherwise Caddy may proxy into the void.'));
+      info(colors.dim('  Run `lt dev init` to patch them; otherwise Caddy may proxy into the void.'));
     }
 
     // Caddy status — quick view whether the daemon is reachable.

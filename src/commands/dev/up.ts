@@ -55,7 +55,7 @@ const UpCommand: GluegunCommand = {
 
     const layout = resolveLayout(filesystem.cwd(), filesystem);
     if (!layout.apiDir && !layout.appDir) {
-      error('No API or App project detected at this path. Run `lt dev migrate` first.');
+      error('No API or App project detected at this path. Run `lt dev init` first.');
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: not a project';
     }
@@ -77,7 +77,7 @@ const UpCommand: GluegunCommand = {
 
     // Sanft auto-migrate sichere Operationen (ohne Code-Modifikation):
     // CLAUDE.md-URL-Block einfügen + .gitignore ergänzen.
-    // Code-Patches (config.env.ts, nuxt.config.ts) bleiben explizit `lt dev migrate`.
+    // Code-Patches (config.env.ts, nuxt.config.ts) bleiben explizit `lt dev init`.
     {
       const claudeCandidates = [
         join(layout.root, 'CLAUDE.md'),
@@ -102,7 +102,7 @@ const UpCommand: GluegunCommand = {
       }
       if (layout.appDir) legacyFiles.push(...appNeedsPortPatch(layout.appDir));
       if (legacyFiles.length > 0) {
-        warning('Legacy hardcoded ports detected — Caddy will proxy correctly only after running `lt dev migrate`:');
+        warning('Legacy hardcoded ports detected — Caddy will proxy correctly only after running `lt dev init`:');
         legacyFiles.forEach((f) => info(colors.dim(`  - ${f}`)));
         info(
           colors.dim('  (Continuing — env-aware files will work; legacy files may bind on 3000/3001 and miss Caddy.)'),

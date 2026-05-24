@@ -1,5 +1,5 @@
 /**
- * Idempotent patches applied by `lt dev migrate`.
+ * Idempotent patches applied by `lt dev init`.
  *
  * Goal: take a project that still has hardcoded `localhost:3000`
  * defaults and make it env-aware so it can be served behind Caddy

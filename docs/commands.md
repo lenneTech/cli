@@ -312,9 +312,12 @@ One-time per-machine setup. Idempotent — re-run anytime to diagnose what's mis
 **Usage:**
 ```bash
 lt dev install
+lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
 ```
 
 **Alias:** `lt d i`
+
+**Auto-chaining:** when run from inside an lt-dev-capable project that is not yet initialized, `lt dev install` runs `lt dev init` for that project **afterwards**. Pass `--skip-init` to opt out. This is one hop deep and never recurses — `install` calls the init *helper*, not the init command.
 
 **What it does:**
 1. Verifies `caddy` is on PATH (suggests `brew install caddy` if missing).
@@ -355,16 +358,19 @@ lt dev uninstall --noConfirm  # skip the purge prompt (keep files)
 
 ---
 
-### `lt dev migrate`
+### `lt dev init`
 
-Register an existing project with `lt dev` and apply idempotent env-aware patches. Safe to run multiple times; safe to run after `lt fullstack init`.
+Initialize an existing project for `lt dev` and apply idempotent env-aware patches. Safe to run multiple times; safe to run after `lt fullstack init`.
 
 **Usage:**
 ```bash
-lt dev migrate
+lt dev init
+lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 ```
 
-**Alias:** `lt d m`
+**Alias:** `lt d init`, `lt d migrate`, `lt d m` (`migrate` is the former name, kept for backwards compatibility)
+
+**Auto-chaining:** if the machine has not been prepared yet (no `lt dev install` has run), `lt dev init` runs the install step **first**, then initializes the project. Pass `--skip-install` to opt out. This is one hop deep and never recurses — `init` calls the install *helper*, not the install command.
 
 **What it does:**
 1. Detects the workspace layout (monorepo `projects/api`+`projects/app`, or standalone).
@@ -538,7 +544,7 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 | `LT_DEV_ACTIVE`, `LT_DEV_DB_NAME` | Marker keys for consumers |
 | `NODE_EXTRA_CA_CERTS` | Path to Caddy's root CA cert (auto-detected) |
 
-`lt dev migrate` injects a tiny `// >>> lt-dev:bridge >>>` block at the top of `playwright.config.ts` that loads this file at config-load time — making Playwright (CLI, IDE, VS Code extension) automatically use the `lt dev` URLs and trust the local CA, without inheriting the parent shell.
+`lt dev init` injects a tiny `// >>> lt-dev:bridge >>>` block at the top of `playwright.config.ts` that loads this file at config-load time — making Playwright (CLI, IDE, VS Code extension) automatically use the `lt dev` URLs and trust the local CA, without inheriting the parent shell.
 
 `lt dev down` removes the bridge file so subsequent runs without `lt dev up` fall back cleanly to the classic `localhost:3000`/`localhost:3001` defaults.
 

@@ -722,7 +722,7 @@ const NewCommand: GluegunCommand = {
         }
       }
 
-      // Best-effort `lt dev migrate` so the workspace is ready for `lt dev up`
+      // Best-effort `lt dev init` so the workspace is ready for `lt dev up`
       // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
       // injects the URL block into CLAUDE.md, adds `.lt-dev/` to .gitignore.
       // Failures here are non-fatal — `init` itself remains successful.
