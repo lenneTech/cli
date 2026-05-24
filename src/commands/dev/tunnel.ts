@@ -46,7 +46,7 @@ const TunnelCommand: GluegunCommand = {
 
     const layout = resolveLayout(filesystem.cwd(), filesystem);
     if (!layout.apiDir && !layout.appDir) {
-      error('No API or App project detected at this path. Run `lt dev migrate` first.');
+      error('No API or App project detected at this path. Run `lt dev init` first.');
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev tunnel: not a project';
     }

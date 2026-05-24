@@ -199,18 +199,21 @@ ports. Developers and Claude Code never see the internal ports.
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
 | Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
 | Caddy service lifecycle | `src/lib/dev-service.ts` + `src/commands/dev/{install,uninstall}.ts` | Per-OS service runner. macOS: per-user LaunchAgent `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`. Linux: `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`. Render helpers (`renderLaunchAgentPlist`, `renderSystemdUnit`) are pure + unit-tested; side-effecting ops accept an injectable `ShellRunner`. **Critical:** plist sets `HOME=$userHome` env so caddy persists its CA under `~/Library/Application Support/Caddy/`, not the launchd-empty default. `userHome()` is `process.env.HOME || homedir()` because real `os.homedir()` on macOS goes through `getpwuid()` and ignores HOME — required so test files can redirect side-effects to a tmpdir. The `caddy trust` instructions surfaced to users **must** include `-E HOME="$HOME"` for the same reason in sudo context. |
+| install↔init auto-chaining | `src/lib/dev-bootstrap.ts` (predicates) + `src/lib/dev-install-helper.ts` (`runInstall`) + `src/lib/dev-migrate-helper.ts` (`runMigrate`/`printMigrateResult`) + `src/commands/dev/{install,init}.ts` | `lt dev init` runs install first when `!isMachinePrepared()`; `lt dev install` runs init after when `isLtDevProject() && !isProjectInitialized()`. Non-recursive by construction: commands call the *helpers*, never each other. Opt-outs: `--skip-install` (init), `--skip-init` (install). `runInstall` must NOT call `process.exit`. |
 | Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. |
 | Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`. |
 | Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. |
 | Detached-spawn binary override | `src/commands/dev/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups, or bun-based projects via wrapper script). |
-| Project-local state | `<project>/.lt-dev/{state.json,api.log,app.log,.env}` | Auto-added to `.gitignore` by `lt dev migrate`. State JSON is schema-validated on load. The `.env` file is the **ENV bridge** (see below). |
+| Project-local state | `<project>/.lt-dev/{state.json,api.log,app.log,.env}` | Auto-added to `.gitignore` by `lt dev init`. State JSON is schema-validated on load. The `.env` file is the **ENV bridge** (see below). |
 | ENV bridge for external tools | `src/lib/dev-env-bridge.ts` | `lt dev up` writes `<root>/.lt-dev/.env` with all URLs + `NODE_EXTRA_CA_CERTS` (Caddy root CA path). External test runners (Playwright, IDE extensions, custom scripts) load this file via the auto-injected bridge block in `playwright.config.ts` (see `dev-patches.ts#patchPlaywrightConfig`). `lt dev down` removes it. |
 | One-shot test wrapper | `src/commands/dev/test.ts` | `lt dev test` ensures `up`, waits for the App URL, and runs `pnpm run test:e2e` with the bridge env loaded. Forwards args after `--`. Optional `--teardown` runs `down` after. Used in TDD loops; for IDE/CI runs the playwright config bridge block is sufficient. |
 
 **Lifecycle:**
-1. **`lt dev install`** — one-time per machine. Verifies Caddy is on PATH (suggests `brew install caddy`), creates `~/.lenneTech/Caddyfile` stub, writes + bootstraps the dedicated LaunchAgent / systemd-user unit, waits up to 8s for port 2019, validates the Caddyfile. Surfaces `sudo -E HOME="$HOME" caddy trust` for the CA install.
+1. **`lt dev install [--skip-init]`** — one-time per machine. Verifies Caddy is on PATH (suggests `brew install caddy`), creates `~/.lenneTech/Caddyfile` stub, writes + bootstraps the dedicated LaunchAgent / systemd-user unit, waits up to 8s for port 2019, validates the Caddyfile. Surfaces `sudo -E HOME="$HOME" caddy trust` for the CA install. **Auto-chains:** when run inside an lt-dev-capable project that isn't initialized yet, runs `lt dev init` afterwards (`--skip-init` opts out).
 2. **`lt dev uninstall [--purge] [--noConfirm]`** — symmetric counterpart. Boots out the LaunchAgent / systemd unit, removes the unit file, optionally purges the Caddyfile + caddy logs.
-3. **`lt dev migrate`** — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`.
+3. **`lt dev init [--skip-install]`** (alias `migrate`, `m`) — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`. **Auto-chains:** when the machine isn't prepared yet, runs `lt dev install` first (`--skip-install` opts out).
+
+**Mutual install↔init auto-chaining (no infinite regress):** the two commands prepare each other's precondition, but the chain is **one hop deep and structurally non-recursive** because each command calls the *helper* of the other (`runInstall` / `runMigrate` in `dev-install-helper.ts` / `dev-migrate-helper.ts`), never the other command. Pure predicates in `src/lib/dev-bootstrap.ts` (`isMachinePrepared`, `isProjectInitialized`, `isLtDevProject`) gate the decision and make re-runs no-ops. `runInstall` never calls `process.exit` (the command decides the exit code).
 4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached.
 5. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
 6. **`lt dev status [--all]`** — current project or all registered.
@@ -288,6 +291,34 @@ CONFLICT - same level:
 
 ### Test Warnings
 Use `suppressWarnings: true` when creating Config instances in tests.
+
+### Manual (service/OS-dependent) tests: `*.manual.ts` <!-- Added: 2026-05-24 -->
+`npm test` must report **zero skipped tests**. Tests that need a real
+external service or OS integration (a live Qdrant/MongoDB, real
+`launchctl` + `caddy`, etc.) must NOT use `test.skip` inside a normal
+`*.test.ts` — a conditional skip still shows up as "skipped" and can be
+unsafe (e.g. `dev-service-e2e` would `launchctl bootout` the user's live
+`lt dev` daemon via the shared label). Instead:
+- Name the file `*.manual.ts`. Jest's `testMatch`
+  (`<rootDir>/*.test.ts`, set in `package.json#jest`) only matches
+  top-level `*.test.ts`, so `*.manual.ts` is **excluded, not skipped**.
+  (That `testMatch` is also why a stray `__tests__/temp-*/…/*.test.ts`
+  left by an aborted run is never collected.)
+- Run them on demand: `npm run test:manual` (all `*.manual.ts`) or a
+  specific script like `npm run test:e2e:service`.
+- Keep an in-file guard (platform/service/real-daemon checks) so the
+  manual run self-skips safely instead of damaging a live setup.
+
+### gluegun `patching.update` parses `.json` files <!-- Added: 2026-05-24 -->
+`patching.update(path, cb)` hands `cb` a **parsed object** for any path
+ending in `.json`, and a **string** otherwise (see
+`node_modules/gluegun/build/toolbox/patching-tools.js#readFile`). A
+String-based callback on a `.json` file (`(c: string) => c.replace(...)`)
+throws `c.replace is not a function` at runtime — and TypeScript does NOT
+catch it (the gluegun signature is `any`). For `.json`, mutate the object
+(`(cfg) => { cfg.x = y; return cfg; }`) or, for a reusable rename, use
+`src/lib/package-name.ts#setPackageName` (reads/writes via `filesystem`,
+fully unit-tested).
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

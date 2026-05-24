@@ -5,6 +5,7 @@ import { caddyAvailable } from '../../lib/caddy';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
+import { setPackageName } from '../../lib/package-name';
 import { detectWorkspaceLayout, reconfigureUpstreamForDownstream } from '../../lib/workspace-integration';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
@@ -480,6 +481,12 @@ const NewCommand: GluegunCommand = {
       }
     }
 
+    // Rename the cloned monorepo's root package so each project gets a unique
+    // `lt dev` slug. The slug is derived from package.json `name`; without
+    // this rename every lt-monorepo-based project would register as
+    // `lt-monorepo` and collide on `https://lt-monorepo.localhost`.
+    setPackageName({ filesystem, name: projectDir, packageJsonPath: `${projectDir}/package.json` });
+
     // Always initialize git
     try {
       await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
@@ -715,7 +722,7 @@ const NewCommand: GluegunCommand = {
         }
       }
 
-      // Best-effort `lt dev migrate` so the workspace is ready for `lt dev up`
+      // Best-effort `lt dev init` so the workspace is ready for `lt dev up`
       // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
       // injects the URL block into CLAUDE.md, adds `.lt-dev/` to .gitignore.
       // Failures here are non-fatal — `init` itself remains successful.

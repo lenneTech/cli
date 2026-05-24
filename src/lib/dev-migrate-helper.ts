@@ -1,7 +1,7 @@
 /**
- * Reusable migrate logic — used by `commands/dev/migrate.ts` (interactive
- * + verbose) and `commands/fullstack/init.ts` (silent best-effort after
- * project creation).
+ * Reusable init/migrate logic — used by `commands/dev/init.ts` (interactive
+ * + verbose, also chained from `commands/dev/install.ts`) and
+ * `commands/fullstack/init.ts` (silent best-effort after project creation).
  *
  * Returns a structured result so callers can decide what to print.
  * Idempotent — safe to run multiple times.
@@ -9,6 +9,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 
+import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { buildIdentity, DevIdentity } from './dev-identity';
 import { addToGitignore, autoPatch, patchClaudeMd, PatchResult } from './dev-patches';
 import { apiNeedsPortPatch, appNeedsPortPatch, deriveDbName, DevProjectLayout } from './dev-project';
@@ -34,6 +35,46 @@ export interface MigrateResult {
   identity: DevIdentity;
   /** True if the registry was updated (new/changed). */
   registryUpdated: boolean;
+}
+
+/**
+ * Print a `runMigrate` result via the toolbox. Shared by `lt dev init`
+ * and the auto-init step of `lt dev install` so both render identically.
+ * Does NOT print Caddy-install hints — chaining handles that separately.
+ */
+export function printMigrateResult(toolbox: ExtendedGluegunToolbox, result: MigrateResult): void {
+  const {
+    print: { colors, info, success },
+  } = toolbox;
+
+  info('');
+  info(colors.bold(`Initializing "${result.identity.slug}" for lt dev`));
+  info(colors.dim('─'.repeat(60)));
+  if (result.identity.subdomains.app) info(`  App URL: https://${result.identity.subdomains.app.hostname}`);
+  if (result.identity.subdomains.api) info(`  API URL: https://${result.identity.subdomains.api.hostname}`);
+  info(`  DB:      mongodb://127.0.0.1/${result.dbName}`);
+  info('');
+
+  if (result.codePatches.length > 0) {
+    for (const r of result.codePatches) {
+      if (r.patched) success(`patched ${r.replacements}× in ${r.file}`);
+      else info(colors.dim(`already patched: ${r.file}`));
+    }
+  } else {
+    info(colors.dim('  patches: not needed (already env-aware)'));
+  }
+
+  result.claudePatches.filter((r) => r.patched).forEach((r) => success(`updated CLAUDE.md URL block: ${r.file}`));
+
+  if (result.registryUpdated) {
+    success(`registered in ${process.env.LT_DEV_REGISTRY_PATH || '~/.lenneTech/projects.json'}`);
+  }
+
+  if (result.addedGitignoreEntry) success('added `.lt-dev/` to .gitignore');
+
+  if (result.alreadyMigrated) {
+    info(colors.dim('  Project was already initialized — nothing changed.'));
+  }
 }
 
 /**

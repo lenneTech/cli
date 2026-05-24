@@ -1,3 +1,22 @@
+/**
+ * ┌──────────────────────────────────────────────────────────────────┐
+ * │ NOT PART OF `npm test`. Named `*.manual.ts`, not `*.test.ts`, so   │
+ * │ Jest's `testMatch` (`<rootDir>/*.test.ts`) does NOT pick it up.    │
+ * │ It is deliberately EXCLUDED, not skipped — so the normal suite     │
+ * │ reports zero skipped tests on every machine (incl. CI without a    │
+ * │ database).                                                          │
+ * │                                                                    │
+ * │ Run it on demand with:   npm run test:manual                       │
+ * └──────────────────────────────────────────────────────────────────┘
+ *
+ * WHY it is excluded: these tests shell out to `lt qdrant …`, which
+ * needs a REAL running Qdrant (and, for other db commands, MongoDB /
+ * Redis). On a machine without those services the suite would otherwise
+ * `test.skip` itself — which is exactly the kind of conditional skip we
+ * want to keep out of the default run. The in-suite `itRequiresQdrant`
+ * guard still applies under `npm run test:manual`, so it self-skips
+ * cleanly when Qdrant is not reachable.
+ */
 import { execFileSync } from 'child_process';
 
 import { filesystem, system } from 'gluegun';
