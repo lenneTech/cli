@@ -2,9 +2,26 @@
  * End-to-end integration tests for `dev-service` against a REAL
  * `caddy` binary + a REAL `launchctl` (macOS only).
  *
- * Skip-friendly: if `caddy` is missing or the platform is not darwin,
- * the entire suite is silently skipped — so the test is safe on CI
- * without a Caddy install.
+ * ┌──────────────────────────────────────────────────────────────────┐
+ * │ NOT PART OF `npm test`. This file is named `*.manual.ts`, not     │
+ * │ `*.test.ts`, so Jest's `testMatch` (`<rootDir>/*.test.ts`) does   │
+ * │ NOT pick it up. It therefore never appears as a skipped test in   │
+ * │ the normal suite — it is deliberately EXCLUDED, not skipped.      │
+ * │                                                                    │
+ * │ Run it on demand with:   npm run test:e2e:service                 │
+ * └──────────────────────────────────────────────────────────────────┘
+ *
+ * WHY it is excluded from the default run:
+ *   This suite drives the REAL macOS service manager. `installService` /
+ *   `uninstallService` operate on the LaunchAgent label
+ *   `tech.lenne.lt-dev-caddy` and a real `caddy` bound to admin port
+ *   2019. If the developer already ran `lt dev install`, that exact
+ *   label + port are in use by their LIVE service — running this suite
+ *   would `launchctl bootout` the user's daemon (shared label) and/or
+ *   fail to bind 2019. Forcing it into `npm test` is therefore unsafe on
+ *   any machine that uses `lt dev`. The mocked equivalents in
+ *   `dev-service.test.ts` (injected `ShellRunner`) cover the logic in
+ *   CI; this file exists only for manual, on-machine OS verification.
  *
  * What this catches that the mocked tests cannot:
  *   - the rendered plist is actually accepted by `launchctl bootstrap`
@@ -13,8 +30,10 @@
  *     `brew services caddy`)
  *   - `uninstallService` boots the agent out cleanly
  *
- * The agent runs against a unique service label per test run so
- * concurrent CI workers do not collide.
+ * Even under `npm run test:e2e:service`, the in-suite guards below still
+ * apply: it self-skips when not on macOS, when `caddy` is absent, or
+ * when a real `lt dev` LaunchAgent is present (to protect the live
+ * service from the shared-label bootout described above).
  */
 import { spawn } from 'child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';

@@ -289,6 +289,34 @@ CONFLICT - same level:
 ### Test Warnings
 Use `suppressWarnings: true` when creating Config instances in tests.
 
+### Manual (service/OS-dependent) tests: `*.manual.ts` <!-- Added: 2026-05-24 -->
+`npm test` must report **zero skipped tests**. Tests that need a real
+external service or OS integration (a live Qdrant/MongoDB, real
+`launchctl` + `caddy`, etc.) must NOT use `test.skip` inside a normal
+`*.test.ts` — a conditional skip still shows up as "skipped" and can be
+unsafe (e.g. `dev-service-e2e` would `launchctl bootout` the user's live
+`lt dev` daemon via the shared label). Instead:
+- Name the file `*.manual.ts`. Jest's `testMatch`
+  (`<rootDir>/*.test.ts`, set in `package.json#jest`) only matches
+  top-level `*.test.ts`, so `*.manual.ts` is **excluded, not skipped**.
+  (That `testMatch` is also why a stray `__tests__/temp-*/…/*.test.ts`
+  left by an aborted run is never collected.)
+- Run them on demand: `npm run test:manual` (all `*.manual.ts`) or a
+  specific script like `npm run test:e2e:service`.
+- Keep an in-file guard (platform/service/real-daemon checks) so the
+  manual run self-skips safely instead of damaging a live setup.
+
+### gluegun `patching.update` parses `.json` files <!-- Added: 2026-05-24 -->
+`patching.update(path, cb)` hands `cb` a **parsed object** for any path
+ending in `.json`, and a **string** otherwise (see
+`node_modules/gluegun/build/toolbox/patching-tools.js#readFile`). A
+String-based callback on a `.json` file (`(c: string) => c.replace(...)`)
+throws `c.replace is not a function` at runtime — and TypeScript does NOT
+catch it (the gluegun signature is `any`). For `.json`, mutate the object
+(`(cfg) => { cfg.x = y; return cfg; }`) or, for a reusable rename, use
+`src/lib/package-name.ts#setPackageName` (reads/writes via `filesystem`,
+fully unit-tested).
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

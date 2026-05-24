@@ -32,6 +32,8 @@
     "test:vendor-init": "bash scripts/test-vendor-init.sh",
     "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",
     "test:incremental-fullstack": "bash scripts/test-incremental-fullstack.sh",
+    "test:manual": "jest --testMatch '<rootDir>/*.manual.ts' --testTimeout=60000",
+    "test:e2e:service": "jest --testMatch '<rootDir>/dev-service-e2e.manual.ts' --testTimeout=60000",
     "format": "prettier --write 'src/**/*.{js,ts,tsx,json}' '!src/templates/**/*'",
     "lint": "eslint './src/**/*.{ts,js,vue}'",
     "lint:fix": "eslint './src/**/*.{ts,js,vue}' --fix",
@@ -58,9 +60,9 @@
     "bin"
   ],
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1045.0",
+    "@aws-sdk/client-s3": "3.1053.0",
     "@lenne.tech/cli-plugin-helper": "0.0.14",
-    "axios": "1.16.0",
+    "axios": "1.16.1",
     "bcrypt": "6.0.0",
     "defuddle": "0.18.1",
     "glob": "13.0.6",
@@ -70,7 +72,7 @@
     "jsdom": "29.1.1",
     "lodash": "4.18.1",
     "open": "11.0.0",
-    "playwright-core": "1.59.1",
+    "playwright-core": "1.60.0",
     "ts-morph": "28.0.0",
     "ts-node": "10.9.2",
     "turndown": "7.2.4",
@@ -85,7 +87,7 @@
     "@types/js-yaml": "4.0.9",
     "@types/jsdom": "28.0.1",
     "@types/lodash": "4.17.24",
-    "@types/node": "25.6.2",
+    "@types/node": "25.9.1",
     "@types/turndown": "5.0.6",
     "ejs": "5.0.2",
     "eslint": "9.39.4",
@@ -94,18 +96,23 @@
     "prettier": "3.8.3",
     "rimraf": "6.1.3",
     "standard-version": "9.5.0",
-    "ts-jest": "29.4.9"
+    "ts-jest": "29.4.11"
   },
   "//overrides": {
-    "semver@*": "Force latest semver across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep."
+    "brace-expansion@5.0.2 - 5.0.5": "Security fix: GHSA-jxxr-4gwj-5jf2 (large numeric range defeats max DoS protection) in brace-expansion 5.0.2-5.0.5 - transitive via minimatch under glob, @ts-morph/common, @typescript-eslint/typescript-estree. Remove once those parents resolve minimatch to a brace-expansion >=5.0.6.",
+    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep."
   },
   "overrides": {
-    "semver@*": "7.7.4"
+    "brace-expansion@5.0.2 - 5.0.5": "5.0.6",
+    "semver@*": "7.8.1"
   },
   "jest": {
     "testEnvironment": "node",
     "rootDir": "__tests__",
     "testTimeout": 60000,
+    "testMatch": [
+      "<rootDir>/*.test.ts"
+    ],
     "transform": {
       "^.+\\.tsx?$": [
         "ts-jest",

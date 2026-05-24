@@ -41,14 +41,30 @@ export function autoPatch(file: string): PatchResult {
   return { file, patched: false, replacements: 0 };
 }
 
-/** API: `port: 3000,` → `port: Number(process.env.PORT) || 3000,`. */
+/**
+ * API: make the server listen port honour `process.env.PORT` (injected by
+ * `lt dev up` for its Caddy upstream). Handles two patterns found in
+ * nest-server `config.env.ts` files:
+ *
+ *  - the legacy literal `port: 3000,` (e.g. in `deployedConfig()`)
+ *  - the offers-pattern `port: process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000`
+ *    found in `localConfig()` — `lt dev` runs the API in local mode, so this
+ *    line MUST be patched too or the API ignores the assigned port.
+ *
+ * Idempotent — lines that already read `process.env.PORT` are left untouched.
+ */
 export function patchApiConfig(file: string): PatchResult {
   if (!existsSync(file)) return { file, patched: false, replacements: 0 };
   const before = readFileSync(file, 'utf8');
   let count = 0;
-  const after = before.replace(/^(\s*)port:\s*3000\s*,$/gm, (_m, indent: string) => {
+  let after = before.replace(/^(\s*)port:\s*3000\s*,$/gm, (_m, indent: string) => {
     count++;
     return `${indent}port: Number(process.env.PORT) || 3000,`;
+  });
+  // localConfig() keeps the NSC__PORT operator override; PORT (lt dev) wins.
+  after = after.replace(/^(\s*)port:\s*process\.env\.NSC__PORT\s*\?[^\n]*:\s*3000\s*,$/gm, (_m, indent: string) => {
+    count++;
+    return `${indent}port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),`;
   });
   if (count === 0) return { file, patched: false, replacements: 0 };
   writeFileSync(file, after, 'utf8');
@@ -70,6 +86,7 @@ export function patchClaudeMd(file: string, options: { dbName?: string; identity
   const appSub = identity.subdomains.app;
   const lines: string[] = [
     startMarker,
+    '',
     '## Local Development (lt dev)',
     '',
     `This project is registered with \`lt dev\` (slug: \`${identity.slug}\`). Use these commands to run alongside other lt projects without cross-wiring or port collisions:`,
@@ -78,15 +95,18 @@ export function patchClaudeMd(file: string, options: { dbName?: string; identity
     'lt dev up        # Start API + App behind Caddy with project-specific URLs',
     'lt dev down      # Stop the detached processes + remove Caddy block',
     'lt dev status    # Show running PIDs + bound URLs',
+    'lt dev test      # Ensure up + run the E2E suite with project URLs injected',
     'lt dev doctor    # Diagnose Caddy/CA/DNS/port issues',
     '```',
+    '',
+    '**Start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly; those bind the framework default ports (3000/3001) and collide with parallel projects.',
     '',
     '**Active URLs for THIS project:**',
     '',
   ];
   if (appSub) lines.push(`- App: \`https://${appSub.hostname}\``);
   if (apiSub) lines.push(`- API: \`https://${apiSub.hostname}\``);
-  if (dbName) lines.push(`- DB:  \`mongodb://127.0.0.1/${dbName}\``);
+  if (dbName) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
   lines.push('');
   lines.push(
     'Env vars set automatically by `lt dev up`: `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Never assume `localhost:3000` / `localhost:3001` for this project** — those are the framework defaults, not the active URLs.',
@@ -159,29 +179,50 @@ export function patchPlaywrightConfig(file: string): PatchResult {
     });
   }
 
-  // 2. Top-of-file dotenv bridge — only inject if not already present.
+  // 2. Top-of-file dotenv bridge — inject it, or replace an outdated block.
+  //    The loader walks UP from cwd to find `.lt-dev/.env`: that file lives
+  //    at the repo root, while playwright.config.ts (and the process cwd of
+  //    a direct `playwright test` run) usually sit in `projects/app`. The
+  //    original cwd-only resolve missed it, so direct runs fell back to
+  //    `localhost:3001` and could collide with a parallel project.
   const bridgeStart = '// >>> lt-dev:bridge >>>';
   const bridgeEnd = '// <<< lt-dev:bridge <<<';
-  if (!after.includes(bridgeStart)) {
-    const bridgeBlock = [
-      bridgeStart,
-      '// Auto-load <root>/.lt-dev/.env when `lt dev up` is active so',
-      '// external test runners (CLI, IDE, VS Code Playwright Extension)',
-      '// pick up project URLs + Caddy CA without inheriting the parent shell.',
-      "import { existsSync as __ltDevExists, readFileSync as __ltDevRead } from 'node:fs';",
-      "import { resolve as __ltDevResolve } from 'node:path';",
-      "const __ltDevEnvFile = __ltDevResolve(process.cwd(), '.lt-dev/.env');",
-      'if (__ltDevExists(__ltDevEnvFile)) {',
-      '  for (const __ln of __ltDevRead(__ltDevEnvFile, "utf8").split(/\\r?\\n/)) {',
-      '    const __m = __ln.match(/^([A-Z][A-Z0-9_]*)=(.*)$/);',
-      '    if (__m && process.env[__m[1]] === undefined) process.env[__m[1]] = __m[2];',
-      '  }',
-      '}',
-      bridgeEnd,
-      '',
-    ].join('\n');
-    after = bridgeBlock + after;
+  const bridgeBlock = [
+    bridgeStart,
+    '// Auto-load <root>/.lt-dev/.env when `lt dev up` is active so',
+    '// external test runners (CLI, IDE, VS Code Playwright Extension)',
+    '// pick up project URLs + Caddy CA without inheriting the parent shell.',
+    '// Searches upward from cwd because `.lt-dev/` sits at the repo root',
+    '// while playwright.config.ts (and cwd) usually sit in projects/app.',
+    "import { existsSync as __ltDevExists, readFileSync as __ltDevRead } from 'node:fs';",
+    "import { dirname as __ltDevDirname, resolve as __ltDevResolve } from 'node:path';",
+    "let __ltDevEnvFile = '';",
+    'for (let __ltDevDir = process.cwd(), __i = 0; __i < 6; __i++) {',
+    "  const __candidate = __ltDevResolve(__ltDevDir, '.lt-dev/.env');",
+    '  if (__ltDevExists(__candidate)) { __ltDevEnvFile = __candidate; break; }',
+    '  const __parent = __ltDevDirname(__ltDevDir);',
+    '  if (__parent === __ltDevDir) break;',
+    '  __ltDevDir = __parent;',
+    '}',
+    'if (__ltDevEnvFile) {',
+    '  for (const __ln of __ltDevRead(__ltDevEnvFile, "utf8").split(/\\r?\\n/)) {',
+    '    const __m = __ln.match(/^([A-Z][A-Z0-9_]*)=(.*)$/);',
+    '    if (__m && process.env[__m[1]] === undefined) process.env[__m[1]] = __m[2];',
+    '  }',
+    '}',
+    bridgeEnd,
+  ].join('\n');
+  const bridgeStartIdx = after.indexOf(bridgeStart);
+  const bridgeEndIdx = after.indexOf(bridgeEnd);
+  if (bridgeStartIdx === -1) {
+    after = `${bridgeBlock}\n${after}`;
     count++;
+  } else if (bridgeEndIdx !== -1) {
+    const rebuilt = after.slice(0, bridgeStartIdx) + bridgeBlock + after.slice(bridgeEndIdx + bridgeEnd.length);
+    if (rebuilt !== after) {
+      after = rebuilt;
+      count++;
+    }
   }
 
   if (count === 0) return { file, patched: false, replacements: 0 };

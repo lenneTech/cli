@@ -28,6 +28,9 @@ lib-cov
 # Coverage directory used by tools like istanbul
 coverage
 
+# Test scratch dirs left by aborted test runs (tests create __tests__/temp-*)
+__tests__/temp-*
+
 # nyc test coverage
 .nyc_output
 

@@ -58,6 +58,11 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
 
   const caPath = detectCaddyRootCa();
   const sharedKeys: NodeJS.ProcessEnv = {
+    // Marks the API + App processes as running under `lt dev`. Consumed by the
+    // backend to relax dev-only behaviour (rate limiting, Better-Auth
+    // user-cache) so E2E suites run without a separate VITEST/PLAYWRIGHT flag.
+    // (Also written to the .lt-dev/.env bridge for external test runners.)
+    LT_DEV_ACTIVE: 'true',
     ...(apiUrl ? { BASE_URL: apiUrl, NSC__BASE_URL: apiUrl } : {}),
     ...(appUrl ? { APP_URL: appUrl, NSC__APP_URL: appUrl } : {}),
     ...(dbName ? { DATABASE_URL: buildPostgresUrl(dbName), NSC__MONGOOSE__URI: `mongodb://127.0.0.1/${dbName}` } : {}),

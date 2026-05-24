@@ -45,6 +45,32 @@ describe('dev-patches', () => {
       const r = patchApiConfig(f);
       expect(r.patched).toBe(false);
     });
+    test('replaces the localConfig NSC__PORT pattern', () => {
+      const f = join(tmp, 'config.env.ts');
+      writeFileSync(f, 'export default {\n    port: process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000,\n};');
+      const r = patchApiConfig(f);
+      expect(r.patched).toBe(true);
+      expect(r.replacements).toBe(1);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),');
+    });
+    test('patches both deployedConfig literal and localConfig NSC__PORT pattern', () => {
+      const f = join(tmp, 'config.env.ts');
+      writeFileSync(
+        f,
+        'function deployed() { return {\n    port: 3000,\n  }; }\n' +
+          'function local() { return {\n    port: process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000,\n  }; }',
+      );
+      const r = patchApiConfig(f);
+      expect(r.patched).toBe(true);
+      expect(r.replacements).toBe(2);
+    });
+    test('idempotent on already-patched NSC__PORT pattern', () => {
+      const f = join(tmp, 'config.env.ts');
+      writeFileSync(f, '    port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),');
+      const r = patchApiConfig(f);
+      expect(r.patched).toBe(false);
+    });
     test('missing file is no-op', () => {
       const r = patchApiConfig(join(tmp, 'missing.ts'));
       expect(r.patched).toBe(false);
@@ -105,6 +131,24 @@ describe('dev-patches', () => {
       expect(matches).toBe(1);
     });
 
+    test('replaces an outdated bridge block with the upward-searching loader', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      const oldBlock = [
+        '// >>> lt-dev:bridge >>>',
+        "import { existsSync as __ltDevExists, readFileSync as __ltDevRead } from 'node:fs';",
+        "import { resolve as __ltDevResolve } from 'node:path';",
+        "const __ltDevEnvFile = __ltDevResolve(process.cwd(), '.lt-dev/.env');",
+        '// <<< lt-dev:bridge <<<',
+      ].join('\n');
+      writeFileSync(f, `${oldBlock}\nexport default {};\n`);
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(true);
+      const out = readFileSync(f, 'utf8');
+      expect((out.match(/>>> lt-dev:bridge >>>/g) || []).length).toBe(1);
+      expect(out).toContain('__ltDevDirname');
+      expect(out).not.toContain("__ltDevResolve(process.cwd(), '.lt-dev/.env')");
+    });
+
     test('only inserts bridge when at least one URL patch happens or bridge is missing', () => {
       const f = join(tmp, 'playwright.config.ts');
       // Already env-aware, no bridge yet → bridge should be added
@@ -116,7 +160,11 @@ describe('dev-patches', () => {
 
     test('completely already-patched file: no-op', () => {
       const f = join(tmp, 'playwright.config.ts');
-      writeFileSync(f, '// >>> lt-dev:bridge >>>\nstub\n// <<< lt-dev:bridge <<<\n');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      // First pass applies the URL patch and inserts the current bridge block;
+      // a second pass on the now fully-patched file must be a no-op. (A stale
+      // bridge block is intentionally NOT a no-op — see the outdated-block test.)
+      patchPlaywrightConfig(f);
       const r = patchPlaywrightConfig(f);
       expect(r.patched).toBe(false);
     });
