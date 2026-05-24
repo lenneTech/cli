@@ -11,7 +11,13 @@
  */
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, paths as caddyPaths, validateCaddyfile, writeCaddyfile } from './caddy';
-import { getServicePaths, getServiceStatus, installService, platformSupported, waitForServiceReady } from './dev-service';
+import {
+  getServicePaths,
+  getServiceStatus,
+  installService,
+  platformSupported,
+  waitForServiceReady,
+} from './dev-service';
 
 export interface RunInstallResult {
   /** Setup is incomplete — caddy missing, daemon didn't start, etc. */
@@ -38,7 +44,11 @@ export async function runInstall(
   } = toolbox;
 
   info('');
-  info(colors.bold(opts.auto ? 'Preparing this machine for lt dev (lt dev install)' : 'lt dev install — one-time per-machine setup'));
+  info(
+    colors.bold(
+      opts.auto ? 'Preparing this machine for lt dev (lt dev install)' : 'lt dev install — one-time per-machine setup',
+    ),
+  );
   info(colors.dim('─'.repeat(60)));
 
   const plat = platformSupported();
