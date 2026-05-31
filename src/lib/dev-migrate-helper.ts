@@ -7,6 +7,7 @@
  * Idempotent — safe to run multiple times.
  */
 import { existsSync } from 'fs';
+import { filesystem as gluegunFilesystem } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
@@ -14,6 +15,7 @@ import { buildIdentity, DevIdentity } from './dev-identity';
 import { addToGitignore, autoPatch, patchClaudeMd, PatchResult } from './dev-patches';
 import { apiNeedsPortPatch, appNeedsPortPatch, deriveDbName, DevProjectLayout } from './dev-project';
 import { loadRegistry, ProjectsRegistryEntry, saveRegistry } from './dev-state';
+import { renameUnmodifiedTemplatePackage } from './package-name';
 
 export interface MigrateInput {
   /** Resolved layout (from `resolveLayout`). */
@@ -35,6 +37,12 @@ export interface MigrateResult {
   identity: DevIdentity;
   /** True if the registry was updated (new/changed). */
   registryUpdated: boolean;
+  /**
+   * Set to the new `name` field if the root package.json carried an
+   * unmodified starter-template default (e.g. `lt-monorepo`) and was
+   * rewritten to the directory basename. `null` when no rewrite happened.
+   */
+  renamedTemplatePackage: null | string;
 }
 
 /**
@@ -54,6 +62,10 @@ export function printMigrateResult(toolbox: ExtendedGluegunToolbox, result: Migr
   if (result.identity.subdomains.api) info(`  API URL: https://${result.identity.subdomains.api.hostname}`);
   info(`  DB:      mongodb://127.0.0.1/${result.dbName}`);
   info('');
+
+  if (result.renamedTemplatePackage) {
+    success(`renamed root package.json name → "${result.renamedTemplatePackage}" (was unmodified template default)`);
+  }
 
   if (result.codePatches.length > 0) {
     for (const r of result.codePatches) {
@@ -84,6 +96,19 @@ export function printMigrateResult(toolbox: ExtendedGluegunToolbox, result: Migr
  */
 export function runMigrate(input: MigrateInput): MigrateResult {
   const { layout } = input;
+
+  // 0. If the root package.json still carries an unmodified starter-template
+  //    name (e.g. `lt-monorepo` from a raw `git clone`), rewrite it to the
+  //    directory basename before deriving identity. Otherwise every cloned
+  //    project would slug to `lt-monorepo` and collide on
+  //    `https://lt-monorepo.localhost`. `lt fullstack init` already handles
+  //    this — the call here is the safety net for projects that bypassed
+  //    init (e.g. manual `git clone lenneTech/lt-monorepo my-project`).
+  const renamedTemplatePackage = renameUnmodifiedTemplatePackage({
+    filesystem: gluegunFilesystem,
+    projectRoot: layout.root,
+  });
+
   const identity = buildIdentity(layout.root);
   const dbName = deriveDbName(layout.apiDir, identity.slug);
 
@@ -133,7 +158,8 @@ export function runMigrate(input: MigrateInput): MigrateResult {
 
   const codePatched = codePatches.filter((r) => r.patched).length > 0;
   const claudePatched = claudePatches.filter((r) => r.patched).length > 0;
-  const alreadyMigrated = !codePatched && !claudePatched && !registryChanged && !addedGitignoreEntry;
+  const alreadyMigrated =
+    !codePatched && !claudePatched && !registryChanged && !addedGitignoreEntry && !renamedTemplatePackage;
 
   return {
     addedGitignoreEntry,
@@ -143,5 +169,6 @@ export function runMigrate(input: MigrateInput): MigrateResult {
     dbName,
     identity,
     registryUpdated: registryChanged,
+    renamedTemplatePackage,
   };
 }

@@ -41,6 +41,50 @@ import {
  *   NSC__MONGOOSE__URI, NSC__BASE_URL, NSC__APP_URL, DATABASE_URL,
  *   NUXT_PUBLIC_API_PROXY=false (Caddy makes vite-proxy obsolete).
  */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)}GB`;
+}
+
+function formatRotationNote(label: string, archivePath: string, previousSize: number): string {
+  const size = formatBytes(previousSize);
+  const huge = previousSize > 100 * 1024 * 1024 ? ' (large — consider fixing noisy warnings)' : '';
+  return `Rotated previous ${label} log → ${archivePath} (${size})${huge}`;
+}
+
+/**
+ * Print the project's bound URLs (app, api, db) as a small info block.
+ *
+ * Used in two places so the user always sees the URLs next to the PIDs —
+ * once after a successful `up` and once when `up` short-circuits on
+ * "Already running". Falls back gracefully when only one of api/app is
+ * present (single-side projects).
+ */
+function printProjectUrls(
+  info: (message: string) => void,
+  options: {
+    apiHostname?: string;
+    apiUpstreamPort?: number;
+    appHostname?: string;
+    appUpstreamPort?: number;
+    dbName?: string;
+  },
+): void {
+  if (options.appHostname) {
+    const arrow = options.appUpstreamPort ? `  →  127.0.0.1:${options.appUpstreamPort}` : '';
+    info(`  app: https://${options.appHostname}${arrow}`);
+  }
+  if (options.apiHostname) {
+    const arrow = options.apiUpstreamPort ? `  →  127.0.0.1:${options.apiUpstreamPort}` : '';
+    info(`  api: https://${options.apiHostname}${arrow}`);
+  }
+  if (options.dbName) {
+    info(`  db:  mongodb://127.0.0.1/${options.dbName}`);
+  }
+}
+
 const UpCommand: GluegunCommand = {
   alias: ['u'],
   description: 'Start API + App behind Caddy',
@@ -119,6 +163,17 @@ const UpCommand: GluegunCommand = {
         warning(
           `Already running (api pid ${existingSession.pids.api ?? '-'}, app pid ${existingSession.pids.app ?? '-'}).`,
         );
+        // Surface the bound URLs so the user can copy them out without having
+        // to look up `lt dev status` separately. Falls back to the in-process
+        // identity/registry data — both sources stay in sync via saveRegistry.
+        const existingEntry = loadRegistry().projects[identity.slug];
+        printProjectUrls(info, {
+          apiHostname: identity.subdomains.api?.hostname,
+          apiUpstreamPort: existingEntry?.internalPorts.api,
+          appHostname: identity.subdomains.app?.hostname,
+          appUpstreamPort: existingEntry?.internalPorts.app,
+          dbName: existingEntry?.dbName ?? deriveDbName(layout.apiDir, identity.slug),
+        });
         info('Run `lt dev down` first.');
         if (!parameters.options.fromGluegunMenu) process.exit(1);
         return 'dev up: already running';
@@ -183,21 +238,36 @@ const UpCommand: GluegunCommand = {
     const pnpmBin = process.env.LT_PNPM_BIN || 'pnpm';
     const pids: { api?: number; app?: number } = {};
 
+    const rotationNotes: string[] = [];
     if (layout.apiDir && existsSync(join(layout.apiDir, 'package.json')) && apiPort) {
-      const apiPid = spawnDetached(pnpmBin, ['start'], {
+      const apiResult = spawnDetached(pnpmBin, ['start'], {
         cwd: layout.apiDir,
         env: devEnv.api.env,
         logFile: join(layout.root, '.lt-dev', 'api.log'),
       });
-      if (apiPid) pids.api = apiPid;
+      if (apiResult) {
+        pids.api = apiResult.pid;
+        if (apiResult.rotated.rotated && apiResult.rotated.archivePath !== undefined) {
+          rotationNotes.push(
+            formatRotationNote('api', apiResult.rotated.archivePath, apiResult.rotated.previousSize ?? 0),
+          );
+        }
+      }
     }
     if (layout.appDir && existsSync(join(layout.appDir, 'package.json')) && appPort) {
-      const appPid = spawnDetached(pnpmBin, ['dev'], {
+      const appResult = spawnDetached(pnpmBin, ['dev'], {
         cwd: layout.appDir,
         env: devEnv.app.env,
         logFile: join(layout.root, '.lt-dev', 'app.log'),
       });
-      if (appPid) pids.app = appPid;
+      if (appResult) {
+        pids.app = appResult.pid;
+        if (appResult.rotated.rotated && appResult.rotated.archivePath !== undefined) {
+          rotationNotes.push(
+            formatRotationNote('app', appResult.rotated.archivePath, appResult.rotated.previousSize ?? 0),
+          );
+        }
+      }
     }
 
     // Persist.
@@ -219,7 +289,18 @@ const UpCommand: GluegunCommand = {
     info(colors.dim(`ENV bridge: ${bridgePath}`));
 
     success(`Started: api pid=${pids.api ?? '-'}, app pid=${pids.app ?? '-'}`);
+    // Echo the bound URLs next to the PIDs as well — the "Starting" block
+    // prints them before the spawn, but on a long boot log they scroll out
+    // of view, so repeating them here keeps PID + URL visually grouped.
+    printProjectUrls(info, {
+      apiHostname: identity.subdomains.api?.hostname,
+      apiUpstreamPort: apiPort,
+      appHostname: identity.subdomains.app?.hostname,
+      appUpstreamPort: appPort,
+      dbName,
+    });
     info(colors.dim('Logs: <root>/.lt-dev/api.log, <root>/.lt-dev/app.log'));
+    for (const note of rotationNotes) info(colors.dim(note));
     info(colors.dim('Stop with: lt dev down'));
 
     // Best-effort: kill orphaned children if neither spawned (unlikely, but tidy).

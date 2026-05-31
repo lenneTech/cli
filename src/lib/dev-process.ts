@@ -8,10 +8,18 @@
  *   `lt dev doctor` to detect port collisions.
  */
 import { ChildProcess, spawn } from 'child_process';
-import { closeSync, mkdirSync, openSync } from 'fs';
+import { closeSync, mkdirSync, openSync, renameSync, statSync, unlinkSync } from 'fs';
 import { dirname } from 'path';
 
 import { isValidPid } from './dev-state';
+
+export interface RotateResult {
+  /** Path the previous log was moved to (only set when `rotated`). */
+  archivePath?: string;
+  /** Size in bytes of the previous log before rotation (only set when `rotated`). */
+  previousSize?: number;
+  rotated: boolean;
+}
 
 export interface SpawnOptions {
   cwd: string;
@@ -97,7 +105,39 @@ export async function listenSnapshot(ports: number[]): Promise<Map<number, { com
 }
 
 /**
+ * Rotate a log file: rename existing `<logFile>` to `<logFile>.1`, dropping
+ * any previous `.1`. Keeps exactly one prior generation so the most recent
+ * `lt dev down`-able session stays inspectable without unbounded growth.
+ *
+ * Returns `{ rotated: false }` when no prior log exists.
+ */
+export function rotateLogFile(logFile: string): RotateResult {
+  let previousSize: number;
+  try {
+    previousSize = statSync(logFile).size;
+  } catch {
+    return { rotated: false };
+  }
+  const archivePath = `${logFile}.1`;
+  try {
+    unlinkSync(archivePath);
+  } catch {
+    /* nothing to remove */
+  }
+  try {
+    renameSync(logFile, archivePath);
+  } catch {
+    return { rotated: false };
+  }
+  return { archivePath, previousSize, rotated: true };
+}
+
+/**
  * Spawn a detached child whose stdio is redirected to a log file.
+ *
+ * Rotates any previous log first (one generation kept as `<logFile>.1`) so
+ * each session starts with a fresh file. Prevents the multi-day accumulation
+ * that produced ~10 GB logs under continuous `up`/`down` cycles.
  *
  * The parent's copy of the log file descriptor is closed in `finally`
  * — the child has already inherited its own fd before `spawn` returns,
@@ -106,8 +146,13 @@ export async function listenSnapshot(ports: number[]): Promise<Map<number, { com
  *
  * Returns the child PID, or undefined if spawn failed.
  */
-export function spawnDetached(cmd: string, args: string[], opts: SpawnOptions): number | undefined {
+export function spawnDetached(
+  cmd: string,
+  args: string[],
+  opts: SpawnOptions,
+): undefined | { pid: number; rotated: RotateResult } {
   mkdirSync(dirname(opts.logFile), { recursive: true });
+  const rotated = rotateLogFile(opts.logFile);
   const out = openSync(opts.logFile, 'a');
 
   let child: ChildProcess | undefined;
@@ -119,7 +164,8 @@ export function spawnDetached(cmd: string, args: string[], opts: SpawnOptions): 
       stdio: ['ignore', out, out],
     });
     child.unref();
-    return child.pid;
+    if (child.pid === undefined) return undefined;
+    return { pid: child.pid, rotated };
   } catch {
     return undefined;
   } finally {
