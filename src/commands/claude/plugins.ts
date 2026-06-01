@@ -34,23 +34,24 @@ async function installPlugin(
     print: { error, info, spin },
   } = toolbox;
 
-  // Step 1: Install or update plugin
+  // Step 1: Install or update plugin.
+  //
+  // `claude plugin install` is a no-op for an already-installed plugin: it reports
+  // "already installed" and leaves the active version pinned to whatever was installed
+  // before. To actually pull a newer release from the (freshly updated) marketplace
+  // cache, an existing install must be bumped with `claude plugin update`.
   const fullPluginName = `${plugin.pluginName}@${plugin.marketplaceName}`;
   const pluginSpinner = spin(`Installing/updating ${plugin.pluginName}`);
-  const installResult = runClaudeCommand(cli, `plugin install ${fullPluginName}`);
+  let installResult = runClaudeCommand(cli, `plugin install ${fullPluginName}`);
 
   let pluginAction = 'installed';
-  if (installResult.output.includes('already') || installResult.output.includes('up to date')) {
-    pluginAction = 'up to date';
-  } else if (installResult.output.includes('update') || installResult.output.includes('upgrade')) {
-    pluginAction = 'updated';
+  if (installResult.output.includes('already installed')) {
+    // Plugin was already present — follow up with an update to reach the latest version.
+    installResult = runClaudeCommand(cli, `plugin update ${fullPluginName}`);
+    pluginAction = installResult.output.includes('already') ? 'up to date' : 'updated';
   }
 
-  if (
-    installResult.success ||
-    installResult.output.includes('already') ||
-    installResult.output.includes('up to date')
-  ) {
+  if (installResult.success || installResult.output.includes('already')) {
     pluginSpinner.succeed(`${plugin.pluginName} ${pluginAction}`);
   } else {
     pluginSpinner.fail(`Failed to install ${plugin.pluginName}`);
@@ -59,6 +60,7 @@ async function installPlugin(
     info('Manual installation:');
     info(`  /plugin marketplace add ${plugin.marketplaceRepo}`);
     info(`  /plugin install ${fullPluginName}`);
+    info(`  /plugin update ${fullPluginName}`);
     return { action: 'failed', contents: EMPTY_PLUGIN_CONTENTS, postInstall: null, success: false };
   }
 
