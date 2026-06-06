@@ -1,5 +1,10 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+// Scratch dirs live OUTSIDE the cli repo, so the CLI's workspace walk-up can't
+// escape into an ancestor that looks like a workspace (e.g. a stray `projects/`
+// in the cli root). os.tmpdir() has no such ancestor.
+const TMP_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lt-cli-tests-')));
 // `filesystem` / `patching` are required lazily inside the test that
 // uses them so this file doesn't collide with the global-scope
 // declarations in other test files (e.g.
@@ -61,7 +66,7 @@ describe('Fullstack init --next auto-rename', () => {
     const { filesystem, patching } = require('gluegun');
 
     beforeEach(() => {
-      tempDir = filesystem.path('__tests__', `temp-fullstack-rename-${Date.now()}`);
+      tempDir = filesystem.path(TMP_ROOT, `temp-fullstack-rename-${Date.now()}`);
       filesystem.dir(tempDir);
     });
 

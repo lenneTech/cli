@@ -4,10 +4,17 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
 import { envBridgePath } from '../../lib/dev-env-bridge';
-import { buildIdentity } from '../../lib/dev-identity';
 import { runChildInherit } from '../../lib/dev-process';
 import { appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
-import { autoShardCount, bringUpTestSession, runShardedTestSession, tearDownAllTestSessions, tearDownTestSession, TestSessionLogger } from '../../lib/dev-test-session';
+import {
+  autoShardCount,
+  bringUpTestSession,
+  runShardedTestSession,
+  tearDownAllTestSessions,
+  tearDownTestSession,
+  TestSessionLogger,
+} from '../../lib/dev-test-session';
+import { resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
  * One-shot E2E convenience wrapper.
@@ -51,7 +58,10 @@ const TestCommand: GluegunCommand = {
       return 'dev test: not a project';
     }
 
-    const identity = buildIdentity(layout.root);
+    // Ticket-aware: a ticket worktree tests its OWN isolated stack + DB
+    // (`<slug>-<id>-test`), so resolve the ticket identity + pass the ticket dev
+    // DB so the test DB is derived per ticket (never shared between tickets).
+    const { dbName: devDbName, identity } = resolveDevIdentity(layout, { ticket: parameters.options.ticket });
     const log: TestSessionLogger = { dim: colors.dim, info, warn: warning };
 
     // Sub-command: `lt dev test down` — tear the test stack(s) down + exit.
@@ -160,7 +170,12 @@ const TestCommand: GluegunCommand = {
       try {
         info('');
         info(colors.bold(`Running isolated Playwright E2E for "${identity.slug}" sharded across ${shardTotal} stacks`));
-        shardExit = await runShardedTestSession(layout, identity, log, { forwarded, pnpmBin, total: shardTotal });
+        shardExit = await runShardedTestSession(layout, identity, log, {
+          devDbName,
+          forwarded,
+          pnpmBin,
+          total: shardTotal,
+        });
       } catch (e) {
         error(`Failed to run sharded E2E: ${(e as Error).message}`);
         shardExit = 1;
@@ -198,7 +213,7 @@ const TestCommand: GluegunCommand = {
 
     let exitCode: null | number = 1;
     try {
-      const ctx = await bringUpTestSession(layout, identity, log);
+      const ctx = await bringUpTestSession(layout, identity, log, { devDbName });
 
       const env: NodeJS.ProcessEnv = {
         ...process.env,

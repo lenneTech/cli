@@ -40,12 +40,17 @@
 describe('Fullstack init nuxt-base-template flatten', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { filesystem } = require('gluegun');
+  // Scratch dirs live OUTSIDE the cli repo so the CLI's workspace walk-up can't
+  // escape into an ancestor that looks like a workspace (e.g. a stray `projects/`
+  // in the cli root). os.tmpdir() has no such ancestor.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const TMP_ROOT = require('fs').realpathSync(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'lt-cli-tests-')));
 
   let tempDir: string;
 
   beforeEach(() => {
     // Each test gets its own temp dir to mirror the post-clone state.
-    tempDir = filesystem.path('__tests__', `temp-flatten-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-flatten-${Date.now()}-${Math.floor(Math.random() * 1e6)}`);
     filesystem.dir(tempDir);
   });
 

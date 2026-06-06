@@ -88,6 +88,20 @@ export function deriveTestDbName(devDbName: string): string {
 }
 
 /**
+ * Derive the per-TICKET database name from the project's dev DB name, so each
+ * ticket worktree reads/writes its OWN database and tickets never collide.
+ *
+ *   svl-sports-system-local + "2200" → svl-sports-system-2200
+ *
+ * The ticket's isolated `lt dev test` stack then derives its test DB from this
+ * via {@link deriveTestDbName} → `svl-sports-system-2200-test`.
+ */
+export function deriveTicketDbName(devDbName: string, ticketId: string): string {
+  const base = devDbName.replace(/-(local|dev)$/i, '');
+  return `${base}-${ticketId}`;
+}
+
+/**
  * Resolve layout starting from `cwd`. Walks up to find a workspace if
  * cwd is inside `projects/api/` or `projects/app/`.
  */

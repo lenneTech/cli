@@ -9,9 +9,20 @@
 // ts-jest's shared program).
 export {};
 
+import { mkdtempSync, realpathSync } from 'fs';
 import { filesystem, system } from 'gluegun';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const src: string = filesystem.path(__dirname, '..');
+
+// Scratch dirs are created OUTSIDE the cli repo (under the OS temp dir). The
+// CLI's workspace detection walks UP from the cwd, so a temp dir nested inside
+// `__tests__/` can be "captured" by an ancestor that happens to look like a
+// workspace (e.g. a stray `projects/` in the cli root) — which silently breaks
+// these tests. os.tmpdir() has no such ancestor, so detection always stops
+// cleanly inside the temp dir, regardless of repo state.
+const TMP_ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'lt-cli-tests-')));
 
 /**
  * Run the lt CLI inside `cwd` and return stdout.
@@ -31,12 +42,9 @@ async function runCli(cmd: string, cwd: string): Promise<string> {
   }
 }
 
-/** Create a unique scratch directory under `__tests__/`. */
+/** Create a unique scratch directory OUTSIDE the cli repo (see TMP_ROOT). */
 function makeTempDir(prefix: string): string {
-  const tempDir = filesystem.path(
-    '__tests__',
-    `temp-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-  );
+  const tempDir = filesystem.path(TMP_ROOT, `temp-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   filesystem.dir(tempDir);
   return tempDir;
 }

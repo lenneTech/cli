@@ -10,7 +10,18 @@
  *
  * Both files are JSON, atomically written, and schema-versioned.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
@@ -46,6 +57,14 @@ const SESSION_FILE = 'state.json';
 /** Session file for the ephemeral `lt dev test` stack (runs parallel to the dev session). */
 export const TEST_SESSION_FILE = 'state.test.json';
 
+/** Result of {@link detectSlugConflict} — another checkout already owns this slug. */
+export interface SlugConflict {
+  /** The registered path that differs from the current checkout. */
+  otherPath: string;
+  /** True if that other checkout currently has a live `lt dev up` session. */
+  otherSessionAlive: boolean;
+}
+
 /**
  * Allocate a free internal port for a Caddy upstream.
  *
@@ -71,6 +90,22 @@ export function clearSession(root: string, sessionFile: string = SESSION_FILE): 
       /* best-effort */
     }
   }
+}
+
+/**
+ * Detect when `slug` is registered to a DIFFERENT checkout than `root`. Two
+ * clones of the same project share a package.json "name" → the same slug → the
+ * same Caddy block / internal ports / database, so running both via `lt dev`
+ * collides (and one's `lt dev down` can unroute the other). Returns null when
+ * there is no conflict (no registry entry, or the entry belongs to THIS checkout).
+ */
+export function detectSlugConflict(slug: string, root: string): null | SlugConflict {
+  const entry = loadRegistry().projects[slug];
+  if (!entry?.path || sameRealPath(entry.path, root)) return null;
+  const session = loadSession(entry.path);
+  const otherSessionAlive =
+    !!session && [session.pids.api, session.pids.app].some((p) => typeof p === 'number' && isPidAlive(p));
+  return { otherPath: entry.path, otherSessionAlive };
 }
 
 /** Check whether a process with the given PID is currently alive. */
@@ -157,6 +192,72 @@ export function takenInternalPorts(reg: ProjectsRegistry, excludeSlug?: string):
     if (entry.internalPorts.app) ports.add(entry.internalPorts.app);
   }
   return ports;
+}
+
+/** True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var). */
+function sameRealPath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
+}
+
+const LOCK_PATH = `${REGISTRY_PATH}.lock`;
+
+/**
+ * Run `fn` while holding an EXCLUSIVE lock on the registry, so concurrent
+ * `lt dev` invocations — e.g. two parallel `lt dev test` in different ticket
+ * worktrees — cannot read-modify-write the registry, or allocate the SAME
+ * internal ports, at the same time. (Without this, two simultaneous test runs
+ * both read the registry before either saves, both pick the same free ports,
+ * and the second server fails to bind — the port-allocation race.)
+ *
+ * The lock is a single atomically-created lock file (`openSync(..,'wx')`); a
+ * stale lock left by a crashed process (older than `staleMs`) is reclaimed.
+ * Keep `fn` SHORT — allocation + reservation only, NEVER across a build/spawn.
+ */
+export async function withRegistryLock<T>(
+  fn: () => Promise<T> | T,
+  opts: { staleMs?: number; timeoutMs?: number } = {},
+): Promise<T> {
+  const staleMs = opts.staleMs ?? 30_000;
+  const timeoutMs = opts.timeoutMs ?? 20_000;
+  const start = Date.now();
+  mkdirSync(dirname(LOCK_PATH), { recursive: true });
+  let fd: null | number = null;
+  while (fd === null) {
+    try {
+      fd = openSync(LOCK_PATH, 'wx'); // atomic exclusive create — throws if held
+    } catch {
+      try {
+        if (Date.now() - statSync(LOCK_PATH).mtimeMs > staleMs) unlinkSync(LOCK_PATH); // reclaim a crashed holder
+      } catch {
+        /* lock vanished between calls — just retry */
+      }
+      if (Date.now() - start > timeoutMs) throw new Error(`registry lock busy for >${timeoutMs}ms (${LOCK_PATH})`);
+      await delay(40 + Math.floor(Math.random() * 60)); // jittered backoff
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      /* ignore */
+    }
+    try {
+      unlinkSync(LOCK_PATH);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Promise-based delay for the lock retry loop. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Path constants exported for tests + status displays. */

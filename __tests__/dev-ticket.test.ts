@@ -1,0 +1,346 @@
+import { execFileSync } from 'child_process';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
+import { buildIdentity, buildTicketIdentity } from '../src/lib/dev-identity';
+import { deriveTicketDbName } from '../src/lib/dev-project';
+import {
+  checkGlobalSetupTicketSafe,
+  clearTicketMarker,
+  defaultTicketBranch,
+  deriveTicketId,
+  gitBranchExists,
+  gitMainRepoRoot,
+  listWorktrees,
+  readTicketMarker,
+  resolveDevIdentity,
+  worktreeAdd,
+  worktreeDirtyOnlyGenerated,
+  worktreePathFor,
+  worktreeRemove,
+  worktreeSafetyReport,
+  writeTicketMarker,
+} from '../src/lib/dev-ticket';
+
+describe('dev-ticket', () => {
+  describe('deriveTicketId', () => {
+    test('ticket pattern → short numeric part', () => {
+      expect(deriveTicketId('DEV-2200')).toBe('2200');
+      expect(deriveTicketId('ABC-123')).toBe('123');
+      expect(deriveTicketId('dev-2200')).toBe('2200');
+    });
+    test('free feature name → slug', () => {
+      expect(deriveTicketId('checkout-refactor')).toBe('checkout-refactor');
+      expect(deriveTicketId('Checkout Refactor')).toBe('checkout-refactor');
+      expect(deriveTicketId('feature/Foo Bar')).toBe('feature-foo-bar');
+    });
+    test('--as override wins (slugified)', () => {
+      expect(deriveTicketId('DEV-2200', 'cof')).toBe('cof');
+      expect(deriveTicketId('DEV-2200', 'Check Out')).toBe('check-out');
+    });
+  });
+
+  describe('defaultTicketBranch', () => {
+    test('preserves ticket id casing, sanitises free names', () => {
+      expect(defaultTicketBranch('DEV-2200')).toBe('feat/DEV-2200');
+      expect(defaultTicketBranch('checkout refactor')).toBe('feat/checkout-refactor');
+    });
+  });
+
+  describe('buildTicketIdentity', () => {
+    const base = buildIdentityFixture('svl');
+    test('suffixes slug + every hostname with the id', () => {
+      const t = buildTicketIdentity(base, '2200');
+      expect(t.slug).toBe('svl-2200');
+      expect(t.subdomains.app.hostname).toBe('svl-2200.localhost');
+      expect(t.subdomains.api.hostname).toBe('api.svl-2200.localhost');
+    });
+  });
+
+  describe('deriveTicketDbName', () => {
+    test('strips -local/-dev and appends the id', () => {
+      expect(deriveTicketDbName('svl-sports-system-local', '2200')).toBe('svl-sports-system-2200');
+      expect(deriveTicketDbName('crm-dev', 'checkout')).toBe('crm-checkout');
+    });
+  });
+
+  describe('worktreePathFor', () => {
+    test('sibling of the main repo, named <slug>-<id>', () => {
+      expect(worktreePathFor('/Users/x/code/svl-sports-system', 'svl', '2200')).toBe('/Users/x/code/svl-2200');
+    });
+  });
+
+  describe('ticket marker', () => {
+    let root: string;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'lt-ticket-marker-'));
+    });
+    afterEach(() => rmSync(root, { force: true, recursive: true }));
+
+    test('write → read round-trips the id; clear removes it', () => {
+      expect(readTicketMarker(root)).toBeNull();
+      writeTicketMarker(root, '2200');
+      expect(readTicketMarker(root)).toBe('2200');
+      clearTicketMarker(root);
+      expect(readTicketMarker(root)).toBeNull();
+    });
+  });
+
+  describe('resolveDevIdentity', () => {
+    let root: string;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'lt-ticket-resolve-'));
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'svl' }));
+      mkdirSync(join(root, 'projects', 'api'), { recursive: true });
+      mkdirSync(join(root, 'projects', 'app'), { recursive: true });
+    });
+    afterEach(() => rmSync(root, { force: true, recursive: true }));
+
+    const layoutFor = (r: string) => ({ apiDir: join(r, 'projects', 'api'), appDir: join(r, 'projects', 'app'), root: r, workspace: true });
+
+    test('no marker → plain project identity', () => {
+      const res = resolveDevIdentity(layoutFor(root));
+      expect(res.ticket).toBeNull();
+      expect(res.identity.slug).toBe('svl');
+      expect(res.dbName).toBe('svl-local');
+    });
+
+    test('marker → suffixed identity + per-ticket DB', () => {
+      writeTicketMarker(root, '2200');
+      const res = resolveDevIdentity(layoutFor(root));
+      expect(res.ticket).toBe('2200');
+      expect(res.identity.slug).toBe('svl-2200');
+      expect(res.identity.subdomains.app.hostname).toBe('svl-2200.localhost');
+      expect(res.dbName).toBe('svl-2200');
+    });
+
+    test('explicit --ticket option overrides the marker (raw name → id)', () => {
+      writeTicketMarker(root, '2200');
+      const res = resolveDevIdentity(layoutFor(root), { ticket: 'DEV-2201' });
+      expect(res.ticket).toBe('2201');
+      expect(res.identity.slug).toBe('svl-2201');
+    });
+
+    test('marker file is written under .lt-dev/', () => {
+      writeTicketMarker(root, 'x');
+      expect(existsSync(join(root, '.lt-dev', 'ticket'))).toBe(true);
+    });
+  });
+
+  describe('checkGlobalSetupTicketSafe', () => {
+    let root: string;
+    beforeEach(() => {
+      root = mkdtempSync(join(tmpdir(), 'lt-ticket-gs-'));
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'svl' }));
+      mkdirSync(join(root, 'projects', 'api'), { recursive: true });
+      mkdirSync(join(root, 'projects', 'app'), { recursive: true });
+    });
+    afterEach(() => rmSync(root, { force: true, recursive: true }));
+
+    const layoutFor = (r: string) => ({
+      apiDir: join(r, 'projects', 'api'),
+      appDir: join(r, 'projects', 'app'),
+      root: r,
+      workspace: true,
+    });
+
+    test('no global-setup file → file: null, hasDbReset: false, ticketSafe: true', () => {
+      const r = checkGlobalSetupTicketSafe(layoutFor(root));
+      expect(r.file).toBeNull();
+      expect(r.hasDbReset).toBe(false);
+      expect(r.ticketSafe).toBe(true);
+    });
+
+    test('file present but no DB-reset markers → hasDbReset: false, ticketSafe: true', () => {
+      const gsDir = join(root, 'projects', 'app', 'tests');
+      mkdirSync(gsDir, { recursive: true });
+      writeFileSync(join(gsDir, 'global-setup.ts'), `export default async function () { /* noop */ }\n`);
+      const r = checkGlobalSetupTicketSafe(layoutFor(root));
+      expect(r.file).toBe(join(gsDir, 'global-setup.ts'));
+      expect(r.hasDbReset).toBe(false);
+      expect(r.ticketSafe).toBe(true);
+    });
+
+    test('permissive allow-list (svl reference) → ticketSafe: true', () => {
+      // Synthetic DB samples are `<base>-tkprobe-test[-2]`, where <base> is the
+      // project slug ("svl" from package.json). Mirror the real svl pattern:
+      //   /^<base>-(?:[a-z0-9-]+-)?test(?:-\d+)?$/
+      const gsDir = join(root, 'projects', 'app', 'tests');
+      mkdirSync(gsDir, { recursive: true });
+      writeFileSync(
+        join(gsDir, 'global-setup.ts'),
+        [
+          "import { MongoClient } from 'mongodb';",
+          'function isAllowedDb(name: string) {',
+          '  return /^svl-(?:[a-z0-9-]+-)?test(?:-\\d+)?$/.test(name);',
+          '}',
+          'export default async function () {',
+          '  const uri = process.env.MONGO_URI!;',
+          '  await new MongoClient(uri).db().dropDatabase();',
+          '}',
+        ].join('\n'),
+      );
+      const r = checkGlobalSetupTicketSafe(layoutFor(root));
+      expect(r.hasDbReset).toBe(true);
+      expect(r.ticketSafe).toBe(true);
+    });
+
+    test('shard-only allow-list (rejects ticket DBs) → ticketSafe: false', () => {
+      // `svl-2200-test` is rejected by `^svl-test(?:-\d+)?$`; `lt dev doctor` must
+      // WARN so the project broadens the allow-list before ticket E2E can run.
+      const gsDir = join(root, 'projects', 'app', 'tests');
+      mkdirSync(gsDir, { recursive: true });
+      writeFileSync(
+        join(gsDir, 'global-setup.ts'),
+        [
+          'function isAllowedDb(name: string) {',
+          '  return /^svl-test(?:-\\d+)?$/.test(name);',
+          '}',
+          'export default async function () {',
+          '  const uri = process.env.MONGO_URI!;',
+          '  // dbNameFromUri + dropDatabase pattern',
+          '  await drop(uri);',
+          '}',
+        ].join('\n'),
+      );
+      const r = checkGlobalSetupTicketSafe(layoutFor(root));
+      expect(r.hasDbReset).toBe(true);
+      expect(r.ticketSafe).toBe(false);
+    });
+
+    test('non-regex `/…/` (e.g. a division) does not crash the scanner', () => {
+      const gsDir = join(root, 'projects', 'app', 'tests');
+      mkdirSync(gsDir, { recursive: true });
+      writeFileSync(
+        join(gsDir, 'global-setup.ts'),
+        [
+          'function isAllowedDb(name: string) {',
+          '  const half = 100 / 2; // looks like a regex literal to a naive scanner',
+          '  return /^svl-(?:[a-z0-9-]+-)?test$/.test(name) && half > 0;',
+          '}',
+          'export default async function () {',
+          '  await emptyDatabase();',
+          '}',
+        ].join('\n'),
+      );
+      const r = checkGlobalSetupTicketSafe(layoutFor(root));
+      expect(r.hasDbReset).toBe(true);
+      expect(r.ticketSafe).toBe(true);
+    });
+
+    test('falls back to <root>/tests/global-setup.ts when no appDir candidate exists', () => {
+      const gsDir = join(root, 'tests');
+      mkdirSync(gsDir, { recursive: true });
+      writeFileSync(
+        join(gsDir, 'global-setup.ts'),
+        // No allow-list at all → still has DB reset, but ticket-unsafe by default.
+        `export default async function () { await deleteMany({}); }\n`,
+      );
+      const r = checkGlobalSetupTicketSafe({ ...layoutFor(root), appDir: null });
+      expect(r.file).toBe(join(gsDir, 'global-setup.ts'));
+      expect(r.hasDbReset).toBe(true);
+      expect(r.ticketSafe).toBe(false);
+    });
+  });
+});
+
+describe('dev-ticket — git-backed worktree + safety helpers', () => {
+  // A real temp repo with a bare "origin" so `origin/dev` exists (needed for the
+  // worktree base ref + the unpushed-commit check).
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+  let remote: string;
+  let repo: string;
+  let wt: string;
+
+  beforeEach(() => {
+    remote = mkdtempSync(join(tmpdir(), 'lt-remote-'));
+    repo = mkdtempSync(join(tmpdir(), 'lt-repo-'));
+    wt = `${repo}-wt`; // sibling path that does NOT exist yet (git worktree add creates it)
+    git(remote, 'init', '-q', '--bare');
+    git(repo, 'init', '-q');
+    git(repo, 'config', 'user.email', 'ci@lenne.tech');
+    git(repo, 'config', 'user.name', 'ci');
+    git(repo, 'config', 'commit.gpgsign', 'false');
+    writeFileSync(join(repo, 'README.md'), '# repo\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'branch', '-M', 'dev'); // default branch → dev
+    git(repo, 'remote', 'add', 'origin', remote);
+    git(repo, 'push', '-q', 'origin', 'dev'); // origin/dev now exists
+  });
+
+  afterEach(() => {
+    try {
+      git(repo, 'worktree', 'remove', '--force', wt);
+    } catch {
+      /* no worktree added in this test */
+    }
+    for (const d of [wt, repo, remote]) {
+      try {
+        rmSync(d, { force: true, recursive: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  test('gitMainRepoRoot resolves the main repo — also from inside a worktree', () => {
+    expect(realpathSync(gitMainRepoRoot(repo))).toBe(realpathSync(repo));
+    worktreeAdd(repo, wt, 'feat/x', 'origin/dev');
+    expect(realpathSync(gitMainRepoRoot(wt))).toBe(realpathSync(repo)); // shared .git → main repo
+  });
+
+  test('gitBranchExists', () => {
+    expect(gitBranchExists(repo, 'dev')).toBe(true);
+    expect(gitBranchExists(repo, 'does-not-exist')).toBe(false);
+  });
+
+  test('worktreeAdd → listWorktrees → worktreeRemove', () => {
+    worktreeAdd(repo, wt, 'feat/DEV-2200', 'origin/dev');
+    const entry = listWorktrees(repo).find((w) => realpathSync(w.path) === realpathSync(wt));
+    expect(entry).toBeTruthy();
+    expect(entry!.branch).toBe('feat/DEV-2200');
+    worktreeRemove(repo, wt);
+    expect(listWorktrees(repo).some((w) => w.path === wt)).toBe(false);
+  });
+
+  test('worktreeDirtyOnlyGenerated: clean=false · only generated=true · real source=false', () => {
+    expect(worktreeDirtyOnlyGenerated(repo)).toBe(false); // clean → no force needed
+    writeFileSync(join(repo, '.nuxtrc'), 'x');
+    expect(worktreeDirtyOnlyGenerated(repo)).toBe(true); // only a framework-generated file
+    writeFileSync(join(repo, 'feature.ts'), 'x');
+    expect(worktreeDirtyOnlyGenerated(repo)).toBe(false); // a real source change is present
+  });
+
+  test('worktreeSafetyReport: pushed+clean → safe; uncommitted source / unpushed commit → flagged', () => {
+    let r = worktreeSafetyReport(repo);
+    expect(r.dirtySource).toEqual([]);
+    expect(r.unpushed).toBe(0); // HEAD == origin/dev
+
+    writeFileSync(join(repo, 'feature.ts'), 'x'); // uncommitted SOURCE change
+    r = worktreeSafetyReport(repo);
+    expect(r.dirtySource.length).toBe(1);
+
+    rmSync(join(repo, 'feature.ts'));
+    writeFileSync(join(repo, '.nuxtrc'), 'x'); // generated only → NOT counted as source
+    expect(worktreeSafetyReport(repo).dirtySource).toEqual([]);
+    rmSync(join(repo, '.nuxtrc'));
+
+    writeFileSync(join(repo, 'b.md'), 'b'); // a committed-but-unpushed commit
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'wip');
+    expect(worktreeSafetyReport(repo).unpushed).toBe(1);
+  });
+});
+
+/** Minimal project dir → a real DevIdentity via buildIdentity (api + app subdomains). */
+function buildIdentityFixture(name: string) {
+  const dir = mkdtempSync(join(tmpdir(), 'lt-ticket-fixture-'));
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name }));
+  mkdirSync(join(dir, 'projects', 'api'), { recursive: true });
+  mkdirSync(join(dir, 'projects', 'app'), { recursive: true });
+  const identity = buildIdentity(dir);
+  rmSync(dir, { force: true, recursive: true });
+  return identity;
+}

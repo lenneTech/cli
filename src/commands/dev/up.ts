@@ -6,19 +6,21 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable, caddyDaemonRunning, CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
-import { buildIdentity } from '../../lib/dev-identity';
 import { addToGitignore, patchClaudeMd } from '../../lib/dev-patches';
 import { killProcessGroup, listenSnapshot, spawnDetached } from '../../lib/dev-process';
-import { apiNeedsPortPatch, appNeedsPortPatch, deriveDbName, resolveLayout } from '../../lib/dev-project';
+import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import {
   allocateInternalPort,
+  detectSlugConflict,
   isPidAlive,
   loadRegistry,
   loadSession,
   saveRegistry,
   saveSession,
   takenInternalPorts,
+  withRegistryLock,
 } from '../../lib/dev-state';
+import { resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
  * Start API + App behind Caddy with project-specific URLs.
@@ -116,22 +118,49 @@ const UpCommand: GluegunCommand = {
       return 'dev up: caddy daemon down';
     }
 
-    const identity = buildIdentity(layout.root);
-    const dbName = deriveDbName(layout.apiDir, identity.slug);
+    // Ticket-aware: in a `lt ticket` worktree (tagged by a `.lt-dev/ticket`
+    // marker) — or with an explicit `--ticket <name>` — the slug / URLs / DB are
+    // suffixed so the stack is fully isolated from the base dev session and every
+    // other ticket. Without a ticket this is the plain project identity.
+    const { dbName, identity, ticket } = resolveDevIdentity(layout, { ticket: parameters.options.ticket });
+
+    // Guard against two checkouts of the SAME project (same package.json "name"
+    // → same slug → shared URLs / ports / DB / Caddy block). If another checkout
+    // is already RUNNING under this slug, abort with a clear message — otherwise
+    // both fight over the same ports and one `lt dev down` unroutes the other.
+    {
+      const conflict = detectSlugConflict(identity.slug, layout.root);
+      if (conflict?.otherSessionAlive) {
+        error(`Slug "${identity.slug}" is already in use by another RUNNING checkout:`);
+        info(colors.dim(`  ${conflict.otherPath}`));
+        info('Two checkouts of the same project share URLs / ports / database and collide.');
+        info('Stop it there (`lt dev down`), or give THIS checkout a distinct package.json "name".');
+        if (!parameters.options.fromGluegunMenu) process.exit(1);
+        return 'dev up: slug in use by another checkout';
+      }
+    }
 
     // Sanft auto-migrate sichere Operationen (ohne Code-Modifikation):
     // CLAUDE.md-URL-Block einfügen + .gitignore ergänzen.
     // Code-Patches (config.env.ts, nuxt.config.ts) bleiben explizit `lt dev init`.
     {
-      const claudeCandidates = [
-        join(layout.root, 'CLAUDE.md'),
-        ...(layout.apiDir ? [join(layout.apiDir, 'CLAUDE.md')] : []),
-        ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
-      ];
-      const patched = claudeCandidates.map((f) => patchClaudeMd(f, { dbName, identity })).filter((r) => r.patched);
-      if (patched.length > 0) {
-        info(colors.dim(`updated CLAUDE.md URL block in ${patched.length} file(s)`));
+      // NEVER patch the git-tracked CLAUDE.md for a ticket worktree: it would
+      // differ per worktree and risk committing ticket-specific URLs. The lt-dev
+      // plugin hook surfaces the ticket context per prompt instead (from the
+      // gitignored `.lt-dev/ticket` marker). For the base project we keep the
+      // committed URL block up to date as before.
+      if (!ticket) {
+        const claudeCandidates = [
+          join(layout.root, 'CLAUDE.md'),
+          ...(layout.apiDir ? [join(layout.apiDir, 'CLAUDE.md')] : []),
+          ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
+        ];
+        const patched = claudeCandidates.map((f) => patchClaudeMd(f, { dbName, identity })).filter((r) => r.patched);
+        if (patched.length > 0) {
+          info(colors.dim(`updated CLAUDE.md URL block in ${patched.length} file(s)`));
+        }
       }
+      // Always keep `.lt-dev/` (state, env bridge, ticket marker) out of git.
       if (addToGitignore(layout.root, '.lt-dev/')) {
         info(colors.dim('added `.lt-dev/` to .gitignore'));
       }
@@ -172,7 +201,7 @@ const UpCommand: GluegunCommand = {
           apiUpstreamPort: existingEntry?.internalPorts.api,
           appHostname: identity.subdomains.app?.hostname,
           appUpstreamPort: existingEntry?.internalPorts.app,
-          dbName: existingEntry?.dbName ?? deriveDbName(layout.apiDir, identity.slug),
+          dbName: existingEntry?.dbName ?? dbName,
         });
         info('Run `lt dev down` first.');
         if (!parameters.options.fromGluegunMenu) process.exit(1);
@@ -180,24 +209,44 @@ const UpCommand: GluegunCommand = {
       }
     }
 
-    // Allocate internal ports (reuse existing if registered).
-    const reg = loadRegistry();
-    const entry = reg.projects[identity.slug];
-    const taken = takenInternalPorts(reg, identity.slug);
-    const apiPort = entry?.internalPorts.api ?? (layout.apiDir ? allocateInternalPort(4000, taken) : undefined);
-    if (apiPort) taken.add(apiPort);
-    const appPort = entry?.internalPorts.app ?? (layout.appDir ? allocateInternalPort(4000, taken) : undefined);
+    // Allocate internal ports (reuse existing if registered), verify they are
+    // free, AND reserve them in the registry — all ATOMICALLY under a cross-
+    // process lock, so two simultaneous `lt ticket start` (each → `lt dev up`)
+    // can never grab the same ports.
+    let apiPort: number | undefined;
+    let appPort: number | undefined;
+    try {
+      await withRegistryLock(async () => {
+        const reg = loadRegistry();
+        const entry = reg.projects[identity.slug];
+        const taken = takenInternalPorts(reg, identity.slug);
+        apiPort = entry?.internalPorts.api ?? (layout.apiDir ? allocateInternalPort(4000, taken) : undefined);
+        if (apiPort) taken.add(apiPort);
+        appPort = entry?.internalPorts.app ?? (layout.appDir ? allocateInternalPort(4000, taken) : undefined);
 
-    // Pre-flight: internal ports free?
-    const portsToCheck = [apiPort, appPort].filter((p): p is number => typeof p === 'number');
-    const snap = await listenSnapshot(portsToCheck);
-    for (const p of portsToCheck) {
-      const r = snap.get(p);
-      if (r) {
-        error(`Internal port ${p} already in use by ${r.command} (pid ${r.pid}).`);
-        if (!parameters.options.fromGluegunMenu) process.exit(1);
-        return 'dev up: port in use';
-      }
+        const portsToCheck = [apiPort, appPort].filter((p): p is number => typeof p === 'number');
+        const snap = await listenSnapshot(portsToCheck);
+        for (const p of portsToCheck) {
+          const r = snap.get(p);
+          if (r) throw new Error(`Internal port ${p} already in use by ${r.command} (pid ${r.pid}).`);
+        }
+
+        // Reserve immediately so a concurrent `lt dev up` sees these as taken.
+        const subdomainMap: Record<string, string> = {};
+        for (const [k, v] of Object.entries(identity.subdomains)) subdomainMap[k] = v.hostname;
+        reg.projects[identity.slug] = {
+          dbName,
+          internalPorts: { api: apiPort, app: appPort },
+          lastUsedAt: new Date().toISOString(),
+          path: layout.root,
+          subdomains: subdomainMap,
+        };
+        saveRegistry(reg);
+      });
+    } catch (e) {
+      error((e as Error).message);
+      if (!parameters.options.fromGluegunMenu) process.exit(1);
+      return 'dev up: port in use';
     }
 
     // Caddy block + reload.
@@ -220,7 +269,7 @@ const UpCommand: GluegunCommand = {
     }
 
     info('');
-    info(colors.bold(`Starting "${identity.slug}"`));
+    info(colors.bold(`Starting "${identity.slug}"`) + (ticket ? colors.dim(` (ticket ${ticket})`) : ''));
     if (identity.subdomains.app) info(`  app: https://${identity.subdomains.app.hostname}  →  127.0.0.1:${appPort}`);
     if (identity.subdomains.api) info(`  api: https://${identity.subdomains.api.hostname}  →  127.0.0.1:${apiPort}`);
     info(`  db:  mongodb://127.0.0.1/${dbName}`);
@@ -270,17 +319,8 @@ const UpCommand: GluegunCommand = {
       }
     }
 
-    // Persist.
-    const subdomainMap: Record<string, string> = {};
-    for (const [k, v] of Object.entries(identity.subdomains)) subdomainMap[k] = v.hostname;
-    reg.projects[identity.slug] = {
-      dbName,
-      internalPorts: { api: apiPort, app: appPort },
-      lastUsedAt: new Date().toISOString(),
-      path: layout.root,
-      subdomains: subdomainMap,
-    };
-    saveRegistry(reg);
+    // Persist the session (PIDs). The registry entry (ports) was already reserved
+    // atomically before the spawn, above.
     saveSession(layout.root, { pids, startedAt: new Date().toISOString() });
 
     // Write the ENV bridge so external tools (Playwright, IDE test runners,

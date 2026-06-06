@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lt dev × lt ticket — Parallel entwickeln ohne Reibung</title>
+<style>
+  :root {
+    --indigo:#6366f1; --indigo-d:#4f46e5; --violet:#8b5cf6;
+    --cyan:#06b6d4; --emerald:#10b981; --amber:#f59e0b; --rose:#f43f5e;
+    --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --line:#e2e8f0;
+    --bg:#ffffff; --bg-soft:#f8fafc; --bg-soft2:#f1f5f9;
+    --code-bg:#0f172a; --code-ink:#e2e8f0;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, "Noto Sans", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body {
+    margin:0; font-family:var(--font); color:var(--ink); background:var(--bg);
+    line-height:1.6; font-size:15px; letter-spacing:.1px;
+  }
+  .page { max-width:980px; margin:0 auto; padding:0 40px; }
+  h1,h2,h3 { line-height:1.18; letter-spacing:-.02em; }
+  h2 { font-size:30px; margin:6px 0 4px; }
+  h3 { font-size:20px; margin:26px 0 8px; }
+  p { margin:10px 0; color:var(--ink-2); }
+  a { color:var(--indigo-d); text-decoration:none; }
+  code, .mono { font-family:var(--mono); font-size:.88em; }
+  :not(pre) > code { background:var(--bg-soft2); border:1px solid var(--line); border-radius:6px; padding:1px 6px; color:#0b2545; white-space:nowrap; }
+  .lead { font-size:18px; color:var(--ink-2); }
+  .small { font-size:13px; }
+  .muted { color:var(--muted); }
+
+  /* ---------- HERO ---------- */
+  .hero {
+    background:
+      radial-gradient(1200px 500px at 85% -10%, rgba(6,182,212,.35), transparent 60%),
+      radial-gradient(900px 500px at 5% 120%, rgba(139,92,246,.40), transparent 55%),
+      linear-gradient(135deg, #1e1b4b 0%, #312e81 48%, #155e75 100%);
+    color:#fff; padding:64px 0 56px; position:relative; overflow:hidden;
+  }
+  .hero .page { position:relative; z-index:2; }
+  .hero .kicker { text-transform:uppercase; letter-spacing:.28em; font-size:12px; font-weight:700; color:#a5f3fc; opacity:.95; }
+  .hero h1 { font-size:50px; margin:14px 0 10px; font-weight:800; color:#fff; }
+  .hero h1 .grad { background:linear-gradient(90deg,#a5b4fc,#67e8f9 60%,#6ee7b7); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .hero .sub { font-size:19px; color:#dbeafe; max-width:760px; }
+  .hero .badges { margin-top:24px; display:flex; flex-wrap:wrap; gap:10px; }
+  .pill { display:inline-flex; align-items:center; gap:7px; font-size:13px; font-weight:600;
+    background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.22); color:#f0f9ff;
+    padding:7px 13px; border-radius:999px; backdrop-filter:blur(6px); }
+  .pill .dot { width:8px; height:8px; border-radius:50%; }
+  .meta-row { margin-top:30px; display:flex; gap:26px; flex-wrap:wrap; color:#c7d2fe; font-size:13px; }
+  .meta-row b { color:#fff; }
+
+  /* ---------- LAYOUT BLOCKS ---------- */
+  section { padding:40px 0; border-bottom:1px solid var(--line); }
+  section.alt { background:var(--bg-soft); }
+  .eyebrow { display:inline-block; font-size:12px; font-weight:800; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--indigo-d); background:#eef2ff; border:1px solid #e0e7ff; padding:4px 11px; border-radius:999px; margin-bottom:10px; }
+  .grid { display:grid; gap:18px; }
+  .g2 { grid-template-columns:1fr 1fr; }
+  .g3 { grid-template-columns:1fr 1fr 1fr; }
+  @media (max-width:760px){ .g2,.g3 { grid-template-columns:1fr; } }
+
+  .card { background:var(--bg); border:1px solid var(--line); border-radius:16px; padding:20px 22px;
+    box-shadow:0 1px 2px rgba(15,23,42,.04), 0 8px 24px -16px rgba(15,23,42,.18); }
+  .card h3 { margin-top:0; }
+  .card .ico { width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+    font-size:20px; margin-bottom:12px; color:#fff; }
+
+  .badge { display:inline-block; font-size:11px; font-weight:800; letter-spacing:.04em; padding:2px 9px; border-radius:999px; vertical-align:middle; }
+  .b-indigo{ background:#eef2ff; color:#4338ca; } .b-cyan{ background:#ecfeff; color:#0e7490; }
+  .b-emerald{ background:#ecfdf5; color:#047857; } .b-amber{ background:#fffbeb; color:#b45309; }
+  .b-rose{ background:#fff1f2; color:#be123c; } .b-slate{ background:#f1f5f9; color:#334155; }
+
+  /* ---------- CODE ---------- */
+  pre { background:var(--code-bg); color:var(--code-ink); border-radius:14px; padding:18px 20px; overflow:auto;
+    font-family:var(--mono); font-size:13px; line-height:1.7; margin:14px 0; border:1px solid #1e293b; }
+  pre .c { color:#7c93b3; } /* comment */
+  pre .k { color:#67e8f9; } /* command */
+  pre .a { color:#fcd34d; } /* arg/flag */
+  pre .s { color:#86efac; } /* string/url */
+  pre .m { color:#c4b5fd; } /* meta */
+
+  /* ---------- TABLE ---------- */
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:14px; }
+  th,td { text-align:left; padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); background:var(--bg-soft); }
+  tbody tr:nth-child(even){ background:var(--bg-soft); }
+  td code { font-size:.86em; }
+
+  /* ---------- CALLOUTS ---------- */
+  .note { border-radius:14px; padding:16px 18px 16px 18px; margin:16px 0; border:1px solid; display:flex; gap:13px; }
+  .note .ni { font-size:20px; line-height:1; }
+  .note.tip { background:#f0fdfa; border-color:#99f6e4; }
+  .note.warn { background:#fffbeb; border-color:#fde68a; }
+  .note.key { background:#eef2ff; border-color:#c7d2fe; }
+  .note b { color:var(--ink); }
+
+  .steps { counter-reset:s; display:grid; gap:14px; }
+  .step { display:flex; gap:15px; align-items:flex-start; }
+  .step .n { counter-increment:s; flex:0 0 34px; height:34px; border-radius:50%;
+    background:linear-gradient(135deg,var(--indigo),var(--violet)); color:#fff; font-weight:800;
+    display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .step .n::before { content:counter(s); }
+
+  .kpi { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:18px 0; }
+  @media (max-width:760px){ .kpi { grid-template-columns:1fr 1fr; } }
+  .kpi .k { background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:16px; text-align:center; }
+  .kpi .big { font-size:30px; font-weight:800; background:linear-gradient(135deg,var(--indigo),var(--cyan)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .kpi .lbl { font-size:12px; color:var(--muted); margin-top:2px; }
+
+  figure { margin:18px 0 6px; }
+  figure svg { width:100%; height:auto; display:block; border:1px solid var(--line); border-radius:16px; background:#fff; }
+  figcaption { font-size:12.5px; color:var(--muted); margin-top:8px; text-align:center; }
+
+  .footer { padding:30px 0 50px; color:var(--muted); font-size:13px; }
+  .footer .brand { font-weight:800; color:var(--ink); letter-spacing:-.01em; }
+
+  /* ---------- PRINT ---------- */
+  @page { size:A4; margin:14mm 0; }
+  @media print {
+    body { font-size:11.4pt; }
+    .page { max-width:none; padding:0 16mm; }
+    section { padding:18px 0; }
+    .hero { padding:30mm 0 22mm; }
+    .hero h1 { font-size:34pt; }
+    .no-print { display:none !important; }
+    .card, figure svg, pre, .note, .kpi .k { box-shadow:none; }
+    pre { white-space:pre-wrap; word-break:break-word; font-size:9.5pt; line-height:1.55; }
+    h2, h3 { break-after:avoid; }
+    .card, .note, figure, table, pre, .step { break-inside:avoid; }
+    .break { break-before:page; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================ HERO ============================ -->
+<header class="hero">
+  <div class="page">
+    <div class="kicker">lenne.Tech · Developer Workflow Guide</div>
+    <h1>Parallel entwickeln —<br><span class="grad">ohne Reibung, ohne Kollisionen.</span></h1>
+    <p class="sub">Mit <b>lt&nbsp;dev</b> und <b>lt&nbsp;ticket</b> betreibst du beliebig viele Projekte <i>und</i> beliebig viele Tickets gleichzeitig — jedes mit eigener URL, eigener Datenbank, eigenen Ports. Ein Befehl, und du legst los.</p>
+    <div class="badges">
+      <span class="pill"><span class="dot" style="background:#67e8f9"></span> Pro Projekt isoliert</span>
+      <span class="pill"><span class="dot" style="background:#a5b4fc"></span> Pro Ticket isoliert</span>
+      <span class="pill"><span class="dot" style="background:#6ee7b7"></span> Parallele E2E-Tests</span>
+      <span class="pill"><span class="dot" style="background:#fcd34d"></span> Claude-aware</span>
+      <span class="pill"><span class="dot" style="background:#fda4af"></span> Schutz vor Datenverlust</span>
+    </div>
+    <div class="meta-row">
+      <div>Voraussetzung&nbsp; <b>lt&nbsp;CLI&nbsp;≥&nbsp;1.28.0 · neuestes&nbsp;lt-dev&nbsp;Plugin</b></div>
+      <div>Stack&nbsp; <b>Nest&nbsp;Server · Nuxt&nbsp;Base</b></div>
+      <div>Routing&nbsp; <b>Caddy · *.localhost (HTTPS)</b></div>
+      <div>Zielgruppe&nbsp; <b>lenne.Tech Entwickler:innen</b></div>
+    </div>
+  </div>
+</header>
+
+<!-- ============================ WARUM ============================ -->
+<section class="alt">
+  <div class="page">
+    <span class="eyebrow">Warum das alles?</span>
+    <h2>Schluss mit „erst runterfahren, dann das andere starten"</h2>
+    <p class="lead">Bisher band jedes Projekt die Framework-Default-Ports <code>3000</code>/<code>3001</code>. Zwei Projekte gleichzeitig? Port-Kollision. Auth über Cookies? Cross-wiring. Ein zweites Ticket testen, während das erste läuft? Ging nicht.</p>
+    <div class="grid g2" style="margin-top:18px">
+      <div class="card" style="border-color:#fecaca; background:#fff7f7">
+        <span class="badge b-rose">VORHER</span>
+        <h3 style="margin-top:8px">Sequenziell &amp; fragil</h3>
+        <p style="margin:6px 0 0">Ein Projekt zur Zeit. Feste Ports kollidieren. Branch wechseln heißt: Server neu starten, DB-Zustand verlieren, Kontext verlieren. Tickets parallel? Nur über getrennte Klone — langsam und unübersichtlich.</p>
+      </div>
+      <div class="card" style="border-color:#bbf7d0; background:#f3fdf7">
+        <span class="badge b-emerald">NACHHER</span>
+        <h3 style="margin-top:8px">Parallel &amp; isoliert</h3>
+        <p style="margin:6px 0 0">Jedes Projekt und jedes Ticket läuft hinter Caddy unter <code>https://&lt;name&gt;.localhost</code> — eigene Ports, eigene DB, eigener Caddy-Block. Mehrere Browser-Tabs, mehrere Claude-Sessions, mehrere Test-Läufe — alles gleichzeitig, nichts beeinflusst sich.</p>
+      </div>
+    </div>
+    <div class="kpi">
+      <div class="k"><div class="big">0&nbsp;s</div><div class="lbl">Worktree anlegen (geteiltes&nbsp;.git)</div></div>
+      <div class="k"><div class="big">1</div><div class="lbl">Befehl bis „läuft im Browser"</div></div>
+      <div class="k"><div class="big">N</div><div class="lbl">Tickets &amp; Projekte gleichzeitig</div></div>
+      <div class="k"><div class="big">~2×</div><div class="lbl">schnellere E2E durch Sharding</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ VORAUSSETZUNGEN ============================ -->
+<section>
+  <div class="page">
+    <span class="eyebrow">Voraussetzungen</span>
+    <h2>Bevor du loslegst — einmal aktuell ziehen</h2>
+    <p class="lead">Dieser Workflow braucht die <b>lt&nbsp;CLI ≥ 1.28.0</b> (enthält <code>lt&nbsp;dev</code> + <code>lt&nbsp;ticket</code>) und das <b>neueste lt-dev Claude Plugin</b> (macht Claude ticket-aware). Beides ist in Sekunden installiert bzw. aktualisiert.</p>
+    <div class="grid g2" style="margin-top:16px">
+      <div class="card">
+        <div class="ico" style="background:linear-gradient(135deg,#6366f1,#4338ca)">⬇️</div>
+        <h3>lt&nbsp;CLI&nbsp;<span class="badge b-indigo">≥&nbsp;1.28.0</span></h3>
+        <p class="small" style="margin-top:4px">Version prüfen mit <code>lt --version</code> — muss <b>1.28.0 oder neuer</b> sein.</p>
+<pre><span class="c"># Neu installieren (global)</span>
+<span class="k">npm</span> <span class="a">install -g</span> <span class="s">@lenne.tech/cli</span>
+
+<span class="c"># Auf die neueste Version aktualisieren</span>
+<span class="k">lt update</span>
+
+<span class="c"># Version prüfen (≥ 1.28.0)</span>
+<span class="k">lt</span> <span class="a">--version</span></pre>
+      </div>
+      <div class="card">
+        <div class="ico" style="background:linear-gradient(135deg,#06b6d4,#0e7490)">🧩</div>
+        <h3>Neuestes lt-dev Plugin</h3>
+        <p class="small" style="margin-top:4px">Aus dem <b>lenne-tech Marketplace</b> ziehen — installiert/aktualisiert lt-dev (+ weitere lt-Plugins) und richtet die Berechtigungen ein.</p>
+<pre><span class="c"># lt-dev Claude Plugin installieren / aktualisieren</span>
+<span class="k">lt claude plugins</span></pre>
+        <p class="small muted" style="margin-top:8px">Aktualisiert sich zusätzlich automatisch beim Start einer Claude-Code-Session.</p>
+      </div>
+    </div>
+    <div class="note key"><div class="ni">🚀</div><div><b>In 3 Schritten startklar:</b> <code>lt update</code> (CLI auf ≥&nbsp;1.28.0) → <code>lt claude plugins</code> (Plugin ziehen) → im Projekt <code>lt dev init</code>, dann <code>lt ticket start &lt;ticket&gt;</code>.</div></div>
+  </div>
+</section>
+
+<!-- ============================ LT DEV ============================ -->
+<section class="alt">
+  <div class="page">
+    <span class="eyebrow">Baustein 1</span>
+    <h2><code style="font-size:.8em">lt dev</code> — der isolierte Stack pro Projekt</h2>
+    <p class="lead">Ein Projekt, eine eigene Welt. <b>lt dev up</b> startet API + App hinter Caddy unter projekteigenen URLs — beliebig viele Projekte nebeneinander, garantiert kollisionsfrei.</p>
+
+    <figure>
+      <!-- DIAGRAM A: multi-project isolation -->
+      <svg viewBox="0 0 920 360" role="img" aria-label="Mehrere Projekte hinter Caddy, jeweils mit eigenen URLs, Ports und Datenbank">
+        <defs>
+          <linearGradient id="gCaddy" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#06b6d4"/>
+          </linearGradient>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#94a3b8"/>
+          </marker>
+        </defs>
+        <rect x="0" y="0" width="920" height="360" fill="#ffffff"/>
+        <!-- Caddy bar -->
+        <rect x="60" y="36" width="800" height="56" rx="14" fill="url(#gCaddy)"/>
+        <text x="460" y="60" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="16" font-weight="700">Caddy · Reverse Proxy · HTTPS auf *.localhost</text>
+        <text x="460" y="80" text-anchor="middle" fill="#e0e7ff" font-family="sans-serif" font-size="12">eine lokale CA · keine Port-Angabe in URLs · automatisch verwaltet</text>
+        <!-- three project columns -->
+        <g font-family="sans-serif">
+          <!-- helper via repeated groups -->
+          <g>
+            <line x1="200" y1="92" x2="200" y2="140" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+            <rect x="80" y="140" width="240" height="170" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+            <text x="100" y="168" font-size="15" font-weight="800" fill="#0f172a">Projekt&nbsp;„crm"</text>
+            <text x="100" y="194" font-size="12.5" fill="#0e7490" font-family="monospace">crm.localhost</text>
+            <text x="100" y="214" font-size="12.5" fill="#0e7490" font-family="monospace">api.crm.localhost</text>
+            <text x="100" y="240" font-size="12" fill="#475569" font-family="monospace">DB&nbsp;crm-local</text>
+            <text x="100" y="262" font-size="12" fill="#475569" font-family="monospace">Ports&nbsp;4000/4001</text>
+            <rect x="100" y="276" width="120" height="20" rx="10" fill="#ecfdf5"/><text x="160" y="290" text-anchor="middle" font-size="11" font-weight="700" fill="#047857">● up</text>
+          </g>
+          <g>
+            <line x1="460" y1="92" x2="460" y2="140" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+            <rect x="340" y="140" width="240" height="170" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+            <text x="360" y="168" font-size="15" font-weight="800" fill="#0f172a">Projekt&nbsp;„svl"</text>
+            <text x="360" y="194" font-size="12.5" fill="#0e7490" font-family="monospace">svl.localhost</text>
+            <text x="360" y="214" font-size="12.5" fill="#0e7490" font-family="monospace">api.svl.localhost</text>
+            <text x="360" y="240" font-size="12" fill="#475569" font-family="monospace">DB&nbsp;svl-…-local</text>
+            <text x="360" y="262" font-size="12" fill="#475569" font-family="monospace">Ports&nbsp;4002/4003</text>
+            <rect x="360" y="276" width="120" height="20" rx="10" fill="#ecfdf5"/><text x="420" y="290" text-anchor="middle" font-size="11" font-weight="700" fill="#047857">● up</text>
+          </g>
+          <g>
+            <line x1="720" y1="92" x2="720" y2="140" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr)"/>
+            <rect x="600" y="140" width="240" height="170" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+            <text x="620" y="168" font-size="15" font-weight="800" fill="#0f172a">Projekt&nbsp;„shop"</text>
+            <text x="620" y="194" font-size="12.5" fill="#0e7490" font-family="monospace">shop.localhost</text>
+            <text x="620" y="214" font-size="12.5" fill="#0e7490" font-family="monospace">api.shop.localhost</text>
+            <text x="620" y="240" font-size="12" fill="#475569" font-family="monospace">DB&nbsp;shop-local</text>
+            <text x="620" y="262" font-size="12" fill="#475569" font-family="monospace">Ports&nbsp;4004/4005</text>
+            <rect x="620" y="276" width="120" height="20" rx="10" fill="#ecfdf5"/><text x="680" y="290" text-anchor="middle" font-size="11" font-weight="700" fill="#047857">● up</text>
+          </g>
+        </g>
+      </svg>
+      <figcaption>Drei Projekte, gleichzeitig „up" — eigene URLs, eigene DBs, eigene Ports. Caddy routet alles über HTTPS, ganz ohne Port-Angabe.</figcaption>
+    </figure>
+
+    <h3>Der Lebenszyklus</h3>
+<pre><span class="c"># Einmal pro Rechner</span>
+<span class="k">lt dev install</span>            <span class="c"># Caddy + lokale CA + Service einrichten</span>
+
+<span class="c"># Einmal pro Projekt (idempotent)</span>
+<span class="k">lt dev init</span>               <span class="c"># env-aware patchen + registrieren (idempotent)</span>
+
+<span class="c"># Täglich</span>
+<span class="k">lt dev up</span>                 <span class="c">→ <span class="s">https://svl.localhost</span> · <span class="s">https://api.svl.localhost</span></span>
+<span class="k">lt dev status</span> <span class="a">--all</span>      <span class="c"># was läuft gerade? (alle Projekte)</span>
+<span class="k">lt dev down</span>               <span class="c"># sauber stoppen + Caddy-Block entfernen</span></pre>
+
+    <h3>Befehlsübersicht</h3>
+    <table>
+      <thead><tr><th>Befehl</th><th>Was es tut</th></tr></thead>
+      <tbody>
+        <tr><td><code>lt dev install</code></td><td>Einmal pro Rechner: Caddy, lokale CA und Hintergrund-Service einrichten.</td></tr>
+        <tr><td><code>lt dev init</code></td><td>Einmal pro Projekt: Ports env-aware machen, registrieren, <code>ignoreHTTPSErrors</code> + shard-aware Test-Timeouts injizieren. Idempotent.</td></tr>
+        <tr><td><code>lt dev up</code></td><td>API + App hinter Caddy starten: <code>https://&lt;slug&gt;.localhost</code> / <code>api.&lt;slug&gt;.localhost</code>, DB <code>&lt;slug&gt;-local</code>.</td></tr>
+        <tr><td><code>lt dev down</code></td><td>Prozesse stoppen, Caddy-Block entfernen, etwaige Test-Stacks abräumen.</td></tr>
+        <tr><td><code>lt dev status</code> · <code>--all</code></td><td>URLs, Ports, PIDs, Live-Zustand — fürs aktuelle Projekt oder alle registrierten.</td></tr>
+        <tr><td><code>lt dev doctor</code></td><td>Caddy/CA/DNS/Ports prüfen — <span class="badge b-cyan">NEU</span> warnt auch, wenn ein DB-löschendes <code>global-setup</code> die Ticket-/Shard-Test-DBs nicht zurücksetzen würde.</td></tr>
+        <tr><td><code>lt dev test</code></td><td>E2E in einem <b>isolierten, parallelen</b> Stack auf dedizierter DB <code>&lt;slug&gt;-test</code> — restfreier Auto-Teardown.</td></tr>
+        <tr><td><code>lt dev test --shard N</code></td><td>Suite auf N isolierte Stacks aufteilen (Default&nbsp;2) — lokale CI-Parität, ~2× schneller.</td></tr>
+        <tr><td><code>lt dev tunnel</code></td><td>Öffentliche <code>*.trycloudflare.com</code>-URL für ein laufendes Projekt (Demo/Review).</td></tr>
+      </tbody>
+    </table>
+    <div class="note key"><div class="ni">🔌</div><div><b>Nie wieder <code>localhost:3000</code>.</b> Alle URLs kommen von <code>lt dev</code> über die Env-Bridge (<code>.lt-dev/.env</code>) — Playwright, IDE und Skripte ziehen sie automatisch.</div></div>
+  </div>
+</section>
+
+<!-- ============================ LT TICKET ============================ -->
+<section class="break">
+  <div class="page">
+    <span class="eyebrow">Baustein 2</span>
+    <h2><code style="font-size:.8em">lt ticket</code> — mehrere Tickets gleichzeitig</h2>
+    <p class="lead">Ein Repo, beliebig viele Tickets — jedes in einem eigenen <b>git&nbsp;worktree</b> mit eigenem <code>lt dev</code>-Stack. Frisch aus <code>origin/dev</code>, in Sekunden startklar, voneinander komplett unabhängig.</p>
+
+    <figure>
+      <!-- DIAGRAM B: one repo -> N worktrees -> N stacks -->
+      <svg viewBox="0 0 920 380" role="img" aria-label="Ein Repository, mehrere Worktrees, jeweils mit eigenem Stack">
+        <defs>
+          <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="#a78bfa"/>
+          </marker>
+          <linearGradient id="gRepo" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#312e81"/><stop offset="1" stop-color="#4338ca"/></linearGradient>
+        </defs>
+        <rect x="0" y="0" width="920" height="380" fill="#ffffff"/>
+        <!-- repo -->
+        <rect x="40" y="150" width="180" height="90" rx="14" fill="url(#gRepo)"/>
+        <text x="130" y="184" text-anchor="middle" fill="#fff" font-size="15" font-weight="800" font-family="sans-serif">svl-sports-system</text>
+        <text x="130" y="206" text-anchor="middle" fill="#c7d2fe" font-size="12" font-family="monospace">ein .git (geteilt)</text>
+        <text x="130" y="224" text-anchor="middle" fill="#a5b4fc" font-size="11.5" font-family="monospace">branch: dev</text>
+        <!-- 3 worktrees + stacks -->
+        <g font-family="sans-serif">
+          <g>
+            <path d="M220 178 C 280 130, 300 110, 360 110" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <rect x="360" y="78" width="210" height="66" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
+            <text x="376" y="104" font-size="13.5" font-weight="800" fill="#5b21b6">worktree · svl-2200</text>
+            <text x="376" y="124" font-size="11.5" fill="#6d28d9" font-family="monospace">branch feat/DEV-2200</text>
+            <path d="M570 111 H 610" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr2)"/>
+            <rect x="610" y="78" width="270" height="66" rx="12" fill="#ecfeff" stroke="#a5f3fc"/>
+            <text x="626" y="100" font-size="12" fill="#0e7490" font-family="monospace">svl-2200.localhost</text>
+            <text x="626" y="118" font-size="12" fill="#0e7490" font-family="monospace">api.svl-2200.localhost</text>
+            <text x="626" y="136" font-size="11.5" fill="#475569" font-family="monospace">DB svl-…-2200 · Ports 40xx</text>
+          </g>
+          <g>
+            <path d="M220 195 H 360" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <rect x="360" y="162" width="210" height="66" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
+            <text x="376" y="188" font-size="13.5" font-weight="800" fill="#5b21b6">worktree · svl-2201</text>
+            <text x="376" y="208" font-size="11.5" fill="#6d28d9" font-family="monospace">branch feat/DEV-2201</text>
+            <path d="M570 195 H 610" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr2)"/>
+            <rect x="610" y="162" width="270" height="66" rx="12" fill="#ecfeff" stroke="#a5f3fc"/>
+            <text x="626" y="184" font-size="12" fill="#0e7490" font-family="monospace">svl-2201.localhost</text>
+            <text x="626" y="202" font-size="12" fill="#0e7490" font-family="monospace">api.svl-2201.localhost</text>
+            <text x="626" y="220" font-size="11.5" fill="#475569" font-family="monospace">DB svl-…-2201 · Ports 40xx</text>
+          </g>
+          <g>
+            <path d="M220 212 C 280 260, 300 280, 360 280" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+            <rect x="360" y="246" width="210" height="66" rx="12" fill="#f5f3ff" stroke="#ddd6fe"/>
+            <text x="376" y="272" font-size="13.5" font-weight="800" fill="#5b21b6">worktree · svl-login-fix</text>
+            <text x="376" y="292" font-size="11.5" fill="#6d28d9" font-family="monospace">branch feat/login-fix</text>
+            <path d="M570 279 H 610" stroke="#94a3b8" stroke-width="2" marker-end="url(#arr2)"/>
+            <rect x="610" y="246" width="270" height="66" rx="12" fill="#ecfeff" stroke="#a5f3fc"/>
+            <text x="626" y="268" font-size="12" fill="#0e7490" font-family="monospace">svl-login-fix.localhost</text>
+            <text x="626" y="286" font-size="12" fill="#0e7490" font-family="monospace">api.svl-login-fix.localhost</text>
+            <text x="626" y="304" font-size="11.5" fill="#475569" font-family="monospace">DB svl-…-login-fix · Ports 40xx</text>
+          </g>
+        </g>
+        <text x="460" y="356" text-anchor="middle" font-size="12.5" fill="#64748b" font-family="sans-serif">Ticket-ID auch ohne Ticket möglich: ein freier Feature-Name funktioniert genauso (z.&nbsp;B. „login-fix").</text>
+      </svg>
+      <figcaption>Ein Repo → mehrere Worktrees (geteiltes <code>.git</code>, sofort) → je ein vollständig isolierter Stack. Ordnername = URL = DB = Ticket — du weißt immer, wo du bist.</figcaption>
+    </figure>
+
+    <h3>So einfach geht's</h3>
+<pre><span class="k">lt ticket start</span> <span class="a">DEV-2200</span>           <span class="c"># fetch + worktree aus origin/dev + install + lt dev up</span>
+                                <span class="c">→ <span class="s">https://svl-2200.localhost</span> · DB svl-…-2200 (leer)</span>
+<span class="k">lt ticket start</span> <span class="a">login-fix</span>          <span class="c"># kein Ticket? freier Name → svl-login-fix.localhost</span>
+<span class="k">lt ticket start</span> <span class="a">DEV-2200 --as cof</span>  <span class="c"># Kurzname überschreiben; --branch / --base ebenso</span>
+
+<span class="k">lt ticket list</span>                    <span class="c"># Dashboard: alle Tickets + URLs + Branch + Status + DB</span>
+<span class="k">lt ticket switch</span> <span class="a">2200</span>           <span class="c"># Pfad zeigen + im Editor öffnen</span>
+<span class="k">lt ticket test</span> <span class="a">2200 --shard 2</span>    <span class="c"># E2E im isolierten Ticket-Stack/-DB</span>
+<span class="k">lt ticket stop</span> <span class="a">2200 --drop-db</span>    <span class="c"># down + worktree entfernen (Branch bleibt); --drop-db löscht DBs</span></pre>
+
+    <div class="grid g3" style="margin-top:8px">
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">🎯</div>
+        <h3>Eigene Identität, überall</h3>
+        <p class="small">Jedes Ticket bekommt <code>&lt;slug&gt;-&lt;id&gt;</code> in URL, DB, Ports, Caddy-Block, Ordnername. Verwechslung ausgeschlossen.</p></div>
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#06b6d4,#0e7490)">🌱</div>
+        <h3>Immer frisch aus dev</h3>
+        <p class="small">Jeder Start macht <code>git fetch</code> und zweigt von <code>origin/dev</code> ab — alle Tickets unabhängig. <code>--base</code> für Ausnahmen.</p></div>
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#10b981,#047857)">⚡</div>
+        <h3>0&nbsp;s &amp; leicht</h3>
+        <p class="small">Worktree teilt das <code>.git</code> — kein Re-Clone. Ein <code>git fetch</code> aktualisiert alle. pnpm hardlinkt aus dem Store.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ WORKFLOW VISUELL ============================ -->
+<section class="alt">
+  <div class="page">
+    <span class="eyebrow">Ablauf</span>
+    <h2>Ein Ticket — von „los" bis „weg"</h2>
+    <figure>
+      <!-- DIAGRAM C: lifecycle -->
+      <svg viewBox="0 0 920 200" role="img" aria-label="Ticket-Lebenszyklus: start, arbeiten, testen, stop">
+        <defs>
+          <marker id="arr3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#cbd5e1"/></marker>
+        </defs>
+        <rect width="920" height="200" fill="#f8fafc"/>
+        <g font-family="sans-serif" text-anchor="middle">
+          <!-- 1 start -->
+          <circle cx="120" cy="80" r="40" fill="#eef2ff" stroke="#c7d2fe"/>
+          <text x="120" y="74" font-size="22">🚀</text>
+          <text x="120" y="100" font-size="11.5" font-weight="700" fill="#4338ca">start</text>
+          <text x="120" y="150" font-size="12" fill="#334155" font-weight="700">lt ticket start</text>
+          <text x="120" y="168" font-size="11" fill="#64748b">Worktree + Stack</text>
+          <line x1="168" y1="80" x2="232" y2="80" stroke="#cbd5e1" stroke-width="3" marker-end="url(#arr3)"/>
+          <!-- 2 develop -->
+          <circle cx="280" cy="80" r="40" fill="#ecfeff" stroke="#a5f3fc"/>
+          <text x="280" y="74" font-size="22">💻</text>
+          <text x="280" y="100" font-size="11.5" font-weight="700" fill="#0e7490">entwickeln</text>
+          <text x="280" y="150" font-size="12" fill="#334155" font-weight="700">Browser + Claude</text>
+          <text x="280" y="168" font-size="11" fill="#64748b">eigene URL, eigene Session</text>
+          <line x1="328" y1="80" x2="392" y2="80" stroke="#cbd5e1" stroke-width="3" marker-end="url(#arr3)"/>
+          <!-- 3 test -->
+          <circle cx="440" cy="80" r="40" fill="#f5f3ff" stroke="#ddd6fe"/>
+          <text x="440" y="74" font-size="22">🧪</text>
+          <text x="440" y="100" font-size="11.5" font-weight="700" fill="#6d28d9">testen</text>
+          <text x="440" y="150" font-size="12" fill="#334155" font-weight="700">lt ticket test</text>
+          <text x="440" y="168" font-size="11" fill="#64748b">isolierte Test-DB</text>
+          <line x1="488" y1="80" x2="552" y2="80" stroke="#cbd5e1" stroke-width="3" marker-end="url(#arr3)"/>
+          <!-- 4 commit/push -->
+          <circle cx="600" cy="80" r="40" fill="#ecfdf5" stroke="#a7f3d0"/>
+          <text x="600" y="74" font-size="22">⬆️</text>
+          <text x="600" y="100" font-size="11.5" font-weight="700" fill="#047857">abliefern</text>
+          <text x="600" y="150" font-size="11" font-weight="700" fill="#334155">/lt-dev:git:ship</text>
+          <text x="600" y="168" font-size="11" fill="#64748b">rebase → MR → merge</text>
+          <line x1="648" y1="80" x2="712" y2="80" stroke="#cbd5e1" stroke-width="3" marker-end="url(#arr3)"/>
+          <!-- 5 stop -->
+          <circle cx="760" cy="80" r="40" fill="#fff1f2" stroke="#fecdd3"/>
+          <text x="760" y="74" font-size="22">🧹</text>
+          <text x="760" y="100" font-size="11.5" font-weight="700" fill="#be123c">stop</text>
+          <text x="760" y="150" font-size="12" fill="#334155" font-weight="700">lt ticket stop</text>
+          <text x="760" y="168" font-size="11" fill="#64748b">restfrei aufgeräumt</text>
+        </g>
+      </svg>
+      <figcaption>Vor dem Aufräumen warnt <code>lt ticket stop</code>, falls noch <b>uncommittete</b> oder <b>ungepushte</b> Arbeit existiert — nichts geht versehentlich verloren.</figcaption>
+    </figure>
+
+    <div class="note key"><div class="ni">🚢</div><div><b>Ein Befehl bis in <code>dev</code> — der Claude-Command <code>/lt-dev:git:ship</code>.</b> Bringt deinen fertig entwickelten Ticket-Branch <b>autonom</b> nach <code>dev</code>: <code>check</code>-Skript grün → committen → auf <code>dev</code> <b>rebasen</b> → testen → <b>Merge Request</b> (Squash + Auto-Merge) → wartet auf die CI-Pipeline (<b>Auto-Retry</b> bei Fehlschlag) → <b>squash-merged</b> → löscht den Branch. Die automatisierte <b>Schlussklammer</b> zu <code>/lt-dev:take-ticket</code> — genau der Ablauf, den du sonst von Hand machst. Flags: <code>--base=&lt;branch&gt;</code>, <code>--no-squash</code>, <code>--keep-branch</code>, <code>--max-pipeline-retries=&lt;n&gt;</code>.</div></div>
+
+    <h3>Ein Tag mit drei Tickets — gleichzeitig</h3>
+    <div class="steps">
+      <div class="step"><div class="n"></div><div><b>Morgens:</b> <code>lt ticket start DEV-2200</code>, <code>lt ticket start DEV-2201</code>, <code>lt ticket start login-fix</code> — drei Tabs, drei VS-Code-Fenster, drei Claude-Sessions. Jede Umgebung ist sofort im Browser unter ihrer eigenen URL.</div></div>
+      <div class="step"><div class="n"></div><div><b>Mittags:</b> Review-Feedback zu 2201 kommt rein — du wechselst per <code>lt ticket switch 2201</code>, fixst, <code>lt ticket test 2201</code> läuft <i>parallel</i> während 2200 weiter im Browser offen ist.</div></div>
+      <div class="step"><div class="n"></div><div><b>Nachmittags:</b> 2200 ist fertig → committen, pushen, MR. <code>lt ticket stop 2200 --drop-db</code> räumt restlos auf. 2201 und login-fix laufen ungestört weiter.</div></div>
+      <div class="step"><div class="n"></div><div><b>Überblick jederzeit:</b> <code>lt ticket list</code> zeigt alle Umgebungen mit URLs, Branch, Status und DB — du verlierst nie den Faden.</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ OHNE WORKTREE / TAKE-TICKET ============================ -->
+<section>
+  <div class="page">
+    <span class="eyebrow">Auch ohne neues Verzeichnis</span>
+    <h2>Schnell mal ein Ticket im aktuellen Checkout</h2>
+    <p class="lead">Nicht jedes Ticket braucht einen eigenen Worktree. Willst du <i>im aktuellen</i> Projektverzeichnis ein Ticket angehen — ohne neuen Ordner — startest du es direkt mit dem Claude-Command <code>/lt-dev:take-ticket</code>.</p>
+    <div class="grid g2" style="margin-top:8px">
+      <div class="card" style="border-color:#c7d2fe; background:#fbfbff">
+        <span class="badge b-indigo">PARALLEL</span>
+        <h3 style="margin-top:8px"><code>lt ticket start</code></h3>
+        <p class="small" style="margin-top:6px">Eigener Worktree + eigener Stack. <b>Wenn du mehrere Tickets gleichzeitig</b> bearbeiten, im Browser vergleichen oder parallel testen willst. Volle Isolation, ein Befehl.</p>
+      </div>
+      <div class="card" style="border-color:#a5f3fc; background:#fbffff">
+        <span class="badge b-cyan">IN-PLACE</span>
+        <h3 style="margin-top:8px"><code>/lt-dev:take-ticket</code></h3>
+        <p class="small" style="margin-top:6px">Im <b>aktuellen</b> Verzeichnis &amp; Branch — kein neuer Ordner. Claude holt sich Ticket-Kontext (Linear, Figma, Flows), plant und setzt um. Ideal für <b>ein</b> Ticket nacheinander, ohne Worktree-Overhead.</p>
+      </div>
+    </div>
+    <div class="note tip"><div class="ni">🧭</div><div><b>Faustregel:</b> Mehrere Tickets gleichzeitig oder im Browser nebeneinander testen → <code>lt ticket</code>. Ein Ticket fokussiert im aktuellen Checkout → <code>/lt-dev:take-ticket</code>. Beide nutzen denselben isolierten <code>lt dev</code>-Unterbau.</div></div>
+  </div>
+</section>
+
+<!-- ============================ PARALLELE TESTS ============================ -->
+<section class="alt break">
+  <div class="page">
+    <span class="eyebrow">Tests</span>
+    <h2>Parallele E2E — pro Ticket <i>und</i> per Sharding</h2>
+    <p class="lead">Jeder Ticket-Test fährt seinen <b>eigenen</b> Test-Stack hoch — eigene Test-DB <code>&lt;base&gt;-&lt;id&gt;-test</code>, eigene Ports. Ein Registry-Lock garantiert atomare Port-Vergabe, sodass selbst zwei <i>gleichzeitig</i> gestartete Test-Läufe nie kollidieren.</p>
+    <figure>
+      <!-- DIAGRAM D: parallel tests -->
+      <svg viewBox="0 0 920 250" role="img" aria-label="Zwei Ticket-Test-Stacks parallel mit eigenen DBs und Ports">
+        <rect width="920" height="250" fill="#ffffff"/>
+        <g font-family="sans-serif">
+          <rect x="60" y="40" width="370" height="170" rx="16" fill="#f5f3ff" stroke="#ddd6fe"/>
+          <text x="84" y="72" font-size="15" font-weight="800" fill="#5b21b6">Ticket 2200 · Test-Stack</text>
+          <rect x="84" y="92" width="150" height="26" rx="8" fill="#fff" stroke="#ddd6fe"/><text x="159" y="110" text-anchor="middle" font-size="12" fill="#6d28d9" font-family="monospace">api · Port 4500</text>
+          <rect x="248" y="92" width="150" height="26" rx="8" fill="#fff" stroke="#ddd6fe"/><text x="323" y="110" text-anchor="middle" font-size="12" fill="#6d28d9" font-family="monospace">app · Port 4501</text>
+          <rect x="84" y="128" width="314" height="26" rx="8" fill="#ede9fe"/><text x="241" y="146" text-anchor="middle" font-size="12" fill="#5b21b6" font-family="monospace">DB svl-…-2200-test (eigener Reset)</text>
+          <rect x="84" y="166" width="314" height="26" rx="8" fill="#ecfdf5"/><text x="241" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="#047857">✓ 2 passed</text>
+
+          <rect x="490" y="40" width="370" height="170" rx="16" fill="#ecfeff" stroke="#a5f3fc"/>
+          <text x="514" y="72" font-size="15" font-weight="800" fill="#0e7490">Ticket 2201 · Test-Stack</text>
+          <rect x="514" y="92" width="150" height="26" rx="8" fill="#fff" stroke="#a5f3fc"/><text x="589" y="110" text-anchor="middle" font-size="12" fill="#0e7490" font-family="monospace">api · Port 4502</text>
+          <rect x="678" y="92" width="150" height="26" rx="8" fill="#fff" stroke="#a5f3fc"/><text x="753" y="110" text-anchor="middle" font-size="12" fill="#0e7490" font-family="monospace">app · Port 4503</text>
+          <rect x="514" y="128" width="314" height="26" rx="8" fill="#cffafe"/><text x="671" y="146" text-anchor="middle" font-size="12" fill="#0e7490" font-family="monospace">DB svl-…-2201-test (eigener Reset)</text>
+          <rect x="514" y="166" width="314" height="26" rx="8" fill="#ecfdf5"/><text x="671" y="184" text-anchor="middle" font-size="12" font-weight="700" fill="#047857">✓ 2 passed</text>
+        </g>
+        <text x="460" y="234" text-anchor="middle" font-size="12.5" fill="#64748b" font-family="sans-serif">Gleichzeitig gebunden · distinkte Ports 4500/4501 vs. 4502/4503 · keine Kollision (live verifiziert)</text>
+      </svg>
+      <figcaption>Zwei Ticket-Test-Suites liefen gleichzeitig auf distinkten Ports und eigenen Test-DBs — beide grün, null Interferenz.</figcaption>
+    </figure>
+    <div class="grid g2">
+      <div class="card"><h3>Sharding <span class="badge b-indigo">in einem Stack</span></h3>
+        <p class="small"><code>lt dev test --shard N</code> teilt die Suite auf N isolierte Stacks (Default&nbsp;2) — die lokale Entsprechung der CI-Matrix, ~2× schneller. Die Timeouts werden nur unter Shard-Last gelockert (CI bleibt schnell).</p></div>
+      <div class="card"><h3>Pro Ticket <span class="badge b-cyan">über Worktrees</span></h3>
+        <p class="small"><code>lt ticket test &lt;id&gt;</code> testet im eigenen Ticket-Stack mit eigener Test-DB. Mehrere Tickets können <b>gleichzeitig</b> testen — atomare Port-Vergabe per Lock verhindert jede Kollision.</p></div>
+    </div>
+    <div class="note warn"><div class="ni">⚠️</div><div><b>Voraussetzung für DB-Reset:</b> Projekte mit DB-löschendem <code>global-setup</code> müssen die Allow-List ticket-/shard-sicher halten (<code>/^&lt;base&gt;-(?:[a-z0-9-]+-)?test(?:-\d+)?$/</code>). <code>lt dev doctor</code> warnt, falls nicht — neue Projekte aus dem Starter brauchen hier nichts.</div></div>
+  </div>
+</section>
+
+<!-- ============================ SICHERHEIT & KOMFORT ============================ -->
+<section>
+  <div class="page">
+    <span class="eyebrow">Eingebaut</span>
+    <h2>Sicherheit &amp; Komfort, ohne dass du dran denkst</h2>
+    <div class="grid g2">
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#f43f5e,#be123c)">🛡️</div>
+        <h3>Kein versehentlicher Datenverlust</h3>
+        <p class="small"><code>lt ticket stop</code> verweigert das Entfernen, solange <b>uncommittete</b> oder <b>ungepushte</b> Arbeit existiert — mit klarer Auflistung. <code>--force</code> überschreibt bewusst. Generierte Dateien (<code>.nuxtrc</code> &amp; Co.) blockieren nicht.</p></div>
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#f59e0b,#b45309)">🩺</div>
+        <h3>Selbstdiagnose</h3>
+        <p class="small"><code>lt dev doctor</code> prüft Caddy, CA, DNS, Ports — und warnt, wenn ein <code>global-setup</code> Ticket-Test-DBs nicht zurücksetzen würde, samt exaktem Fix.</p></div>
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#6366f1,#4338ca)">🤖</div>
+        <h3>Claude weiß Bescheid</h3>
+        <p class="small">Jede Claude-Session in einem Ticket-Worktree erkennt am <code>.lt-dev/ticket</code>-Marker automatisch ihr Ticket — und sieht jede Runde Ticket-ID, URLs und DB. Keine getrackte Datei wird verändert.</p></div>
+      <div class="card"><div class="ico" style="background:linear-gradient(135deg,#10b981,#047857)">🧹</div>
+        <h3>Restfreier Teardown</h3>
+        <p class="small">Prozesse, Caddy-Block, Session, Registry-Eintrag, Ports — alles wird sauber zurückgegeben. <code>lt ticket stop</code> ohne ID räumt sogar das <i>aktuelle</i> Worktree auf.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ CHEAT SHEET ============================ -->
+<section class="alt break">
+  <div class="page">
+    <span class="eyebrow">Spickzettel</span>
+    <h2>Alles auf einen Blick</h2>
+    <div class="grid g2">
+      <div>
+        <h3>Setup &amp; Projekt</h3>
+<pre><span class="k">lt dev install</span>          <span class="c"># 1× pro Rechner</span>
+<span class="k">lt dev init</span>             <span class="c"># 1× pro Projekt</span>
+<span class="k">lt dev up</span> / <span class="k">down</span>        <span class="c"># Stack an/aus</span>
+<span class="k">lt dev status</span> <span class="a">--all</span>     <span class="c"># Überblick</span>
+<span class="k">lt dev doctor</span>           <span class="c"># Diagnose</span>
+<span class="k">lt dev test</span> <span class="a">--shard 2</span>   <span class="c"># schnelle E2E</span>
+<span class="k">lt dev tunnel</span>           <span class="c"># öffentliche URL</span></pre>
+      </div>
+      <div>
+        <h3>Tickets parallel</h3>
+<pre><span class="k">lt ticket start</span> <span class="a">DEV-2200</span>   <span class="c"># neues Ticket-Env</span>
+<span class="k">lt ticket start</span> <span class="a">login-fix</span>  <span class="c"># freier Name</span>
+<span class="k">lt ticket list</span>            <span class="c"># Dashboard</span>
+<span class="k">lt ticket switch</span> <span class="a">2200</span>     <span class="c"># öffnen</span>
+<span class="k">lt ticket test</span> <span class="a">2200</span>       <span class="c"># isolierte E2E</span>
+<span class="k">lt ticket stop</span> <span class="a">2200</span>       <span class="c"># aufräumen (Branch bleibt)</span>
+<span class="m">/lt-dev:take-ticket</span>        <span class="c"># Ticket im aktuellen Checkout</span>
+<span class="m">/lt-dev:git:ship</span>           <span class="c"># fertig → autonom nach dev</span></pre>
+      </div>
+    </div>
+    <div class="note key"><div class="ni">🚦</div><div><b>In 3 Schritten startklar:</b> <code>lt dev install</code> (einmalig) → im Projekt <code>lt dev init</code> → <code>lt ticket start &lt;ticket&gt;</code>. Fertig — die URL steht im Terminal und in <code>lt ticket list</code>.</div></div>
+  </div>
+</section>
+
+<!-- ============================ WARUM SCHNELLER ============================ -->
+<section>
+  <div class="page">
+    <span class="eyebrow">Der Gewinn</span>
+    <h2>Warum dich das spürbar schneller macht</h2>
+    <div class="grid g3">
+      <div class="card"><h3>🧠 Kein Kontext-Verlust</h3><p class="small">Jedes Ticket behält seinen eigenen, laufenden Zustand — Server, DB, Browser-Tab, Claude-Session. Du springst zwischen Tickets, ohne irgendetwas neu aufzusetzen.</p></div>
+      <div class="card"><h3>⏱️ Kein Warten</h3><p class="small">Worktrees entstehen in 0&nbsp;s, Stacks starten in Sekunden, Tests laufen parallel statt nacheinander. Review-Feedback fixst du sofort, ohne dein Hauptticket zu unterbrechen.</p></div>
+      <div class="card"><h3>🛟 Kein Risiko</h3><p class="small">Volle Isolation + Schutz vor Datenverlust + Selbstdiagnose. Du experimentierst frei — die Werkzeuge fangen die Fehler ab, bevor sie wehtun.</p></div>
+    </div>
+    <div class="note tip" style="margin-top:22px"><div class="ni">✨</div><div><b>Probier es heute:</b> Such dir zwei offene Tickets und starte sie parallel mit <code>lt ticket start</code>. Du wirst nicht mehr zurückwollen.</div></div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="page">
+    <span class="brand">lenne.Tech</span> · <code>lt dev</code> × <code>lt ticket</code> — Parallel entwickeln ohne Reibung.<br>
+    Lebendes Dokument in der lt CLI unter <code>docs/lt-dev-ticket-workflow.html</code> — Beiträge &amp; Erweiterungen willkommen.
+  </div>
+</footer>
+
+</body>
+</html>

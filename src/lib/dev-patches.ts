@@ -267,17 +267,20 @@ export function patchPlaywrightConfig(file: string): PatchResult {
     const shardConst =
       '// `lt dev test --shard N` saturates the CPU (N built SSR servers + N Chromium),\n' +
       '// slowing every navigation. Relax timeouts ONLY under that load — the CLI sets\n' +
-      "// LT_DEV_TEST_SHARDS — so serial + CI keep their tight, fast-failing defaults.\n" +
+      '// LT_DEV_TEST_SHARDS — so serial + CI keep their tight, fast-failing defaults.\n' +
       "const SHARDED = Number(process.env.LT_DEV_TEST_SHARDS || '0') > 1;\n\n";
     after = after.replace(/(export default defineConfig)/, `${shardConst}$1`);
     count++;
   }
   // 5a. per-test timeout (`isWindows ? A : B` form) → add the sharded branch.
   if (/timeout:\s*isWindows\s*\?/.test(after) && !/timeout:\s*isWindows\s*\?[^,\n]*SHARDED/.test(after)) {
-    after = after.replace(/timeout:\s*isWindows\s*\?\s*([0-9_]+)\s*:\s*([0-9_]+|undefined)/, (_m, a: string, b: string) => {
-      count++;
-      return `timeout: isWindows ? ${a} : SHARDED ? 180_000 : ${b}`;
-    });
+    after = after.replace(
+      /timeout:\s*isWindows\s*\?\s*([0-9_]+)\s*:\s*([0-9_]+|undefined)/,
+      (_m, a: string, b: string) => {
+        count++;
+        return `timeout: isWindows ? ${a} : SHARDED ? 180_000 : ${b}`;
+      },
+    );
   }
   // 5b. expect.timeout (only when an `expect: { timeout: N }` already exists).
   if (/expect:\s*\{\s*timeout:\s*[0-9_]+\s*\}/.test(after) && !/expect:\s*\{\s*timeout:\s*SHARDED/.test(after)) {

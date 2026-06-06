@@ -4,8 +4,10 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning, paths as caddyPaths, validateCaddyfile } from '../../lib/caddy';
 import { checkPortInUse } from '../../lib/dev-process';
+import { resolveLayout } from '../../lib/dev-project';
 import { getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
-import { loadRegistry, paths as statePaths } from '../../lib/dev-state';
+import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
+import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
  * Diagnose Caddy / CA / DNS / port issues for `lt dev`.
@@ -24,6 +26,7 @@ const DoctorCommand: GluegunCommand = {
   name: 'doctor',
   run: async (toolbox: ExtendedGluegunToolbox) => {
     const {
+      filesystem,
       parameters,
       print: { colors, info },
     } = toolbox;
@@ -98,6 +101,47 @@ const DoctorCommand: GluegunCommand = {
     const reg = loadRegistry();
     const count = Object.keys(reg.projects).length;
     line('OK', colors.green, `registry: ${count} project(s) at ${statePaths.registry}`);
+
+    // 7. Project-level (only when run inside a project): is a DB-wiping
+    //    Playwright global-setup ticket/shard-safe? WARN (never auto-edit) if a
+    //    bespoke allow-list would reject the per-ticket/shard `<base>-<id>-test`
+    //    DBs that `lt ticket` / `lt dev test --shard` create.
+    const layout = resolveLayout(filesystem.cwd(), filesystem);
+    if (layout.apiDir || layout.appDir) {
+      const gs = checkGlobalSetupTicketSafe(layout);
+      if (gs.file && gs.hasDbReset && !gs.ticketSafe) {
+        line(
+          'WARN',
+          colors.yellow,
+          'global-setup allow-list rejects per-ticket/shard test DBs — `lt ticket` / `--shard` E2E cannot reset its DB',
+        );
+        line(
+          'WARN',
+          colors.yellow,
+          `  ${gs.file}: widen isAllowedDb → /^<base>-(?:[a-z0-9-]+-)?test(?:-\\d+)?$/  (svl is the reference)`,
+        );
+      } else if (gs.file && gs.hasDbReset) {
+        line('OK', colors.green, 'global-setup allow-list is ticket + shard safe');
+      }
+
+      // 8. Slug ↔ path: is this project's slug registered to a DIFFERENT checkout?
+      //    Two clones of the same project (same package.json "name") share the
+      //    slug → Caddy block / ports / DB and collide. Surface it proactively.
+      const { identity } = resolveDevIdentity(layout);
+      const conflict = detectSlugConflict(identity.slug, layout.root);
+      if (conflict) {
+        line(
+          'WARN',
+          colors.yellow,
+          `slug "${identity.slug}" is also registered to another checkout${conflict.otherSessionAlive ? ' (currently RUNNING)' : ''}: ${conflict.otherPath}`,
+        );
+        line(
+          'WARN',
+          colors.yellow,
+          '  two clones of the same project collide on URLs/ports/DB — rename one package.json "name", or run only one.',
+        );
+      }
+    }
 
     info('');
     if (fails > 0) info(colors.red(`✗ ${fails} fail(s) — see above`));

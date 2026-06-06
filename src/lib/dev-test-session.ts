@@ -30,7 +30,14 @@ import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
 import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
-import { listenSnapshot, runChildInherit, runChildToFile, spawnDetached, terminateProcessGroup, waitForHttp } from './dev-process';
+import {
+  listenSnapshot,
+  runChildInherit,
+  runChildToFile,
+  spawnDetached,
+  terminateProcessGroup,
+  waitForHttp,
+} from './dev-process';
 import { deriveDbName, deriveTestDbName, DevProjectLayout } from './dev-project';
 import {
   allocateInternalPort,
@@ -42,10 +49,13 @@ import {
   saveSession,
   takenInternalPorts,
   TEST_SESSION_FILE,
+  withRegistryLock,
 } from './dev-state';
 
 /** Per-bring-up options. `shardIndex` selects an isolated shard stack; `skipBuild` reuses an existing build. */
 export interface BringUpOptions {
+  /** Override the dev DB the test DB is derived from (per-ticket isolation). */
+  devDbName?: string;
   shardIndex?: number;
   skipBuild?: boolean;
 }
@@ -115,31 +125,52 @@ export async function bringUpTestSession(
   log: TestSessionLogger,
   opts: BringUpOptions = {},
 ): Promise<TestSessionContext> {
-  const { shardIndex, skipBuild } = opts;
+  const { devDbName, shardIndex, skipBuild } = opts;
   const names = testStackNames(shardIndex);
-  const { dbName, testIdentity } = resolveTestSession(layout, baseIdentity, shardIndex);
+  const { dbName, testIdentity } = resolveTestSession(layout, baseIdentity, shardIndex, devDbName);
 
   // Always start from a clean slate — reclaim a stale/crashed test session.
   await tearDownTestSession(layout, baseIdentity, log, { shardIndex, silent: true });
 
-  // Allocate internal ports (avoid every other registry entry incl. the dev
-  // session AND already-running sibling shards, plus anything currently
-  // listening). Sibling shards are registered before the next one allocates,
-  // so each shard lands on its own port pair.
-  const reg = loadRegistry();
-  const taken = takenInternalPorts(reg, testIdentity.slug);
-  const apiPort = layout.apiDir ? allocateInternalPort(TEST_PORT_BASE, taken) : undefined;
-  if (apiPort) taken.add(apiPort);
-  const appPort = layout.appDir ? allocateInternalPort(TEST_PORT_BASE, taken) : undefined;
+  // Allocate internal ports AND reserve them in the registry ATOMICALLY, under a
+  // cross-process lock — so two parallel `lt dev test` runs (different ticket
+  // worktrees) can never read the registry, pick the same free ports, and both
+  // try to bind them during the long build window (the port-allocation race).
+  // The lock is held ONLY for this fast section; the build below runs unlocked +
+  // fully in parallel. Allocation avoids every other registry entry (dev session
+  // + sibling shards) plus anything currently listening.
+  let apiPort: number | undefined;
+  let appPort: number | undefined;
+  await withRegistryLock(async () => {
+    const reg = loadRegistry();
+    const taken = takenInternalPorts(reg, testIdentity.slug);
+    apiPort = layout.apiDir ? allocateInternalPort(TEST_PORT_BASE, taken) : undefined;
+    if (apiPort) taken.add(apiPort);
+    appPort = layout.appDir ? allocateInternalPort(TEST_PORT_BASE, taken) : undefined;
 
-  const portsToCheck = [apiPort, appPort].filter((p): p is number => typeof p === 'number');
-  const snap = await listenSnapshot(portsToCheck);
-  for (const p of portsToCheck) {
-    const r = snap.get(p);
-    if (r) throw new Error(`test internal port ${p} already in use by ${r.command} (pid ${r.pid}).`);
-  }
+    const portsToCheck = [apiPort, appPort].filter((p): p is number => typeof p === 'number');
+    const snap = await listenSnapshot(portsToCheck);
+    for (const p of portsToCheck) {
+      const r = snap.get(p);
+      if (r) throw new Error(`test internal port ${p} already in use by ${r.command} (pid ${r.pid}).`);
+    }
 
-  // Caddy block for the test URLs.
+    // Reserve immediately (still under the lock) so a concurrent run sees these
+    // ports as taken. PIDs are written to the session file after spawn, below.
+    const subdomainMap: Record<string, string> = {};
+    for (const [k, v] of Object.entries(testIdentity.subdomains)) subdomainMap[k] = v.hostname;
+    reg.projects[testIdentity.slug] = {
+      dbName,
+      internalPorts: { api: apiPort, app: appPort },
+      lastUsedAt: new Date().toISOString(),
+      path: layout.root,
+      subdomains: subdomainMap,
+    };
+    saveRegistry(reg);
+  });
+
+  // Caddy block for the test URLs (slug-keyed → no cross-stack conflict; safe
+  // outside the lock).
   const routes = [];
   if (testIdentity.subdomains.api && apiPort)
     routes.push({ hostname: testIdentity.subdomains.api.hostname, upstreamPort: apiPort });
@@ -236,18 +267,10 @@ export async function bringUpTestSession(
     if (appSpawn) pids.app = appSpawn.pid;
   }
 
-  // Persist test session + registry entry (so ports are reserved + status sees it).
+  // Persist the session (PIDs are known now). The registry entry (ports) was
+  // already reserved BEFORE the build, above, to avoid a concurrent-allocation
+  // race between parallel ticket test runs.
   saveSession(layout.root, { pids, startedAt: new Date().toISOString() }, names.sessionFile);
-  const subdomainMap: Record<string, string> = {};
-  for (const [k, v] of Object.entries(testIdentity.subdomains)) subdomainMap[k] = v.hostname;
-  reg.projects[testIdentity.slug] = {
-    dbName,
-    internalPorts: { api: apiPort, app: appPort },
-    lastUsedAt: new Date().toISOString(),
-    path: layout.root,
-    subdomains: subdomainMap,
-  };
-  saveRegistry(reg);
 
   // ENV bridge for external tooling (kept separate from the dev `.env`).
   writeEnvBridge(layout.root, devEnv, dbName, names.bridgeFile);
@@ -282,13 +305,18 @@ export function resolveTestSession(
   layout: DevProjectLayout,
   baseIdentity: DevIdentity,
   shardIndex?: number,
+  devDbName?: string,
 ): {
   dbName: string;
   testIdentity: DevIdentity;
 } {
   const names = testStackNames(shardIndex);
   const testIdentity = buildTestIdentity(baseIdentity, names.identitySuffix);
-  const dbName = deriveTestDbName(deriveDbName(layout.apiDir, baseIdentity.slug)) + names.dbSuffix;
+  // For a ticket worktree the caller passes the ticket dev DB (e.g.
+  // `svl-sports-system-2200`), so each ticket's test DB is its own
+  // (`…-2200-test[-<shard>]`) and tickets never share a test database.
+  const baseDb = devDbName ?? deriveDbName(layout.apiDir, baseIdentity.slug);
+  const dbName = deriveTestDbName(baseDb) + names.dbSuffix;
   return { dbName, testIdentity };
 }
 
@@ -311,7 +339,7 @@ export async function runShardedTestSession(
   layout: DevProjectLayout,
   baseIdentity: DevIdentity,
   log: TestSessionLogger,
-  opts: { forwarded: string[]; pnpmBin: string; total: number },
+  opts: { devDbName?: string; forwarded: string[]; pnpmBin: string; total: number },
 ): Promise<number> {
   const total = Math.max(2, Math.floor(opts.total));
   const contexts: Array<{ ctx: TestSessionContext; index: number }> = [];
@@ -320,7 +348,11 @@ export async function runShardedTestSession(
   for (let index = 1; index <= total; index++) {
     log.info('');
     log.info(`▶ shard ${index}/${total}: bringing up isolated stack …`);
-    const ctx = await bringUpTestSession(layout, baseIdentity, log, { shardIndex: index, skipBuild: index > 1 });
+    const ctx = await bringUpTestSession(layout, baseIdentity, log, {
+      devDbName: opts.devDbName,
+      shardIndex: index,
+      skipBuild: index > 1,
+    });
     contexts.push({ ctx, index });
   }
 
@@ -334,7 +366,11 @@ export async function runShardedTestSession(
       // suite runs under concurrent sharded load, so it can relax navigation /
       // test timeouts (N built SSR servers + N Chromium saturate the CPU and slow
       // every navigation) without loosening them for serial runs.
-      const env: NodeJS.ProcessEnv = { ...ctx.appEnv, LT_DEV_TEST_SHARDS: String(total), MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}` };
+      const env: NodeJS.ProcessEnv = {
+        ...ctx.appEnv,
+        LT_DEV_TEST_SHARDS: String(total),
+        MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}`,
+      };
       const logFile = join(layout.root, '.lt-dev', `shard.${index}.test.log`);
       // Invoke Playwright DIRECTLY via `pnpm exec` (NOT `pnpm run test:e2e -- …`):
       // forwarding option flags through `pnpm run`'s `--` is unreliable — pnpm

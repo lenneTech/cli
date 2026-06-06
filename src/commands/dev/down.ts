@@ -3,11 +3,11 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { reloadCaddy, removeProjectBlock } from '../../lib/caddy';
 import { clearEnvBridge } from '../../lib/dev-env-bridge';
-import { buildIdentity } from '../../lib/dev-identity';
 import { killProcessGroup } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
-import { clearSession, isPidAlive, loadSession } from '../../lib/dev-state';
+import { clearSession, detectSlugConflict, isPidAlive, loadSession } from '../../lib/dev-state';
 import { hasTestSession, tearDownTestSession } from '../../lib/dev-test-session';
+import { resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
  * Stop the processes started by `lt dev up` and remove the project's
@@ -31,7 +31,9 @@ const DownCommand: GluegunCommand = {
     } = toolbox;
 
     const layout = resolveLayout(filesystem.cwd(), filesystem);
-    const identity = buildIdentity(layout.root);
+    // Ticket-aware: in a ticket worktree the slug / Caddy block / test stack are
+    // suffixed (`<slug>-<id>`), so resolve the same identity `up` used.
+    const { identity } = resolveDevIdentity(layout, { ticket: parameters.options.ticket });
     const session = loadSession(layout.root);
 
     const stopped: string[] = [];
@@ -50,12 +52,23 @@ const DownCommand: GluegunCommand = {
       info(colors.dim('No running processes registered for this project.'));
     }
 
-    // Remove Caddy block (best-effort — even if no session was active).
-    const removed = removeProjectBlock(identity.slug);
-    if (removed) {
-      const r = await reloadCaddy();
-      if (r.ok) success(`Removed Caddy block for "${identity.slug}".`);
-      else warning(`Removed Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+    // Don't clobber another checkout: when this slug is registered to a DIFFERENT
+    // checkout (two clones of the same project share a package.json "name" → slug),
+    // the Caddy block + registration belong to IT — stop only OUR processes
+    // (above) and leave its routing intact. Otherwise remove the block as usual.
+    const conflict = detectSlugConflict(identity.slug, layout.root);
+    if (conflict) {
+      warning(
+        `Slug "${identity.slug}" is registered to another checkout — leaving its Caddy block + registration untouched:`,
+      );
+      info(colors.dim(`  ${conflict.otherPath}`));
+    } else {
+      const removed = removeProjectBlock(identity.slug);
+      if (removed) {
+        const r = await reloadCaddy();
+        if (r.ok) success(`Removed Caddy block for "${identity.slug}".`);
+        else warning(`Removed Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+      }
     }
 
     // Clear ENV bridge so subsequent test runs without `lt dev up`

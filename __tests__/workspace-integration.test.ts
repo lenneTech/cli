@@ -11,6 +11,10 @@ export {};
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { filesystem } = require('gluegun');
 
+import { mkdtempSync, realpathSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+
 import {
   detectSubProjectContext,
   detectWorkspaceLayout,
@@ -23,11 +27,17 @@ import {
   writeApiConfig,
 } from '../src/lib/workspace-integration';
 
+// Scratch dirs live OUTSIDE the cli repo (under the OS temp dir). `findWorkspaceRoot`
+// walks UP from the start dir, so a temp dir nested inside `__tests__/` could be
+// "captured" by an ancestor that looks like a workspace (e.g. a stray `projects/`
+// in the cli root). os.tmpdir() has no such ancestor, so detection stops cleanly.
+const TMP_ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'lt-cli-tests-')));
+
 describe('detectWorkspaceLayout', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-workspace-detect-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-workspace-detect-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
   });
 
@@ -86,7 +96,7 @@ describe('writeApiConfig', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-api-config-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-api-config-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
   });
 
@@ -127,7 +137,7 @@ describe('runExperimentalNestBaseRename', () => {
   };
 
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-rename-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-rename-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
     filesystem.write(filesystem.path(tempDir, 'package.json'), { name: 'my-project' });
 
@@ -201,7 +211,7 @@ describe('reconfigureUpstreamForDownstream', () => {
   };
 
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-upstream-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-upstream-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
   });
 
@@ -332,7 +342,7 @@ describe('isNonInteractive', () => {
 describe('findWorkspaceRoot', () => {
   let tempDir: string;
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-find-root-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-find-root-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
   });
   afterEach(() => filesystem.remove(tempDir));
@@ -370,7 +380,7 @@ describe('findWorkspaceRoot', () => {
 describe('detectSubProjectContext', () => {
   let tempDir: string;
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-subproj-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-subproj-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
     filesystem.write(filesystem.path(tempDir, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
   });
@@ -397,7 +407,7 @@ describe('detectSubProjectContext', () => {
   });
 
   test('returns null when there is no workspace at all', () => {
-    const isolated = filesystem.path('__tests__', `temp-noproj-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const isolated = filesystem.path(TMP_ROOT, `temp-noproj-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(isolated);
     try {
       expect(detectSubProjectContext(isolated, filesystem)).toBeNull();
@@ -454,7 +464,7 @@ describe('runStandaloneWorkspaceGate', () => {
 
   let tempDir: string;
   beforeEach(() => {
-    tempDir = filesystem.path('__tests__', `temp-gate-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDir = filesystem.path(TMP_ROOT, `temp-gate-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     filesystem.dir(tempDir);
   });
   afterEach(() => filesystem.remove(tempDir));

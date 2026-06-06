@@ -89,6 +89,15 @@ describe('dev-test-session', () => {
       const { dbName } = resolveTestSession(customLayout, baseIdentity);
       expect(dbName).toBe('custom-name-test');
     });
+
+    test('per-ticket devDbName override → test DB derived from the ticket DB (+ shard suffix)', () => {
+      // `lt ticket test` passes the ticket dev DB so each ticket gets its OWN
+      // test DB (never shared between tickets), and sharding still appends `-<i>`.
+      const a = resolveTestSession(layout, baseIdentity, undefined, 'svl-sports-system-2200');
+      expect(a.dbName).toBe('svl-sports-system-2200-test');
+      const b = resolveTestSession(layout, baseIdentity, 2, 'svl-sports-system-2200');
+      expect(b.dbName).toBe('svl-sports-system-2200-test-2');
+    });
   });
 
   describe('hasTestSession', () => {

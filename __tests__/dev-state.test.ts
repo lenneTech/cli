@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -9,6 +9,7 @@ process.env.LT_DEV_REGISTRY_PATH = join(REGISTRY_TMP, 'projects.json');
 import {
   allocateInternalPort,
   clearSession,
+  detectSlugConflict,
   isPidAlive,
   isValidPid,
   loadRegistry,
@@ -16,7 +17,10 @@ import {
   saveRegistry,
   saveSession,
   takenInternalPorts,
+  withRegistryLock,
 } from '../src/lib/dev-state';
+
+const LOCK_PATH = `${process.env.LT_DEV_REGISTRY_PATH!}.lock`;
 
 describe('dev-state', () => {
   let projectRoot: string;
@@ -27,10 +31,10 @@ describe('dev-state', () => {
     writeFileSync(process.env.LT_DEV_REGISTRY_PATH!, JSON.stringify({ projects: {}, version: 1 }));
   });
   afterEach(() => {
-    rmSync(projectRoot, { recursive: true, force: true });
+    rmSync(projectRoot, { force: true, recursive: true });
   });
   afterAll(() => {
-    rmSync(REGISTRY_TMP, { recursive: true, force: true });
+    rmSync(REGISTRY_TMP, { force: true, recursive: true });
   });
 
   describe('isValidPid', () => {
@@ -126,7 +130,120 @@ describe('dev-state', () => {
       expect(t.has(4001)).toBe(true);
     });
   });
-});
 
-// Quench unused-warning in some setups
-void readFileSync;
+  describe('detectSlugConflict', () => {
+    let otherRoot: string;
+    beforeEach(() => {
+      otherRoot = mkdtempSync(join(tmpdir(), 'lt-dev-state-other-'));
+    });
+    afterEach(() => rmSync(otherRoot, { force: true, recursive: true }));
+
+    const register = (path: string) =>
+      saveRegistry({ projects: { svl: { internalPorts: {}, path, subdomains: {} } }, version: 1 });
+
+    test('no registry entry → null', () => {
+      expect(detectSlugConflict('svl', projectRoot)).toBeNull();
+    });
+
+    test('entry belongs to THIS checkout → null', () => {
+      register(projectRoot);
+      expect(detectSlugConflict('svl', projectRoot)).toBeNull();
+    });
+
+    test('entry points to ANOTHER checkout (no session) → conflict, not alive', () => {
+      register(otherRoot);
+      const c = detectSlugConflict('svl', projectRoot);
+      expect(c).not.toBeNull();
+      expect(c!.otherPath).toBe(otherRoot);
+      expect(c!.otherSessionAlive).toBe(false);
+    });
+
+    test('another checkout with a LIVE session → otherSessionAlive true', () => {
+      register(otherRoot);
+      saveSession(otherRoot, { pids: { api: process.pid }, startedAt: '2026-01-01T00:00:00.000Z' });
+      expect(detectSlugConflict('svl', projectRoot)?.otherSessionAlive).toBe(true);
+    });
+
+    test('another checkout with a DEAD session → otherSessionAlive false', () => {
+      register(otherRoot);
+      // 4194303 = max valid PID range but no such process is running.
+      saveSession(otherRoot, { pids: { api: 4194303 }, startedAt: '2026-01-01T00:00:00.000Z' });
+      expect(detectSlugConflict('svl', projectRoot)?.otherSessionAlive).toBe(false);
+    });
+  });
+
+  describe('withRegistryLock', () => {
+    // Make sure no leftover lock file from a previous test leaks into the next one.
+    beforeEach(() => {
+      if (existsSync(LOCK_PATH)) rmSync(LOCK_PATH, { force: true });
+    });
+    afterEach(() => {
+      if (existsSync(LOCK_PATH)) rmSync(LOCK_PATH, { force: true });
+    });
+
+    test('runs fn and returns its result; releases the lock afterwards', async () => {
+      const result = await withRegistryLock(() => 42);
+      expect(result).toBe(42);
+      expect(existsSync(LOCK_PATH)).toBe(false);
+    });
+
+    test('serializes concurrent callers (no two run simultaneously)', async () => {
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const work = (id: number) =>
+        withRegistryLock(async () => {
+          inFlight++;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          // Hold the lock briefly so a concurrent caller would observe overlap.
+          await new Promise((resolve) => setTimeout(resolve, 30));
+          inFlight--;
+          return id;
+        });
+      const results = await Promise.all([work(1), work(2), work(3)]);
+      expect(results.sort()).toEqual([1, 2, 3]);
+      expect(maxInFlight).toBe(1);
+      expect(existsSync(LOCK_PATH)).toBe(false);
+    });
+
+    test('releases the lock even when fn throws', async () => {
+      await expect(
+        withRegistryLock(() => {
+          throw new Error('boom');
+        }),
+      ).rejects.toThrow('boom');
+      expect(existsSync(LOCK_PATH)).toBe(false);
+      // A subsequent caller must succeed immediately (lock is gone).
+      const after = await withRegistryLock(() => 'ok');
+      expect(after).toBe('ok');
+    });
+
+    test('reclaims a stale lock left by a crashed holder', async () => {
+      // Simulate a crashed holder: a lock file present, but older than staleMs.
+      writeFileSync(LOCK_PATH, '');
+      const oldTime = new Date(Date.now() - 60_000);
+      require('fs').utimesSync(LOCK_PATH, oldTime, oldTime);
+      const result = await withRegistryLock(() => 'reclaimed', { staleMs: 1_000, timeoutMs: 2_000 });
+      expect(result).toBe('reclaimed');
+      expect(existsSync(LOCK_PATH)).toBe(false);
+    });
+
+    test('throws a clear error when the lock stays busy past timeoutMs', async () => {
+      // Hold the lock long enough that a second caller hits the timeout.
+      let release: () => void = () => undefined;
+      const holdUntil = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const holder = withRegistryLock(async () => {
+        await holdUntil;
+      });
+      // Give the holder a moment to actually grab the lock.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await expect(
+        withRegistryLock(() => 'never', { staleMs: 60_000, timeoutMs: 200 }),
+      ).rejects.toThrow(/registry lock busy/);
+      release();
+      await holder;
+      expect(existsSync(LOCK_PATH)).toBe(false);
+    });
+  });
+});

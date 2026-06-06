@@ -109,6 +109,24 @@ export function buildTestIdentity(base: DevIdentity, suffix = '-test'): DevIdent
 }
 
 /**
+ * Derive a per-TICKET identity from a base identity (used by `lt ticket` /
+ * `lt dev up --ticket`). Suffixes the slug + every subdomain hostname with the
+ * ticket id, so each ticket worktree runs on its OWN URLs / ports / Caddy block
+ * / DB — fully parallel to and isolated from every other ticket and the base
+ * dev session.
+ *
+ *   svl.localhost      → svl-2200.localhost
+ *   api.svl.localhost  → api.svl-2200.localhost
+ *
+ * Mechanically identical to {@link buildTestIdentity} (a named wrapper for
+ * readability + intent at the call sites). `id` is already a clean slug (see
+ * `deriveTicketId` in dev-ticket.ts).
+ */
+export function buildTicketIdentity(base: DevIdentity, id: string): DevIdentity {
+  return buildTestIdentity(base, `-${id}`);
+}
+
+/**
  * Read the bare project name from package.json (scope stripped).
  * Falls back to directory basename if no package.json or no `name`.
  */

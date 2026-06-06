@@ -2,10 +2,10 @@ import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
-import { buildIdentity } from '../../lib/dev-identity';
 import { listenSnapshot } from '../../lib/dev-process';
 import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import { isPidAlive, loadRegistry, loadSession, TEST_SESSION_FILE } from '../../lib/dev-state';
+import { resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
  * Show what is running.
@@ -52,11 +52,12 @@ const StatusCommand: GluegunCommand = {
     }
 
     const layout = resolveLayout(filesystem.cwd(), filesystem);
-    const identity = buildIdentity(layout.root);
+    // Ticket-aware: a ticket worktree reports its OWN suffixed stack.
+    const { identity, ticket } = resolveDevIdentity(layout, { ticket: parameters.options.ticket });
     const entry = reg.projects[identity.slug];
 
     info('');
-    info(colors.bold(`lt dev status: ${identity.slug}`));
+    info(colors.bold(`lt dev status: ${identity.slug}`) + (ticket ? colors.dim(` (ticket ${ticket})`) : ''));
     info(colors.dim('─'.repeat(60)));
 
     if (!entry) {
