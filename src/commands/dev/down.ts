@@ -7,6 +7,7 @@ import { buildIdentity } from '../../lib/dev-identity';
 import { killProcessGroup } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
 import { clearSession, isPidAlive, loadSession } from '../../lib/dev-state';
+import { hasTestSession, tearDownTestSession } from '../../lib/dev-test-session';
 
 /**
  * Stop the processes started by `lt dev up` and remove the project's
@@ -60,6 +61,17 @@ const DownCommand: GluegunCommand = {
     // Clear ENV bridge so subsequent test runs without `lt dev up`
     // do not pick up stale URLs.
     if (clearEnvBridge(layout.root)) info(colors.dim('Removed .lt-dev/.env bridge.'));
+
+    // Also tear down any isolated test stack (`lt dev test`) for this project,
+    // so `lt dev down` always leaves a clean slate.
+    if (hasTestSession(layout.root)) {
+      const { stopped: testStopped } = await tearDownTestSession(layout, identity, {
+        dim: colors.dim,
+        info,
+        warn: warning,
+      });
+      if (testStopped.length > 0) success(`Stopped test stack: ${testStopped.join(', ')}`);
+    }
 
     if (stopped.length > 0) success(`Stopped: ${stopped.join(', ')}`);
     if (!parameters.options.fromGluegunMenu) process.exit();

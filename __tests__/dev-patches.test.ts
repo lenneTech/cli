@@ -168,6 +168,75 @@ describe('dev-patches', () => {
       const r = patchPlaywrightConfig(f);
       expect(r.patched).toBe(false);
     });
+
+    test('wraps an unguarded webServer array in an LT_DEV_ACTIVE guard', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, ['export default {', '  webServer: [', "    { command: 'npm run start' },", '  ],', '};'].join('\n'));
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(true);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('webServer: process.env.LT_DEV_ACTIVE ? undefined : [');
+      // The original array's closing bracket is preserved as the ternary's false branch.
+      expect(out).toContain('  ],');
+    });
+
+    test('wraps an unguarded webServer object too', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, ['export default {', '  webServer: {', "    command: 'npm run start',", '  },', '};'].join('\n'));
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('webServer: process.env.LT_DEV_ACTIVE ? undefined : {');
+    });
+
+    test('idempotent — does not double-wrap an already-guarded webServer', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(
+        f,
+        ['export default {', '  webServer: process.env.LT_DEV_ACTIVE ? undefined : [', "    { command: 'npm run start' },", '  ],', '};'].join('\n'),
+      );
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      expect((out.match(/process\.env\.LT_DEV_ACTIVE \? undefined/g) || []).length).toBe(1);
+    });
+
+    test('no webServer present → no guard added', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      expect(readFileSync(f, 'utf8')).not.toContain('LT_DEV_ACTIVE');
+    });
+
+    test('adds lt-dev-test shard-readiness: ignoreHTTPSErrors + shard-aware timeouts + slowMo:0', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(
+        f,
+        [
+          "import { defineConfig } from '@playwright/test';",
+          "import { isWindows } from 'std-env';",
+          'export default defineConfig({',
+          '  timeout: isWindows ? 60_000 : 90_000,',
+          '  expect: { timeout: 10_000 },',
+          '  use: {',
+          "    baseURL: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001',",
+          '    launchOptions: { slowMo: 10 },',
+          '  },',
+          '});',
+        ].join('\n'),
+      );
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(true);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('ignoreHTTPSErrors: true');
+      expect(out).toMatch(/const SHARDED = Number\(process\.env\.LT_DEV_TEST_SHARDS/);
+      expect(out).toContain('timeout: isWindows ? 60_000 : SHARDED ? 180_000 : 90_000');
+      expect(out).toContain('expect: { timeout: SHARDED ? 30_000 : 10_000 }');
+      expect(out).toMatch(/navigationTimeout:\s*SHARDED\s*\?\s*60_000/);
+      expect(out).toMatch(/actionTimeout:\s*SHARDED\s*\?\s*30_000/);
+      expect(out).toContain('slowMo: 0');
+      expect(out).not.toMatch(/slowMo:\s*10\b/);
+      // Idempotent: a second pass changes nothing.
+      expect(patchPlaywrightConfig(f).patched).toBe(false);
+    });
   });
 
   describe('autoPatch dispatcher', () => {

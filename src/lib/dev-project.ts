@@ -50,7 +50,10 @@ export function appNeedsPortPatch(appDir: string): string[] {
       /target:\s*'http:\/\/localhost:3000'/.test(c) ||
       /baseURL:\s*'http:\/\/localhost:3001'/.test(c) ||
       /url:\s*'http:\/\/localhost:3001'/.test(c) ||
-      /host:\s*'http:\/\/localhost:3001'/.test(c)
+      /host:\s*'http:\/\/localhost:3001'/.test(c) ||
+      // Unguarded Playwright `webServer` (no LT_DEV_ACTIVE guard) — patch it so
+      // `lt dev test`'s isolated stack is reused instead of a stray server.
+      (/webServer:\s*[[{]/.test(c) && !/webServer:\s*process\.env\.LT_DEV_ACTIVE/.test(c))
     );
   });
 }
@@ -66,6 +69,22 @@ export function deriveDbName(apiDir: null | string, slug: string): string {
     }
   }
   return `${slug}-local`;
+}
+
+/**
+ * Derive the dedicated database name for the `lt dev test` stack from the
+ * project's dev DB name. Distinct from both `<…>-local` (developer DB) and
+ * the API unit-test DB (`<…>-e2e`), so Playwright E2E never touches developer
+ * or API-test data.
+ *
+ *   svl-sports-system-local → svl-sports-system-test
+ *
+ * Uses the `-test` suffix so it passes test-helper guards that only permit
+ * local/test databases (name ending in `-local` | `-ci` | `-e2e` | `-test`).
+ */
+export function deriveTestDbName(devDbName: string): string {
+  const base = devDbName.replace(/-(local|dev)$/i, '');
+  return `${base}-test`;
 }
 
 /**

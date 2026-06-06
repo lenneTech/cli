@@ -3,7 +3,13 @@ import { filesystem } from 'gluegun';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { apiNeedsPortPatch, appNeedsPortPatch, deriveDbName, resolveLayout } from '../src/lib/dev-project';
+import {
+  apiNeedsPortPatch,
+  appNeedsPortPatch,
+  deriveDbName,
+  deriveTestDbName,
+  resolveLayout,
+} from '../src/lib/dev-project';
 
 describe('dev-project', () => {
   let tmp: string;
@@ -57,6 +63,22 @@ describe('dev-project', () => {
       expect(out).toContain(join(tmp, 'nuxt.config.ts'));
       expect(out).toContain(join(tmp, 'playwright.config.ts'));
     });
+
+    test('flags an unguarded Playwright webServer even when URLs are already env-aware', () => {
+      writeFileSync(
+        join(tmp, 'playwright.config.ts'),
+        "baseURL: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001',\n  webServer: [{ command: 'npm run start' }],",
+      );
+      expect(appNeedsPortPatch(tmp)).toContain(join(tmp, 'playwright.config.ts'));
+    });
+
+    test('does NOT flag a Playwright webServer that is already LT_DEV_ACTIVE-guarded', () => {
+      writeFileSync(
+        join(tmp, 'playwright.config.ts'),
+        "baseURL: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001',\n  webServer: process.env.LT_DEV_ACTIVE ? undefined : [{ command: 'npm run start' }],",
+      );
+      expect(appNeedsPortPatch(tmp)).not.toContain(join(tmp, 'playwright.config.ts'));
+    });
   });
 
   describe('deriveDbName', () => {
@@ -67,6 +89,25 @@ describe('dev-project', () => {
     });
     test('falls back to <slug>-local', () => {
       expect(deriveDbName(null, 'crm')).toBe('crm-local');
+    });
+  });
+
+  describe('deriveTestDbName', () => {
+    test('strips -local suffix and appends -test', () => {
+      expect(deriveTestDbName('crm-local')).toBe('crm-test');
+    });
+    test('strips -dev suffix too', () => {
+      expect(deriveTestDbName('crm-dev')).toBe('crm-test');
+    });
+    test('case-insensitive suffix strip', () => {
+      expect(deriveTestDbName('crm-LOCAL')).toBe('crm-test');
+    });
+    test('multi-segment slug stays intact', () => {
+      expect(deriveTestDbName('svl-sports-system-local')).toBe('svl-sports-system-test');
+    });
+    test('no suffix to strip → still appends -test', () => {
+      // Defensive: deriveDbName may return a custom name without -local.
+      expect(deriveTestDbName('custom')).toBe('custom-test');
     });
   });
 });

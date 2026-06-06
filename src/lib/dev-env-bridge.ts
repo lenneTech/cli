@@ -22,8 +22,8 @@ import { DevEnv } from './dev-env';
 const HEADER = `# Managed by \`lt dev up\` — do NOT edit, will be overwritten.\n# Removed by \`lt dev down\`. Loaded by Playwright + other tools.\n`;
 
 /** Remove the ENV bridge file. No-op if missing. */
-export function clearEnvBridge(projectRoot: string): boolean {
-  const file = envBridgePath(projectRoot);
+export function clearEnvBridge(projectRoot: string, fileName = '.env'): boolean {
+  const file = envBridgePath(projectRoot, fileName);
   if (!existsSync(file)) return false;
   try {
     rmSync(file);
@@ -58,8 +58,8 @@ export function detectCaddyRootCa(): null | string {
 }
 
 /** Resolve the path to the ENV bridge file for a project. */
-export function envBridgePath(projectRoot: string): string {
-  return join(projectRoot, '.lt-dev', '.env');
+export function envBridgePath(projectRoot: string, fileName = '.env'): string {
+  return join(projectRoot, '.lt-dev', fileName);
 }
 
 /**
@@ -67,8 +67,8 @@ export function envBridgePath(projectRoot: string): string {
  *
  * Returns the absolute path that was written.
  */
-export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: string): string {
-  const file = envBridgePath(projectRoot);
+export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: string, fileName = '.env'): string {
+  const file = envBridgePath(projectRoot, fileName);
   const lines: string[] = [];
 
   // The App-side env is the more "external" one (Playwright, browser tools).

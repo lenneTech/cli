@@ -5,7 +5,7 @@ import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
 import { buildIdentity } from '../../lib/dev-identity';
 import { listenSnapshot } from '../../lib/dev-process';
 import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
-import { isPidAlive, loadRegistry, loadSession } from '../../lib/dev-state';
+import { isPidAlive, loadRegistry, loadSession, TEST_SESSION_FILE } from '../../lib/dev-state';
 
 /**
  * Show what is running.
@@ -138,6 +138,23 @@ const StatusCommand: GluegunCommand = {
           info(`    ${p}: ${r ? colors.green(`bound to ${r.command} (pid ${r.pid})`) : colors.dim('free')}`);
         }
       }
+    }
+
+    // Isolated test stack (`lt dev test`), if one is up / left with --keep.
+    const testSession = loadSession(layout.root, TEST_SESSION_FILE);
+    if (testSession) {
+      const testEntry = reg.projects[`${identity.slug}-test`];
+      info('');
+      info(colors.bold('  Isolated test stack (lt dev test)'));
+      if (testEntry) {
+        for (const [sub, host] of Object.entries(testEntry.subdomains)) info(`    ${sub.padEnd(6)} https://${host}`);
+        if (testEntry.dbName) info(`    db     mongodb://127.0.0.1/${testEntry.dbName}`);
+      }
+      const apiAlive = testSession.pids.api ? isPidAlive(testSession.pids.api) : false;
+      const appAlive = testSession.pids.app ? isPidAlive(testSession.pids.app) : false;
+      info(`    api: ${apiAlive ? colors.green('running') : colors.red('dead')} (pid ${testSession.pids.api ?? '-'})`);
+      info(`    app: ${appAlive ? colors.green('running') : colors.red('dead')} (pid ${testSession.pids.app ?? '-'})`);
+      info(colors.dim('    stop: lt dev test down'));
     }
 
     info('');

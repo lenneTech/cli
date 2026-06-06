@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { buildIdentity, projectSlug, slugify } from '../src/lib/dev-identity';
+import { buildIdentity, buildTestIdentity, DevIdentity, projectSlug, slugify } from '../src/lib/dev-identity';
 
 describe('dev-identity', () => {
   let tmp: string;
@@ -94,6 +94,55 @@ describe('dev-identity', () => {
       writeFileSync(join(tmp, 'nest-cli.json'), '{}');
       const id = buildIdentity(tmp);
       expect(id.subdomains.api?.hostname).toBe('api.nest.localhost');
+    });
+  });
+
+  describe('buildTestIdentity', () => {
+    const base: DevIdentity = {
+      root: '/tmp/svl',
+      slug: 'svl',
+      subdomains: {
+        api: { hostname: 'api.svl.localhost', isPrimaryApp: false, subdir: 'projects/api' },
+        app: { hostname: 'svl.localhost', isPrimaryApp: true, subdir: 'projects/app' },
+      },
+    };
+
+    test('suffixes slug and rewrites every hostname', () => {
+      const test = buildTestIdentity(base);
+      expect(test.slug).toBe('svl-test');
+      // Primary app collapses to `<slug>-test.localhost` …
+      expect(test.subdomains.app.hostname).toBe('svl-test.localhost');
+      expect(test.subdomains.app.isPrimaryApp).toBe(true);
+      // … while non-primary subdomains keep their sub-prefix.
+      expect(test.subdomains.api.hostname).toBe('api.svl-test.localhost');
+      expect(test.subdomains.api.isPrimaryApp).toBe(false);
+    });
+
+    test('preserves root + subdir + non-name fields', () => {
+      const test = buildTestIdentity(base);
+      expect(test.root).toBe(base.root);
+      expect(test.subdomains.api.subdir).toBe('projects/api');
+      expect(test.subdomains.app.subdir).toBe('projects/app');
+    });
+
+    test('custom suffix is honored', () => {
+      const test = buildTestIdentity(base, '-ci');
+      expect(test.slug).toBe('svl-ci');
+      expect(test.subdomains.app.hostname).toBe('svl-ci.localhost');
+      expect(test.subdomains.api.hostname).toBe('api.svl-ci.localhost');
+    });
+
+    test('idempotent across distinct subdomains beyond api/app', () => {
+      const richer: DevIdentity = {
+        root: '/tmp/svl',
+        slug: 'svl',
+        subdomains: {
+          ...base.subdomains,
+          admin: { hostname: 'admin.svl.localhost', isPrimaryApp: false, subdir: 'projects/admin' },
+        },
+      };
+      const test = buildTestIdentity(richer);
+      expect(test.subdomains.admin.hostname).toBe('admin.svl-test.localhost');
     });
   });
 });

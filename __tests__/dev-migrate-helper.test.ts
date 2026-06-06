@@ -58,7 +58,9 @@ describe('dev-migrate-helper / runMigrate', () => {
     expect(r.alreadyMigrated).toBe(false);
     expect(r.identity.slug).toBe('svc');
     expect(r.dbName).toBe('svc-local');
-    expect(r.codePatches).toEqual([]); // already env-aware
+    // autoPatch now runs over every existing config file (idempotent); an
+    // already-env-aware config.env.ts is visited but nothing is actually patched.
+    expect(r.codePatches.every((p) => !p.patched)).toBe(true);
     expect(r.claudePatches.find((p) => p.patched)).toBeTruthy();
     expect(r.registryUpdated).toBe(true);
     expect(r.addedGitignoreEntry).toBe(true);

@@ -13,7 +13,7 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { buildIdentity, DevIdentity } from './dev-identity';
 import { addToGitignore, autoPatch, patchClaudeMd, PatchResult } from './dev-patches';
-import { apiNeedsPortPatch, appNeedsPortPatch, deriveDbName, DevProjectLayout } from './dev-project';
+import { deriveDbName, DevProjectLayout } from './dev-project';
 import { loadRegistry, ProjectsRegistryEntry, saveRegistry } from './dev-state';
 import { renameUnmodifiedTemplatePackage } from './package-name';
 
@@ -112,13 +112,23 @@ export function runMigrate(input: MigrateInput): MigrateResult {
   const identity = buildIdentity(layout.root);
   const dbName = deriveDbName(layout.apiDir, identity.slug);
 
-  // 1. Code patches (config.env.ts, nuxt.config.ts, playwright.config.ts).
+  // 1. Code patches. Run `autoPatch` over EVERY existing config file (not just
+  //    the ones a port-detector flags): the patches are idempotent, and some —
+  //    e.g. the playwright.config `ignoreHTTPSErrors` + shard-aware
+  //    `LT_DEV_TEST_SHARDS` timeout block — apply to configs that are already
+  //    env-aware. So `lt dev init` makes any project fully `lt dev test --shard`
+  //    ready in one command; an up-to-date config is a no-op (`patched: false`).
   const filesToPatch: string[] = [];
   if (layout.apiDir) {
-    const f = apiNeedsPortPatch(layout.apiDir);
-    if (f) filesToPatch.push(f);
+    const apiCfg = join(layout.apiDir, 'src', 'config.env.ts');
+    if (existsSync(apiCfg)) filesToPatch.push(apiCfg);
   }
-  if (layout.appDir) filesToPatch.push(...appNeedsPortPatch(layout.appDir));
+  if (layout.appDir) {
+    for (const rel of ['nuxt.config.ts', 'playwright.config.ts']) {
+      const f = join(layout.appDir, rel);
+      if (existsSync(f)) filesToPatch.push(f);
+    }
+  }
   const codePatches = filesToPatch.map((f) => autoPatch(f));
 
   // 2. CLAUDE.md URL block (root + each subproject — only patches existing files).

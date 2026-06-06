@@ -164,6 +164,16 @@ export function patchNuxtConfig(file: string): PatchResult {
  *      bracketed by `// >>> lt-dev:bridge >>>` markers.
  *   2. Hardcoded baseURL/host/url for `http://localhost:3001` →
  *      `process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001'`.
+ *   3. `webServer` wrapped in an `LT_DEV_ACTIVE` guard so Playwright reuses
+ *      the App already served by `lt dev` / `lt dev test` instead of spawning
+ *      its own (which would bind the wrong port and miss the isolated stack).
+ *   4. `ignoreHTTPSErrors: true` so Playwright's Chromium accepts the lt dev
+ *      Caddy self-signed cert (required for `lt dev test` over HTTPS).
+ *   5. Shard-aware timeouts gated on `LT_DEV_TEST_SHARDS` — a `SHARDED` const
+ *      plus relaxed `timeout` / `expect` / `navigationTimeout` / `actionTimeout`
+ *      under sharded load only, so serial + CI keep their tight, fast-failing
+ *      defaults. Each sub-patch is a graceful no-op on a non-standard config.
+ *   6. `slowMo: 10` → `0` (pointless per-action delay, multiplied across shards).
  */
 export function patchPlaywrightConfig(file: string): PatchResult {
   if (!existsSync(file)) return { file, patched: false, replacements: 0 };
@@ -224,6 +234,71 @@ export function patchPlaywrightConfig(file: string): PatchResult {
       count++;
     }
   }
+
+  // 3. Wrap `webServer` in an `LT_DEV_ACTIVE` guard so Playwright does NOT
+  //    start/manage its own server when the App is already served by
+  //    `lt dev` / `lt dev test` (both export LT_DEV_ACTIVE + the App URL).
+  //    The original array/object's closing `]`/`}` becomes the ternary's
+  //    false branch, so no bracket-matching is needed. Idempotent.
+  if (!/webServer:\s*process\.env\.LT_DEV_ACTIVE/.test(after)) {
+    after = after.replace(/webServer:\s*([[{])/, (_match, open: string) => {
+      count++;
+      return `webServer: process.env.LT_DEV_ACTIVE ? undefined : ${open}`;
+    });
+  }
+
+  // 4. ignoreHTTPSErrors — accept the `lt dev` Caddy self-signed cert on
+  //    `https://*.localhost` (Playwright's bundled Chromium uses its own trust
+  //    store, so NODE_EXTRA_CA_CERTS alone is not enough). No-op in CI (http).
+  //    Without this, `lt dev test` fails with ERR_CERT_AUTHORITY_INVALID.
+  if (!/ignoreHTTPSErrors/.test(after)) {
+    after = after.replace(/(\n(\s*)use:\s*\{)/, (_m, whole: string, indent: string) => {
+      count++;
+      return `${whole}\n${indent}  ignoreHTTPSErrors: true,`;
+    });
+  }
+
+  // 5. Shard-aware timeouts — `lt dev test --shard N` runs N built stacks +
+  //    N Chromium concurrently; the CPU saturates and SSR slows 2-3x. Relax
+  //    timeouts ONLY under that load (the CLI exports LT_DEV_TEST_SHARDS), so
+  //    serial + CI keep their tight values and fast-failure feedback. Each
+  //    sub-patch is idempotent + a graceful no-op on non-standard configs.
+  if (!/const SHARDED\b/.test(after) && /export default defineConfig/.test(after)) {
+    const shardConst =
+      '// `lt dev test --shard N` saturates the CPU (N built SSR servers + N Chromium),\n' +
+      '// slowing every navigation. Relax timeouts ONLY under that load — the CLI sets\n' +
+      "// LT_DEV_TEST_SHARDS — so serial + CI keep their tight, fast-failing defaults.\n" +
+      "const SHARDED = Number(process.env.LT_DEV_TEST_SHARDS || '0') > 1;\n\n";
+    after = after.replace(/(export default defineConfig)/, `${shardConst}$1`);
+    count++;
+  }
+  // 5a. per-test timeout (`isWindows ? A : B` form) → add the sharded branch.
+  if (/timeout:\s*isWindows\s*\?/.test(after) && !/timeout:\s*isWindows\s*\?[^,\n]*SHARDED/.test(after)) {
+    after = after.replace(/timeout:\s*isWindows\s*\?\s*([0-9_]+)\s*:\s*([0-9_]+|undefined)/, (_m, a: string, b: string) => {
+      count++;
+      return `timeout: isWindows ? ${a} : SHARDED ? 180_000 : ${b}`;
+    });
+  }
+  // 5b. expect.timeout (only when an `expect: { timeout: N }` already exists).
+  if (/expect:\s*\{\s*timeout:\s*[0-9_]+\s*\}/.test(after) && !/expect:\s*\{\s*timeout:\s*SHARDED/.test(after)) {
+    after = after.replace(/expect:\s*\{\s*timeout:\s*([0-9_]+)\s*\}/, (_m, t: string) => {
+      count++;
+      return `expect: { timeout: SHARDED ? 30_000 : ${t} }`;
+    });
+  }
+  // 5c. navigation/action ceilings under shard (inject into `use` if absent).
+  if (!/navigationTimeout/.test(after)) {
+    after = after.replace(/(\n(\s*)use:\s*\{)/, (_m, whole: string, indent: string) => {
+      count++;
+      return `${whole}\n${indent}  actionTimeout: SHARDED ? 30_000 : undefined,\n${indent}  navigationTimeout: SHARDED ? 60_000 : undefined,`;
+    });
+  }
+  // 6. slowMo: 10 → 0 — an artificial per-action delay, pointless and multiplied
+  //    across N concurrent sharded browsers.
+  after = after.replace(/slowMo:\s*10\b/, () => {
+    count++;
+    return 'slowMo: 0';
+  });
 
   if (count === 0) return { file, patched: false, replacements: 0 };
   writeFileSync(file, after, 'utf8');

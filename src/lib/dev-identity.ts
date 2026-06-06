@@ -88,6 +88,27 @@ export function buildIdentity(root: string): DevIdentity {
 }
 
 /**
+ * Derive an ephemeral "test" identity from a base identity (used by
+ * `lt dev test`). Suffixes the slug and every subdomain hostname with
+ * `-test`, so the test stack runs on its own URLs / ports / Caddy block,
+ * fully parallel to (and isolated from) the dev session.
+ *
+ *   svl.localhost      → svl-test.localhost
+ *   api.svl.localhost  → api.svl-test.localhost
+ */
+export function buildTestIdentity(base: DevIdentity, suffix = '-test'): DevIdentity {
+  const slug = `${base.slug}${suffix}`;
+  const subdomains: Record<string, DevSubdomain> = {};
+  for (const [sub, value] of Object.entries(base.subdomains)) {
+    subdomains[sub] = {
+      ...value,
+      hostname: value.isPrimaryApp ? `${slug}.localhost` : `${sub}.${slug}.localhost`,
+    };
+  }
+  return { root: base.root, slug, subdomains };
+}
+
+/**
  * Read the bare project name from package.json (scope stripped).
  * Falls back to directory basename if no package.json or no `name`.
  */

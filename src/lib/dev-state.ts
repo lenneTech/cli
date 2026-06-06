@@ -43,6 +43,8 @@ export interface ProjectsRegistryEntry {
 const REGISTRY_PATH = process.env.LT_DEV_REGISTRY_PATH || join(homedir(), '.lenneTech', 'projects.json');
 const SESSION_DIR = '.lt-dev';
 const SESSION_FILE = 'state.json';
+/** Session file for the ephemeral `lt dev test` stack (runs parallel to the dev session). */
+export const TEST_SESSION_FILE = 'state.test.json';
 
 /**
  * Allocate a free internal port for a Caddy upstream.
@@ -60,8 +62,8 @@ export function allocateInternalPort(start: number, taken: Set<number>): number 
 }
 
 /** Remove session state file (called by `lt dev down`). */
-export function clearSession(root: string): void {
-  const file = join(root, SESSION_DIR, SESSION_FILE);
+export function clearSession(root: string, sessionFile: string = SESSION_FILE): void {
+  const file = join(root, SESSION_DIR, sessionFile);
   if (existsSync(file)) {
     try {
       rmSync(file);
@@ -102,8 +104,8 @@ export function loadRegistry(): ProjectsRegistry {
 }
 
 /** Load session state for a project root. */
-export function loadSession(root: string): DevSessionState | null {
-  const file = join(root, SESSION_DIR, SESSION_FILE);
+export function loadSession(root: string, sessionFile: string = SESSION_FILE): DevSessionState | null {
+  const file = join(root, SESSION_DIR, sessionFile);
   if (!existsSync(file)) return null;
   try {
     const parsed = JSON.parse(readFileSync(file, 'utf8'));
@@ -140,10 +142,10 @@ export function saveRegistry(reg: ProjectsRegistry): void {
 }
 
 /** Persist session state for a project root. */
-export function saveSession(root: string, state: DevSessionState): void {
+export function saveSession(root: string, state: DevSessionState, sessionFile: string = SESSION_FILE): void {
   const dir = join(root, SESSION_DIR);
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, SESSION_FILE), JSON.stringify(state, null, 2), 'utf8');
+  writeFileSync(join(dir, sessionFile), JSON.stringify(state, null, 2), 'utf8');
 }
 
 /** Collect all internal ports already claimed across the registry. */
