@@ -336,6 +336,13 @@ lt server module
 ```
 Key flags: `--noConfirm` skips all confirmations, `--name` sets the project/module name. See `docs/commands.md` for all available parameters per command.
 
+**Global flags on every subcommand** (intercepted before `run()`, so the command never executes when set):
+- `--help` / `-h` — human-readable help.
+- `--help-json` — same help as a single JSON document on stdout. Stable contract (`HelpJsonShape` in `src/lib/command-help.ts`); always includes `command`, `description`, `options`, `globalFlags` and a `richHelp` boolean. Use this when an AI agent needs to discover a command's surface programmatically.
+- `--noConfirm` — skip confirmations.
+
+When adding a new command, the global `installHelpInterceptor` ([src/cli.ts:28](src/cli.ts#L28) → [src/lib/command-help.ts](src/lib/command-help.ts)) handles `--help` and `--help-json` automatically. Export `const help: CommandHelp` from the command module to make the JSON payload rich (`richHelp: true`); without it the agent still gets a usable fallback with the global flags and the gluegun metadata.
+
 ---
 
 ## Quick Checklist

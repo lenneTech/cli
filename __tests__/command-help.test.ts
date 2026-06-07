@@ -1,7 +1,10 @@
 import {
+  buildHelpJson,
   type CommandHelp,
+  emitHelpJson,
   installHelpInterceptor,
   type InterceptableCommand,
+  isHelpJsonRequested,
   isHelpRequested,
   renderCommandHelp,
 } from '../src/lib/command-help';
@@ -23,7 +26,7 @@ describe('isHelpRequested', () => {
     expect(isHelpRequested({ options: { h: true } })).toBe(true);
   });
 
-  it('is false for --help-json (handled by tools.helpJson)', () => {
+  it('is false for --help-json (handled by isHelpJsonRequested instead)', () => {
     expect(isHelpRequested({ options: { 'help-json': true } })).toBe(false);
     expect(isHelpRequested({ options: { helpJson: true } })).toBe(false);
   });
@@ -121,5 +124,109 @@ describe('installHelpInterceptor', () => {
     expect(builtin.run({ parameters: { options: { help: true } }, print: makePrint() })).toBe('BUILTIN');
     // default command is not wrapped either
     expect(def.run({ parameters: { options: { help: true } }, print: makePrint() })).toBe('EXECUTED');
+  });
+});
+
+describe('isHelpJsonRequested', () => {
+  it('is true for --help-json and --helpJson', () => {
+    expect(isHelpJsonRequested({ options: { 'help-json': true } })).toBe(true);
+    expect(isHelpJsonRequested({ options: { helpJson: true } })).toBe(true);
+  });
+
+  it('is false when --help-json is not set', () => {
+    expect(isHelpJsonRequested({ options: {} })).toBe(false);
+    expect(isHelpJsonRequested(undefined)).toBe(false);
+    expect(isHelpJsonRequested({ options: { help: true } })).toBe(false);
+  });
+});
+
+describe('buildHelpJson', () => {
+  const command = {
+    commandPath: ['server', 'module'],
+    description: 'Create a module',
+    name: 'module',
+  };
+
+  it('returns a fallback shape when no rich help is provided', () => {
+    const shape = buildHelpJson(command);
+    expect(shape.command).toBe('lt server module');
+    expect(shape.description).toBe('Create a module');
+    expect(shape.name).toBe('module');
+    expect(shape.options).toEqual([]);
+    expect(shape.richHelp).toBe(false);
+    expect(shape.globalFlags.map((f) => f.flag)).toEqual(expect.arrayContaining(['--help', '-h', '--help-json']));
+  });
+
+  it('merges rich help into the shape with richHelp=true', () => {
+    const help: CommandHelp = {
+      configuration: 'commands.server.module.*',
+      examples: ['server module --name Foo'],
+      features: ['Generates a CRUD module'],
+      options: [{ description: 'Module name', flag: '--name', required: true, type: 'string' }],
+    };
+    const shape = buildHelpJson(command, help);
+    expect(shape.richHelp).toBe(true);
+    expect(shape.options).toEqual(help.options);
+    expect(shape.features).toEqual(help.features);
+    expect(shape.examples).toEqual(help.examples);
+    expect(shape.configuration).toBe(help.configuration);
+    // globalFlags are still attached even with rich help
+    expect(shape.globalFlags.map((f) => f.flag)).toEqual(expect.arrayContaining(['--help-json']));
+  });
+});
+
+describe('emitHelpJson + interceptor', () => {
+  const baseCommand = (): InterceptableCommand & { run: (t: unknown) => unknown } => ({
+    commandPath: ['server', 'module'],
+    description: 'Create a module',
+    file: '/some/where/module.js',
+    name: 'module',
+    run: () => 'EXECUTED',
+  });
+
+  it('prints JSON and skips execution when --help-json is requested', () => {
+    const command = baseCommand();
+    let executed = false;
+    command.run = () => {
+      executed = true;
+      return 'EXECUTED';
+    };
+    installHelpInterceptor([command]);
+    const captured: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => {
+      captured.push(String(msg));
+    };
+    try {
+      const result = command.run({ parameters: { options: { 'help-json': true } } });
+      expect(executed).toBe(false);
+      expect(result).toBeUndefined();
+    } finally {
+      console.log = origLog;
+    }
+    expect(captured).toHaveLength(1);
+    const payload = JSON.parse(captured[0]);
+    expect(payload.command).toBe('lt server module');
+    expect(payload.description).toBe('Create a module');
+    expect(payload.options).toEqual([]);
+    expect(payload.richHelp).toBe(false);
+    expect((payload.globalFlags as { flag: string }[]).map((f) => f.flag)).toEqual(
+      expect.arrayContaining(['--help', '-h', '--help-json']),
+    );
+  });
+
+  it('emitHelpJson stringifies the shape on a single line of output', () => {
+    const captured: string[] = [];
+    const origLog = console.log;
+    console.log = (msg?: unknown) => {
+      captured.push(String(msg));
+    };
+    try {
+      emitHelpJson(buildHelpJson({ commandPath: ['x'], description: 'd', name: 'x' }));
+    } finally {
+      console.log = origLog;
+    }
+    expect(captured).toHaveLength(1);
+    expect(() => JSON.parse(captured[0])).not.toThrow();
   });
 });

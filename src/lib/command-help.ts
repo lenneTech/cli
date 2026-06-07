@@ -53,6 +53,33 @@ export interface HelpableCommand {
   name?: string;
 }
 
+export interface HelpJsonGlobalFlag {
+  description: string;
+  flag: string;
+  type: string;
+}
+
+/**
+ * JSON shape returned by `--help-json` on every command. Stable contract:
+ * tools and AI agents may rely on the field names. `richHelp: true` means the
+ * command exported a typed `CommandHelp` (so `options`, `features`, `examples`
+ * and `configuration` are authoritative). `richHelp: false` means the
+ * description came from gluegun metadata only — `options` is the empty
+ * array and only the global flags are guaranteed.
+ */
+export interface HelpJsonShape {
+  aliases: string[];
+  command: string;
+  configuration?: string;
+  description: string;
+  examples?: string[];
+  features?: string[];
+  globalFlags: HelpJsonGlobalFlag[];
+  name: string;
+  options: CommandHelpOption[];
+  richHelp: boolean;
+}
+
 /** Parameters surface — compatible with gluegun's `toolbox.parameters`. */
 export interface HelpParameters {
   array?: string[];
@@ -78,8 +105,9 @@ export interface InterceptableCommand extends HelpableCommand {
 }
 
 /**
- * Wrap every command's `run` so that `--help` / `-h` prints help and returns
- * without executing. Call once after `build().create()`, before `cli.run()`.
+ * Wrap every command's `run` so that `--help` / `-h` and `--help-json` print
+ * help and return without executing. Call once after `build().create()`,
+ * before `cli.run()`.
  *
  * Idempotent per command (guarded by `__helpWrapped`), so a command is never
  * double-wrapped if this runs more than once in the same process (e.g. tests).
@@ -102,6 +130,10 @@ export function installHelpInterceptor(
     }
     const originalRun = command.run;
     command.run = (toolbox) => {
+      if (isHelpJsonRequested(toolbox?.parameters)) {
+        emitHelpJson(buildHelpJson(command, loadCommandHelp(command.file)));
+        return undefined;
+      }
       if (toolbox?.print && isHelpRequested(toolbox.parameters)) {
         renderCommandHelp(toolbox.print, command, loadCommandHelp(command.file));
         return undefined;
@@ -112,10 +144,13 @@ export function installHelpInterceptor(
   }
 }
 
-/**
- * True when the invocation asks for help (`--help` or `-h`) — but NOT for
- * `--help-json` (handled separately by `tools.helpJson`).
- */
+/** True when the invocation asks for machine-readable help (`--help-json`). */
+export function isHelpJsonRequested(parameters: HelpParameters | undefined): boolean {
+  const options = parameters?.options || {};
+  return options['help-json'] === true || options.helpJson === true;
+}
+
+/** True when the invocation asks for human-readable help (`--help` or `-h`). */
 export function isHelpRequested(parameters: HelpParameters | undefined): boolean {
   const options = parameters?.options || {};
   if (options['help-json'] === true || options.helpJson === true) {
@@ -196,7 +231,7 @@ export function renderCommandHelp(print: HelpPrint, command: HelpableCommand, he
   }
   // Always-present global flags
   print.info(`  ${'--help, -h'.padEnd(28)} Show this help and exit (does not run the command)`);
-  print.info(`  ${'--help-json'.padEnd(28)} Machine-readable help as JSON (where provided)`);
+  print.info(`  ${'--help-json'.padEnd(28)} Machine-readable help as JSON (does not run the command)`);
   if (!options.some((o) => o.flag === '--noConfirm')) {
     print.info(`  ${'--noConfirm'.padEnd(28)} Skip confirmation prompts (where supported)`);
   }
@@ -227,4 +262,45 @@ function aliasList(command: HelpableCommand, help?: CommandHelp): string[] {
 function usagePath(command: HelpableCommand): string {
   const path = command.commandPath && command.commandPath.length ? command.commandPath : [command.name || ''];
   return `lt ${path.filter(Boolean).join(' ')}`.trim();
+}
+
+const GLOBAL_HELP_FLAGS: HelpJsonGlobalFlag[] = [
+  { description: 'Show human-readable help; the command is NOT executed.', flag: '--help', type: 'boolean' },
+  { description: 'Alias for --help.', flag: '-h', type: 'boolean' },
+  {
+    description: 'Print this JSON description on stdout; the command is NOT executed.',
+    flag: '--help-json',
+    type: 'boolean',
+  },
+];
+
+/**
+ * Build the JSON shape returned by `--help-json` for a command, merging the
+ * gluegun-known metadata (name, commandPath, description, aliases) with the
+ * command's optional rich `CommandHelp` export.
+ */
+export function buildHelpJson(command: HelpableCommand, help?: CommandHelp): HelpJsonShape {
+  const aliases = aliasList(command, help);
+  return {
+    aliases,
+    command: usagePath(command),
+    configuration: help?.configuration,
+    description: help?.description || command.description || '',
+    examples: help?.examples,
+    features: help?.features,
+    globalFlags: GLOBAL_HELP_FLAGS,
+    name: help?.name || command.name || '',
+    options: help?.options || [],
+    richHelp: Boolean(help),
+  };
+}
+
+/**
+ * Emit a help-json payload to stdout as a single pretty-printed JSON document.
+ * Kept tiny + side-effect-only so it can be stubbed in tests via a captured
+ * `console.log`.
+ */
+export function emitHelpJson(payload: HelpJsonShape): void {
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify(payload, null, 2));
 }

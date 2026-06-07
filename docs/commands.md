@@ -10,6 +10,7 @@ This document provides a comprehensive reference for all `lt` CLI commands. For 
 
 ## Table of Contents
 
+- [Global Flags](#global-flags)
 - [CLI Commands](#cli-commands)
 - [Server Commands](#server-commands)
 - [Local Development Commands](#local-development-commands)
@@ -29,6 +30,44 @@ This document provides a comprehensive reference for all `lt` CLI commands. For 
 - [Blocks & Components](#blocks--components)
 - [Template Commands](#template-commands)
 - [Other Commands](#other-commands)
+
+---
+
+## Global Flags
+
+These flags work on **every** `lt` subcommand. They are intercepted before the command's `run()` fires, so the command is never executed when one of them is set.
+
+| Flag | Description |
+|--------|-------------|
+| `--help`, `-h` | Print human-readable help (usage, aliases, options, examples). |
+| `--help-json` | Print the same help as a single JSON document on stdout. Stable contract — see shape below. Intended for AI agents and tooling that want to discover a command's surface programmatically. |
+| `--noConfirm` | Skip interactive confirmations (where supported by the command). |
+
+**`--help-json` payload shape** (`HelpJsonShape` in [src/lib/command-help.ts](../src/lib/command-help.ts)):
+
+```jsonc
+{
+  "aliases": ["c"],
+  "command": "lt server create",
+  "configuration": "commands.server.create.*",
+  "description": "Create new server",
+  "examples": ["server create --name Foo --noConfirm"],
+  "features": ["..."],
+  "globalFlags": [
+    { "flag": "--help",      "type": "boolean", "description": "..." },
+    { "flag": "-h",          "type": "boolean", "description": "..." },
+    { "flag": "--help-json", "type": "boolean", "description": "..." }
+  ],
+  "name": "create",
+  "options": [
+    { "flag": "--name", "type": "string", "required": true, "description": "Server name" }
+  ],
+  "richHelp": true
+}
+```
+
+- `richHelp: true` means the command exported a typed `CommandHelp` — `options`, `features`, `examples` and `configuration` are authoritative.
+- `richHelp: false` means only gluegun metadata was available — `options` is the empty array, but `globalFlags` is still guaranteed.
 
 ---
 

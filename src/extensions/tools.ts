@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'fs';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { buildHelpJson, emitHelpJson } from '../lib/command-help';
 
 const singleComment = Symbol('singleComment');
 const multiComment = Symbol('multiComment');
@@ -55,6 +56,14 @@ export class Tools {
    * Check if --help-json flag is set; if so, print the command definition as JSON and return true.
    * Commands should call this early and return immediately when it returns true.
    *
+   * In normal CLI usage the global `installHelpInterceptor` (see
+   * `src/lib/command-help.ts`) handles `--help-json` for ALL commands before
+   * their `run()` ever fires — this method is therefore mostly a no-op in
+   * production. It is still kept as a public escape hatch for tests that
+   * invoke a command's `run()` directly without the interceptor, and for
+   * legacy callers — output goes through the same `buildHelpJson` /
+   * `emitHelpJson` pair as the global path, so the schema cannot drift.
+   *
    * @param definition - The command's help definition (name, description, options, etc.)
    * @returns true if --help-json was handled (caller should return), false otherwise
    */
@@ -63,7 +72,7 @@ export class Tools {
     if (!parameters.options['help-json'] && !parameters.options.helpJson) {
       return false;
     }
-    console.debug(JSON.stringify(definition, null, 2));
+    emitHelpJson(buildHelpJson({ description: definition.description, name: definition.name }, definition));
     return true;
   }
 
