@@ -62,7 +62,12 @@ export interface HelpParameters {
 
 /** Minimal print surface — compatible with gluegun's `toolbox.print`. */
 export interface HelpPrint {
-  colors: { bold: (s: string) => string; cyan: (s: string) => string; dim: (s: string) => string; yellow: (s: string) => string };
+  colors: {
+    bold: (s: string) => string;
+    cyan: (s: string) => string;
+    dim: (s: string) => string;
+    yellow: (s: string) => string;
+  };
   info: (s: string) => void;
 }
 
@@ -125,7 +130,6 @@ export function loadCommandHelp(file: null | string | undefined): CommandHelp | 
     return undefined;
   }
   try {
-     
     const mod = require(file);
     const help = (mod && (mod.help || (mod.default && mod.default.help))) as CommandHelp | undefined;
     return help && typeof help === 'object' ? help : undefined;
