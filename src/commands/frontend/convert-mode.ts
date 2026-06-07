@@ -10,6 +10,46 @@ import { detectFrontendFrameworkMode, findAppDir } from '../../lib/frontend-fram
  *   lt frontend convert-mode --to vendor [--upstream-branch 1.5.3]
  *   lt frontend convert-mode --to npm [--version 1.5.3]
  */
+export const help = {
+  description: 'Convert frontend project between npm and vendor framework modes',
+  name: 'convert-mode',
+  options: [
+    {
+      description: 'Target mode',
+      flag: '--to',
+      required: true,
+      type: 'string',
+      values: ['vendor', 'npm'],
+    },
+    {
+      description: 'Upstream branch/tag to vendor from (only with --to vendor)',
+      flag: '--upstream-branch',
+      required: false,
+      type: 'string',
+    },
+    {
+      description: 'nuxt-extensions version to install (only with --to npm, default: from VENDOR.md baseline)',
+      flag: '--version',
+      required: false,
+      type: 'string',
+    },
+    {
+      default: false,
+      description: 'Skip confirmation prompt',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Show the resolved plan without making any changes',
+      flag: '--dry-run',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+};
+
 const ConvertModeCommand: GluegunCommand = {
   description: 'Convert app framework mode',
   hidden: false,
@@ -24,47 +64,7 @@ const ConvertModeCommand: GluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        description: 'Convert frontend project between npm and vendor framework modes',
-        name: 'convert-mode',
-        options: [
-          {
-            description: 'Target mode',
-            flag: '--to',
-            required: true,
-            type: 'string',
-            values: ['vendor', 'npm'],
-          },
-          {
-            description: 'Upstream branch/tag to vendor from (only with --to vendor)',
-            flag: '--upstream-branch',
-            required: false,
-            type: 'string',
-          },
-          {
-            description: 'nuxt-extensions version to install (only with --to npm, default: from VENDOR.md baseline)',
-            flag: '--version',
-            required: false,
-            type: 'string',
-          },
-          {
-            default: false,
-            description: 'Skip confirmation prompt',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Show the resolved plan without making any changes',
-            flag: '--dry-run',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

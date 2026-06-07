@@ -11,6 +11,54 @@ import { runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
  * a brand-new directory. Mirrors the same surface area as add-app where
  * applicable so behaviour is consistent across the four flows.
  */
+export const help = {
+  aliases: ['n'],
+  configuration: 'commands.frontend.nuxt.*',
+  description: 'Create a new Nuxt workspace from nuxt-base-starter',
+  name: 'nuxt',
+  options: [
+    { description: 'Workspace name', flag: '--name', required: false, type: 'string' },
+    { description: 'Branch of nuxt-base-starter to clone', flag: '--branch', required: false, type: 'string' },
+    { description: 'Copy from local template directory', flag: '--copy', required: false, type: 'string' },
+    { description: 'Symlink to local template directory', flag: '--link', required: false, type: 'string' },
+    {
+      description: 'Frontend framework consumption mode',
+      flag: '--frontend-framework-mode',
+      required: false,
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      default: false,
+      description: 'Default branch to nuxt-base-starter#next (auth basePath aligned with experimental --next API)',
+      flag: '--next',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Print resolved plan and exit without making any changes',
+      flag: '--dry-run',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Override the workspace-detection abort under --noConfirm',
+      flag: '--force',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip all interactive prompts',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+};
+
 const NewCommand: GluegunCommand = {
   alias: ['n'],
   description: 'Creates a new nuxt workspace',
@@ -29,56 +77,7 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['n'],
-        configuration: 'commands.frontend.nuxt.*',
-        description: 'Create a new Nuxt workspace from nuxt-base-starter',
-        name: 'nuxt',
-        options: [
-          { description: 'Workspace name', flag: '--name', required: false, type: 'string' },
-          { description: 'Branch of nuxt-base-starter to clone', flag: '--branch', required: false, type: 'string' },
-          { description: 'Copy from local template directory', flag: '--copy', required: false, type: 'string' },
-          { description: 'Symlink to local template directory', flag: '--link', required: false, type: 'string' },
-          {
-            description: 'Frontend framework consumption mode',
-            flag: '--frontend-framework-mode',
-            required: false,
-            type: 'string',
-            values: ['npm', 'vendor'],
-          },
-          {
-            default: false,
-            description:
-              'Default branch to nuxt-base-starter#next (auth basePath aligned with experimental --next API)',
-            flag: '--next',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Print resolved plan and exit without making any changes',
-            flag: '--dry-run',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Override the workspace-detection abort under --noConfirm',
-            flag: '--force',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip all interactive prompts',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

@@ -8,6 +8,47 @@ import genModule from './module';
 /**
  * Create a new server object
  */
+export const help = {
+  aliases: ['o'],
+  configuration: 'commands.server.object.*',
+  description: 'Create embedded object',
+  name: 'object',
+  options: [
+    { description: 'Object name', flag: '--name', required: true, type: 'string' },
+    {
+      default: false,
+      description: 'Skip lint fix after generation',
+      flag: '--skipLint',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Preview what would be generated without creating files',
+      flag: '--dryRun',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+  propertyFlags: {
+    attributes: [
+      { description: 'Property name', name: 'name', type: 'string' },
+      {
+        description: 'Property type',
+        name: 'type',
+        type: 'string',
+        values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
+      },
+      { description: 'Optional field', name: 'nullable', type: 'boolean' },
+      { description: 'Array of this type', name: 'array', type: 'boolean' },
+      { description: 'Enum type reference', name: 'enum', type: 'string' },
+      { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
+      { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
+    ],
+    pattern: '--prop-<attribute>-<index>',
+  },
+};
+
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['o'],
   description: 'Create embedded object',
@@ -46,48 +87,7 @@ const NewCommand: ExtendedGluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['o'],
-        configuration: 'commands.server.object.*',
-        description: 'Create embedded object',
-        name: 'object',
-        options: [
-          { description: 'Object name', flag: '--name', required: true, type: 'string' },
-          {
-            default: false,
-            description: 'Skip lint fix after generation',
-            flag: '--skipLint',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Preview what would be generated without creating files',
-            flag: '--dryRun',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-        propertyFlags: {
-          attributes: [
-            { description: 'Property name', name: 'name', type: 'string' },
-            {
-              description: 'Property type',
-              name: 'type',
-              type: 'string',
-              values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
-            },
-            { description: 'Optional field', name: 'nullable', type: 'boolean' },
-            { description: 'Array of this type', name: 'array', type: 'boolean' },
-            { description: 'Enum type reference', name: 'enum', type: 'string' },
-            { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
-            { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
-          ],
-          pattern: '--prop-<attribute>-<index>',
-        },
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

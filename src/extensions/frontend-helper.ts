@@ -1,5 +1,11 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { formatMarkdownTable } from '../lib/markdown-table';
+import {
+  buildFrontendVendorBlock,
+  FRONTEND_VENDOR_MARKER,
+  insertVendorBlockIfMissing,
+  removeVendorBlock,
+} from '../lib/vendor-claude-md';
 
 /**
  * Options for Angular frontend setup
@@ -456,17 +462,10 @@ export class FrontendHelper {
     // ── 6. Clean CLAUDE.md vendor marker ─────────────────────────────────
     const claudeMdPath = path.join(dest, 'CLAUDE.md');
     if (filesystem.exists(claudeMdPath)) {
-      let content = filesystem.read(claudeMdPath) || '';
-      const markerStart = '<!-- lt-vendor-marker-frontend -->';
-      const markerEnd = '---';
-      if (content.includes(markerStart)) {
-        const startIdx = content.indexOf(markerStart);
-        const endIdx = content.indexOf(markerEnd, startIdx);
-        if (endIdx > startIdx) {
-          content = content.slice(0, startIdx) + content.slice(endIdx + markerEnd.length);
-          content = content.replace(/^\n+/, '');
-          filesystem.write(claudeMdPath, content);
-        }
+      const content = filesystem.read(claudeMdPath) || '';
+      const cleaned = removeVendorBlock(content, FRONTEND_VENDOR_MARKER);
+      if (cleaned !== content) {
+        filesystem.write(claudeMdPath, cleaned);
       }
     }
 
@@ -697,32 +696,9 @@ export class FrontendHelper {
     const claudeMdPath = path.join(dest, 'CLAUDE.md');
     if (filesystem.exists(claudeMdPath)) {
       const existing = filesystem.read(claudeMdPath) || '';
-      const marker = '<!-- lt-vendor-marker-frontend -->';
-      if (!existing.includes(marker)) {
-        const vendorBlock = [
-          marker,
-          '',
-          '# Vendor-Mode Notice (Frontend)',
-          '',
-          'This frontend project runs in **vendor mode**: the `@lenne.tech/nuxt-extensions`',
-          'module has been copied directly into `app/core/` as first-class',
-          'project code. There is **no** `@lenne.tech/nuxt-extensions` npm dependency.',
-          '',
-          '- **Read framework code from `app/core/**`** — not from `node_modules/`.',
-          "- **nuxt.config.ts** references `'./app/core/module'` instead of",
-          "  `'@lenne.tech/nuxt-extensions'`.",
-          '- **Baseline + patch log** live in `app/core/VENDOR.md`. Log any',
-          '  substantial local change there so the `nuxt-extensions-core-updater`',
-          '  agent can classify it at sync time.',
-          '- **Update flow:** run `/lt-dev:frontend:update-nuxt-extensions-core`.',
-          '- **Contribute back:** run `/lt-dev:frontend:contribute-nuxt-extensions-core`.',
-          '- **Freshness check:** `pnpm run check:vendor-freshness` warns when',
-          '  upstream has a newer release than the baseline.',
-          '',
-          '---',
-          '',
-        ].join('\n');
-        filesystem.write(claudeMdPath, vendorBlock + existing);
+      const patched = insertVendorBlockIfMissing(existing, FRONTEND_VENDOR_MARKER, buildFrontendVendorBlock());
+      if (patched !== existing) {
+        filesystem.write(claudeMdPath, patched);
       }
     }
 

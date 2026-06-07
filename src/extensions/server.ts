@@ -8,6 +8,12 @@ import * as ts from 'typescript';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 import { formatMarkdownTable } from '../lib/markdown-table';
+import {
+  BACKEND_VENDOR_MARKER,
+  buildBackendVendorBlock,
+  insertVendorBlockIfMissing,
+  removeVendorBlock,
+} from '../lib/vendor-claude-md';
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(
   questions:
@@ -1773,36 +1779,9 @@ export class Server {
     const apiClaudeMdPath = `${dest}/CLAUDE.md`;
     if (filesystem.exists(apiClaudeMdPath)) {
       const existing = filesystem.read(apiClaudeMdPath) || '';
-      const marker = '<!-- lt-vendor-marker -->';
-      if (!existing.includes(marker)) {
-        const vendorBlock = [
-          marker,
-          '',
-          '# Vendor-Mode Notice',
-          '',
-          'This api project runs in **vendor mode**: the `@lenne.tech/nest-server`',
-          'core/ tree has been copied directly into `src/core/` as first-class',
-          'project code. There is **no** `@lenne.tech/nest-server` npm dependency.',
-          '',
-          '- **Read framework code from `src/core/**`** — not from `node_modules/`.',
-          '- **Generated imports use relative paths** to `src/core`, e.g.',
-          "  `import { CrudService } from '../../../core';`",
-          '  The exact depth depends on the file location. `lt server module`',
-          '  computes it automatically.',
-          '- **Baseline + patch log** live in `src/core/VENDOR.md`. Log any',
-          '  substantial local change there so the `nest-server-core-updater`',
-          '  agent can classify it at sync time.',
-          '- **Update flow:** run `/lt-dev:backend:update-nest-server-core` (the',
-          '  agent clones upstream, computes a delta, and presents a review).',
-          '- **Contribute back:** run `/lt-dev:backend:contribute-nest-server-core`',
-          '  to propose local fixes as upstream PRs.',
-          '- **Freshness check:** `pnpm run check:vendor-freshness` warns (non-',
-          '  blockingly) when upstream has a newer release than the baseline.',
-          '',
-          '---',
-          '',
-        ].join('\n');
-        filesystem.write(apiClaudeMdPath, vendorBlock + existing);
+      const patched = insertVendorBlockIfMissing(existing, BACKEND_VENDOR_MARKER, buildBackendVendorBlock());
+      if (patched !== existing) {
+        filesystem.write(apiClaudeMdPath, patched);
       }
     }
 
@@ -2575,17 +2554,10 @@ export class Server {
     // ── 6. Clean CLAUDE.md vendor marker ────────────────────────────────
     const claudeMdPath = `${dest}/CLAUDE.md`;
     if (filesystem.exists(claudeMdPath)) {
-      let content = filesystem.read(claudeMdPath) || '';
-      const marker = '<!-- lt-vendor-marker -->';
-      if (content.includes(marker)) {
-        // Remove everything from marker to the first `---` separator (end of vendor block)
-        content = content.replace(
-          new RegExp(`${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\s\\S]*?---\\s*\\n?`, ''),
-          '',
-        );
-        // Remove leading whitespace/newlines
-        content = content.replace(/^\n+/, '');
-        filesystem.write(claudeMdPath, content);
+      const content = filesystem.read(claudeMdPath) || '';
+      const cleaned = removeVendorBlock(content, BACKEND_VENDOR_MARKER);
+      if (cleaned !== content) {
+        filesystem.write(claudeMdPath, cleaned);
       }
     }
 

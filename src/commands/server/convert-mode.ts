@@ -10,6 +10,46 @@ import { detectFrameworkMode, findProjectDir } from '../../lib/framework-detecti
  *   lt server convert-mode --to vendor [--upstream-branch 11.24.2]
  *   lt server convert-mode --to npm [--version 11.24.2]
  */
+export const help = {
+  description: 'Convert API project between npm and vendor framework modes',
+  name: 'convert-mode',
+  options: [
+    {
+      description: 'Target mode',
+      flag: '--to',
+      required: true,
+      type: 'string',
+      values: ['vendor', 'npm'],
+    },
+    {
+      description: 'Upstream branch/tag to vendor from (only with --to vendor)',
+      flag: '--upstream-branch',
+      required: false,
+      type: 'string',
+    },
+    {
+      description: 'nest-server version to install (only with --to npm, default: from VENDOR.md baseline)',
+      flag: '--version',
+      required: false,
+      type: 'string',
+    },
+    {
+      default: false,
+      description: 'Skip confirmation prompt',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Show the resolved plan without making any changes',
+      flag: '--dry-run',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+};
+
 const ConvertModeCommand: GluegunCommand = {
   description: 'Convert API project between npm and vendor framework modes',
   hidden: false,
@@ -24,47 +64,7 @@ const ConvertModeCommand: GluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        description: 'Convert API project between npm and vendor framework modes',
-        name: 'convert-mode',
-        options: [
-          {
-            description: 'Target mode',
-            flag: '--to',
-            required: true,
-            type: 'string',
-            values: ['vendor', 'npm'],
-          },
-          {
-            description: 'Upstream branch/tag to vendor from (only with --to vendor)',
-            flag: '--upstream-branch',
-            required: false,
-            type: 'string',
-          },
-          {
-            description: 'nest-server version to install (only with --to npm, default: from VENDOR.md baseline)',
-            flag: '--version',
-            required: false,
-            type: 'string',
-          },
-          {
-            default: false,
-            description: 'Skip confirmation prompt',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Show the resolved plan without making any changes',
-            flag: '--dry-run',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

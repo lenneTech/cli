@@ -68,6 +68,61 @@ function detectControllerType(filesystem: any, path: string): 'Both' | 'GraphQL'
 /**
  * Create a new server module
  */
+export const help = {
+  aliases: ['m'],
+  configuration: 'commands.server.module.*',
+  description: 'Create server module',
+  name: 'module',
+  options: [
+    { description: 'Module name', flag: '--name', required: true, type: 'string' },
+    {
+      description: 'Controller type',
+      flag: '--controller',
+      required: false,
+      type: 'string',
+      values: ['Rest', 'GraphQL', 'Both', 'auto'],
+    },
+    {
+      default: false,
+      description: 'Skip all interactive prompts',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip lint fix after generation',
+      flag: '--skipLint',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Preview what would be generated without creating files',
+      flag: '--dryRun',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+  propertyFlags: {
+    attributes: [
+      { description: 'Property name', name: 'name', type: 'string' },
+      {
+        description: 'Property type',
+        name: 'type',
+        type: 'string',
+        values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
+      },
+      { description: 'Optional field', name: 'nullable', type: 'boolean' },
+      { description: 'Array of this type', name: 'array', type: 'boolean' },
+      { description: 'Enum type reference', name: 'enum', type: 'string' },
+      { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
+      { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
+    ],
+    pattern: '--prop-<attribute>-<index>',
+  },
+};
+
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['m'],
   description: 'Create server module',
@@ -106,62 +161,7 @@ const NewCommand: ExtendedGluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['m'],
-        configuration: 'commands.server.module.*',
-        description: 'Create server module',
-        name: 'module',
-        options: [
-          { description: 'Module name', flag: '--name', required: true, type: 'string' },
-          {
-            description: 'Controller type',
-            flag: '--controller',
-            required: false,
-            type: 'string',
-            values: ['Rest', 'GraphQL', 'Both', 'auto'],
-          },
-          {
-            default: false,
-            description: 'Skip all interactive prompts',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip lint fix after generation',
-            flag: '--skipLint',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Preview what would be generated without creating files',
-            flag: '--dryRun',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-        propertyFlags: {
-          attributes: [
-            { description: 'Property name', name: 'name', type: 'string' },
-            {
-              description: 'Property type',
-              name: 'type',
-              type: 'string',
-              values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
-            },
-            { description: 'Optional field', name: 'nullable', type: 'boolean' },
-            { description: 'Array of this type', name: 'array', type: 'boolean' },
-            { description: 'Enum type reference', name: 'enum', type: 'string' },
-            { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
-            { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
-          ],
-          pattern: '--prop-<attribute>-<index>',
-        },
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

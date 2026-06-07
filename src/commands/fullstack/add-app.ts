@@ -12,6 +12,30 @@ import { detectWorkspaceLayout, findWorkspaceRoot } from '../../lib/workspace-in
  *
  * Refuses to run if `projects/app/` already exists.
  */
+export const help = {
+  aliases: ['add-app'],
+  configuration: 'commands.fullstack.*',
+  description: 'Add a frontend app to an existing fullstack workspace',
+  name: 'add-app',
+  options: [
+    { description: 'Frontend framework', flag: '--frontend', type: 'string', values: ['nuxt', 'angular'] },
+    {
+      description: 'Frontend framework consumption mode',
+      flag: '--frontend-framework-mode',
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    { description: 'Branch of the frontend starter to clone', flag: '--frontend-branch', type: 'string' },
+    { description: 'Path to local frontend template to copy from', flag: '--frontend-copy', type: 'string' },
+    { description: 'Path to local frontend template to symlink', flag: '--frontend-link', type: 'string' },
+    { description: 'Use experimental nuxt-base-starter `next` branch', flag: '--next', type: 'boolean' },
+    { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
+    { description: 'Skip install / format after app integration', flag: '--skip-install', type: 'boolean' },
+    { description: 'Print resolved plan and exit without disk changes', flag: '--dry-run', type: 'boolean' },
+    { description: 'Skip all interactive prompts', flag: '--noConfirm', type: 'boolean' },
+  ],
+};
+
 const NewCommand: GluegunCommand = {
   alias: ['add-app'],
   description: 'Add app to fullstack workspace',
@@ -29,31 +53,7 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['add-app'],
-        configuration: 'commands.fullstack.*',
-        description: 'Add a frontend app to an existing fullstack workspace',
-        name: 'add-app',
-        options: [
-          { description: 'Frontend framework', flag: '--frontend', type: 'string', values: ['nuxt', 'angular'] },
-          {
-            description: 'Frontend framework consumption mode',
-            flag: '--frontend-framework-mode',
-            type: 'string',
-            values: ['npm', 'vendor'],
-          },
-          { description: 'Branch of the frontend starter to clone', flag: '--frontend-branch', type: 'string' },
-          { description: 'Path to local frontend template to copy from', flag: '--frontend-copy', type: 'string' },
-          { description: 'Path to local frontend template to symlink', flag: '--frontend-link', type: 'string' },
-          { description: 'Use experimental nuxt-base-starter `next` branch', flag: '--next', type: 'boolean' },
-          { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
-          { description: 'Skip install / format after app integration', flag: '--skip-install', type: 'boolean' },
-          { description: 'Print resolved plan and exit without disk changes', flag: '--dry-run', type: 'boolean' },
-          { description: 'Skip all interactive prompts', flag: '--noConfirm', type: 'boolean' },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

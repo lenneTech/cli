@@ -1,6 +1,8 @@
 import { build } from 'gluegun';
 import { join } from 'path';
 
+import { installHelpInterceptor } from './lib/command-help';
+
 /**
  * Create the cli and kick it off
  */
@@ -15,9 +17,15 @@ async function run(argv) {
         commandFilePattern: ['*.js'],
         extensionFilePattern: ['*.js'],
       })
-      .help() // provides default for help, h, --help, -h
+      .help() // provides default for top-level help, h, --help, -h
       .version() // provides default for version, v, --version, -v
       .create();
+
+    // Generic per-command `--help` / `-h`: gluegun's `.help()` only covers the
+    // top level, so without this a subcommand like `lt fullstack convert-mode
+    // --help` would actually RUN. The interceptor makes every command print
+    // help and return without executing when help is requested.
+    installHelpInterceptor(cli.commands, cli.defaultCommand);
 
     // Run cli
     const toolbox = await cli.run(argv);

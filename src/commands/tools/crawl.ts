@@ -11,6 +11,100 @@ import { crawlSite } from '../../lib/crawler';
  * shares the defuddle + Turndown extraction pipeline but runs headless
  * from Node and follows links / sitemaps automatically.
  */
+export const help = {
+  aliases: ['cr'],
+  description: 'Crawl a website into Markdown files (for Claude Code knowledge bases)',
+  name: 'crawl',
+  options: [
+    {
+      description: 'Start URL (absolute http/https URL)',
+      flag: '--url',
+      required: true,
+      type: 'string',
+    },
+    {
+      default: '.',
+      description: 'Output directory (created if missing)',
+      flag: '--out',
+      type: 'string',
+    },
+    {
+      default: 0,
+      description:
+        'Link depth. 0 = only start page; 1 = + direct links; N = up to N hops; "all" (or -1) = follow every same-origin link until --max-pages is reached',
+      flag: '--depth',
+      type: 'number|all',
+    },
+    {
+      default: true,
+      description: 'Download images and inline them with local paths',
+      flag: '--images',
+      type: 'boolean',
+    },
+    {
+      default: true,
+      description: 'Also seed queue from <origin>/sitemap.xml',
+      flag: '--sitemap',
+      type: 'boolean',
+    },
+    {
+      default: 4,
+      description: 'Parallel HTTP requests',
+      flag: '--concurrency',
+      type: 'number',
+    },
+    {
+      default: 200,
+      description: 'Maximum number of pages to crawl (safety cap)',
+      flag: '--max-pages',
+      type: 'number',
+    },
+    {
+      description: 'CSS selector for the main content container',
+      flag: '--selector',
+      type: 'string',
+    },
+    {
+      default: 20000,
+      description: 'HTTP request timeout in ms',
+      flag: '--timeout',
+      type: 'number',
+    },
+    {
+      default: false,
+      description: 'Shortcut for --depth all (follows every same-origin link until --max-pages)',
+      flag: '--all',
+      type: 'boolean',
+    },
+    {
+      default: true,
+      description:
+        "Render pages through a headless browser before extracting (for SPAs like Vue/Nuxt/React/Angular). Uses playwright-core with system Chrome / Edge, falling back to Playwright's bundled chromium. Disable with --no-render for plain HTTP fetches.",
+      flag: '--render',
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'If --render cannot find any browser, auto-install Playwright chromium (one-time ~170 MB download).',
+      flag: '--install-browser',
+      type: 'boolean',
+    },
+    {
+      default: true,
+      description:
+        'After a multi-page crawl, remove any .md or image files inside <outDir>/pages and <outDir>/images that were not written by this run. Disable with --no-prune to preserve old files.',
+      flag: '--prune',
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip confirmation prompts',
+      flag: '--noConfirm',
+      type: 'boolean',
+    },
+  ],
+};
+
 const NewCommand: GluegunCommand = {
   alias: ['cr'],
   description: 'Crawl site to Markdown',
@@ -27,102 +121,7 @@ const NewCommand: GluegunCommand = {
       tools,
     } = toolbox;
 
-    if (
-      tools.helpJson({
-        aliases: ['cr'],
-        description: 'Crawl a website into Markdown files (for Claude Code knowledge bases)',
-        name: 'crawl',
-        options: [
-          {
-            description: 'Start URL (absolute http/https URL)',
-            flag: '--url',
-            required: true,
-            type: 'string',
-          },
-          {
-            default: '.',
-            description: 'Output directory (created if missing)',
-            flag: '--out',
-            type: 'string',
-          },
-          {
-            default: 0,
-            description:
-              'Link depth. 0 = only start page; 1 = + direct links; N = up to N hops; "all" (or -1) = follow every same-origin link until --max-pages is reached',
-            flag: '--depth',
-            type: 'number|all',
-          },
-          {
-            default: true,
-            description: 'Download images and inline them with local paths',
-            flag: '--images',
-            type: 'boolean',
-          },
-          {
-            default: true,
-            description: 'Also seed queue from <origin>/sitemap.xml',
-            flag: '--sitemap',
-            type: 'boolean',
-          },
-          {
-            default: 4,
-            description: 'Parallel HTTP requests',
-            flag: '--concurrency',
-            type: 'number',
-          },
-          {
-            default: 200,
-            description: 'Maximum number of pages to crawl (safety cap)',
-            flag: '--max-pages',
-            type: 'number',
-          },
-          {
-            description: 'CSS selector for the main content container',
-            flag: '--selector',
-            type: 'string',
-          },
-          {
-            default: 20000,
-            description: 'HTTP request timeout in ms',
-            flag: '--timeout',
-            type: 'number',
-          },
-          {
-            default: false,
-            description: 'Shortcut for --depth all (follows every same-origin link until --max-pages)',
-            flag: '--all',
-            type: 'boolean',
-          },
-          {
-            default: true,
-            description:
-              "Render pages through a headless browser before extracting (for SPAs like Vue/Nuxt/React/Angular). Uses playwright-core with system Chrome / Edge, falling back to Playwright's bundled chromium. Disable with --no-render for plain HTTP fetches.",
-            flag: '--render',
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description:
-              'If --render cannot find any browser, auto-install Playwright chromium (one-time ~170 MB download).',
-            flag: '--install-browser',
-            type: 'boolean',
-          },
-          {
-            default: true,
-            description:
-              'After a multi-page crawl, remove any .md or image files inside <outDir>/pages and <outDir>/images that were not written by this run. Disable with --no-prune to preserve old files.',
-            flag: '--prune',
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip confirmation prompts',
-            flag: '--noConfirm',
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (tools.helpJson(help)) {
       return 'crawl';
     }
 

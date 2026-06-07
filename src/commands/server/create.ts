@@ -6,6 +6,70 @@ import { reconfigureUpstreamForDownstream, runStandaloneWorkspaceGate } from '..
 /**
  * Create a new server
  */
+export const help = {
+  aliases: ['c'],
+  configuration: 'commands.server.create.*',
+  description: 'Create new server',
+  name: 'create',
+  options: [
+    { description: 'Server name', flag: '--name', required: true, type: 'string' },
+    {
+      description: 'API mode',
+      flag: '--api-mode',
+      required: false,
+      type: 'string',
+      values: ['Rest', 'GraphQL', 'Both'],
+    },
+    { description: 'Project description', flag: '--description', required: false, type: 'string' },
+    { description: 'Project author', flag: '--author', required: false, type: 'string' },
+    { description: 'Initialize git repository', flag: '--git', required: false, type: 'boolean' },
+    { description: 'Git branch to clone from', flag: '--branch', required: false, type: 'string' },
+    { description: 'Copy from local path instead of cloning', flag: '--copy', required: false, type: 'string' },
+    { description: 'Symlink to local path instead of cloning', flag: '--link', required: false, type: 'string' },
+    {
+      description: 'Backend framework consumption mode',
+      flag: '--framework-mode',
+      required: false,
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      description: 'Upstream nest-server branch/tag to vendor (with --framework-mode vendor)',
+      flag: '--framework-upstream-branch',
+      required: false,
+      type: 'string',
+    },
+    {
+      default: false,
+      description: 'Use experimental nest-base template (Bun + Prisma + Postgres)',
+      flag: '--next',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Print resolved plan and exit without making any changes',
+      flag: '--dry-run',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Override the workspace-detection abort under --noConfirm',
+      flag: '--force',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip all interactive prompts',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+};
+
 const NewCommand: GluegunCommand = {
   alias: ['c'],
   description: 'Create new server',
@@ -28,71 +92,7 @@ const NewCommand: GluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['c'],
-        configuration: 'commands.server.create.*',
-        description: 'Create new server',
-        name: 'create',
-        options: [
-          { description: 'Server name', flag: '--name', required: true, type: 'string' },
-          {
-            description: 'API mode',
-            flag: '--api-mode',
-            required: false,
-            type: 'string',
-            values: ['Rest', 'GraphQL', 'Both'],
-          },
-          { description: 'Project description', flag: '--description', required: false, type: 'string' },
-          { description: 'Project author', flag: '--author', required: false, type: 'string' },
-          { description: 'Initialize git repository', flag: '--git', required: false, type: 'boolean' },
-          { description: 'Git branch to clone from', flag: '--branch', required: false, type: 'string' },
-          { description: 'Copy from local path instead of cloning', flag: '--copy', required: false, type: 'string' },
-          { description: 'Symlink to local path instead of cloning', flag: '--link', required: false, type: 'string' },
-          {
-            description: 'Backend framework consumption mode',
-            flag: '--framework-mode',
-            required: false,
-            type: 'string',
-            values: ['npm', 'vendor'],
-          },
-          {
-            description: 'Upstream nest-server branch/tag to vendor (with --framework-mode vendor)',
-            flag: '--framework-upstream-branch',
-            required: false,
-            type: 'string',
-          },
-          {
-            default: false,
-            description: 'Use experimental nest-base template (Bun + Prisma + Postgres)',
-            flag: '--next',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Print resolved plan and exit without making any changes',
-            flag: '--dry-run',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Override the workspace-detection abort under --noConfirm',
-            flag: '--force',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip all interactive prompts',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

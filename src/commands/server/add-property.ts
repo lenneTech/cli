@@ -17,6 +17,47 @@ import genObject from './object';
 /**
  * Add property to module or object
  */
+export const help = {
+  aliases: ['ap'],
+  configuration: 'commands.server.addProp.*',
+  description: 'Add property to module/object',
+  name: 'addProp',
+  options: [
+    {
+      description: 'Target type to update',
+      flag: '--type',
+      required: true,
+      type: 'string',
+      values: ['Module', 'Object'],
+    },
+    { description: 'Name of the module or object to update', flag: '--element', required: true, type: 'string' },
+    {
+      default: false,
+      description: 'Skip lint fix after update',
+      flag: '--skipLint',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+  propertyFlags: {
+    attributes: [
+      { description: 'Property name', name: 'name', type: 'string' },
+      {
+        description: 'Property type',
+        name: 'type',
+        type: 'string',
+        values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
+      },
+      { description: 'Optional field', name: 'nullable', type: 'boolean' },
+      { description: 'Array of this type', name: 'array', type: 'boolean' },
+      { description: 'Enum type reference', name: 'enum', type: 'string' },
+      { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
+      { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
+    ],
+    pattern: '--prop-<attribute>-<index>',
+  },
+};
+
 const NewCommand: ExtendedGluegunCommand = {
   alias: ['ap'],
   description: 'Add property to module/object',
@@ -47,48 +88,7 @@ const NewCommand: ExtendedGluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['ap'],
-        configuration: 'commands.server.addProp.*',
-        description: 'Add property to module/object',
-        name: 'addProp',
-        options: [
-          {
-            description: 'Target type to update',
-            flag: '--type',
-            required: true,
-            type: 'string',
-            values: ['Module', 'Object'],
-          },
-          { description: 'Name of the module or object to update', flag: '--element', required: true, type: 'string' },
-          {
-            default: false,
-            description: 'Skip lint fix after update',
-            flag: '--skipLint',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-        propertyFlags: {
-          attributes: [
-            { description: 'Property name', name: 'name', type: 'string' },
-            {
-              description: 'Property type',
-              name: 'type',
-              type: 'string',
-              values: ['string', 'number', 'boolean', 'bigint', 'Date', 'ObjectId', 'Json'],
-            },
-            { description: 'Optional field', name: 'nullable', type: 'boolean' },
-            { description: 'Array of this type', name: 'array', type: 'boolean' },
-            { description: 'Enum type reference', name: 'enum', type: 'string' },
-            { description: 'Embedded object/schema reference', name: 'schema', type: 'string' },
-            { description: 'Reference module for ObjectId fields', name: 'reference', type: 'string' },
-          ],
-          pattern: '--prop-<attribute>-<index>',
-        },
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

@@ -6,6 +6,7 @@ import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
 import { setPackageName } from '../../lib/package-name';
+import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 import { detectWorkspaceLayout, reconfigureUpstreamForDownstream } from '../../lib/workspace-integration';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
@@ -703,6 +704,18 @@ const NewCommand: GluegunCommand = {
       if (!experimental && isNuxt && filesystem.isDirectory(`${projectDir}/projects/app`)) {
         await toolbox.apiMode.formatProject(`${projectDir}/projects/app`);
       }
+
+      // Sync the vendor-mode notice blocks across all CLAUDE.md files,
+      // including the monorepo root — so a freshly scaffolded vendor project
+      // tells Claude (and humans) how to update/contribute the vendored core
+      // from the very first commit. Idempotent / no-op for npm-mode projects.
+      healVendorClaudeMd(filesystem, {
+        apiDir: `${projectDir}/projects/api`,
+        appDir: `${projectDir}/projects/app`,
+        backendVendor: frameworkMode === 'vendor',
+        frontendVendor: frontendFrameworkMode === 'vendor',
+        workspaceRoot: projectDir,
+      });
 
       // Create initial commit after everything is set up
       try {

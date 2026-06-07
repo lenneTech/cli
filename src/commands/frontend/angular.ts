@@ -11,6 +11,53 @@ import { runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
  * Mirrors the same dry-run / workspace-detection surface as the Nuxt
  * sibling so behaviour is consistent across the four flows.
  */
+export const help = {
+  aliases: ['a'],
+  configuration: 'commands.frontend.angular.*',
+  description: 'Create a new Angular workspace from ng-base-starter',
+  name: 'angular',
+  options: [
+    { description: 'Workspace name', flag: '--name', required: false, type: 'string' },
+    { description: 'Branch of ng-base-starter to clone', flag: '--branch', required: false, type: 'string' },
+    { description: 'Copy from local template directory', flag: '--copy', required: false, type: 'string' },
+    { description: 'Symlink to local template directory', flag: '--link', required: false, type: 'string' },
+    { description: 'Initialize Angular localize', flag: '--localize', required: false, type: 'boolean' },
+    {
+      description: 'Skip Angular localize initialisation',
+      flag: '--noLocalize',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      description: 'Git remote URL to push initial commit to',
+      flag: '--gitLink',
+      required: false,
+      type: 'string',
+    },
+    {
+      default: false,
+      description: 'Print resolved plan and exit without making any changes',
+      flag: '--dry-run',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Override the workspace-detection abort under --noConfirm',
+      flag: '--force',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip all interactive prompts',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+};
+
 const NewCommand: GluegunCommand = {
   alias: ['a'],
   description: 'Create Angular workspace',
@@ -31,54 +78,7 @@ const NewCommand: GluegunCommand = {
       system,
     } = toolbox;
 
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['a'],
-        configuration: 'commands.frontend.angular.*',
-        description: 'Create a new Angular workspace from ng-base-starter',
-        name: 'angular',
-        options: [
-          { description: 'Workspace name', flag: '--name', required: false, type: 'string' },
-          { description: 'Branch of ng-base-starter to clone', flag: '--branch', required: false, type: 'string' },
-          { description: 'Copy from local template directory', flag: '--copy', required: false, type: 'string' },
-          { description: 'Symlink to local template directory', flag: '--link', required: false, type: 'string' },
-          { description: 'Initialize Angular localize', flag: '--localize', required: false, type: 'boolean' },
-          {
-            description: 'Skip Angular localize initialisation',
-            flag: '--noLocalize',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            description: 'Git remote URL to push initial commit to',
-            flag: '--gitLink',
-            required: false,
-            type: 'string',
-          },
-          {
-            default: false,
-            description: 'Print resolved plan and exit without making any changes',
-            flag: '--dry-run',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Override the workspace-detection abort under --noConfirm',
-            flag: '--force',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip all interactive prompts',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 

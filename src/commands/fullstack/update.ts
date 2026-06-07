@@ -4,6 +4,7 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
+import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
 /**
  * Update a fullstack workspace — mode-aware.
@@ -168,6 +169,30 @@ const NewCommand: GluegunCommand = {
         info('');
         info('    (or manually: pnpm update @lenne.tech/nuxt-extensions)');
         info('');
+      }
+    }
+
+    // ── Self-heal: sync the vendor-mode notice blocks in all CLAUDE.md ────
+    //
+    // `lt fullstack update` doubles as a doc-sync: it (re)writes the vendor
+    // notice blocks so pre-existing or drifted projects gain the correct
+    // pointers — backend `projects/api/CLAUDE.md`, frontend
+    // `projects/app/CLAUDE.md`, and the monorepo root `CLAUDE.md` (the entry
+    // point Claude reads first). Idempotent: a no-op when already correct.
+    const frontendModeForHeal = appDir ? detectFrontendFrameworkMode(appDir) : undefined;
+    const isWorkspace = apiDir !== cwd || (!!appDir && appDir !== cwd);
+    const changedClaudeMd = healVendorClaudeMd(filesystem, {
+      apiDir,
+      appDir,
+      backendVendor: mode === 'vendor',
+      frontendVendor: frontendModeForHeal === 'vendor',
+      workspaceRoot: isWorkspace ? cwd : undefined,
+    });
+    if (changedClaudeMd.length > 0) {
+      info('');
+      success(`  Synced vendor notice in ${changedClaudeMd.length} CLAUDE.md file(s):`);
+      for (const changedPath of changedClaudeMd) {
+        info(`    ${changedPath}`);
       }
     }
 

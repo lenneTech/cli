@@ -4,6 +4,7 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { detectFrameworkMode } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode } from '../../lib/frontend-framework-detection';
+import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
 /**
  * Convert both backend and frontend of a fullstack monorepo between
@@ -19,6 +20,72 @@ import { detectFrontendFrameworkMode } from '../../lib/frontend-framework-detect
  * Orchestrates `lt server convert-mode` + `lt frontend convert-mode` with
  * auto-detection of `projects/api/` and `projects/app/` subdirectories.
  */
+export const help = {
+  description: 'Convert fullstack monorepo (backend + frontend) between npm and vendor modes',
+  name: 'convert-mode',
+  options: [
+    {
+      description: 'Target mode',
+      flag: '--to',
+      required: true,
+      type: 'string',
+      values: ['vendor', 'npm'],
+    },
+    {
+      description: 'Backend upstream branch/tag (only with --to vendor, e.g. "11.24.3")',
+      flag: '--framework-upstream-branch',
+      required: false,
+      type: 'string',
+    },
+    {
+      description: 'Frontend upstream branch/tag (only with --to vendor, e.g. "1.5.3")',
+      flag: '--frontend-framework-upstream-branch',
+      required: false,
+      type: 'string',
+    },
+    {
+      description: 'Backend version to install (only with --to npm, default: from VENDOR.md baseline)',
+      flag: '--framework-version',
+      required: false,
+      type: 'string',
+    },
+    {
+      description: 'Frontend version to install (only with --to npm, default: from VENDOR.md baseline)',
+      flag: '--frontend-framework-version',
+      required: false,
+      type: 'string',
+    },
+    {
+      default: false,
+      description: 'Skip backend conversion',
+      flag: '--skip-backend',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip frontend conversion',
+      flag: '--skip-frontend',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Show the resolved plan without making any changes',
+      flag: '--dry-run',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Skip confirmation prompt',
+      flag: '--noConfirm',
+      required: false,
+      type: 'boolean',
+    },
+  ],
+};
+
 const ConvertModeCommand: GluegunCommand = {
   description: 'Convert fullstack monorepo between npm and vendor modes',
   hidden: false,
@@ -34,73 +101,7 @@ const ConvertModeCommand: GluegunCommand = {
     } = toolbox;
 
     // Handle --help-json flag
-    if (
-      toolbox.tools.helpJson({
-        description: 'Convert fullstack monorepo (backend + frontend) between npm and vendor modes',
-        name: 'convert-mode',
-        options: [
-          {
-            description: 'Target mode',
-            flag: '--to',
-            required: true,
-            type: 'string',
-            values: ['vendor', 'npm'],
-          },
-          {
-            description: 'Backend upstream branch/tag (only with --to vendor, e.g. "11.24.3")',
-            flag: '--framework-upstream-branch',
-            required: false,
-            type: 'string',
-          },
-          {
-            description: 'Frontend upstream branch/tag (only with --to vendor, e.g. "1.5.3")',
-            flag: '--frontend-framework-upstream-branch',
-            required: false,
-            type: 'string',
-          },
-          {
-            description: 'Backend version to install (only with --to npm, default: from VENDOR.md baseline)',
-            flag: '--framework-version',
-            required: false,
-            type: 'string',
-          },
-          {
-            description: 'Frontend version to install (only with --to npm, default: from VENDOR.md baseline)',
-            flag: '--frontend-framework-version',
-            required: false,
-            type: 'string',
-          },
-          {
-            default: false,
-            description: 'Skip backend conversion',
-            flag: '--skip-backend',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip frontend conversion',
-            flag: '--skip-frontend',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Show the resolved plan without making any changes',
-            flag: '--dry-run',
-            required: false,
-            type: 'boolean',
-          },
-          {
-            default: false,
-            description: 'Skip confirmation prompt',
-            flag: '--noConfirm',
-            required: false,
-            type: 'boolean',
-          },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 
@@ -369,6 +370,25 @@ const ConvertModeCommand: GluegunCommand = {
 
     info('');
     success('All conversions completed successfully.');
+
+    // ── Sync vendor notice blocks, including the monorepo root CLAUDE.md ───
+    // The per-subproject CLAUDE.md blocks are written by the server/frontend
+    // converters; this additionally maintains the workspace root CLAUDE.md —
+    // the entry point Claude reads first — and keeps everything idempotent.
+    const backendVendorNow = backendDir ? detectFrameworkMode(backendDir) === 'vendor' : false;
+    const frontendVendorNow = frontendDir ? detectFrontendFrameworkMode(frontendDir) === 'vendor' : false;
+    const changedClaudeMd = healVendorClaudeMd(filesystem, {
+      apiDir: backendDir,
+      appDir: frontendDir,
+      backendVendor: backendVendorNow,
+      frontendVendor: frontendVendorNow,
+      workspaceRoot: cwd,
+    });
+    if (changedClaudeMd.length > 0) {
+      info('');
+      success(`Synced vendor notice in ${changedClaudeMd.length} CLAUDE.md file(s) (incl. monorepo root).`);
+    }
+
     info('');
     info(colors.bold('Next steps:'));
     info('  1. Run: pnpm install  (from monorepo root)');

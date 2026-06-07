@@ -19,6 +19,39 @@ import {
  * `lt fullstack init` workflow on a fresh directory instead, or remove
  * the existing API first.
  */
+export const help = {
+  aliases: ['add-api'],
+  configuration: 'commands.fullstack.*',
+  description: 'Add a NestJS API to an existing fullstack workspace',
+  name: 'add-api',
+  options: [
+    { description: 'API mode', flag: '--api-mode', type: 'string', values: ['Rest', 'GraphQL', 'Both'] },
+    {
+      description: 'Framework consumption mode',
+      flag: '--framework-mode',
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      description: 'Branch/tag/commit of upstream nest-server (vendor mode)',
+      flag: '--framework-upstream-branch',
+      type: 'string',
+    },
+    { description: 'Branch of nest-server-starter to clone', flag: '--api-branch', type: 'string' },
+    { description: 'Path to local API template to copy from', flag: '--api-copy', type: 'string' },
+    { description: 'Path to local API template to symlink', flag: '--api-link', type: 'string' },
+    {
+      description: 'Use experimental nest-base template (Bun + Prisma + Postgres + Better-Auth)',
+      flag: '--next',
+      type: 'boolean',
+    },
+    { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
+    { description: 'Skip install / format after API integration', flag: '--skip-install', type: 'boolean' },
+    { description: 'Print resolved plan and exit without disk changes', flag: '--dry-run', type: 'boolean' },
+    { description: 'Skip all interactive prompts', flag: '--noConfirm', type: 'boolean' },
+  ],
+};
+
 const NewCommand: GluegunCommand = {
   alias: ['add-api'],
   description: 'Add API to fullstack workspace',
@@ -38,40 +71,7 @@ const NewCommand: GluegunCommand = {
     } = toolbox;
 
     // Help-JSON support so AI agents can introspect the flags.
-    if (
-      toolbox.tools.helpJson({
-        aliases: ['add-api'],
-        configuration: 'commands.fullstack.*',
-        description: 'Add a NestJS API to an existing fullstack workspace',
-        name: 'add-api',
-        options: [
-          { description: 'API mode', flag: '--api-mode', type: 'string', values: ['Rest', 'GraphQL', 'Both'] },
-          {
-            description: 'Framework consumption mode',
-            flag: '--framework-mode',
-            type: 'string',
-            values: ['npm', 'vendor'],
-          },
-          {
-            description: 'Branch/tag/commit of upstream nest-server (vendor mode)',
-            flag: '--framework-upstream-branch',
-            type: 'string',
-          },
-          { description: 'Branch of nest-server-starter to clone', flag: '--api-branch', type: 'string' },
-          { description: 'Path to local API template to copy from', flag: '--api-copy', type: 'string' },
-          { description: 'Path to local API template to symlink', flag: '--api-link', type: 'string' },
-          {
-            description: 'Use experimental nest-base template (Bun + Prisma + Postgres + Better-Auth)',
-            flag: '--next',
-            type: 'boolean',
-          },
-          { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
-          { description: 'Skip install / format after API integration', flag: '--skip-install', type: 'boolean' },
-          { description: 'Print resolved plan and exit without disk changes', flag: '--dry-run', type: 'boolean' },
-          { description: 'Skip all interactive prompts', flag: '--noConfirm', type: 'boolean' },
-        ],
-      })
-    ) {
+    if (toolbox.tools.helpJson(help)) {
       return;
     }
 
