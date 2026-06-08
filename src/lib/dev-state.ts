@@ -25,6 +25,24 @@ import {
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
+/**
+ * Health of a single supervised dev component (api or app).
+ *
+ * `lt dev` starts each component as a detached `pnpm start` / `pnpm dev` wrapper
+ * and records THAT wrapper's PID in the session. But the wrapper is the top of a
+ * chain — e.g. `pnpm start` → `sh -c "migrate:up && start:local"` → `pnpm` →
+ * `nodemon` → `ts-node src/main.ts` — and when the inner ts-node process crashes
+ * (a known ts-node-under-load instability), nodemon survives and prints
+ * "waiting for file changes". The recorded wrapper PID is therefore still alive
+ * even though nothing listens on the internal port. Liveness needs BOTH signals:
+ *
+ *   - `running` — wrapper PID alive AND the internal port is bound (truly serving)
+ *   - `crashed` — wrapper PID alive BUT the port is free (zombie supervisor; the
+ *                 inner process died — `lt dev up` restarts just this component)
+ *   - `dead`    — no live wrapper PID at all
+ */
+export type ComponentHealth = 'crashed' | 'dead' | 'running';
+
 /** Per-project session state (PIDs of detached processes). */
 export interface DevSessionState {
   pids: { api?: number; app?: number };
@@ -49,6 +67,17 @@ export interface ProjectsRegistryEntry {
   path: string;
   /** Subdomain hostnames (`<sub> → <hostname>.localhost`). */
   subdomains: Record<string, string>;
+}
+
+/**
+ * Classify a component's true health from its recorded wrapper PID plus whether
+ * its internal port is actually bound (caller provides the port probe result,
+ * typically from a single {@link import('./dev-process').listenSnapshot} call).
+ */
+export function classifyComponentHealth(opts: { pid?: number; portBound: boolean }): ComponentHealth {
+  const wrapperAlive = typeof opts.pid === 'number' && isPidAlive(opts.pid);
+  if (!wrapperAlive) return 'dead';
+  return opts.portBound ? 'running' : 'crashed';
 }
 
 const REGISTRY_PATH = process.env.LT_DEV_REGISTRY_PATH || join(homedir(), '.lenneTech', 'projects.json');

@@ -8,6 +8,7 @@ process.env.LT_DEV_REGISTRY_PATH = join(REGISTRY_TMP, 'projects.json');
 // Import AFTER setting env so the module picks up the override
 import {
   allocateInternalPort,
+  classifyComponentHealth,
   clearSession,
   detectSlugConflict,
   isPidAlive,
@@ -57,6 +58,25 @@ describe('dev-state', () => {
     });
     test('bogus PID is dead', () => {
       expect(isPidAlive(4_000_000)).toBe(false);
+    });
+  });
+
+  describe('classifyComponentHealth', () => {
+    // 4194303 = top of the valid PID range; no such process is running.
+    const DEAD_PID = 4194303;
+    test('supervisor alive + port bound → running', () => {
+      expect(classifyComponentHealth({ pid: process.pid, portBound: true })).toBe('running');
+    });
+    test('supervisor alive + port free → crashed (zombie nodemon)', () => {
+      expect(classifyComponentHealth({ pid: process.pid, portBound: false })).toBe('crashed');
+    });
+    test('supervisor dead → dead, regardless of port', () => {
+      expect(classifyComponentHealth({ pid: DEAD_PID, portBound: true })).toBe('dead');
+      expect(classifyComponentHealth({ pid: DEAD_PID, portBound: false })).toBe('dead');
+    });
+    test('no recorded PID → dead', () => {
+      expect(classifyComponentHealth({ pid: undefined, portBound: true })).toBe('dead');
+      expect(classifyComponentHealth({ pid: undefined, portBound: false })).toBe('dead');
     });
   });
 

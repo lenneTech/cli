@@ -4,7 +4,14 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
 import { listenSnapshot } from '../../lib/dev-process';
 import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
-import { isPidAlive, loadRegistry, loadSession, TEST_SESSION_FILE } from '../../lib/dev-state';
+import {
+  classifyComponentHealth,
+  type ComponentHealth,
+  isPidAlive,
+  loadRegistry,
+  loadSession,
+  TEST_SESSION_FILE,
+} from '../../lib/dev-state';
 import { resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
@@ -36,13 +43,46 @@ const StatusCommand: GluegunCommand = {
       if (slugs.length === 0) {
         warning('No projects registered. Run `lt dev init` in a project.');
       } else {
+        // One lsof over EVERY registered internal port, so liveness reflects
+        // what is actually bound — not just whether a supervisor PID survives a
+        // crashed ts-node. (See classifyComponentHealth.)
+        const allPorts: number[] = [];
+        for (const slug of slugs) {
+          const e = reg.projects[slug];
+          if (e.internalPorts.api) allPorts.push(e.internalPorts.api);
+          if (e.internalPorts.app) allPorts.push(e.internalPorts.app);
+        }
+        const snap = await listenSnapshot(allPorts);
         for (const slug of slugs) {
           const e = reg.projects[slug];
           const session = loadSession(e.path);
-          const apiAlive = session?.pids.api ? isPidAlive(session.pids.api) : false;
-          const appAlive = session?.pids.app ? isPidAlive(session.pids.app) : false;
-          const status = apiAlive || appAlive ? colors.green('●') : colors.dim('○');
-          info(`  ${status} ${slug.padEnd(30)} ${colors.dim(e.path)}`);
+          // Only components the project actually has (a registered internal
+          // port) count toward the health summary.
+          const comps: ComponentHealth[] = [];
+          if (e.internalPorts.api) {
+            comps.push(classifyComponentHealth({ pid: session?.pids.api, portBound: snap.has(e.internalPorts.api) }));
+          }
+          if (e.internalPorts.app) {
+            comps.push(classifyComponentHealth({ pid: session?.pids.app, portBound: snap.has(e.internalPorts.app) }));
+          }
+          const allRunning = comps.length > 0 && comps.every((h) => h === 'running');
+          const anyRunning = comps.some((h) => h === 'running');
+          const anyCrashed = comps.some((h) => h === 'crashed');
+          let status: string;
+          let note = '';
+          if (allRunning) {
+            status = colors.green('●');
+          } else if (anyRunning) {
+            // Some up, some down — honest "partially up" rather than green.
+            status = colors.yellow('◐');
+            note = colors.yellow('  degraded — `lt dev up` to restart the down half');
+          } else if (anyCrashed) {
+            status = colors.yellow('◐');
+            note = colors.yellow('  crashed — `lt dev up` to restart');
+          } else {
+            status = colors.dim('○');
+          }
+          info(`  ${status} ${slug.padEnd(30)} ${colors.dim(e.path)}${note}`);
           for (const [sub, host] of Object.entries(e.subdomains)) info(`     ${sub.padEnd(6)} https://${host}`);
         }
       }
@@ -120,24 +160,64 @@ const StatusCommand: GluegunCommand = {
     if (!session) {
       info(colors.dim('  no `lt dev up` session active'));
     } else {
-      const apiAlive = session.pids.api ? isPidAlive(session.pids.api) : false;
-      const appAlive = session.pids.app ? isPidAlive(session.pids.app) : false;
-      info(`  api: ${apiAlive ? colors.green('running') : colors.red('dead')} (pid ${session.pids.api ?? '-'})`);
-      info(`  app: ${appAlive ? colors.green('running') : colors.red('dead')} (pid ${session.pids.app ?? '-'})`);
-      info(colors.dim(`  started: ${session.startedAt}`));
-
-      // Live port snapshot
+      // Probe the actual ports FIRST: a component is only truly "running" when
+      // its supervisor PID is alive AND its internal port is bound. A crashed
+      // ts-node leaves nodemon alive ("waiting for file changes"), so the
+      // wrapper PID alone reads as "running" while nothing serves the port.
       const ports = [entry.internalPorts.api, entry.internalPorts.app].filter(
         (p): p is number => typeof p === 'number',
       );
+      const snap = await listenSnapshot(ports);
+
+      const apiHealth = classifyComponentHealth({
+        pid: session.pids.api,
+        portBound: entry.internalPorts.api ? snap.has(entry.internalPorts.api) : false,
+      });
+      const appHealth = classifyComponentHealth({
+        pid: session.pids.app,
+        portBound: entry.internalPorts.app ? snap.has(entry.internalPorts.app) : false,
+      });
+      const label = (health: ComponentHealth): string =>
+        health === 'running'
+          ? colors.green('running')
+          : health === 'crashed'
+            ? colors.yellow('crashed (supervisor up, port not listening)')
+            : colors.red('dead');
+
+      if (session.pids.api !== undefined || entry.internalPorts.api) {
+        info(`  api: ${label(apiHealth)} (pid ${session.pids.api ?? '-'})`);
+      }
+      if (session.pids.app !== undefined || entry.internalPorts.app) {
+        info(`  app: ${label(appHealth)} (pid ${session.pids.app ?? '-'})`);
+      }
+      info(colors.dim(`  started: ${session.startedAt}`));
+
+      // Live port snapshot — the authoritative "what is actually bound" view.
       if (ports.length > 0) {
         info('');
         info(colors.bold('  Live upstream state'));
-        const snap = await listenSnapshot(ports);
         for (const p of ports) {
           const r = snap.get(p);
           info(`    ${p}: ${r ? colors.green(`bound to ${r.command} (pid ${r.pid})`) : colors.dim('free')}`);
         }
+      }
+
+      // Surface any present-but-not-serving component (crashed OR dead) and
+      // point at the now-selective `lt dev up`, which restarts just the down
+      // half and leaves the healthy one running.
+      const apiPresent = session.pids.api !== undefined || !!entry.internalPorts.api;
+      const appPresent = session.pids.app !== undefined || !!entry.internalPorts.app;
+      const down = [
+        apiPresent && apiHealth !== 'running' ? 'api' : null,
+        appPresent && appHealth !== 'running' ? 'app' : null,
+      ].filter((c): c is string => c !== null);
+      if (down.length > 0) {
+        const crashed = (apiPresent && apiHealth === 'crashed') || (appPresent && appHealth === 'crashed');
+        info('');
+        warning(
+          `  ${down.join(' + ')} not serving${crashed ? ' (supervisor still up — crashed)' : ''}. ` +
+            `Run \`lt dev up\` to restart ${down.length === 1 ? 'it' : 'them'}.`,
+        );
       }
     }
 

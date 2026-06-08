@@ -215,9 +215,9 @@ ports. Developers and Claude Code never see the internal ports.
 3. **`lt dev init [--skip-install]`** (alias `migrate`, `m`) — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`. **Auto-chains:** when the machine isn't prepared yet, runs `lt dev install` first (`--skip-install` opts out).
 
 **Mutual install↔init auto-chaining (no infinite regress):** the two commands prepare each other's precondition, but the chain is **one hop deep and structurally non-recursive** because each command calls the *helper* of the other (`runInstall` / `runMigrate` in `dev-install-helper.ts` / `dev-migrate-helper.ts`), never the other command. Pure predicates in `src/lib/dev-bootstrap.ts` (`isMachinePrepared`, `isProjectInitialized`, `isLtDevProject`) gate the decision and make re-runs no-ops. `runInstall` never calls `process.exit` (the command decides the exit code).
-4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached.
+4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached. **Health-aware & idempotent:** re-running probes the actual ports (not just the recorded supervisor PID) and only (re)starts components that are NOT truly serving — a CRASHED one (supervisor/nodemon alive but ts-node dead → port free) or a DEAD one — while leaving a healthy component running untouched (its PID is preserved). Before respawning it terminates the crashed supervisor's whole group (so the idle nodemon doesn't leak and stack) and reclaims any orphaned listener squatting the reused port. All-healthy → no-op (exit 0, "already running"). ts-node is kept (NOT `node dist`) so edits hot-reload immediately.
 5. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
-6. **`lt dev status [--all]`** — current project or all registered.
+6. **`lt dev status [--all]`** — current project or all registered. **Honest liveness:** a component is "running" only when its supervisor PID is alive AND its internal port is actually bound; supervisor-alive-but-port-free reads as `crashed` (not the old misleading "running"), and a mixed up/down project shows `degraded` in `--all`. Both point at `lt dev up` to restart just the down half.
 7. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics (checks our LaunchAgent, **not** `brew services caddy`).
 8. **`lt dev test [--api] [--keep] [--debug] [-- args]`** / **`lt dev test down`** — App mode (default) brings up an ISOLATED parallel stack (`<slug>-test.localhost` / `api.<slug>-test.localhost`, DB `<…>-test`), runs Playwright against it, then tears it down. The dev `lt dev up` session is never touched. `--keep` leaves the test stack up for debugging; `lt dev test down` tears a leftover stack down. `--api` runs the API E2E suite in the api project instead (already DB-isolated, no stack needed). Forwards args after `--` to the test runner.
 9. **`lt dev tunnel [--api]`** — Cloudflare Quick Tunnel: foreground `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`, prints the public `*.trycloudflare.com` URL. The host-header rewrite is mandatory — without it Caddy's vhost match fails for the random tunnel URL. Tunnels only expose ONE subdomain at a time; start a second `lt dev tunnel --api` in another shell for full external usage.
@@ -320,6 +320,25 @@ catch it (the gluegun signature is `any`). For `.json`, mutate the object
 (`(cfg) => { cfg.x = y; return cfg; }`) or, for a reusable rename, use
 `src/lib/package-name.ts#setPackageName` (reads/writes via `filesystem`,
 fully unit-tested).
+
+### `lt dev` liveness: supervisor PID alive ≠ component serving <!-- Added: 2026-06-08 -->
+`lt dev up` spawns each component as a detached `pnpm start` / `pnpm dev` and
+records THAT wrapper's PID in `state.json`. But the wrapper is the top of a chain
+(`pnpm start` → `sh -c "migrate:up && start:local"` → `pnpm` → `nodemon` →
+`ts-node src/main.ts`). When the inner ts-node crashes (a known ts-node-under-load
+instability — e.g. during `pnpm run check`), **nodemon survives** ("waiting for
+file changes"), so the recorded wrapper PID stays alive while NOTHING listens on
+the internal port. Any liveness check based on `isPidAlive(pids.api)` alone is
+therefore a lie ("api: running" while `curl :PORT` → connection refused).
+**Rule:** treat a component as `running` only when the supervisor PID is alive AND
+its internal port is bound — use `classifyComponentHealth({ pid, portBound })`
+(`src/lib/dev-state.ts`) with a `listenSnapshot([...ports])`
+(`src/lib/dev-process.ts`) probe. `crashed` = wrapper up, port free. Consumed by
+`lt dev status` (honest labels) and `lt dev up` (selective restart of only the
+down component; it terminates the crashed supervisor's group first via
+`terminateProcessGroup` so the idle nodemon doesn't leak/stack). Never fall back
+to compiled `node dist` to "stabilise" — that breaks hot-reload; restart-on-crash
+(`lt dev up`) is the intended remedy.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

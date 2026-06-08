@@ -451,8 +451,23 @@ lt dev up
 **Pre-flight guards (exit code 1 each):**
 - Caddy not installed (`lt dev install` first)
 - Caddy daemon not running (run `lt dev install` — it bootstraps the lt-dev service)
-- Already running for this project (`lt dev down` first)
-- Internal port already in use
+- A FRESHLY allocated internal port is already in use by a foreign process
+
+**Health-aware (re)start (idempotent):** `lt dev up` is safe to re-run. It probes
+the actual internal ports — not just the recorded supervisor PID — so it can tell
+a still-serving component from a *crashed* one (the supervisor / nodemon survives a
+ts-node crash and the recorded PID stays alive while nothing listens on the port).
+Behaviour:
+- **All present components truly serving** → no-op, exits 0 with "already running".
+- **Some serving, some down** → restarts ONLY the down component(s); a healthy one
+  keeps running untouched and its PID is preserved in the session.
+- Before respawning a crashed component it terminates that supervisor's whole
+  process group (so its idle `nodemon` doesn't leak / stack a second one) and
+  reclaims any orphaned listener still squatting the reused port.
+
+This is the fix for the "`status` says api running but no data loads" case: a
+crashed ts-node dev API is healed by simply re-running `lt dev up` (it does not
+fall back to compiled `node dist` — ts-node is kept so code edits hot-reload).
 
 **Logs:** `<root>/.lt-dev/api.log`, `<root>/.lt-dev/app.log` (append-mode).
 
@@ -485,7 +500,19 @@ lt dev status --all   # every project in the registry
 
 **Alias:** `lt d s`
 
-The current-project view shows subdomains → upstream ports, db URI, session PIDs (alive/dead), and live `lsof` state. The `--all` view lists every project, with a `●`/`○` indicator for running state.
+The current-project view shows subdomains → upstream ports, db URI, per-component
+health, and live `lsof` state. **Health is honest:** a component is reported
+`running` only when its supervisor PID is alive AND its internal port is actually
+bound. A supervisor that survived a ts-node crash (PID alive, port free) is shown
+as `crashed (supervisor up, port not listening)` instead of the old misleading
+`running`, with a hint to run `lt dev up` to restart just that one.
+
+The `--all` view lists every project with a single indicator:
+- `●` (green) — all present components serving
+- `◐` (yellow) — `degraded` (some up, some down) or `crashed` (supervisor up, port free)
+- `○` (dim) — stopped
+
+A single `lsof` snapshot covers every registered port, so `--all` stays fast.
 
 ---
 
