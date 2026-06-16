@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -16,12 +16,14 @@ import {
   readTicketMarker,
   resolveDevIdentity,
   worktreeAdd,
+  worktreeDirtyOnlyAutoDiscardable,
   worktreeDirtyOnlyGenerated,
   worktreePathFor,
   worktreeRemove,
   worktreeSafetyReport,
   writeTicketMarker,
 } from '../src/lib/dev-ticket';
+import { patchApiConfig } from '../src/lib/dev-patches';
 
 describe('dev-ticket', () => {
   describe('deriveTicketId', () => {
@@ -331,6 +333,102 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
     git(repo, 'add', '-A');
     git(repo, 'commit', '-q', '-m', 'wip');
     expect(worktreeSafetyReport(repo).unpushed).toBe(1);
+  });
+
+  test('a pristine lt-dev self-heal patch is auto-discardable; a real edit on top is not', () => {
+    // Commit a legacy API config with a hardcoded port (the unmigrated state).
+    mkdirSync(join(repo, 'projects', 'api', 'src'), { recursive: true });
+    const cfg = join(repo, 'projects', 'api', 'src', 'config.env.ts');
+    writeFileSync(cfg, 'export const config = {\n  port: 3000,\n};\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'add config');
+    git(repo, 'push', '-q', 'origin', 'dev');
+
+    // `lt dev up`'s autoPatch env-aware's it → the file is now dirty.
+    expect(patchApiConfig(cfg).patched).toBe(true);
+    expect(readFileSync(cfg, 'utf8')).toContain('Number(process.env.PORT)');
+
+    // Pristine lt-dev patch → NOT counted as real source; worktree auto-discardable.
+    expect(worktreeSafetyReport(repo).dirtySource).toEqual([]);
+    expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(true);
+
+    // A developer edit ON TOP of the patch → real work, blocks auto-discard.
+    writeFileSync(cfg, `${readFileSync(cfg, 'utf8').replace('};', "  host: 'x',\n};")}`);
+    expect(worktreeSafetyReport(repo).dirtySource.length).toBe(1);
+    expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(false);
+
+    // A real edit to a DIFFERENT tracked file also blocks (config reverted first).
+    git(repo, 'checkout', '--', cfg);
+    writeFileSync(join(repo, 'feature.ts'), 'x');
+    expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(false);
+  });
+});
+
+// Regression: an older project still carrying the template's `lt-monorepo`
+// package.json name must derive its slug from the project FOLDER (`imo`), and a
+// ticket worktree of it (`imo-2314/`) must resolve to a SINGLE-suffixed slug
+// (`imo-2314`), never `lt-monorepo-2314` and never the double-suffixed
+// `imo-2314-2314`. This is the bug that made `lt ticket start DEV-2314` in an
+// `imo/` project create `lt-monorepo-2314.localhost`.
+describe('dev-ticket — slug for a worktree of an unrenamed lt-monorepo project', () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+  let parent: string;
+  let main: string;
+  let wt: string;
+
+  beforeEach(() => {
+    parent = realpathSync(mkdtempSync(join(tmpdir(), 'lt-imo-')));
+    main = join(parent, 'imo');
+    wt = join(parent, 'imo-2314'); // sibling worktree, created by `git worktree add`
+    mkdirSync(main);
+    writeFileSync(join(main, 'package.json'), JSON.stringify({ name: 'lt-monorepo' }));
+    mkdirSync(join(main, 'projects', 'api'), { recursive: true });
+    mkdirSync(join(main, 'projects', 'app'), { recursive: true });
+    // git does not track empty dirs — a placeholder ensures the worktree
+    // checkout actually contains projects/api + projects/app (so buildIdentity
+    // detects the api/app subdomains there too).
+    writeFileSync(join(main, 'projects', 'api', '.gitkeep'), '');
+    writeFileSync(join(main, 'projects', 'app', '.gitkeep'), '');
+    git(main, 'init', '-q');
+    git(main, 'config', 'user.email', 'ci@lenne.tech');
+    git(main, 'config', 'user.name', 'ci');
+    git(main, 'config', 'commit.gpgsign', 'false');
+    git(main, 'add', '-A');
+    git(main, 'commit', '-q', '-m', 'init');
+    git(main, 'branch', '-M', 'dev');
+  });
+
+  afterEach(() => {
+    try {
+      git(main, 'worktree', 'remove', '--force', wt);
+    } catch {
+      /* no worktree in this test */
+    }
+    rmSync(parent, { force: true, recursive: true });
+  });
+
+  const layoutFor = (r: string) => ({
+    apiDir: join(r, 'projects', 'api'),
+    appDir: join(r, 'projects', 'app'),
+    root: r,
+    workspace: true,
+  });
+
+  test('base project slugs to the folder name, not the template placeholder', () => {
+    expect(buildIdentity(main).slug).toBe('imo');
+  });
+
+  test('worktree inherits the base slug (no double-suffix)', () => {
+    worktreeAdd(main, wt, 'feat/DEV-2314', 'dev');
+    // The worktree folder is `imo-2314`, but its slug must still be `imo`.
+    expect(buildIdentity(wt).slug).toBe('imo');
+
+    writeTicketMarker(wt, '2314');
+    const res = resolveDevIdentity(layoutFor(wt));
+    expect(res.ticket).toBe('2314');
+    expect(res.identity.slug).toBe('imo-2314'); // NOT imo-2314-2314, NOT lt-monorepo-2314
+    expect(res.identity.subdomains.app.hostname).toBe('imo-2314.localhost');
+    expect(res.identity.subdomains.api.hostname).toBe('api.imo-2314.localhost');
   });
 });
 

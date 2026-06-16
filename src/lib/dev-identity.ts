@@ -12,8 +12,9 @@
  * The internal port behind each subdomain is opaque — Caddy proxies
  * arbitrary local ports. Developers and Claude only ever see the URL.
  */
+import { execFileSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
-import { basename, join } from 'path';
+import { basename, dirname, join } from 'path';
 
 /** Stable identity for a single project root. */
 export interface DevIdentity {
@@ -127,13 +128,45 @@ export function buildTicketIdentity(base: DevIdentity, id: string): DevIdentity 
 }
 
 /**
- * Read the bare project name from package.json (scope stripped).
- * Falls back to directory basename if no package.json or no `name`.
+ * package.json `name` values that are unchanged starter-template defaults.
+ *
+ * A project scaffolded by cloning a template (`git clone lenneTech/lt-monorepo
+ * my-project`) instead of running `lt fullstack init`, or one that predates the
+ * rename-on-init logic, keeps the template's default `name`. That value is not
+ * project-identifying, so {@link projectSlug} ignores it and falls back to the
+ * project directory name; `renameUnmodifiedTemplatePackage` (in package-name.ts)
+ * rewrites the field on the next `lt dev init`.
+ */
+const UNMODIFIED_TEMPLATE_NAMES = new Set<string>(['lt-monorepo']);
+
+/**
+ * True when `name` matches a known unmodified starter-template default.
+ *
+ * Such names (e.g. `lt-monorepo`) are NOT project-identifying — see
+ * {@link UNMODIFIED_TEMPLATE_NAMES} — so {@link projectSlug} ignores them and
+ * derives the slug from the project directory instead.
+ */
+export function isUnmodifiedTemplateName(name: null | string | undefined): boolean {
+  return typeof name === 'string' && UNMODIFIED_TEMPLATE_NAMES.has(name);
+}
+
+/**
+ * Read the bare project name from package.json (scope stripped) and slugify it.
+ *
+ * Falls back to the PROJECT directory name when there is no usable name — i.e.
+ * no package.json, no `name`, or an unmodified starter-template default (e.g.
+ * `lt-monorepo`, left over from a project scaffolded before rename-on-init
+ * existed). The fallback is anchored on the MAIN git worktree, so a linked
+ * `lt ticket` worktree (`imo-2314/`) inherits the base project name (`imo`)
+ * rather than slugging to its own folder — otherwise {@link buildTicketIdentity}
+ * would double-suffix it to `imo-2314-2314`.
  */
 export function projectSlug(root: string): string {
   const fromPkg = readPackageName(root);
-  const raw = fromPkg || basename(root);
-  return slugify(raw);
+  if (fromPkg && !isUnmodifiedTemplateName(fromPkg)) {
+    return slugify(fromPkg);
+  }
+  return slugify(basename(mainWorktreeDir(root) ?? root));
 }
 
 /** Lowercase, alphanumerics + dashes only, trimmed dashes. */
@@ -142,6 +175,28 @@ export function slugify(input: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Best-effort directory of the MAIN git worktree containing `root`.
+ *
+ * For a linked worktree (e.g. an `lt ticket` worktree `imo-2314/`) this resolves
+ * to the primary checkout (`imo/`), NOT the worktree folder: `--git-common-dir`
+ * is the shared `.git`, identical for every worktree, and its parent is the main
+ * repo root. Used only by {@link projectSlug}'s fallback so every worktree
+ * inherits the same base project name. Returns null when `root` is outside a git
+ * repo or git is unavailable.
+ */
+function mainWorktreeDir(root: string): null | string {
+  try {
+    const commonDir = execFileSync('git', ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return commonDir ? dirname(commonDir) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Read `name` from package.json, scope-stripped (e.g. `@lenne.tech/foo` → `foo`). */

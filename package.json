@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.31.0",
+  "version": "1.32.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -20,7 +20,8 @@
   "scripts": {
     "c": "npm run check",
     "cf": "npm run check:fix",
-    "check": "npm install && npm run format && npm run build && npm run check:start",
+    "check": "bash scripts/check.sh",
+    "check:audit": "bash scripts/check.sh --audit-only",
     "check:fix": "npm install && npm audit fix && npm run format && npm run lint:fix && npm run build && npm run check:start",
     "check:start": "bash scripts/check-cli-start.sh",
     "postinstall": "node bin/postinstall.js 2>/dev/null || true",
@@ -68,7 +69,7 @@
     "glob": "13.0.6",
     "gluegun": "5.2.2",
     "js-sha256": "0.11.1",
-    "js-yaml": "4.1.1",
+    "js-yaml": "4.2.0",
     "jsdom": "29.1.1",
     "lodash": "4.18.1",
     "open": "11.0.0",
@@ -100,10 +101,16 @@
   },
   "//overrides": {
     "brace-expansion@5.0.2 - 5.0.5": "Security fix: GHSA-jxxr-4gwj-5jf2 (large numeric range defeats max DoS protection) in brace-expansion 5.0.2-5.0.5 - transitive via minimatch under glob, @ts-morph/common, @typescript-eslint/typescript-estree. Remove once those parents resolve minimatch to a brace-expansion >=5.0.6.",
-    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep."
+    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep.",
+    "js-yaml": "Security fix: GHSA-h67p-54hq-rp68 (quadratic-complexity DoS in merge-key handling) in js-yaml <=4.1.1. Forces 4.2.0 everywhere, incl. the 3.14.2 pulled transitively by @istanbuljs/load-nyc-config under babel-plugin-istanbul (jest coverage); that loader only runs js-yaml when reading a YAML nyc config, which this project does not use. Remove once the jest toolchain resolves js-yaml >=4.2.0 itself.",
+    "form-data": "Security fix: GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped multipart field names) in form-data 4.0.0-4.0.5 - transitive via axios. Remove once axios pins form-data >=4.0.6.",
+    "@babel/core": "Security fix: GHSA-4x5r-pxfx-6jf8 (arbitrary file read via sourceMappingURL) in @babel/core <=7.29.0 - transitive via the jest toolchain. Remove once jest resolves @babel/core >=7.29.6."
   },
   "overrides": {
+    "@babel/core": "7.29.7",
     "brace-expansion@5.0.2 - 5.0.5": "5.0.6",
+    "form-data": "4.0.6",
+    "js-yaml": "4.2.0",
     "semver@*": "7.8.1"
   },
   "jest": {

@@ -215,7 +215,7 @@ ports. Developers and Claude Code never see the internal ports.
 3. **`lt dev init [--skip-install]`** (alias `migrate`, `m`) — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`. **Auto-chains:** when the machine isn't prepared yet, runs `lt dev install` first (`--skip-install` opts out).
 
 **Mutual install↔init auto-chaining (no infinite regress):** the two commands prepare each other's precondition, but the chain is **one hop deep and structurally non-recursive** because each command calls the *helper* of the other (`runInstall` / `runMigrate` in `dev-install-helper.ts` / `dev-migrate-helper.ts`), never the other command. Pure predicates in `src/lib/dev-bootstrap.ts` (`isMachinePrepared`, `isProjectInitialized`, `isLtDevProject`) gate the decision and make re-runs no-ops. `runInstall` never calls `process.exit` (the command decides the exit code).
-4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached. **Health-aware & idempotent:** re-running probes the actual ports (not just the recorded supervisor PID) and only (re)starts components that are NOT truly serving — a CRASHED one (supervisor/nodemon alive but ts-node dead → port free) or a DEAD one — while leaving a healthy component running untouched (its PID is preserved). Before respawning it terminates the crashed supervisor's whole group (so the idle nodemon doesn't leak and stack) and reclaims any orphaned listener squatting the reused port. All-healthy → no-op (exit 0, "already running"). ts-node is kept (NOT `node dist`) so edits hot-reload immediately.
+4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached. **Self-healing prerequisites:** it no longer just *warns* about legacy hardcoded ports — it runs the same `autoPatch` as `lt dev init` over `config.env.ts`/`nuxt.config.ts`/`playwright.config.ts` so an unmigrated project becomes env-aware (honours the injected `PORT`/URLs) in one command; idempotent (no-op on already-env-aware configs). `autoPatch` only ever touches those configs — never CLAUDE.md — so it is safe in a ticket worktree (ticket URLs reach Claude via the lt-dev plugin hook + `.lt-dev/ticket` marker, not the committed CLAUDE.md; the base project still gets its CLAUDE.md URL block). **Health-aware & idempotent:** re-running probes the actual ports (not just the recorded supervisor PID) and only (re)starts components that are NOT truly serving — a CRASHED one (supervisor/nodemon alive but ts-node dead → port free) or a DEAD one — while leaving a healthy component running untouched (its PID is preserved). Before respawning it terminates the crashed supervisor's whole group (so the idle nodemon doesn't leak and stack) and reclaims any orphaned listener squatting the reused port. All-healthy → no-op (exit 0, "already running"). ts-node is kept (NOT `node dist`) so edits hot-reload immediately.
 5. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
 6. **`lt dev status [--all]`** — current project or all registered. **Honest liveness:** a component is "running" only when its supervisor PID is alive AND its internal port is actually bound; supervisor-alive-but-port-free reads as `crashed` (not the old misleading "running"), and a mixed up/down project shows `degraded` in `--all`. Both point at `lt dev up` to restart just the down half.
 7. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics (checks our LaunchAgent, **not** `brew services caddy`).
@@ -339,6 +339,72 @@ down component; it terminates the crashed supervisor's group first via
 `terminateProcessGroup` so the idle nodemon doesn't leak/stack). Never fall back
 to compiled `node dist` to "stabilise" — that breaks hot-reload; restart-on-crash
 (`lt dev up`) is the intended remedy.
+
+### `projectSlug` ignores unmodified template names + is worktree-aware <!-- Added: 2026-06-16 -->
+`dev-identity.ts#projectSlug` is the single source of truth for the `lt dev` slug
+(`<slug>.localhost`, DB name, registry key, `lt ticket` URLs). Older projects
+scaffolded before rename-on-init still carry the template's `name: "lt-monorepo"`
+in their root `package.json` — so a project living in `imo/` would slug to
+`lt-monorepo` and `lt ticket start DEV-2314` would build `lt-monorepo-2314`
+instead of `imo-2314`. `lt fullstack init` rewrites the name (`setPackageName`)
+and `lt dev init` heals it after the fact (`renameUnmodifiedTemplatePackage`), but
+**`lt ticket start` / `lt dev up` never run either** — they read the slug live.
+**Rule:** `projectSlug` treats an `isUnmodifiedTemplateName` value (e.g.
+`lt-monorepo`) as non-identifying and falls back to the PROJECT DIRECTORY name.
+The fallback resolves the basename via the **main git worktree**
+(`git rev-parse --git-common-dir` → parent), NOT the current dir: a linked
+`lt ticket` worktree `imo-2314/` must inherit base slug `imo` (so
+`buildTicketIdentity` yields `imo-2314`), otherwise it would double-suffix to
+`imo-2314-2314`. `isUnmodifiedTemplateName` + `UNMODIFIED_TEMPLATE_NAMES` live in
+`dev-identity.ts` (re-exported from `package-name.ts` for back-compat) to avoid an
+import cycle.
+
+### `lt dev up` self-heals legacy ports; teardown auto-discards pristine patches <!-- Added: 2026-06-16 -->
+`lt dev` / `lt ticket` commands establish their own prerequisites — the user never
+has to run `lt dev init` first. `lt dev up` now runs the same `autoPatch`
+(`dev-patches.ts`) as `lt dev init` over `config.env.ts`/`nuxt.config.ts`/
+`playwright.config.ts` (was: warn-only). Without it an unmigrated project hardcodes
+`port: 3000`/`3001`, ignores the injected `PORT` (`buildDevEnv` sets it per
+component), binds the framework defaults and misses Caddy → the (ticket) URLs don't
+route and collide with parallel stacks. `autoPatch` never touches CLAUDE.md, so it
+is **ticket-safe** (the committed CLAUDE.md must not carry per-ticket URLs; those
+reach Claude via the lt-dev plugin hook + `.lt-dev/ticket` marker — see
+[up.ts](src/commands/dev/up.ts)). `lt dev test`'s isolated stack
+(`dev-test-session.ts#bringUpTestSession`) self-heals the same way — but **before
+its `pnpm run build`**, because the test API runs COMPILED (`node dist/...`): an
+unpatched `config.env.ts` would bake `port: 3000` into the bundle and miss Caddy.
+**Teardown consequence + fix:** in a worktree these are *uncommitted* tracked
+patches, which would make `lt ticket stop` refuse (its `worktreeSafetyReport`
+dirty-source guard). So `dev-ticket.ts` classifies a dirty config as
+**auto-discardable** when it is a *pristine* lt-dev patch — verified precisely by
+re-deriving `autoPatch(HEAD blob)` and comparing to the working tree (`git show
+HEAD:<path>`); any extra developer edit on top makes them differ → treated as real
+work, never discarded. `worktreeDirtyOnlyAutoDiscardable` (generated OR pristine
+lt-dev) drives `lt ticket stop`'s auto-force.
+**Porcelain trap (fixed here):** the generic `git()` helper `.trim()`s its output,
+which eats the leading space of a tracked-modified porcelain line (` M path`) and
+shifts `porcelainPath`'s `slice(3)` by one (`projects/…` → `rojects/…`). Old tests
+missed it because they only used untracked (`??`, no leading space) files. Always
+read porcelain via `gitStatusPorcelain` (no per-line trim), never the trimming
+`git()`.
+
+### `npm run check` has a vulnerability gate; vulns are pinned via `overrides` <!-- Added: 2026-06-16 -->
+`npm run check` is `bash scripts/check.sh` (was a bare `npm install && … && build`
+chain that ran **no** audit). The script's **first** step is a vulnerability gate:
+`npm audit --audit-level=low` — ANY finding aborts the pipeline before building on
+vulnerable deps. Bypass explicitly with `npm run check --force` (npm sets
+`npm_config_force=true`, read by the script) or `npm run check -- --force`
+(forwarded arg); `npm run check:audit` runs only the gate (`--audit-only`).
+`check.sh` is a single orchestrator (not an `&&` chain) precisely so `--force`
+reaches it reliably — args appended to an `&&` chain only hit the LAST command.
+**Fixing vulns:** transitive CVEs are pinned in the npm `overrides` block (mirror a
+human-readable reason into the sibling `//overrides` doc object), e.g. `js-yaml`
+4.2.0 (GHSA-h67p-54hq-rp68), `form-data` 4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core`
+7.29.7 (GHSA-4x5r-pxfx-6jf8). Note `js-yaml` is forced globally to 4.2.0 even though
+`@istanbuljs/load-nyc-config` (under babel-plugin-istanbul) pulls a 3.x copy — that
+loader only parses YAML when reading an nyc config file, which this project never
+does, and jest 30 uses the v8 coverage provider, so the override is inert at
+runtime (verified via `jest --coverage`).
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

@@ -2,28 +2,13 @@ import type { GluegunFilesystem } from 'gluegun';
 
 import { basename } from 'path';
 
-import { slugify } from './dev-identity';
+import { isUnmodifiedTemplateName, slugify } from './dev-identity';
 
-/**
- * package.json `name` values that are unchanged starter-template defaults.
- *
- * When a user clones a template manually (`git clone lenneTech/lt-monorepo
- * my-project`) instead of running `lt fullstack init`, the `name` field
- * stays at the template's default. That field is what
- * `dev-identity#projectSlug` reads to derive `<slug>.localhost`, so every
- * cloned project would collide on `https://lt-monorepo.localhost`.
- *
- * `lt fullstack init` rewrites this field already (see `setPackageName`);
- * the detection here is the safety net for projects that bypassed init.
- */
-const UNMODIFIED_TEMPLATE_NAMES = new Set<string>(['lt-monorepo']);
-
-/**
- * True when `name` matches a known unmodified starter template default.
- */
-export function isUnmodifiedTemplateName(name: null | string | undefined): boolean {
-  return typeof name === 'string' && UNMODIFIED_TEMPLATE_NAMES.has(name);
-}
+// `isUnmodifiedTemplateName` and the template-name detection now live in
+// `dev-identity.ts` (the slug owner — `projectSlug` needs the same check to
+// ignore an unmodified `lt-monorepo` name). Re-exported here so existing
+// importers / tests of the package-name surface keep working unchanged.
+export { isUnmodifiedTemplateName } from './dev-identity';
 
 /**
  * If the package.json at `<projectRoot>/package.json` still carries an

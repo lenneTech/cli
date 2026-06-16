@@ -11,7 +11,7 @@ import {
   gitMainRepoRoot,
   listWorktrees,
   readTicketMarker,
-  worktreeDirtyOnlyGenerated,
+  worktreeDirtyOnlyAutoDiscardable,
   worktreeRemove,
   worktreeSafetyReport,
 } from '../../lib/dev-ticket';
@@ -120,13 +120,15 @@ const StopCommand: GluegunCommand = {
     }
 
     // 3. Remove the worktree (branch is kept). Auto-force when the ONLY dirty
-    //    files are framework-generated (e.g. `nuxt dev` rewrites the tracked
-    //    `.nuxtrc` on boot), which would otherwise block the remove — but NEVER
+    //    files are auto-discardable — framework-generated (e.g. `nuxt dev`
+    //    rewrites the tracked `.nuxtrc` on boot) OR pristine lt-dev self-heal
+    //    patches (config.env.ts/nuxt.config.ts/playwright.config.ts that
+    //    `lt dev up` env-aware'd) — which would otherwise block the remove. NEVER
     //    discard real source edits (those keep the non-forced remove, which
     //    errors with a hint so unsaved work is never lost).
-    const force = parameters.options.force === true || worktreeDirtyOnlyGenerated(wt.path);
+    const force = parameters.options.force === true || worktreeDirtyOnlyAutoDiscardable(wt.path);
     if (force && parameters.options.force !== true) {
-      info(colors.dim('  (worktree had only generated files dirty, e.g. .nuxtrc — removing)'));
+      info(colors.dim('  (worktree had only generated / lt-dev-patched files dirty — removing)'));
     }
     try {
       worktreeRemove(mainRepoRoot, wt.path, force);

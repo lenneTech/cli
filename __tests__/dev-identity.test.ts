@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { buildIdentity, buildTestIdentity, DevIdentity, projectSlug, slugify } from '../src/lib/dev-identity';
+import { buildIdentity, buildTestIdentity, DevIdentity, isUnmodifiedTemplateName, projectSlug, slugify } from '../src/lib/dev-identity';
 
 describe('dev-identity', () => {
   let tmp: string;
@@ -48,6 +48,34 @@ describe('dev-identity', () => {
     test('handles malformed package.json', () => {
       writeFileSync(join(tmp, 'package.json'), '{ broken');
       expect(projectSlug(tmp)).toMatch(/^lt-dev-identity-/);
+    });
+    test('ignores an unmodified starter-template name → falls back to the directory', () => {
+      // Older projects (scaffolded before rename-on-init) keep the template's
+      // `lt-monorepo` name. The slug must come from the project folder (`imo`),
+      // not the placeholder — otherwise every such project collides on
+      // `lt-monorepo.localhost` and `lt ticket` builds `lt-monorepo-2314`.
+      const parent = mkdtempSync(join(tmpdir(), 'lt-tpl-name-'));
+      const projectDir = join(parent, 'imo');
+      mkdirSync(projectDir);
+      writeFileSync(join(projectDir, 'package.json'), JSON.stringify({ name: 'lt-monorepo' }));
+      try {
+        expect(projectSlug(projectDir)).toBe('imo');
+      } finally {
+        rmSync(parent, { force: true, recursive: true });
+      }
+    });
+  });
+
+  describe('isUnmodifiedTemplateName', () => {
+    test('matches known starter-template defaults', () => {
+      expect(isUnmodifiedTemplateName('lt-monorepo')).toBe(true);
+    });
+    test('rejects custom names and falsy values', () => {
+      expect(isUnmodifiedTemplateName('imo')).toBe(false);
+      expect(isUnmodifiedTemplateName('crm')).toBe(false);
+      expect(isUnmodifiedTemplateName('')).toBe(false);
+      expect(isUnmodifiedTemplateName(null)).toBe(false);
+      expect(isUnmodifiedTemplateName(undefined)).toBe(false);
     });
   });
 

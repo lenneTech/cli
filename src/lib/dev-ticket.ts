@@ -18,10 +18,12 @@
  * can delegate the actual bring-up/-down to the normal `lt dev` commands.
  */
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { basename, dirname, join } from 'path';
 
 import { buildIdentity, buildTicketIdentity, DevIdentity, slugify } from './dev-identity';
+import { autoPatch } from './dev-patches';
 import { deriveDbName, deriveTicketDbName, DevProjectLayout } from './dev-project';
 import { paths } from './dev-state';
 
@@ -288,6 +290,21 @@ export function worktreeAdd(repoDir: string, worktreePath: string, branch: strin
 const GENERATED_PATHS =
   /(^|\/)(\.nuxtrc|\.nuxt|\.nitro|\.output|dist|\.turbo|\.cache|\.eslintcache)(\/|$)|\.tsbuildinfo$/;
 
+/** The three git-tracked configs `lt dev up` self-heals to be env-aware. */
+const LT_DEV_MANAGED_CONFIG = /(?:^|\/)(?:config\.env\.ts|nuxt\.config\.ts|playwright\.config\.ts)$/;
+
+/**
+ * True when a worktree has uncommitted changes AND every one is auto-discardable
+ * (framework-generated OR a pristine lt-dev self-heal patch). Lets `lt ticket
+ * stop` force-remove a provisioning-only worktree — e.g. an unmigrated project
+ * whose configs `lt dev up` env-aware'd — without `--force` and without ever
+ * discarding real developer work.
+ */
+export function worktreeDirtyOnlyAutoDiscardable(worktreePath: string): boolean {
+  const { autoDiscardable, realDirty } = classifyWorktreeDirt(worktreePath);
+  return realDirty.length === 0 && autoDiscardable.length > 0;
+}
+
 /**
  * True ONLY when a worktree has uncommitted changes AND every one is a
  * framework-generated / ephemeral file (`.nuxtrc`, `.nuxt`, `.output`, …).
@@ -295,13 +312,7 @@ const GENERATED_PATHS =
  * `git worktree remove`; this lets `lt ticket stop` auto-clean those safely.
  */
 export function worktreeDirtyOnlyGenerated(worktreePath: string): boolean {
-  let out = '';
-  try {
-    out = git(worktreePath, ['status', '--porcelain', '--untracked-files=all']);
-  } catch {
-    return false;
-  }
-  const lines = out.split(/\r?\n/).filter((l) => l.trim());
+  const lines = gitStatusPorcelain(worktreePath);
   if (lines.length === 0) return false; // clean → no force needed
   return lines.every((line) => GENERATED_PATHS.test(porcelainPath(line)));
 }
@@ -328,23 +339,18 @@ export function worktreeRemove(repoDir: string, worktreePath: string, force = fa
  * the branch not on any remote (the branch is kept on stop, but local-only).
  */
 export function worktreeSafetyReport(worktreePath: string): WorktreeSafety {
-  let status = '';
-  try {
-    status = git(worktreePath, ['status', '--porcelain', '--untracked-files=all']);
-  } catch {
-    return { dirtySource: [], unpushed: 0 };
-  }
-  const dirtySource = status
-    .split(/\r?\n/)
-    .filter((l) => l.trim())
-    .filter((l) => !GENERATED_PATHS.test(porcelainPath(l)));
+  // Only REAL developer work counts as dirtySource — framework-generated files
+  // AND pristine lt-dev self-heal patches (config.env.ts/nuxt.config.ts/
+  // playwright.config.ts that `lt dev up` env-aware'd) are auto-discardable, so
+  // `lt ticket stop` never refuses over them.
+  const { realDirty } = classifyWorktreeDirt(worktreePath);
   let unpushed = 0;
   try {
     unpushed = Number(git(worktreePath, ['rev-list', '--count', 'HEAD', '--not', '--remotes'])) || 0;
   } catch {
     /* no remotes / detached HEAD → cannot determine; treat as 0 */
   }
-  return { dirtySource, unpushed };
+  return { dirtySource: realDirty, unpushed };
 }
 
 /** Write the ticket marker that tags a worktree (created by `lt ticket start`). */
@@ -352,6 +358,23 @@ export function writeTicketMarker(root: string, id: string): void {
   const dir = join(root, paths.sessionDir);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, TICKET_MARKER), `${id}\n`, 'utf8');
+}
+
+/**
+ * Split a worktree's uncommitted changes into "auto-discardable" (framework-
+ * generated files + pristine lt-dev self-heal patches) and "real" developer work.
+ * `lt ticket stop` may force-remove a worktree whose changes are ALL
+ * auto-discardable; anything in `realDirty` blocks removal (work could be lost).
+ */
+function classifyWorktreeDirt(worktreePath: string): { autoDiscardable: string[]; realDirty: string[] } {
+  const autoDiscardable: string[] = [];
+  const realDirty: string[] = [];
+  for (const line of gitStatusPorcelain(worktreePath)) {
+    const p = porcelainPath(line);
+    if (GENERATED_PATHS.test(p) || isPristineLtDevPatch(worktreePath, p)) autoDiscardable.push(p);
+    else realDirty.push(p);
+  }
+  return { autoDiscardable, realDirty };
 }
 
 function finalizeWorktree(partial: Partial<WorktreeInfo>): WorktreeInfo {
@@ -362,6 +385,68 @@ function finalizeWorktree(partial: Partial<WorktreeInfo>): WorktreeInfo {
 /** Run a git command in `cwd`, returning trimmed stdout. Throws on non-zero exit. */
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+/**
+ * `git status --porcelain` lines, each kept VERBATIM (not trimmed).
+ *
+ * Crucial: a tracked-but-modified file's porcelain prefix begins with a space
+ * (` M path`), so trimming the blob (as the generic `git()` helper does) would
+ * eat that leading space and shift `porcelainPath`'s `slice(3)` by one,
+ * corrupting the path (`projects/…` → `rojects/…`). Returns [] on error.
+ */
+function gitStatusPorcelain(cwd: string): string[] {
+  let out = '';
+  try {
+    out = execFileSync('git', ['-C', cwd, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' });
+  } catch {
+    return [];
+  }
+  return out.split(/\r?\n/).filter((l) => l.trim() !== '');
+}
+
+/**
+ * True when the dirty tracked file at `relPath` (relative to the worktree root)
+ * differs from its committed (HEAD) version by EXACTLY the lt-dev self-heal
+ * patch — i.e. `lt dev up` env-aware'd a legacy config and the developer made no
+ * other edit. Verified by re-deriving: apply the same `autoPatch` to the HEAD
+ * blob and compare to the working-tree content. Any extra developer edit makes
+ * the two differ → treated as real work (never auto-discarded).
+ *
+ * Only the three lt-dev-managed configs qualify; everything else returns false.
+ */
+function isPristineLtDevPatch(worktreePath: string, relPath: string): boolean {
+  if (!LT_DEV_MANAGED_CONFIG.test(relPath)) return false;
+  let head: string;
+  try {
+    // NOT the trimming `git()` helper — the trailing newline must survive so the
+    // comparison against the (untrimmed) working-tree content is exact.
+    head = execFileSync('git', ['-C', worktreePath, 'show', `HEAD:${relPath}`], { encoding: 'utf8' });
+  } catch {
+    return false; // not tracked at HEAD (e.g. a brand-new file) → never auto-discard
+  }
+  let current: string;
+  try {
+    current = readFileSync(join(worktreePath, relPath), 'utf8');
+  } catch {
+    return false;
+  }
+  // Re-derive what `lt dev up`'s autoPatch produced from the HEAD blob. autoPatch
+  // dispatches by filename suffix, so the temp file must keep the basename.
+  const tmp = join(tmpdir(), `lt-dev-verify-${process.pid}-${basename(relPath)}`);
+  try {
+    writeFileSync(tmp, head, 'utf8');
+    autoPatch(tmp);
+    return readFileSync(tmp, 'utf8') === current;
+  } catch {
+    return false;
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
 }
 
 /** Path from a `git status --porcelain` line ("XY <path>" / "XY <old> -> <new>"). */

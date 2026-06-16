@@ -6,9 +6,9 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable, caddyDaemonRunning, CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
-import { addToGitignore, patchClaudeMd } from '../../lib/dev-patches';
+import { addToGitignore, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
 import { killProcessGroup, listenSnapshot, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
-import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
+import { resolveLayout } from '../../lib/dev-project';
 import {
   allocateInternalPort,
   classifyComponentHealth,
@@ -141,9 +141,10 @@ const UpCommand: GluegunCommand = {
       }
     }
 
-    // Sanft auto-migrate sichere Operationen (ohne Code-Modifikation):
-    // CLAUDE.md-URL-Block einfügen + .gitignore ergänzen.
-    // Code-Patches (config.env.ts, nuxt.config.ts) bleiben explizit `lt dev init`.
+    // Auto-establish every prerequisite so the user never has to run `lt dev
+    // init` first: CLAUDE.md URL block (base only) + `.gitignore` + the code
+    // patches that make config.env.ts / nuxt.config.ts / playwright.config.ts
+    // honour the env `lt dev` injects (PORT, URLs).
     {
       // NEVER patch the git-tracked CLAUDE.md for a ticket worktree: it would
       // differ per worktree and risk committing ticket-specific URLs. The lt-dev
@@ -167,20 +168,36 @@ const UpCommand: GluegunCommand = {
       }
     }
 
-    // Warnung bei Legacy-Code (hardcoded ports) — kein Auto-Patch.
+    // Self-heal legacy hardcoded ports instead of just warning. An unmigrated
+    // project hardcodes `port: 3000`/`3001` and ignores the injected `PORT`, so
+    // it binds the framework defaults and misses Caddy → the (ticket) URLs don't
+    // route and collide with parallel stacks. `autoPatch` is idempotent (no-op on
+    // an already-env-aware config) and only ever touches config.env.ts /
+    // nuxt.config.ts / playwright.config.ts — never CLAUDE.md — so it is safe in a
+    // ticket worktree. In a worktree these are uncommitted patches; `lt ticket
+    // stop` recognises a pristine lt-dev patch and tears down without `--force`.
     {
-      const legacyFiles: string[] = [];
+      const filesToPatch: string[] = [];
       if (layout.apiDir) {
-        const f = apiNeedsPortPatch(layout.apiDir);
-        if (f) legacyFiles.push(f);
+        const apiCfg = join(layout.apiDir, 'src', 'config.env.ts');
+        if (existsSync(apiCfg)) filesToPatch.push(apiCfg);
       }
-      if (layout.appDir) legacyFiles.push(...appNeedsPortPatch(layout.appDir));
-      if (legacyFiles.length > 0) {
-        warning('Legacy hardcoded ports detected — Caddy will proxy correctly only after running `lt dev init`:');
-        legacyFiles.forEach((f) => info(colors.dim(`  - ${f}`)));
-        info(
-          colors.dim('  (Continuing — env-aware files will work; legacy files may bind on 3000/3001 and miss Caddy.)'),
-        );
+      if (layout.appDir) {
+        for (const rel of ['nuxt.config.ts', 'playwright.config.ts']) {
+          const f = join(layout.appDir, rel);
+          if (existsSync(f)) filesToPatch.push(f);
+        }
+      }
+      const patched = filesToPatch.map((f) => autoPatch(f)).filter((r) => r.patched);
+      if (patched.length > 0) {
+        patched.forEach((r) => success(`patched ${r.replacements}× in ${r.file} (env-aware ports for lt dev)`));
+        if (ticket) {
+          info(
+            colors.dim(
+              '  (worktree config self-healed — auto-discarded on `lt ticket stop`, or commit it to migrate the project)',
+            ),
+          );
+        }
       }
     }
 

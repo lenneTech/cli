@@ -30,6 +30,7 @@ import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
 import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
+import { autoPatch } from './dev-patches';
 import {
   listenSnapshot,
   runChildInherit,
@@ -131,6 +132,29 @@ export async function bringUpTestSession(
 
   // Always start from a clean slate — reclaim a stale/crashed test session.
   await tearDownTestSession(layout, baseIdentity, log, { shardIndex, silent: true });
+
+  // Self-heal legacy hardcoded ports BEFORE the build below — the test API runs
+  // COMPILED (`node dist/...`), so config.env.ts must already honour the injected
+  // `PORT` or the compiled bundle binds 3000 and misses Caddy. Belt-and-suspenders
+  // for a project that never ran `lt dev up` first; idempotent and only ever
+  // touches the three configs (never CLAUDE.md), so it is ticket-safe. Mirrors the
+  // self-heal in `lt dev up` (see commands/dev/up.ts).
+  {
+    const filesToPatch: string[] = [];
+    if (layout.apiDir) {
+      const apiCfg = join(layout.apiDir, 'src', 'config.env.ts');
+      if (existsSync(apiCfg)) filesToPatch.push(apiCfg);
+    }
+    if (layout.appDir) {
+      for (const rel of ['nuxt.config.ts', 'playwright.config.ts']) {
+        const f = join(layout.appDir, rel);
+        if (existsSync(f)) filesToPatch.push(f);
+      }
+    }
+    for (const r of filesToPatch.map((f) => autoPatch(f))) {
+      if (r.patched) log.info(`patched ${r.replacements}× in ${r.file} (env-aware ports for lt dev test)`);
+    }
+  }
 
   // Allocate internal ports AND reserve them in the registry ATOMICALLY, under a
   // cross-process lock — so two parallel `lt dev test` runs (different ticket
