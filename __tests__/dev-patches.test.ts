@@ -121,6 +121,21 @@ describe('dev-patches', () => {
       expect(out).toMatch(/process\.env\[.+\] === undefined/); // existing env wins
     });
 
+    test('bridge block is oxfmt-compliant (expanded if + single-quoted utf8) so `lt dev` leaves no format-dirty config', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      // oxfmt expands a multi-statement `if` body onto its own lines — the
+      // one-line form was the form `lt dev` used to inject and oxfmt rejected.
+      expect(out).toContain('  if (__ltDevExists(__candidate)) {\n    __ltDevEnvFile = __candidate;\n    break;\n  }');
+      expect(out).not.toContain('if (__ltDevExists(__candidate)) { __ltDevEnvFile = __candidate; break; }');
+      // oxfmt prefers single quotes; a double-quoted literal here left every
+      // `lt dev` run with a format-dirty playwright.config.ts (failing format:check).
+      expect(out).toContain("__ltDevRead(__ltDevEnvFile, 'utf8')");
+      expect(out).not.toContain('__ltDevRead(__ltDevEnvFile, "utf8")');
+    });
+
     test('idempotent — bridge inserted only once', () => {
       const f = join(tmp, 'playwright.config.ts');
       writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");

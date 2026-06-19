@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.32.0",
+  "version": "1.32.1",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -104,14 +104,16 @@
     "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep.",
     "js-yaml": "Security fix: GHSA-h67p-54hq-rp68 (quadratic-complexity DoS in merge-key handling) in js-yaml <=4.1.1. Forces 4.2.0 everywhere, incl. the 3.14.2 pulled transitively by @istanbuljs/load-nyc-config under babel-plugin-istanbul (jest coverage); that loader only runs js-yaml when reading a YAML nyc config, which this project does not use. Remove once the jest toolchain resolves js-yaml >=4.2.0 itself.",
     "form-data": "Security fix: GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped multipart field names) in form-data 4.0.0-4.0.5 - transitive via axios. Remove once axios pins form-data >=4.0.6.",
-    "@babel/core": "Security fix: GHSA-4x5r-pxfx-6jf8 (arbitrary file read via sourceMappingURL) in @babel/core <=7.29.0 - transitive via the jest toolchain. Remove once jest resolves @babel/core >=7.29.6."
+    "@babel/core": "Security fix: GHSA-4x5r-pxfx-6jf8 (arbitrary file read via sourceMappingURL) in @babel/core <=7.29.0 - transitive via the jest toolchain. Remove once jest resolves @babel/core >=7.29.6.",
+    "undici": "Security fix: GHSA-vmh5-mc38-953g (TLS certificate validation bypass via dropped requestTls in SOCKS5 ProxyAgent) and GHSA-pr7r-676h-xcf6 (cross-user info disclosure via shared cache whitespace bypass) in undici 7.0.0-7.27.2 - transitive via jsdom (jest test environment). Forces 7.28.0, which satisfies jsdom's ^7.25.0 range. Remove once jsdom resolves undici >=7.28.0."
   },
   "overrides": {
     "@babel/core": "7.29.7",
     "brace-expansion@5.0.2 - 5.0.5": "5.0.6",
     "form-data": "4.0.6",
     "js-yaml": "4.2.0",
-    "semver@*": "7.8.1"
+    "semver@*": "7.8.1",
+    "undici": "7.28.0"
   },
   "jest": {
     "testEnvironment": "node",
