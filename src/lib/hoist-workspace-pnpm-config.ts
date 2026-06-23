@@ -15,49 +15,50 @@ import { dump, load } from 'js-yaml';
  * overrides defined only in projects/api/package.json never reach the
  * install resolver. Hoisting them to the root fixes both the warning
  * and the actual dependency-resolution behavior.
+ *
+ * Object-valued fields (`overrides`, `allowBuilds`) merge key-by-key;
+ * array-valued fields union + dedupe + sort. `minimumReleaseAgeExclude`
+ * is hoisted too so a sub-project's first-party exemption (e.g.
+ * `@lenne.tech/*`) keeps working in the monorepo — otherwise the
+ * minimum-release-age gate would block freshly published own packages.
  */
-const WORKSPACE_SCOPED_PNPM_FIELDS = ['overrides', 'onlyBuiltDependencies', 'ignoredOptionalDependencies'] as const;
-
-/**
- * pnpm 11 renamed `onlyBuiltDependencies` (string array) to `allowBuilds`
- * (a `{ pkg: boolean }` map). A migrated sub-project pnpm-workspace.yaml
- * usually carries BOTH for cross-version compatibility, but we must not
- * rely on the array twin always being present: we normalise `allowBuilds`
- * back into `onlyBuiltDependencies` before hoisting (see
- * `normalizeAllowBuilds`) so the build-allowlist survives into the pnpm-10
- * monorepo root even when the file only carries the pnpm-11 object form.
- */
-const PNPM11_BUILD_KEY = 'allowBuilds';
-
-interface PackageJson {
-  [k: string]: unknown;
-  pnpm?: Partial<Record<PnpmConfigField, unknown>> & Record<string, unknown>;
-}
+const OBJECT_FIELDS = ['overrides', 'allowBuilds'] as const;
+const ARRAY_FIELDS = ['onlyBuiltDependencies', 'ignoredOptionalDependencies', 'minimumReleaseAgeExclude'] as const;
+const WORKSPACE_SCOPED_PNPM_FIELDS = [...OBJECT_FIELDS, ...ARRAY_FIELDS] as const;
 
 type PnpmConfigField = (typeof WORKSPACE_SCOPED_PNPM_FIELDS)[number];
 
+const isArrayField = (field: PnpmConfigField): boolean => (ARRAY_FIELDS as readonly string[]).includes(field);
+
+interface PackageJson {
+  [k: string]: unknown;
+  pnpm?: Record<string, unknown>;
+}
+
 /**
- * Hoist workspace-scoped pnpm config from sub-projects into the root
- * package.json. After this runs, sub-project package.json files no
- * longer have `overrides`, `onlyBuiltDependencies`, or
- * `ignoredOptionalDependencies`, and the root package.json contains
- * the merged union.
+ * Hoist workspace-scoped pnpm config from sub-projects into the monorepo
+ * root `pnpm-workspace.yaml`. After this runs, sub-project pnpm config
+ * (package.json#pnpm or a settings-only pnpm-workspace.yaml) is gone, and
+ * the root pnpm-workspace.yaml carries the merged union next to `packages:`.
+ *
+ * Why pnpm-workspace.yaml and not package.json#pnpm: the monorepo root
+ * pins pnpm 11 (via `packageManager`), and pnpm 11 SILENTLY IGNORES the
+ * `pnpm` block in package.json — overrides/build-allowlists/etc. declared
+ * there never take effect, regressing `pnpm audit` and the minimum-release
+ * -age exemptions. pnpm-workspace.yaml is the pnpm-recommended home and is
+ * read by both pnpm 10 and 11.
  *
  * Two sources are read per sub-project, because the two starters store
  * their pnpm config differently:
  *
- *   1. `<sub>/package.json` `pnpm` block — nest-server-starter, and
- *      nuxt-base-template before its pnpm-11 migration.
- *   2. `<sub>/pnpm-workspace.yaml` — nuxt-base-template after the
- *      migration. pnpm 11 silently ignores the `pnpm` block in
- *      package.json, so the template moved overrides into
- *      pnpm-workspace.yaml. Inside a monorepo that nested file would
- *      (a) not be hoisted by the old package.json-only logic, regressing
- *      the CVE overrides, and (b) declare a nested workspace root that
- *      conflicts with the monorepo's own pnpm-workspace.yaml. We hoist
- *      its fields into the root package.json (the lt-monorepo root pins
- *      pnpm@10 via `packageManager`, where package.json#pnpm IS honored)
- *      and remove the now-redundant nested file.
+ *   1. `<sub>/package.json` `pnpm` block — nest-server-starter, and any
+ *      template that has not migrated to the pnpm-11 layout yet.
+ *   2. `<sub>/pnpm-workspace.yaml` — nuxt-base-template (pnpm-11 layout).
+ *      Inside a monorepo that nested file would (a) not be hoisted if we
+ *      only read package.json, regressing the CVE overrides, and (b)
+ *      declare a nested workspace root that conflicts with the monorepo's
+ *      own pnpm-workspace.yaml. We hoist its fields into the root and
+ *      remove the now-redundant nested file.
  *
  * Symlinked sub-projects are skipped entirely: in `--frontend-link` /
  * `--api-link` mode `projects/app` (or `projects/api`) points at the
@@ -76,13 +77,12 @@ export function hoistWorkspacePnpmConfig(options: {
   subProjects: string[];
 }): void {
   const { filesystem, projectDir, subProjects } = options;
-  const rootPkgPath = `${projectDir}/package.json`;
-  if (!filesystem.exists(rootPkgPath)) return;
+  const rootWsPath = `${projectDir}/pnpm-workspace.yaml`;
 
-  const rootPkg = filesystem.read(rootPkgPath, 'json') as null | PackageJson;
-  if (!rootPkg) return;
-  rootPkg.pnpm ??= {};
-  const rootPnpm = rootPkg.pnpm;
+  // The root pnpm-workspace.yaml is the destination. It normally exists (the
+  // lt-monorepo clone ships one declaring `packages:`); start from it so
+  // `packages:` and any root-owned settings are preserved.
+  const rootWs = readYaml(filesystem, rootWsPath) ?? {};
 
   let rootChanged = false;
 
@@ -93,28 +93,31 @@ export function hoistWorkspacePnpmConfig(options: {
     // checkout in link mode.
     if (isSymlink(subPath)) continue;
 
-    if (hoistFromSubPackageJson({ filesystem, rootPnpm, subPath })) {
+    if (hoistFromSubPackageJson({ filesystem, rootWs, subPath })) {
       rootChanged = true;
     }
-    if (hoistFromSubWorkspaceYaml({ filesystem, rootPnpm, subPath })) {
+    if (hoistFromSubWorkspaceYaml({ filesystem, rootWs, subPath })) {
       rootChanged = true;
     }
   }
 
   if (rootChanged) {
-    filesystem.write(rootPkgPath, `${JSON.stringify(rootPkg, null, 2)}\n`);
+    // Keep allowBuilds (pnpm 11) and onlyBuiltDependencies (pnpm 10) in sync so
+    // the build-script allowlist survives regardless of which key pnpm reads.
+    syncBuildAllowlists(rootWs);
+    filesystem.write(rootWsPath, dump(rootWs, { lineWidth: -1, sortKeys: false }));
   }
 }
 
 /**
- * Move the workspace-scoped pnpm fields from `source` into `rootPnpm`,
+ * Move the workspace-scoped pnpm fields from `source` into `rootWs`,
  * deleting each moved field from `source`. Returns true if anything moved.
  */
-function hoistFields(rootPnpm: Record<string, unknown>, source: Record<string, unknown>): boolean {
+function hoistFields(rootWs: Record<string, unknown>, source: Record<string, unknown>): boolean {
   let changed = false;
   for (const field of WORKSPACE_SCOPED_PNPM_FIELDS) {
     if (source[field] === undefined) continue;
-    rootPnpm[field] = mergePnpmFieldValue(field, rootPnpm[field], source[field]);
+    rootWs[field] = mergePnpmFieldValue(field, rootWs[field], source[field]);
     delete source[field];
     changed = true;
   }
@@ -124,16 +127,16 @@ function hoistFields(rootPnpm: Record<string, unknown>, source: Record<string, u
 /** Source 1: the sub-project's package.json `pnpm` block. */
 function hoistFromSubPackageJson(options: {
   filesystem: GluegunFilesystem;
-  rootPnpm: Record<string, unknown>;
+  rootWs: Record<string, unknown>;
   subPath: string;
 }): boolean {
-  const { filesystem, rootPnpm, subPath } = options;
+  const { filesystem, rootWs, subPath } = options;
   const subPkgPath = `${subPath}/package.json`;
   if (!filesystem.exists(subPkgPath)) return false;
   const subPkg = filesystem.read(subPkgPath, 'json') as null | PackageJson;
   if (!subPkg?.pnpm) return false;
 
-  if (!hoistFields(rootPnpm, subPkg.pnpm)) return false;
+  if (!hoistFields(rootWs, subPkg.pnpm)) return false;
 
   // If the sub-project's pnpm section is now empty, drop it entirely.
   if (Object.keys(subPkg.pnpm).length === 0) {
@@ -143,41 +146,27 @@ function hoistFromSubPackageJson(options: {
   return true;
 }
 
-/** Source 2: the sub-project's pnpm-workspace.yaml (pnpm-11 layout). */
+/** Source 2: the sub-project's pnpm-workspace.yaml. */
 function hoistFromSubWorkspaceYaml(options: {
   filesystem: GluegunFilesystem;
-  rootPnpm: Record<string, unknown>;
+  rootWs: Record<string, unknown>;
   subPath: string;
 }): boolean {
-  const { filesystem, rootPnpm, subPath } = options;
+  const { filesystem, rootWs, subPath } = options;
   const subWsPath = `${subPath}/pnpm-workspace.yaml`;
   if (!filesystem.exists(subWsPath)) return false;
 
-  const raw = filesystem.read(subWsPath);
-  if (!raw) return false;
+  const ws = readYaml(filesystem, subWsPath);
+  if (!ws) return false;
 
-  let parsed: unknown;
-  try {
-    parsed = load(raw);
-  } catch {
-    // Malformed YAML — leave it untouched rather than risk data loss.
-    return false;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return false;
-  const ws = parsed as Record<string, unknown>;
-
-  // Fold the pnpm-11 `allowBuilds` map into `onlyBuiltDependencies` so it is
-  // hoisted rather than discarded — even when the array twin is absent.
-  normalizeAllowBuilds(ws);
-
-  if (!hoistFields(rootPnpm, ws)) return false;
+  if (!hoistFields(rootWs, ws)) return false;
 
   // A settings-only file (no `packages:`) exists solely to carry these
   // hoisted keys — once emptied it would only declare a nested workspace
   // root, so remove it. A file that declares `packages:` is a real (rare)
   // nested workspace; keep it minus the hoisted keys.
   if (Array.isArray(ws.packages) && ws.packages.length > 0) {
-    filesystem.write(subWsPath, dump(ws));
+    filesystem.write(subWsPath, dump(ws, { lineWidth: -1, sortKeys: false }));
   } else {
     filesystem.remove(subWsPath);
   }
@@ -196,19 +185,16 @@ function isSymlink(path: string): boolean {
 /**
  * Merge two values for a pnpm workspace-scoped field.
  *
- * pnpm expects:
- * - `overrides` → object ({pkg: version})
- * - `onlyBuiltDependencies` → array of strings
- * - `ignoredOptionalDependencies` → array of strings
+ * Arrays (`onlyBuiltDependencies`, `ignoredOptionalDependencies`,
+ * `minimumReleaseAgeExclude`): deduplicated, alphabetically sorted union.
  *
- * Arrays: deduplicated, alphabetically sorted union.
- * Objects: sub-project values take precedence over root (sub-projects
- * like nest-server-starter own the authoritative CVE override list for
- * their transitive deps; the root usually only seeds cross-cutting
- * handlebars/minimatch patches).
+ * Objects (`overrides`, `allowBuilds`): key-by-key merge where sub-project
+ * values take precedence over root (sub-projects like nest-server-starter
+ * own the authoritative CVE override list for their transitive deps; the
+ * root usually only seeds cross-cutting patches).
  */
 function mergePnpmFieldValue(field: PnpmConfigField, rootValue: unknown, subValue: unknown): unknown {
-  if (field === 'onlyBuiltDependencies' || field === 'ignoredOptionalDependencies') {
+  if (isArrayField(field)) {
     const rootArr = Array.isArray(rootValue) ? (rootValue as string[]) : [];
     const subArr = Array.isArray(subValue) ? (subValue as string[]) : [];
     return Array.from(new Set([...rootArr, ...subArr])).sort((a, b) => a.localeCompare(b));
@@ -223,26 +209,52 @@ function mergePnpmFieldValue(field: PnpmConfigField, rootValue: unknown, subValu
   return Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)));
 }
 
-/**
- * Fold a pnpm-11 `allowBuilds: { pkg: boolean }` map into the pnpm-10
- * `onlyBuiltDependencies: string[]` form (packages whose value is `true`),
- * unioned with any existing array, then remove the `allowBuilds` key so the
- * redundant object form does not linger. Mutates `ws` in place.
- *
- * No-op when `allowBuilds` is absent or not an object map — an unexpected
- * shape is left untouched rather than risk silent data loss.
- */
-function normalizeAllowBuilds(ws: Record<string, unknown>): void {
-  const raw = ws[PNPM11_BUILD_KEY];
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
-
-  const allowed = Object.entries(raw as Record<string, unknown>)
-    .filter(([, enabled]) => enabled === true)
-    .map(([pkg]) => pkg);
-  if (allowed.length > 0) {
-    const existing = Array.isArray(ws.onlyBuiltDependencies) ? (ws.onlyBuiltDependencies as string[]) : [];
-    // Order here is irrelevant — mergePnpmFieldValue sorts the union on hoist.
-    ws.onlyBuiltDependencies = Array.from(new Set([...allowed, ...existing]));
+/** Parse a YAML file into a plain object, or null on missing/malformed/non-object. */
+function readYaml(filesystem: GluegunFilesystem, path: string): null | Record<string, unknown> {
+  if (!filesystem.exists(path)) return null;
+  const raw = filesystem.read(path);
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = load(raw);
+  } catch {
+    // Malformed YAML — leave it untouched rather than risk data loss.
+    return null;
   }
-  delete ws[PNPM11_BUILD_KEY];
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * Keep the two build-allowlist forms consistent and complete after hoisting:
+ * - `allowBuilds` (pnpm 11) is a `{ pkg: boolean }` map.
+ * - `onlyBuiltDependencies` (pnpm 10) is a `string[]` of allowed packages.
+ *
+ * Sub-templates carry one or both (nest-server-starter only `allowBuilds`,
+ * nuxt-base-template both). After merging we derive the full set of allowed
+ * packages from BOTH forms and write back canonical, sorted twins so the
+ * allowlist survives whichever key the active pnpm version reads. Explicit
+ * `false` entries in `allowBuilds` are preserved (and excluded from the
+ * array). No-op when neither key is present. Mutates `ws` in place.
+ */
+function syncBuildAllowlists(ws: Record<string, unknown>): void {
+  const arr = Array.isArray(ws.onlyBuiltDependencies) ? (ws.onlyBuiltDependencies as string[]) : [];
+  const obj =
+    ws.allowBuilds && typeof ws.allowBuilds === 'object' && !Array.isArray(ws.allowBuilds)
+      ? (ws.allowBuilds as Record<string, unknown>)
+      : {};
+  if (arr.length === 0 && Object.keys(obj).length === 0) return;
+
+  // Every array entry implies allowBuilds[entry] = true unless already set.
+  const map: Record<string, boolean> = {};
+  for (const [pkg, enabled] of Object.entries(obj)) map[pkg] = enabled === true;
+  for (const pkg of arr) if (map[pkg] === undefined) map[pkg] = true;
+
+  const allowed = Object.entries(map)
+    .filter(([, enabled]) => enabled)
+    .map(([pkg]) => pkg)
+    .sort((a, b) => a.localeCompare(b));
+
+  ws.allowBuilds = Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
+  ws.onlyBuiltDependencies = allowed;
 }

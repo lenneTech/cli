@@ -1,7 +1,15 @@
+import { dump, load } from 'js-yaml';
+
 import { hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
 
 const { filesystem } = require('gluegun');
 
+/**
+ * The hoist destination is the ROOT pnpm-workspace.yaml (pnpm 11 ignores
+ * package.json#pnpm). Root-owned seed settings therefore live in
+ * pnpm-workspace.yaml too; sub-projects may still carry config in either
+ * package.json#pnpm or their own pnpm-workspace.yaml.
+ */
 describe('hoistWorkspacePnpmConfig', () => {
   let tempDir: string;
 
@@ -23,14 +31,17 @@ describe('hoistWorkspacePnpmConfig', () => {
   const writeJson = (path: string, data: unknown): void => {
     filesystem.write(path, JSON.stringify(data, null, 2) + '\n');
   };
-
   const readJson = (path: string): any => JSON.parse(filesystem.read(path) || '{}');
 
+  // Root workspace helpers — the hoist source/destination for root settings.
+  const seedRootWs = (data: Record<string, unknown>): void => {
+    filesystem.write(`${tempDir}/pnpm-workspace.yaml`, dump({ packages: ['projects/*'], ...data }));
+  };
+  const rootWs = (): any => load(filesystem.read(`${tempDir}/pnpm-workspace.yaml`) || '') || {};
+
   it('merges `overrides` from sub-project into root with sub-project precedence', () => {
-    writeJson(`${tempDir}/package.json`, {
-      name: 'root',
-      pnpm: { overrides: { handlebars: '4.7.9', lodash: '4.17.0' } },
-    });
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ overrides: { handlebars: '4.7.9', lodash: '4.17.0' } });
     filesystem.dir(`${tempDir}/projects/api`);
     writeJson(`${tempDir}/projects/api/package.json`, {
       name: 'api',
@@ -39,14 +50,14 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.overrides).toEqual({
+    expect(rootWs().overrides).toEqual({
       axios: '1.15.0',
       handlebars: '4.7.9',
       lodash: '4.18.1', // sub wins
     });
-    const api = readJson(`${tempDir}/projects/api/package.json`);
-    expect(api.pnpm).toBeUndefined();
+    // packages: declaration preserved.
+    expect(rootWs().packages).toEqual(['projects/*']);
+    expect(readJson(`${tempDir}/projects/api/package.json`).pnpm).toBeUndefined();
   });
 
   it('dedupes and sorts `ignoredOptionalDependencies` arrays', () => {
@@ -59,15 +70,12 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.ignoredOptionalDependencies).toEqual(['@img/a', '@img/b']);
+    expect(rootWs().ignoredOptionalDependencies).toEqual(['@img/a', '@img/b']);
   });
 
   it('dedupes and sorts `onlyBuiltDependencies` arrays', () => {
-    writeJson(`${tempDir}/package.json`, {
-      name: 'root',
-      pnpm: { onlyBuiltDependencies: ['sharp', 'esbuild'] },
-    });
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ onlyBuiltDependencies: ['sharp', 'esbuild'] });
     filesystem.dir(`${tempDir}/projects/api`);
     writeJson(`${tempDir}/projects/api/package.json`, {
       name: 'api',
@@ -76,8 +84,22 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.onlyBuiltDependencies).toEqual(['@swc/core', 'bcrypt', 'esbuild', 'sharp']);
+    expect(rootWs().onlyBuiltDependencies).toEqual(['@swc/core', 'bcrypt', 'esbuild', 'sharp']);
+    // allowBuilds twin synced from the array.
+    expect(rootWs().allowBuilds).toEqual({ '@swc/core': true, bcrypt: true, esbuild: true, sharp: true });
+  });
+
+  it('hoists a first-party minimumReleaseAgeExclude glob', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/app`);
+    filesystem.write(
+      `${tempDir}/projects/app/pnpm-workspace.yaml`,
+      ['minimumReleaseAgeExclude:', "  - '@lenne.tech/*'", "  - 'better-auth@1.6.13'", ''].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(rootWs().minimumReleaseAgeExclude).toEqual(['@lenne.tech/*', 'better-auth@1.6.13']);
   });
 
   it('removes the entire `pnpm` section from sub-project when it becomes empty', () => {
@@ -94,14 +116,14 @@ describe('hoistWorkspacePnpmConfig', () => {
     expect(app).not.toHaveProperty('pnpm');
   });
 
-  it('preserves other pnpm fields in the sub-project', () => {
+  it('preserves non-hoisted pnpm fields in the sub-project', () => {
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/api`);
     writeJson(`${tempDir}/projects/api/package.json`, {
       name: 'api',
       pnpm: {
         overrides: { qs: '6.15.1' },
-        peerDependencyRules: { allowedVersions: {} }, // non-workspace-scoped
+        peerDependencyRules: { allowedVersions: {} }, // not workspace-scoped here
       },
     });
 
@@ -112,10 +134,8 @@ describe('hoistWorkspacePnpmConfig', () => {
   });
 
   it('is idempotent — running twice produces the same result', () => {
-    writeJson(`${tempDir}/package.json`, {
-      name: 'root',
-      pnpm: { overrides: { handlebars: '4.7.9' } },
-    });
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ overrides: { handlebars: '4.7.9' } });
     filesystem.dir(`${tempDir}/projects/api`);
     writeJson(`${tempDir}/projects/api/package.json`, {
       name: 'api',
@@ -123,30 +143,28 @@ describe('hoistWorkspacePnpmConfig', () => {
     });
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
-    const firstRoot = filesystem.read(`${tempDir}/package.json`);
+    const firstRoot = filesystem.read(`${tempDir}/pnpm-workspace.yaml`);
     const firstApi = filesystem.read(`${tempDir}/projects/api/package.json`);
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
-    expect(filesystem.read(`${tempDir}/package.json`)).toEqual(firstRoot);
+    expect(filesystem.read(`${tempDir}/pnpm-workspace.yaml`)).toEqual(firstRoot);
     expect(filesystem.read(`${tempDir}/projects/api/package.json`)).toEqual(firstApi);
   });
 
   it('handles missing sub-project gracefully', () => {
-    writeJson(`${tempDir}/package.json`, { name: 'root', pnpm: { overrides: { defu: '6.1.7' } } });
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ overrides: { defu: '6.1.7' } });
     expect(() =>
       hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/does-not-exist'] }),
     ).not.toThrow();
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.overrides).toEqual({ defu: '6.1.7' });
+    expect(rootWs().overrides).toEqual({ defu: '6.1.7' });
   });
 
   // ── pnpm-workspace.yaml source (nuxt-base-template pnpm-11 layout) ──────────
 
-  it('hoists overrides from a sub-project pnpm-workspace.yaml into root package.json', () => {
-    writeJson(`${tempDir}/package.json`, {
-      name: 'root',
-      pnpm: { overrides: { 'fast-xml-parser@<5.7.0': '5.7.3' } },
-    });
+  it('hoists overrides from a sub-project pnpm-workspace.yaml into root', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ overrides: { 'fast-xml-parser@<5.7.0': '5.7.3' } });
     filesystem.dir(`${tempDir}/projects/app`);
     filesystem.write(
       `${tempDir}/projects/app/pnpm-workspace.yaml`,
@@ -168,13 +186,12 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.overrides).toEqual({
+    expect(rootWs().overrides).toEqual({
       'fast-xml-parser@<5.7.0': '5.7.4', // sub wins
       'vite@>=7.0.0 <7.3.2': '7.3.2',
     });
-    expect(root.pnpm.onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
-    expect(root.pnpm.ignoredOptionalDependencies).toEqual(['@img/sharp-linux-x64']);
+    expect(rootWs().onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
+    expect(rootWs().ignoredOptionalDependencies).toEqual(['@img/sharp-linux-x64']);
   });
 
   it('removes a settings-only sub-project pnpm-workspace.yaml after hoisting', () => {
@@ -188,12 +205,10 @@ describe('hoistWorkspacePnpmConfig', () => {
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
     expect(filesystem.exists(`${tempDir}/projects/app/pnpm-workspace.yaml`)).toBe(false);
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.overrides).toEqual({ 'defu@<=6.1.4': '6.1.7' });
+    expect(rootWs().overrides).toEqual({ 'defu@<=6.1.4': '6.1.7' });
   });
 
   it('keeps a sub-project pnpm-workspace.yaml that declares packages, minus hoisted keys', () => {
-    const yaml = require('js-yaml');
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/app`);
     filesystem.write(
@@ -204,10 +219,9 @@ describe('hoistWorkspacePnpmConfig', () => {
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
     expect(filesystem.exists(`${tempDir}/projects/app/pnpm-workspace.yaml`)).toBe('file');
-    const remaining = yaml.load(filesystem.read(`${tempDir}/projects/app/pnpm-workspace.yaml`));
+    const remaining = load(filesystem.read(`${tempDir}/projects/app/pnpm-workspace.yaml`) || '');
     expect(remaining).toEqual({ packages: ['sub/*'] });
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.overrides).toEqual({ 'defu@<=6.1.4': '6.1.7' });
+    expect(rootWs().overrides).toEqual({ 'defu@<=6.1.4': '6.1.7' });
   });
 
   it('merges both package.json#pnpm and pnpm-workspace.yaml across sub-projects', () => {
@@ -226,8 +240,7 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.overrides).toEqual({
+    expect(rootWs().overrides).toEqual({
       axios: '1.15.0',
       'vite@>=7.0.0 <7.3.2': '7.3.2',
     });
@@ -243,10 +256,10 @@ describe('hoistWorkspacePnpmConfig', () => {
     );
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
-    const firstRoot = filesystem.read(`${tempDir}/package.json`);
+    const firstRoot = filesystem.read(`${tempDir}/pnpm-workspace.yaml`);
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
-    expect(filesystem.read(`${tempDir}/package.json`)).toEqual(firstRoot);
+    expect(filesystem.read(`${tempDir}/pnpm-workspace.yaml`)).toEqual(firstRoot);
     expect(filesystem.exists(`${tempDir}/projects/app/pnpm-workspace.yaml`)).toBe(false);
   });
 
@@ -276,13 +289,12 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     // Symlinked source must remain intact and nothing hoisted.
     expect(filesystem.exists(`${realApp}/pnpm-workspace.yaml`)).toBe('file');
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm?.overrides).toBeUndefined();
+    expect(filesystem.exists(`${tempDir}/pnpm-workspace.yaml`)).toBe(false);
   });
 
-  // ── pnpm-11 allowBuilds normalisation ──────────────────────────────────────
+  // ── allowBuilds ↔ onlyBuiltDependencies sync ───────────────────────────────
 
-  it('hoists a pnpm-11 allowBuilds map even without the onlyBuiltDependencies twin', () => {
+  it('derives onlyBuiltDependencies from a pnpm-11 allowBuilds map (no array twin)', () => {
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/app`);
     filesystem.write(
@@ -292,13 +304,12 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
-    // settings-only file is removed after hoisting
+    expect(rootWs().onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
+    expect(rootWs().allowBuilds).toEqual({ esbuild: true, sharp: true });
     expect(filesystem.exists(`${tempDir}/projects/app/pnpm-workspace.yaml`)).toBe(false);
   });
 
-  it('only hoists allowBuilds packages whose value is true', () => {
+  it('only allows allowBuilds packages whose value is true', () => {
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/app`);
     filesystem.write(
@@ -308,11 +319,12 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.onlyBuiltDependencies).toEqual(['esbuild']);
+    expect(rootWs().onlyBuiltDependencies).toEqual(['esbuild']);
+    // explicit false preserved in the map.
+    expect(rootWs().allowBuilds).toEqual({ esbuild: true, puppeteer: false });
   });
 
-  it('unions allowBuilds into an existing onlyBuiltDependencies array', () => {
+  it('unions allowBuilds with an existing onlyBuiltDependencies array', () => {
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/app`);
     filesystem.write(
@@ -322,7 +334,7 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
 
-    const root = readJson(`${tempDir}/package.json`);
-    expect(root.pnpm.onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
+    expect(rootWs().onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
+    expect(rootWs().allowBuilds).toEqual({ esbuild: true, sharp: true });
   });
 });

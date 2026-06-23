@@ -7,6 +7,7 @@ import * as ts from 'typescript';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
+import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import {
   BACKEND_VENDOR_MARKER,
@@ -1643,23 +1644,9 @@ export class Server {
           ].join('');
 
           // Hook vendor-freshness as the first step of check / check:fix /
-          // check:naf. Non-blocking (exit 0 even on mismatch), so it just
-          // surfaces the warning at the top of the log.
-          const hookFreshness = (scriptName: string) => {
-            const existing = scripts[scriptName];
-            if (!existing) return;
-            if (existing.includes('check:vendor-freshness')) return;
-            const installPrefix = 'pnpm install && ';
-            if (existing.startsWith(installPrefix)) {
-              scripts[scriptName] =
-                `${installPrefix}pnpm run check:vendor-freshness && ${existing.slice(installPrefix.length)}`;
-            } else {
-              scripts[scriptName] = `pnpm run check:vendor-freshness && ${existing}`;
-            }
-          };
-          hookFreshness('check');
-          hookFreshness('check:fix');
-          hookFreshness('check:naf');
+          // check:naf (non-blocking; surfaces a warning at the top of the log).
+          // Targets check:raw — never the check.mjs wrapper. See lib helper.
+          hookCheckFreshness(scripts);
         }
 
         filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
@@ -2480,18 +2467,11 @@ export class Server {
       // We only remove deps that are ALSO in nest-server's package.json.
       // For safety, we don't remove any dep the consumer might use directly.
 
-      // Remove vendor-specific scripts
+      // Remove vendor-specific scripts + unhook vendor-freshness (see lib helper).
       const scripts = pkg.scripts || {};
-      delete scripts['check:vendor-freshness'];
       delete scripts['vendor:sync'];
       delete scripts['vendor:propose-upstream'];
-
-      // Unhook vendor-freshness from check / check:fix / check:naf
-      for (const key of ['check', 'check:fix', 'check:naf']) {
-        if (scripts[key] && typeof scripts[key] === 'string') {
-          scripts[key] = scripts[key].replace(/pnpm run check:vendor-freshness && /g, '');
-        }
-      }
+      unhookCheckFreshness(scripts);
 
       // Restore migrate scripts to npm-mode paths
       const migrateCompiler =

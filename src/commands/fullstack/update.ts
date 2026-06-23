@@ -4,6 +4,7 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
+import { healCheckWrapper } from '../../lib/heal-check-wrapper';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
 /**
@@ -194,6 +195,19 @@ const NewCommand: GluegunCommand = {
       for (const changedPath of changedClaudeMd) {
         info(`    ${changedPath}`);
       }
+    }
+
+    // ── Self-heal: install/refresh the report-driven `check` wrapper ──────
+    //
+    // `lt fullstack init` ships `scripts/check.mjs` via the template clone, but
+    // pre-existing projects predate it. This idempotently installs the bundled
+    // wrapper (and rewrites the root `check`/`check:raw`) so a migrated project
+    // gets the quiet, report-driven check too. No-op once already wired.
+    const checkAsset = join(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
+    const changedCheck = healCheckWrapper(cwd, checkAsset);
+    if (changedCheck.length > 0) {
+      info('');
+      success(`  Installed/updated the check wrapper: ${changedCheck.join(', ')}`);
     }
 
     info('');

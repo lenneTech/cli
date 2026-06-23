@@ -1,4 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import {
   buildFrontendVendorBlock,
@@ -443,13 +444,7 @@ export class FrontendHelper {
         // Remove vendor-specific scripts
         if (pkg.scripts && typeof pkg.scripts === 'object') {
           const scripts = pkg.scripts as Record<string, string>;
-          delete scripts['check:vendor-freshness'];
-          // Unhook freshness from check/check:fix/check:naf
-          for (const scriptName of ['check', 'check:fix', 'check:naf']) {
-            if (scripts[scriptName]?.includes('check:vendor-freshness')) {
-              scripts[scriptName] = scripts[scriptName].replace(/pnpm run check:vendor-freshness && /g, '');
-            }
-          }
+          unhookCheckFreshness(scripts);
         }
 
         filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
@@ -664,16 +659,9 @@ export class FrontendHelper {
             '"',
           ].join('');
 
-          // Hook freshness into check scripts
-          const hookFreshness = (scriptName: string) => {
-            const existing = scripts[scriptName];
-            if (!existing) return;
-            if (existing.includes('check:vendor-freshness')) return;
-            scripts[scriptName] = `pnpm run check:vendor-freshness && ${existing}`;
-          };
-          hookFreshness('check');
-          hookFreshness('check:fix');
-          hookFreshness('check:naf');
+          // Hook freshness into the check scripts (targets check:raw, never the
+          // check.mjs wrapper). See the shared lib helper.
+          hookCheckFreshness(scripts);
         }
 
         // Sort dependency maps alphabetically so merged-in entries

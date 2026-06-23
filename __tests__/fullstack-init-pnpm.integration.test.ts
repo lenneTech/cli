@@ -1,3 +1,5 @@
+import { load } from 'js-yaml';
+
 import { hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
 import { buildIdentity } from '../src/lib/dev-identity';
 import { setPackageName } from '../src/lib/package-name';
@@ -8,13 +10,16 @@ const { filesystem } = require('gluegun');
  * Integration test for the `lt fullstack init` post-clone fixups, exercised
  * on a faithful reproduction of a freshly cloned monorepo:
  *
- *   - root           lt-monorepo package.json (name = "lt-monorepo")
+ *   - root           lt-monorepo (pnpm 11): pnpm settings in pnpm-workspace.yaml
  *   - projects/api   nest-server-starter — pnpm config in package.json#pnpm
  *   - projects/app   nuxt-base-template (pnpm-11) — pnpm config in
  *                    pnpm-workspace.yaml, including the allowBuilds object map
+ *                    and a first-party minimumReleaseAgeExclude glob
  *
  * It runs the two fixups in the same order `init.ts` does (rename root, then
- * hoist) and asserts the resulting workspace is consistent end-to-end.
+ * hoist) and asserts the resulting workspace is consistent end-to-end:
+ * everything lands in the ROOT pnpm-workspace.yaml (pnpm 11 ignores
+ * package.json#pnpm), and the build-allowlist twins stay in sync.
  */
 describe('fullstack init pnpm/identity fixups (integration)', () => {
   let tempDir: string;
@@ -38,16 +43,21 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
     filesystem.write(path, JSON.stringify(data, null, 2) + '\n');
   };
   const readJson = (path: string): any => JSON.parse(filesystem.read(path) || '{}');
+  const readYaml = (path: string): any => load(filesystem.read(path) || '') || {};
 
   function scaffoldClonedMonorepo(root: string): void {
-    // Root: as cloned from lt-monorepo, pnpm-10 pinned.
+    // Root: as cloned from lt-monorepo (pnpm 11). Workspace-scoped settings
+    // live in pnpm-workspace.yaml; it seeds one of its own overrides.
     writeJson(`${root}/package.json`, {
       name: 'lt-monorepo',
-      packageManager: 'pnpm@10.0.0',
+      packageManager: 'pnpm@11.5.1',
       private: true,
       version: '1.0.0',
     });
-    filesystem.write(`${root}/pnpm-workspace.yaml`, ['packages:', "  - 'projects/*'", ''].join('\n'));
+    filesystem.write(
+      `${root}/pnpm-workspace.yaml`,
+      ['packages:', "  - 'projects/*'", 'overrides:', "  'fast-xml-parser@<5.7.0': 5.7.3", ''].join('\n'),
+    );
 
     // API: nest-server-starter ships pnpm overrides inside package.json.
     filesystem.dir(`${root}/projects/api`);
@@ -55,31 +65,33 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
       name: 'nest-base',
       pnpm: {
         onlyBuiltDependencies: ['@nestjs/core'],
-        overrides: { 'fast-xml-parser@<5.7.0': '5.7.3' },
+        overrides: { 'fast-xml-parser@<5.7.0': '5.7.4' },
       },
     });
 
     // APP: nuxt-base-template (pnpm-11) keeps config in pnpm-workspace.yaml,
-    // carrying the allowBuilds object map but NOT the onlyBuiltDependencies
-    // array twin — the regression the normalisation guards against.
+    // carrying the allowBuilds object map (NOT the onlyBuiltDependencies array
+    // twin) and a first-party minimumReleaseAgeExclude glob.
     filesystem.dir(`${root}/projects/app`);
     filesystem.write(
       `${root}/projects/app/pnpm-workspace.yaml`,
       [
         'overrides:',
         "  'vite@>=7.0.0 <7.3.2': 7.3.2",
-        "  'fast-xml-parser@<5.7.0': 5.7.4",
+        "  'fast-xml-parser@<5.7.0': 5.7.5",
         'ignoredOptionalDependencies:',
         "  - '@img/sharp-linux-x64'",
         'allowBuilds:',
         '  esbuild: true',
         '  sharp: true',
+        'minimumReleaseAgeExclude:',
+        "  - '@lenne.tech/*'",
         '',
       ].join('\n'),
     );
   }
 
-  it('renames the root package and hoists pnpm config from both sub-project sources', () => {
+  it('renames root and hoists pnpm config from both sources into root pnpm-workspace.yaml', () => {
     const projectDir = `${tempDir}/crm`;
     filesystem.dir(projectDir);
     scaffoldClonedMonorepo(projectDir);
@@ -90,28 +102,38 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
     // ── Step 2: hoist workspace-scoped pnpm config (init.ts).
     hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
 
-    const root = readJson(`${projectDir}/package.json`);
+    const ws = readYaml(`${projectDir}/pnpm-workspace.yaml`);
 
     // Root renamed → unique lt dev slug (no more lt-monorepo collision).
-    expect(root.name).toBe('crm');
+    expect(readJson(`${projectDir}/package.json`).name).toBe('crm');
     expect(buildIdentity(projectDir).slug).toBe('crm');
 
-    // overrides merged across both sources, app (sub) wins on the shared key.
-    expect(root.pnpm.overrides).toEqual({
-      'fast-xml-parser@<5.7.0': '5.7.4',
+    // packages: declaration preserved.
+    expect(ws.packages).toEqual(['projects/*']);
+
+    // overrides merged across root seed + both sub sources; the later sub
+    // (app) wins on the shared fast-xml-parser key.
+    expect(ws.overrides).toEqual({
+      'fast-xml-parser@<5.7.0': '5.7.5',
       'vite@>=7.0.0 <7.3.2': '7.3.2',
     });
 
-    // onlyBuiltDependencies = api array ∪ app allowBuilds (normalised).
-    expect(root.pnpm.onlyBuiltDependencies).toEqual(['@nestjs/core', 'esbuild', 'sharp']);
-    expect(root.pnpm.ignoredOptionalDependencies).toEqual(['@img/sharp-linux-x64']);
+    // Build-allowlist twins synced: api array ∪ app allowBuilds.
+    expect(ws.onlyBuiltDependencies).toEqual(['@nestjs/core', 'esbuild', 'sharp']);
+    expect(ws.allowBuilds).toEqual({ '@nestjs/core': true, esbuild: true, sharp: true });
+
+    expect(ws.ignoredOptionalDependencies).toEqual(['@img/sharp-linux-x64']);
+
+    // First-party minimum-release-age exemption hoisted (would otherwise be
+    // dropped, blocking freshly published @lenne.tech packages in the monorepo).
+    expect(ws.minimumReleaseAgeExclude).toEqual(['@lenne.tech/*']);
+
+    // Settings did NOT leak into package.json#pnpm (pnpm 11 would ignore them).
+    expect(readJson(`${projectDir}/package.json`).pnpm).toBeUndefined();
 
     // Sub-project sources cleaned up.
     expect(readJson(`${projectDir}/projects/api/package.json`).pnpm).toBeUndefined();
     expect(filesystem.exists(`${projectDir}/projects/app/pnpm-workspace.yaml`)).toBe(false);
-
-    // Root workspace declaration is untouched (only the nested one is removed).
-    expect(filesystem.exists(`${projectDir}/pnpm-workspace.yaml`)).toBe('file');
   });
 
   it('is idempotent across the whole init fixup sequence', () => {
@@ -125,8 +147,8 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
     };
 
     run();
-    const afterFirst = filesystem.read(`${projectDir}/package.json`);
+    const afterFirst = filesystem.read(`${projectDir}/pnpm-workspace.yaml`);
     run();
-    expect(filesystem.read(`${projectDir}/package.json`)).toBe(afterFirst);
+    expect(filesystem.read(`${projectDir}/pnpm-workspace.yaml`)).toBe(afterFirst);
   });
 });
