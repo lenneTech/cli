@@ -4,6 +4,7 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
 import { envBridgePath } from '../../lib/dev-env-bridge';
+import { pickPackageManager } from '../../lib/dev-package-manager';
 import { runChildInherit } from '../../lib/dev-process';
 import { appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import {
@@ -78,7 +79,6 @@ const TestCommand: GluegunCommand = {
     const keep = Boolean(parameters.options.keep) || parameters.options.teardown === false;
     const debug = Boolean(parameters.options.debug);
     const forwarded = parameters.array || [];
-    const pnpmBin = process.env.LT_PNPM_BIN || 'pnpm';
     // `--shard N` → run the suite split across N fully-isolated stacks in
     // parallel. A bare `--shard` defaults to 2 — the stable sweet spot for a
     // heavy built-SSR suite (N>=3 over-subscribes the perf cores → flaky; see
@@ -102,7 +102,8 @@ const TestCommand: GluegunCommand = {
         return 'dev test: no api';
       }
       info(colors.bold(`Running API tests for "${identity.slug}" (isolated DB)`));
-      const code = await runChildInherit(pnpmBin, ['run', 'test:e2e', ...forwarded], {
+      const apiPm = pickPackageManager(layout.apiDir);
+      const code = await runChildInherit(apiPm.bin, apiPm.runScript('test:e2e', forwarded), {
         cwd: layout.apiDir,
         env: process.env,
       });
@@ -170,10 +171,11 @@ const TestCommand: GluegunCommand = {
       try {
         info('');
         info(colors.bold(`Running isolated Playwright E2E for "${identity.slug}" sharded across ${shardTotal} stacks`));
+        const shardPm = pickPackageManager(layout.appDir);
         shardExit = await runShardedTestSession(layout, identity, log, {
           devDbName,
           forwarded,
-          pnpmBin,
+          pm: shardPm,
           total: shardTotal,
         });
       } catch (e) {
@@ -231,7 +233,11 @@ const TestCommand: GluegunCommand = {
       info(colors.dim(`  app: ${ctx.appUrl}   db: ${ctx.dbName}`));
       info('');
 
-      exitCode = await runChildInherit(pnpmBin, ['run', 'test:e2e', ...forwarded], { cwd: layout.appDir, env });
+      const appPm = pickPackageManager(layout.appDir);
+      exitCode = await runChildInherit(appPm.bin, appPm.runScript('test:e2e', forwarded), {
+        cwd: layout.appDir,
+        env,
+      });
     } catch (e) {
       error(`Failed to run isolated E2E: ${(e as Error).message}`);
       exitCode = 1;

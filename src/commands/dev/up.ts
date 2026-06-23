@@ -6,6 +6,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable, caddyDaemonRunning, CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
+import { pickPackageManager } from '../../lib/dev-package-manager';
 import { addToGitignore, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
 import { killProcessGroup, listenSnapshot, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
@@ -345,7 +346,6 @@ const UpCommand: GluegunCommand = {
       identity,
     });
 
-    const pnpmBin = process.env.LT_PNPM_BIN || 'pnpm';
     const pids: { api?: number; app?: number } = {};
     const rotationNotes: string[] = [];
     const started: string[] = [];
@@ -368,7 +368,12 @@ const UpCommand: GluegunCommand = {
         kept.push('api');
       } else {
         await reclaimPort(existingSession?.pids.api, apiPort, apiHealth ?? 'dead');
-        const apiResult = spawnDetached(pnpmBin, ['start'], {
+        // Per-component PM detection: a monorepo may have an npm api and a
+        // pnpm app, and the legacy hard-coded `pnpm start` would silently
+        // regenerate a foreign lockfile + crash on un-approved build
+        // scripts when run against an npm-only project.
+        const apiPm = pickPackageManager(layout.apiDir);
+        const apiResult = spawnDetached(apiPm.bin, apiPm.runScript('start'), {
           cwd: layout.apiDir,
           env: devEnv.api.env,
           logFile: join(layout.root, '.lt-dev', 'api.log'),
@@ -390,7 +395,8 @@ const UpCommand: GluegunCommand = {
         kept.push('app');
       } else {
         await reclaimPort(existingSession?.pids.app, appPort, appHealth ?? 'dead');
-        const appResult = spawnDetached(pnpmBin, ['dev'], {
+        const appPm = pickPackageManager(layout.appDir);
+        const appResult = spawnDetached(appPm.bin, appPm.runScript('dev'), {
           cwd: layout.appDir,
           env: devEnv.app.env,
           logFile: join(layout.root, '.lt-dev', 'app.log'),

@@ -23,6 +23,7 @@ import { tmpdir } from 'os';
 import { basename, dirname, join } from 'path';
 
 import { buildIdentity, buildTicketIdentity, DevIdentity, slugify } from './dev-identity';
+import { pickPackageManager } from './dev-package-manager';
 import { autoPatch } from './dev-patches';
 import { deriveDbName, deriveTicketDbName, DevProjectLayout } from './dev-project';
 import { paths } from './dev-state';
@@ -230,11 +231,17 @@ export function listWorktrees(repoDir: string): WorktreeInfo[] {
   return result;
 }
 
-/** Install dependencies in a freshly-created worktree (pnpm hard-links from the shared store → fast). */
-export function pnpmInstall(dir: string): void {
-  const pnpmBin = process.env.LT_PNPM_BIN || 'pnpm';
-  execFileSync(pnpmBin, ['install'], { cwd: dir, stdio: 'inherit' });
+/**
+ * Install dependencies in a freshly-created worktree. Auto-detects the
+ * project's package manager from its lockfile (pnpm hard-links from the
+ * shared store → fast; npm + yarn install normally). Falls back to pnpm
+ * for fresh scaffolds without a lockfile yet.
+ */
+export function installWorktreeDeps(dir: string): void {
+  const pm = pickPackageManager(dir);
+  execFileSync(pm.bin, pm.installArgs, { cwd: dir, stdio: 'inherit' });
 }
+
 
 /** Read the ticket id this worktree is tagged with, or null. */
 export function readTicketMarker(root: string): null | string {

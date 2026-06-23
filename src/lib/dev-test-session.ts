@@ -30,6 +30,7 @@ import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
 import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
+import { type PackageManagerCommand, pickPackageManager } from './dev-package-manager';
 import { autoPatch } from './dev-patches';
 import {
   listenSnapshot,
@@ -223,16 +224,18 @@ export async function bringUpTestSession(
     identity: testIdentity,
   });
 
-  const pnpmBin = process.env.LT_PNPM_BIN || 'pnpm';
   const pids: { api?: number; app?: number } = {};
 
-  // --- API: compiled (`node dist`) for stability; fall back to `pnpm start`.
-  // `skipBuild` (sibling shards) reuses the dist the first shard produced. ---
+  // --- API: compiled (`node dist`) for stability; fall back to the project's
+  // own dev start script. `skipBuild` (sibling shards) reuses the dist the
+  // first shard produced. Per-component PM detection mirrors `lt dev up`:
+  // a monorepo with an npm api and a pnpm app must drive each correctly. ---
   if (layout.apiDir && apiPort) {
+    const apiPm = pickPackageManager(layout.apiDir);
     let build: null | number = 0;
     if (!skipBuild) {
       log.info(log.dim('Building API (compiled, for stable long runs) …'));
-      build = await runChildInherit(pnpmBin, ['run', 'build'], { cwd: layout.apiDir, env: process.env });
+      build = await runChildInherit(apiPm.bin, apiPm.runScript('build'), { cwd: layout.apiDir, env: process.env });
     }
     const entry = ['dist/src/main.js', 'dist/main.js']
       .map((rel) => join(layout.apiDir as string, rel))
@@ -246,8 +249,8 @@ export async function bringUpTestSession(
         logFile: join(layout.root, '.lt-dev', names.apiLog),
       });
     } else {
-      log.warn('compiled API not available — falling back to `pnpm start` (ts-node).');
-      apiSpawn = spawnDetached(pnpmBin, ['start'], {
+      log.warn(`compiled API not available — falling back to \`${apiPm.bin} start\` (ts-node).`);
+      apiSpawn = spawnDetached(apiPm.bin, apiPm.runScript('start'), {
         cwd: layout.apiDir,
         env: apiEnv,
         logFile: join(layout.root, '.lt-dev', names.apiLog),
@@ -265,10 +268,14 @@ export async function bringUpTestSession(
   // must be a cross-subdomain DOMAIN cookie — see the project's parseCookieHeader).
   // Rebuilt every run so the suite never hits stale code (no build-skip / reuse). ---
   if (layout.appDir && appPort) {
+    const appPm = pickPackageManager(layout.appDir);
     let appBuild: null | number = 0;
     if (!skipBuild) {
       log.info(log.dim('Building App (nuxt build, for speed + prod-fidelity) …'));
-      appBuild = await runChildInherit(pnpmBin, ['run', 'build'], { cwd: layout.appDir, env: devEnv.app.env });
+      appBuild = await runChildInherit(appPm.bin, appPm.runScript('build'), {
+        cwd: layout.appDir,
+        env: devEnv.app.env,
+      });
     }
     const appEntry = ['.output/server/index.mjs']
       .map((rel) => join(layout.appDir as string, rel))
@@ -281,8 +288,8 @@ export async function bringUpTestSession(
         logFile: join(layout.root, '.lt-dev', names.appLog),
       });
     } else {
-      log.warn('built app not available — falling back to `pnpm dev` (slower: cold-compiles routes).');
-      appSpawn = spawnDetached(pnpmBin, ['dev'], {
+      log.warn(`built app not available — falling back to \`${appPm.bin} dev\` (slower: cold-compiles routes).`);
+      appSpawn = spawnDetached(appPm.bin, appPm.runScript('dev'), {
         cwd: layout.appDir,
         env: devEnv.app.env,
         logFile: join(layout.root, '.lt-dev', names.appLog),
@@ -363,7 +370,7 @@ export async function runShardedTestSession(
   layout: DevProjectLayout,
   baseIdentity: DevIdentity,
   log: TestSessionLogger,
-  opts: { devDbName?: string; forwarded: string[]; pnpmBin: string; total: number },
+  opts: { devDbName?: string; forwarded: string[]; pm: PackageManagerCommand; total: number },
 ): Promise<number> {
   const total = Math.max(2, Math.floor(opts.total));
   const contexts: Array<{ ctx: TestSessionContext; index: number }> = [];
@@ -396,13 +403,20 @@ export async function runShardedTestSession(
         MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}`,
       };
       const logFile = join(layout.root, '.lt-dev', `shard.${index}.test.log`);
-      // Invoke Playwright DIRECTLY via `pnpm exec` (NOT `pnpm run test:e2e -- …`):
-      // forwarding option flags through `pnpm run`'s `--` is unreliable — pnpm
-      // passed the separator on to Playwright, which then read `--shard`/
-      // `--reporter` as file FILTERS (not options) → every shard ran the whole
-      // suite. `pnpm exec` hands args straight to the binary (mirrors CI).
-      const args = ['exec', 'playwright', 'test', `--shard=${index}/${total}`, '--reporter=line', ...opts.forwarded];
-      const code = await runChildToFile(opts.pnpmBin, args, { cwd: appDir, env, logFile });
+      // Invoke Playwright DIRECTLY via the manager's `exec` (NOT `<pm> run
+      // test:e2e -- …`): forwarding option flags through `<pm> run`'s `--`
+      // is unreliable — pnpm passed the separator on to Playwright, which
+      // then read `--shard` / `--reporter` as file FILTERS (not options) →
+      // every shard ran the whole suite. `<pm> exec` hands args straight
+      // to the binary (mirrors CI); the helper inserts `--` for npm so
+      // those flags don't get re-parsed as npm's own.
+      const args = opts.pm.exec('playwright', [
+        'test',
+        `--shard=${index}/${total}`,
+        '--reporter=line',
+        ...opts.forwarded,
+      ]);
+      const code = await runChildToFile(opts.pm.bin, args, { cwd: appDir, env, logFile });
       return { code, index, logFile };
     }),
   );

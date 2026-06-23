@@ -11,7 +11,7 @@ import {
   deriveTicketId,
   gitFetch,
   gitMainRepoRoot,
-  pnpmInstall,
+  installWorktreeDeps,
   worktreeAdd,
   worktreePathFor,
   writeTicketMarker,
@@ -105,13 +105,15 @@ const StartCommand: GluegunCommand = {
     // 2. tag the worktree with its ticket id (makes lt dev * ticket-aware).
     writeTicketMarker(worktreePath, id);
 
-    // 3. install deps (pnpm hard-links from the shared store → fast).
+    // 3. install deps. Auto-detects pnpm/yarn/npm from the worktree's
+    // lockfile so an npm-only repo doesn't get a foreign pnpm-lock
+    // injected on every ticket start.
     if (parameters.options.install !== false) {
-      info(colors.dim('Installing dependencies (pnpm) …'));
+      info(colors.dim('Installing dependencies …'));
       try {
-        pnpmInstall(worktreePath);
+        installWorktreeDeps(worktreePath);
       } catch (e) {
-        warning(`pnpm install failed (${(e as Error).message}) — continuing; run it manually in the worktree.`);
+        warning(`install failed (${(e as Error).message}) — continuing; run it manually in the worktree.`);
       }
     }
 
