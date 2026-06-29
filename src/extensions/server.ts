@@ -1168,6 +1168,20 @@ export class Server {
       // deps should still cover most of the framework's needs.
     }
 
+    // Snapshot the upstream lockfile too. The shallow clone ships
+    // pnpm-lock.yaml, which pins EXACT versions for every transitive
+    // dependency the vendored core imports directly (cron, jose,
+    // fs-capacitor, graphql-ws, ws, …) but that nest-server never declares
+    // as a direct dep. Step 5b below resolves the core's import closure
+    // against this so those packages become direct project deps.
+    let upstreamLockRaw = '';
+    try {
+      upstreamLockRaw = filesystem.read(`${tmpClone}/pnpm-lock.yaml`) || '';
+    } catch {
+      // Best-effort — without the lockfile, the closure step falls back to
+      // the upstream package.json ranges (still better than nothing).
+    }
+
     // Snapshot the upstream CLAUDE.md for section-merge into projects/api/CLAUDE.md.
     // The nest-server CLAUDE.md contains framework-specific instructions that
     // Claude Code needs to work correctly with the vendored source (API conventions,
@@ -1602,6 +1616,26 @@ export class Server {
           }
         }
 
+        // ── 5b. Backfill the vendored core's transitive import closure ──
+        //
+        // The merge above only covers nest-server's *declared* dependencies.
+        // The vendored core ALSO imports packages that used to arrive
+        // transitively through the @lenne.tech/nest-server npm dep
+        // (cron←@nestjs/schedule, jose←better-auth, fs-capacitor←graphql-upload,
+        // graphql-ws / ws). Once vendored, those imports are direct, so under
+        // pnpm's isolated node_modules they are unresolvable unless declared
+        // as direct deps → TS2307 at build time. Scan the core's bare imports
+        // and add any missing package (+ matching @types) at the EXACT version
+        // pinned by the upstream lockfile.
+        this.gatherVendorCoreImportClosure({
+          coreDir,
+          deps,
+          devDeps,
+          lockRaw: upstreamLockRaw,
+          upstreamDeps,
+          upstreamDevDeps,
+        });
+
         // Add a script to run the local bin/migrate.js. The starter's
         // existing migrate:* scripts are already correct for npm mode; we
         // need them pointing at the local bin + local ts-compiler.
@@ -1902,7 +1936,16 @@ export class Server {
     // Scan all consumer files for stale bare-specifier imports that the
     // codemod should have rewritten. A single miss causes a compile error,
     // so catching it here with a clear message saves the user debugging time.
-    const staleImports = this.findStaleImports(dest, '@lenne.tech/nest-server');
+    const staleImports = this.findStaleImports(
+      dest,
+      '@lenne.tech/nest-server',
+      // Match only real import/export/require specifiers in single/double
+      // quotes — NOT comment references like
+      // `node_modules/@lenne.tech/nest-server/...` (backticks, no keyword),
+      // which the codemod legitimately leaves untouched. A naive substring
+      // match flagged config.env.ts's JSDoc path as a false positive.
+      /(?:from|import|export|require)\s*\(?\s*['"]@lenne\.tech\/nest-server(?:\/[^'"]*)?['"]/,
+    );
     if (staleImports.length > 0) {
       const { print } = this.toolbox;
       print.warning(
@@ -2631,6 +2674,194 @@ export class Server {
       }
     }
     return stale;
+  }
+
+  /**
+   * Backfills the vendored core's transitive import closure into the
+   * project's dependencies. After vendoring, `src/core/**` imports packages
+   * that previously arrived transitively via the `@lenne.tech/nest-server`
+   * npm dependency (e.g. `cron`, `jose`, `fs-capacitor`, `graphql-ws`,
+   * `ws`). nest-server never declares these as direct deps, so the
+   * upstream-deps merge misses them — yet the vendored code imports them
+   * directly, which pnpm's isolated node_modules cannot resolve → TS2307 at
+   * build time.
+   *
+   * Scans every `.ts` file under the vendored core for bare import
+   * specifiers, drops Node builtins and already-declared packages, and adds
+   * the remainder (plus any matching `@types/*`) using EXACT versions read
+   * from the upstream `pnpm-lock.yaml`. Mutates `deps`/`devDeps` in place.
+   */
+  private gatherVendorCoreImportClosure(options: {
+    coreDir: string;
+    deps: Record<string, string>;
+    devDeps: Record<string, string>;
+    lockRaw: string;
+    upstreamDeps: Record<string, string>;
+    upstreamDevDeps: Record<string, string>;
+  }): void {
+    const { coreDir, deps, devDeps, lockRaw, upstreamDeps, upstreamDevDeps } = options;
+    const { print } = this.toolbox;
+    const builtins = new Set<string>(require('module').builtinModules);
+
+    // Compare two dotted versions numerically (major.minor.patch) — used to
+    // pick the highest when the lockfile pins multiple copies (e.g. ws 7/8).
+    const compareVersions = (a: string, b: string): number => {
+      const pa = a.split('.').map((n) => parseInt(n, 10) || 0);
+      const pb = b.split('.').map((n) => parseInt(n, 10) || 0);
+      for (let i = 0; i < 3; i++) {
+        if ((pa[i] || 0) !== (pb[i] || 0)) {
+          return (pa[i] || 0) - (pb[i] || 0);
+        }
+      }
+      return 0;
+    };
+
+    // Parse `<name>@<version>` keys from the lockfile's `packages:` section
+    // into a name→version map (highest version wins). pnpm-lock v9 lists
+    // every package (direct + transitive) there with a clean 2-space indent.
+    const parseLockVersions = (raw: string): Record<string, string> => {
+      const map: Record<string, string> = {};
+      let inPackages = false;
+      for (const line of raw.split('\n')) {
+        if (/^packages:\s*$/.test(line)) {
+          inPackages = true;
+          continue;
+        }
+        if (inPackages && /^\S/.test(line)) {
+          break; // reached the next top-level section
+        }
+        if (!inPackages) {
+          continue;
+        }
+        const matched = line.match(/^ {2}(['"]?)(.+?)\1:\s*$/);
+        if (!matched) {
+          continue;
+        }
+        let key = matched[2] || '';
+        const paren = key.indexOf('('); // strip pnpm peer suffix
+        if (paren >= 0) {
+          key = key.slice(0, paren);
+        }
+        const at = key.lastIndexOf('@');
+        if (at <= 0) {
+          continue;
+        }
+        const name = key.slice(0, at);
+        const version = key.slice(at + 1);
+        if (!/^\d/.test(version)) {
+          continue; // ranges / non-versions
+        }
+        const current = map[name];
+        if (!current || compareVersions(version, current) > 0) {
+          map[name] = version;
+        }
+      }
+      return map;
+    };
+
+    // Reduce an import specifier to its package name (or null for relative
+    // paths and Node builtins, which need no dependency entry).
+    const packageNameOf = (spec: string): null | string => {
+      if (!spec || spec.startsWith('.') || spec.startsWith('/')) {
+        return null;
+      }
+      const bare = spec.startsWith('node:') ? spec.slice('node:'.length) : spec;
+      const parts = bare.split('/');
+      const name = bare.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0] || '';
+      // Drop Node builtins, the framework package itself (never a dependency
+      // of its own vendored code), and anything that is not a syntactically
+      // valid npm package name (defensive guard).
+      if (!name || builtins.has(name) || name === '@lenne.tech/nest-server') {
+        return null;
+      }
+      return /^(?:@[\w.~-]+\/)?[\w.~-]+$/.test(name) ? name : null;
+    };
+
+    // Collect every bare specifier imported by the vendored core. Parse the
+    // TypeScript AST (ts-morph) rather than scanning text, so that prose in
+    // comments/strings — a JSDoc `import … from '@lenne.tech/nest-server'`
+    // example, or an English `… distinguishable from "never set"` — is never
+    // mistaken for a real import (which a naive regex did).
+    const imported = new Set<string>();
+    const { Project, SyntaxKind } = require('ts-morph');
+    const scanProject = new Project({
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true,
+    });
+    const sourceFiles = scanProject.addSourceFilesAtPaths(`${coreDir}/**/*.ts`);
+    for (const sourceFile of sourceFiles) {
+      // `import … from 'x'` and `export … from 'x'`
+      for (const decl of [...sourceFile.getImportDeclarations(), ...sourceFile.getExportDeclarations()]) {
+        const spec = decl.getModuleSpecifierValue();
+        const name = spec ? packageNameOf(spec) : null;
+        if (name) {
+          imported.add(name);
+        }
+      }
+      // `import x = require('x')`
+      for (const decl of sourceFile.getDescendantsOfKind(SyntaxKind.ImportEqualsDeclaration)) {
+        const ref = decl
+          .getModuleReference()
+          .getText()
+          .match(/^require\(\s*['"]([^'"]+)['"]\s*\)$/);
+        const name = ref ? packageNameOf(ref[1] || '') : null;
+        if (name) {
+          imported.add(name);
+        }
+      }
+      // Dynamic `import('x')` / `require('x')` calls
+      for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        const callee = call.getExpression().getText();
+        if (callee !== 'import' && callee !== 'require') {
+          continue;
+        }
+        const arg = call.getArguments()[0];
+        if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
+          const name = packageNameOf(arg.getLiteralText());
+          if (name) {
+            imported.add(name);
+          }
+        }
+      }
+    }
+
+    const lockVersions = parseLockVersions(lockRaw);
+    const added: string[] = [];
+    const unresolved: string[] = [];
+    for (const name of [...imported].sort()) {
+      if (name in deps || name in devDeps) {
+        continue; // already declared by the starter or the upstream merge
+      }
+      const version = lockVersions[name] || upstreamDeps[name] || upstreamDevDeps[name];
+      if (!version) {
+        unresolved.push(name);
+        continue;
+      }
+      deps[name] = version;
+      added.push(`${name}@${version}`);
+
+      // Add a matching @types/* (for packages that ship no own types) so the
+      // vendored core type-checks. Handles scoped names
+      // (@scope/x → @types/scope__x) too.
+      const typesName = name.startsWith('@') ? `@types/${name.slice(1).replace('/', '__')}` : `@types/${name}`;
+      if (!(typesName in deps) && !(typesName in devDeps)) {
+        const typesVersion = lockVersions[typesName] || upstreamDevDeps[typesName];
+        if (typesVersion) {
+          devDeps[typesName] = typesVersion;
+        }
+      }
+    }
+
+    if (added.length > 0) {
+      print.info(`  vendored core closure: added ${added.length} transitive dep(s) → ${added.join(', ')}`);
+    }
+    if (unresolved.length > 0) {
+      print.warning(
+        `⚠ ${unresolved.length} vendored-core import(s) could not be resolved to a version ` +
+          `(absent from the upstream lock and package.json): ${unresolved.join(', ')}. ` +
+          'Add them to projects/api/package.json manually if the build fails.',
+      );
+    }
   }
 
   /**

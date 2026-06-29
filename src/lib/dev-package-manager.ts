@@ -29,10 +29,6 @@ export type PackageManager = 'npm' | 'pnpm' | 'yarn';
 export interface PackageManagerCommand {
   /** Binary to spawn (just the name; resolved via PATH). */
   bin: string;
-  /** Argv to invoke `<bin> install` portably. */
-  installArgs: string[];
-  /** The detected manager — useful for log lines. */
-  name: PackageManager | 'unknown';
   /**
    * Argv to execute a project-local binary portably. `exec('playwright',
    * ['test'])` → `['exec', 'playwright', 'test']` for pnpm/yarn and
@@ -43,6 +39,10 @@ export interface PackageManagerCommand {
    * argv survives the shard-flag forwarding (CI-parity).
    */
   exec(binary: string, args?: readonly string[]): string[];
+  /** Argv to invoke `<bin> install` portably. */
+  installArgs: string[];
+  /** The detected manager — useful for log lines. */
+  name: 'unknown' | PackageManager;
   /**
    * Argv to run a package.json script portably. `runScript('dev')` →
    * `['run', 'dev']` for npm/yarn, `['dev']` for pnpm. Always uses
@@ -80,7 +80,7 @@ export function pickPackageManager(cwd: string, env: NodeJS.ProcessEnv = process
   return buildCommand('pnpm', 'pnpm');
 }
 
-function buildCommand(bin: string, name: PackageManager | 'unknown'): PackageManagerCommand {
+function buildCommand(bin: string, name: 'unknown' | PackageManager): PackageManagerCommand {
   const isNpm = name === 'npm';
   return {
     bin,
@@ -103,7 +103,7 @@ function buildCommand(bin: string, name: PackageManager | 'unknown'): PackageMan
   };
 }
 
-function inferNameFromBin(bin: string): PackageManager | 'unknown' {
+function inferNameFromBin(bin: string): 'unknown' | PackageManager {
   const lower = bin.toLowerCase();
   if (lower.endsWith('pnpm') || lower.includes('/pnpm')) {
     return 'pnpm';

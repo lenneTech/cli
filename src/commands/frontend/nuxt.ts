@@ -7,7 +7,7 @@ import { runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
  * Create a new nuxt workspace
  *
  * Standalone counterpart to `lt fullstack init` / `lt fullstack add-app`
- * for Nuxt: clones nuxt-base-starter (or invokes create-nuxt-base) into
+ * for Nuxt: clones nuxt-base-starter into
  * a brand-new directory. Mirrors the same surface area as add-app where
  * applicable so behaviour is consistent across the four flows.
  */
@@ -185,7 +185,7 @@ const NewCommand: GluegunCommand = {
       info('Dry-run plan:');
       info(`  name:                       ${projName}`);
       info(`  projectDir:                 ${projectDir}`);
-      info(`  branch:                     ${branch || '(default — uses create-nuxt-base)'}`);
+      info(`  branch:                     ${branch || '(default branch)'}`);
       info(`  copy:                       ${copyPath || '(none)'}`);
       info(`  link:                       ${linkPath || '(none)'}`);
       info(`  frontendFrameworkMode:      ${frontendFrameworkMode}`);
@@ -196,10 +196,8 @@ const NewCommand: GluegunCommand = {
         info(`  1. symlink ${linkPath} → ./${projectDir}`);
       } else if (copyPath) {
         info(`  1. copy ${copyPath} → ./${projectDir}`);
-      } else if (branch) {
-        info(`  1. clone nuxt-base-starter (branch: ${branch}) → ./${projectDir}`);
       } else {
-        info(`  1. exec create-nuxt-base@latest → ./${projectDir}`);
+        info(`  1. clone nuxt-base-starter (${branch ? `branch: ${branch}` : 'default branch'}) → ./${projectDir}`);
       }
       if (frontendFrameworkMode === 'vendor') {
         info(`  2. clone @lenne.tech/nuxt-extensions → /tmp`);
@@ -223,7 +221,7 @@ const NewCommand: GluegunCommand = {
       branch,
       copyPath,
       linkPath,
-      skipInstall: true, // Nuxt standalone doesn't need npm install (create-nuxt-base handles it)
+      skipInstall: false, // clone-based setup installs here (create-nuxt-base no longer used)
     });
 
     if (!result.success) {

@@ -261,9 +261,14 @@ export function upsertVendorBlock(content: string, marker: string, newBlock: str
   return content.replace(blockRegex(marker), newBlock);
 }
 
-/** Join block lines into the canonical `marker … --- ` shape (ends with `---\n`). */
+/** Join block lines into the canonical `marker … --- ` shape (ends with `---\n\n`). */
 function block(lines: string[]): string {
-  return [...lines, '', '---', ''].join('\n');
+  // Blank line AFTER the `---` too, so the prepended block is separated from
+  // the following template heading by an empty line — oxfmt requires a blank
+  // line between a thematic break and a heading, otherwise `format:check`
+  // fails on a freshly vendored CLAUDE.md. blockRegex's `---\s*\n?` absorbs
+  // the extra newline, so removeVendorBlock stays round-trip-safe.
+  return [...lines, '', '---', '', ''].join('\n');
 }
 
 /** Build the regex that matches an existing block from its marker to the first `---`. */

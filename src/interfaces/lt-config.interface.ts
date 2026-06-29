@@ -252,8 +252,8 @@ export interface LtConfig {
        */
       nuxt?: {
         /**
-         * Branch of nuxt-base-starter to use as template
-         * When specified, uses git clone instead of create-nuxt-base
+         * Branch of nuxt-base-starter to clone as template
+         * Defaults to the repository's default branch when omitted
          * @example "feature/new-auth"
          */
         branch?: string;
@@ -319,7 +319,7 @@ export interface LtConfig {
        *              via /lt-dev:backend:update-nest-server-core; local
        *              patches are logged in src/core/VENDOR.md.
        *
-       * Default is "npm" until the vendoring pilot is fully evaluated.
+       * Default is "vendor" — the lt CLI integrates the framework core directly.
        * @example "npm" | "vendor"
        */
       frameworkMode?: 'npm' | 'vendor';
@@ -338,7 +338,7 @@ export interface LtConfig {
        *              Updates via /lt-dev:frontend:update-nuxt-extensions-core;
        *              local patches are logged in app/core/VENDOR.md.
        *
-       * Default is "npm" until the vendoring pilot is fully evaluated.
+       * Default is "vendor" — the lt CLI integrates the framework core directly.
        * @example "npm" | "vendor"
        */
       /**
@@ -371,7 +371,7 @@ export interface LtConfig {
        *              project code. Updates via
        *              /lt-dev:frontend:update-nuxt-extensions-core.
        *
-       * Default is "npm".
+       * Default is "vendor".
        * @example "npm" | "vendor"
        */
       frontendFrameworkMode?: 'npm' | 'vendor';
@@ -385,7 +385,9 @@ export interface LtConfig {
 
       /**
        * Push initial commit to remote repository
-       * Git is always initialized with dev branch; this only controls the push
+       * Git is always initialized with dev branch; this only controls the push.
+       * Default is true — pushes when a gitLink is configured, otherwise the
+       * scaffold stays local-only (a local repo is always created either way).
        */
       git?: boolean;
 

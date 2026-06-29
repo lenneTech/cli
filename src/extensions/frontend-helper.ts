@@ -174,54 +174,58 @@ export class FrontendHelper {
     const { system, templateHelper } = this.toolbox;
     const { branch, copyPath, linkPath, skipInstall } = options;
 
-    // Use template extension for link/copy/branch operations
-    if (linkPath || copyPath || branch) {
-      const result = await templateHelper.setup(dest, {
-        branch,
-        copyPath,
-        isNuxt: true,
-        linkPath,
-        repoUrl: branch ? 'https://github.com/lenneTech/nuxt-base-starter.git' : undefined,
-      });
+    // Source the Nuxt app from the nuxt-base-starter repo (priority:
+    // link > copy > clone), mirroring the backend (nest-server-starter)
+    // flow. The default — no link/copy/branch — clones the repo's default
+    // branch, so a fresh init always integrates the CURRENT GitHub template.
+    //
+    // This deliberately replaces the former `create-nuxt-base@latest` npx
+    // path: that package is marked `private` and is no longer published
+    // (nuxt-base-starter commit b534af2 — "distribute via lt CLI fullstack
+    // template"), so `@latest` was frozen at an outdated copy and the
+    // bundled template drifted from GitHub. Cloning the repo directly is
+    // the same mechanism the backend already uses and removes that drift.
+    const result = await templateHelper.setup(dest, {
+      branch,
+      copyPath,
+      isNuxt: true,
+      linkPath,
+      repoUrl: linkPath || copyPath ? undefined : 'https://github.com/lenneTech/nuxt-base-starter.git',
+    });
 
-      if (!result.success) {
-        return { method: result.method, path: result.path, success: false };
-      }
-
-      // After a clone, flatten the wrapper layout so `projects/app/`
-      // IS the Nuxt app (the cloned root is the `create-nuxt-base`
-      // scaffolder, not the app — see flattenNuxtBaseTemplate).
-      // Skip on link mode: a symlink points at the user's local
-      // checkout and must not have its template subdir torn out.
-      if (result.method === 'clone') {
-        await this.flattenNuxtBaseTemplate(dest);
-      }
-
-      // Run install if not skipped and not a symlink
-      if (!skipInstall && result.method !== 'link') {
-        try {
-          const { pm } = this.toolbox;
-          await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
-        } catch (err) {
-          return { method: result.method, path: dest, success: false };
-        }
-      }
-
-      return { method: result.method, path: result.path, success: true };
+    if (!result.success) {
+      return { method: result.method, path: result.path, success: false };
     }
 
-    // Default: use create-nuxt-base
-    try {
-      const { pm } = this.toolbox;
-      await system.run(pm.exec(`create-nuxt-base@latest "${dest}"`));
+    // After a clone, flatten the wrapper layout so `dest` IS the Nuxt app
+    // (the cloned root carries the scaffolder; the app lives in
+    // `nuxt-base-template/` — see flattenNuxtBaseTemplate). Skip on link
+    // mode: a symlink points at the user's checkout and must not be torn out.
+    if (result.method === 'clone') {
+      await this.flattenNuxtBaseTemplate(dest);
+    }
 
-      // Fix package name - create-nuxt-base uses path as name which is invalid for lerna
+    // Normalize the sub-project package name to a stable, valid workspace
+    // name ("app"). The template ships as `nuxt-base-template`; the former
+    // create-nuxt-base path renamed it the same way. Skip link mode — a
+    // symlinked checkout is shared with upstream and must not be mutated.
+    if (result.method !== 'link') {
       await this.fixPackageName(dest);
-
-      return { method: 'npx', path: dest, success: true };
-    } catch (err) {
-      return { method: 'npx', path: dest, success: false };
     }
+
+    // Run install unless skipped or a symlink. Fullstack init installs at
+    // the monorepo level (skipInstall: true); standalone `lt frontend nuxt`
+    // installs here (create-nuxt-base used to handle that).
+    if (!skipInstall && result.method !== 'link') {
+      try {
+        const { pm } = this.toolbox;
+        await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
+      } catch {
+        return { method: result.method, path: dest, success: false };
+      }
+    }
+
+    return { method: result.method, path: result.path, success: true };
   }
 
   /**

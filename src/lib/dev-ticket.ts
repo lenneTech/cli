@@ -209,6 +209,17 @@ export function gitMainRepoRoot(cwd: string): string {
   return dirname(commonDir);
 }
 
+/**
+ * Install dependencies in a freshly-created worktree. Auto-detects the
+ * project's package manager from its lockfile (pnpm hard-links from the
+ * shared store → fast; npm + yarn install normally). Falls back to pnpm
+ * for fresh scaffolds without a lockfile yet.
+ */
+export function installWorktreeDeps(dir: string): void {
+  const pm = pickPackageManager(dir);
+  execFileSync(pm.bin, pm.installArgs, { cwd: dir, stdio: 'inherit' });
+}
+
 /** List all worktrees of the repo (parsed from `git worktree list --porcelain`). */
 export function listWorktrees(repoDir: string): WorktreeInfo[] {
   let out = '';
@@ -230,18 +241,6 @@ export function listWorktrees(repoDir: string): WorktreeInfo[] {
   if (current?.path) result.push(finalizeWorktree(current));
   return result;
 }
-
-/**
- * Install dependencies in a freshly-created worktree. Auto-detects the
- * project's package manager from its lockfile (pnpm hard-links from the
- * shared store → fast; npm + yarn install normally). Falls back to pnpm
- * for fresh scaffolds without a lockfile yet.
- */
-export function installWorktreeDeps(dir: string): void {
-  const pm = pickPackageManager(dir);
-  execFileSync(pm.bin, pm.installArgs, { cwd: dir, stdio: 'inherit' });
-}
-
 
 /** Read the ticket id this worktree is tagged with, or null. */
 export function readTicketMarker(root: string): null | string {

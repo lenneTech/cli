@@ -29,7 +29,7 @@ const NewCommand: GluegunCommand = {
       helper,
       parameters,
       patching,
-      print: { colors, error, info, spin, success },
+      print: { colors, error, info, spin, success, warning },
       prompt: { ask, confirm },
       server,
       strings: { kebabCase },
@@ -242,7 +242,9 @@ const NewCommand: GluegunCommand = {
     //            `/lt-dev:backend:update-nest-server-core`; local patches are logged
     //            in src/core/VENDOR.md.
     //
-    // Default is still 'npm' until the vendoring pilot is fully evaluated.
+    // Default is 'vendor' — the lt CLI integrates the framework core directly
+    // (clones the starter, vendors core into src/core/), which is the
+    // recommended setup; pass `--framework-mode npm` for the classic npm dep.
     let frameworkMode: 'npm' | 'vendor';
     if (experimental) {
       frameworkMode = 'npm';
@@ -255,15 +257,15 @@ const NewCommand: GluegunCommand = {
       frameworkMode = configFrameworkMode;
       info(`Using framework mode from lt.config: ${frameworkMode}`);
     } else if (noConfirm) {
-      frameworkMode = 'npm';
-      info('Using default framework mode: npm (noConfirm mode)');
+      frameworkMode = 'vendor';
+      info('Using default framework mode: vendor (noConfirm mode)');
     } else {
       const frameworkModeChoice = await ask({
         choices: [
           'npm    - @lenne.tech/nest-server as npm dependency (classic, stable)',
-          'vendor - framework core vendored into projects/api/src/core/ (pilot, allows local patches)',
+          'vendor - framework core vendored into projects/api/src/core/ (default, allows local patches)',
         ],
-        initial: 0,
+        initial: 1,
         message: 'Framework consumption mode?',
         name: 'frameworkMode',
         type: 'select',
@@ -287,10 +289,10 @@ const NewCommand: GluegunCommand = {
       frontendFrameworkMode = configFrontendFrameworkMode;
       info(`Using frontend framework mode from lt.config: ${frontendFrameworkMode}`);
     } else if (noConfirm) {
-      frontendFrameworkMode = 'npm';
+      frontendFrameworkMode = 'vendor';
     } else {
-      // Default to npm without asking (unless user sets it explicitly)
-      frontendFrameworkMode = 'npm';
+      // Default to vendor without asking (unless user sets it explicitly)
+      frontendFrameworkMode = 'vendor';
     }
 
     // Determine remote push settings with priority: CLI > config > interactive
@@ -304,8 +306,13 @@ const NewCommand: GluegunCommand = {
       if (pushToRemote) {
         gitLink = cliGitLink || configGitLink;
         if (!gitLink) {
-          error('--git-link is required when --git is true (or configure gitLink in lt.config)');
-          return;
+          // Git is always initialized locally (dev branch + initial commit);
+          // --git only controls the remote push. Without a link there is
+          // nothing to push to, so degrade to a local-only init instead of
+          // aborting the whole scaffold — consistent with the config and
+          // interactive branches below.
+          warning('--git true without --git-link: initializing local git only (no remote push).');
+          pushToRemote = false;
         }
       }
     } else if (configGit !== undefined) {
@@ -342,6 +349,15 @@ const NewCommand: GluegunCommand = {
           pushToRemote = false;
         }
       }
+    } else if (noConfirm) {
+      // Default in noConfirm mode: git true. Git is always initialized locally
+      // (dev branch + initial commit); push to a remote only when a gitLink is
+      // configured, otherwise stay local-only (nothing to push to).
+      gitLink = configGitLink;
+      pushToRemote = !!gitLink;
+      info(
+        `Using default git: true${gitLink ? ' (push to configured gitLink)' : ' (local only — no --git-link configured)'}`,
+      );
     }
 
     // Determine branches and copy/link paths with priority: CLI > config

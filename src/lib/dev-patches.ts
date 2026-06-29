@@ -127,7 +127,10 @@ export function patchClaudeMd(file: string, options: { dbName?: string; identity
     next = before + block + after;
   } else {
     const sep = content.endsWith('\n\n') ? '' : content.endsWith('\n') ? '\n' : '\n\n';
-    next = `${content}${sep}${block}\n`;
+    // No trailing newline: oxfmt strips it from .md files, so emitting one
+    // makes a freshly patched CLAUDE.md fail `format:check` (read-only) until
+    // the next `check` auto-fix. Keep the block flush with EOF.
+    next = `${content}${sep}${block}`;
   }
   if (next === content) return { file, patched: false, replacements: 0 };
   writeFileSync(file, next, 'utf8');
