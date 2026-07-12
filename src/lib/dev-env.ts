@@ -109,6 +109,12 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         NUXT_PUBLIC_API_PROXY: 'false',
         NUXT_PUBLIC_STORAGE_PREFIX: identity.slug,
         PORT: String(appInternalPort),
+        // macOS: the default $TMPDIR (/var/folders/…/T/, ~49 chars) pushes Nuxt's
+        // vite-node IPC socket path past the 104-char UNIX sun_path limit, so the
+        // dev server dies with "connect EINVAL …/nuxt-vite-node-….sock" and every
+        // SSR request 500s. Pin a short TMPDIR for the app process so the socket
+        // path stays well under the limit. Linux /tmp is already short → no-op there.
+        ...(process.platform === 'darwin' ? { TMPDIR: '/tmp' } : {}),
       },
       internalPort: appInternalPort,
     },
