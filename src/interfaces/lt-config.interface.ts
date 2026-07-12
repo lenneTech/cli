@@ -105,31 +105,10 @@ export interface LtConfig {
       domain?: string;
 
       /**
-       * Enable GitHub pipeline by default
-       */
-      gitHub?: boolean;
-
-      /**
-       * Enable GitLab pipeline by default
-       */
-      gitLab?: boolean;
-
-      /**
-       * Skip confirmation prompts
+       * Skip confirmation prompts. Every value is then resolved from CLI
+       * flags, this config, or a default — the command never prompts.
        */
       noConfirm?: boolean;
-
-      /**
-       * Default GitLab production runner tag
-       * @example "docker-landing"
-       */
-      prodRunner?: string;
-
-      /**
-       * Default GitLab test runner tag
-       * @example "docker-swarm"
-       */
-      testRunner?: string;
     };
 
     /**

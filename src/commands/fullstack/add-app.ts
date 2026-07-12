@@ -1,8 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
-import { detectWorkspaceLayout, findWorkspaceRoot } from '../../lib/workspace-integration';
+import { detectWorkspaceLayout, finalizeWorkspaceRoot, findWorkspaceRoot } from '../../lib/workspace-integration';
 
 /**
  * Add a frontend app (`projects/app/`) to a fullstack workspace that
@@ -270,12 +269,11 @@ const NewCommand: GluegunCommand = {
       }
     }
 
-    // Hoist pnpm config (frontend templates may carry pnpm.overrides too).
-    hoistWorkspacePnpmConfig({
-      filesystem,
-      projectDir: workspaceDir,
-      subProjects: ['projects/api', 'projects/app'],
-    });
+    // Normalize the workspace root: hoist pnpm config (frontend templates may
+    // carry pnpm.overrides too), drop the frontend starter's standalone
+    // pnpm-lock.yaml the root supersedes, and guarantee a root `.dockerignore`
+    // (else the image inherits the host's node_modules, .output and .env).
+    finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
 
     if (!skipInstall) {
       const installSpinner = spin('Install workspace packages');

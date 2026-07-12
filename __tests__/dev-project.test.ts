@@ -42,6 +42,60 @@ describe('dev-project', () => {
     });
   });
 
+  // Regression: a settings-only `pnpm-workspace.yaml` (no `packages:`) is the
+  // pnpm 10/11 home for `overrides` / `allowBuilds` and ships with BOTH
+  // standalone starters. It used to satisfy the workspace marker, so
+  // resolveLayout looked for projects/api|app, found neither, and `lt dev up`
+  // aborted with "No API or App project detected at this path".
+  describe('resolveLayout — settings-only pnpm-workspace.yaml', () => {
+    const settingsOnlyYaml = 'overrides:\n  lodash: 4.18.1\nallowBuilds:\n  esbuild: true\n';
+
+    test('App-only project is still detected', () => {
+      writeFileSync(join(tmp, 'pnpm-workspace.yaml'), settingsOnlyYaml);
+      writeFileSync(join(tmp, 'nuxt.config.ts'), '');
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'web' }));
+      const layout = resolveLayout(tmp, filesystem);
+      expect(layout.appDir).toBe(tmp);
+      expect(layout.apiDir).toBeNull();
+      expect(layout.workspace).toBe(false);
+    });
+
+    test('API-only project is still detected', () => {
+      writeFileSync(join(tmp, 'pnpm-workspace.yaml'), settingsOnlyYaml);
+      mkdirSync(join(tmp, 'src'));
+      writeFileSync(join(tmp, 'src', 'config.env.ts'), '');
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'svc' }));
+      const layout = resolveLayout(tmp, filesystem);
+      expect(layout.apiDir).toBe(tmp);
+      expect(layout.appDir).toBeNull();
+    });
+  });
+
+  describe('resolveLayout — workspace marker without lt subprojects', () => {
+    test('npm workspace using packages/* falls back to the standalone probe', () => {
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'web', workspaces: ['packages/*'] }));
+      writeFileSync(join(tmp, 'nuxt.config.ts'), '');
+      expect(resolveLayout(tmp, filesystem).appDir).toBe(tmp);
+    });
+
+    test('bare projects/ directory does not shadow a standalone App', () => {
+      mkdirSync(join(tmp, 'projects'));
+      writeFileSync(join(tmp, 'nuxt.config.ts'), '');
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'web' }));
+      expect(resolveLayout(tmp, filesystem).appDir).toBe(tmp);
+    });
+
+    test('real monorepo still wins over the standalone probe', () => {
+      writeFileSync(join(tmp, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'crm' }));
+      mkdirSync(join(tmp, 'projects', 'app'), { recursive: true });
+      const layout = resolveLayout(tmp, filesystem);
+      expect(layout.workspace).toBe(true);
+      expect(layout.appDir).toBe(join(tmp, 'projects', 'app'));
+      expect(layout.apiDir).toBeNull();
+    });
+  });
+
   describe('apiNeedsPortPatch', () => {
     test('flags hardcoded port', () => {
       mkdirSync(join(tmp, 'src'));

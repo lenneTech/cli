@@ -125,6 +125,8 @@ const StatusCommand: GluegunCommand = {
       const port = sub === 'api' ? entry.internalPorts.api : entry.internalPorts.app;
       info(`  ${sub.padEnd(6)} https://${host}${port ? colors.dim(`  →  127.0.0.1:${port}`) : ''}`);
     }
+    // `loadRegistry` strips dbName from API-less (App-only) entries, so its
+    // presence alone means there is a database to advertise.
     if (entry.dbName) info(`  db     mongodb://127.0.0.1/${entry.dbName}`);
 
     // Patch status — quick view whether legacy ports are still in source.

@@ -92,11 +92,18 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
 **IMPORTANT: Use EJS templates for multi-line output**, not string arrays.
 - Templates location: `src/templates/`
 - See @src/templates/completion/ for examples
-- `src/templates/vendor-scripts/` ships three scripts
+- `src/templates/vendor-scripts/` ships `migrate-store.js`, which
+  `convertCloneToVendored` writes into a vendored project's
+  `migrations-utils/migrate.js` (probes for the compiled migration helper,
+  else registers ts-node, then resolves the Mongo URI via the starter's
+  `migrations-utils/mongo-uri.js`). It is **NOT** linted by the CLI's own
+  ESLint (the whole `src/templates/**` tree is ignored — see
+  `eslint.config.mjs`). The former three maintenance scripts
   (`check-vendor-freshness.mjs`, `sync-from-upstream.ts`,
-  `propose-upstream-pr.ts`) that are copied verbatim into vendor-mode
-  projects during `convertCloneToVendored`. They are **NOT** linted by
-  the CLI's own ESLint (see `eslint.config.mjs` ignores).
+  `propose-upstream-pr.ts`) were removed: the freshness check is now an
+  inline `check:vendor-freshness` one-liner in the generated `package.json`,
+  and the sync / contribute flows are handled by the
+  `nest-server-core-updater` / `nest-server-core-contributor` agents.
 
 ### Vendor vs npm mode — key touchpoints
 
@@ -387,6 +394,58 @@ shifts `porcelainPath`'s `slice(3)` by one (`projects/…` → `rojects/…`). O
 missed it because they only used untracked (`??`, no leading space) files. Always
 read porcelain via `gitStatusPorcelain` (no per-line trim), never the trimming
 `git()`.
+
+### Angular bakes deploy URLs into the bundle; Nuxt reads them at runtime <!-- Added: 2026-07-10 -->
+`lt deployment create` writes `.turboops.json` and — for **Angular** apps only —
+rewrites `projects/app/src/environments/environment.{prod,develop,test}.ts`
+(`src/environments/…` for standalone). Reason: a Nuxt app gets its API URL from
+the TurboOps stage env at runtime (`NUXT_PUBLIC_API_URL`), but
+`ng build --configuration production` BAKES `environment.prod.ts` into the
+bundle — an unpatched deploy ships `apiUrl: 'http://127.0.0.1:3000/graphql'` and
+calls the end user's own machine. The command therefore also prints a
+stack-specific checklist (no `NUXT_*` vars for Angular; "commit the patched
+environment.*.ts" instead).
+**Stage mapping** (TurboOps has exactly two stages): `environment.prod.ts` →
+`production` (`<domain>` + `api.<domain>`); `environment.develop.ts` AND
+`environment.test.ts` → `dev` (`dev.<domain>` + `api.dev.<domain>`) — the two are
+byte-identical in ng-base-starter and there is no TurboOps "test" stage.
+`environment.ts` (local) is never touched.
+**Patch shape** (`src/lib/angular-environments.ts`): replace only the URL
+**origin** (scheme + host + port) per property (`apiUrl`, `restUrl`, `wsUrl`,
+`appUrl`), keeping the path — so `/v2/graphql` survives, `logoPath` is untouched,
+the patch is idempotent, AND a re-run with a NEW domain actually updates the
+files. The old implementation replaced the literal `http://127.0.0.1:3000`, which
+silently did **nothing** on a second run and left the previous domain baked in.
+
+### A `pnpm-workspace.yaml` is NOT a workspace marker by itself <!-- Added: 2026-07-10 -->
+Since pnpm 10/11, `pnpm-workspace.yaml` is also the canonical home for
+workspace-scoped **settings** (`overrides`, `allowBuilds`,
+`onlyBuiltDependencies`, `minimumReleaseAge*`) — pnpm 11 silently ignores those
+keys in `package.json#pnpm`. Both `nest-server-starter` and the
+`nuxt-base-template` therefore ship a **settings-only** `pnpm-workspace.yaml`
+(no `packages:`) while being plain single-package projects.
+`workspace-integration.ts#hasWorkspaceMarker` treated the file's mere existence
+as a workspace marker, so `dev-project.ts#resolveLayout` classified every
+standalone starter as a monorepo, looked for `projects/api` + `projects/app`,
+found neither, and `lt dev up` / `lt dev init` aborted with *"No API or App
+project detected at this path"* — standalone App-only **and** API-only projects
+could not be started at all.
+**Rules:**
+- Only a `pnpm-workspace.yaml` with a non-empty `packages:` list counts
+  (`pnpmWorkspaceDeclaresPackages`, parsed via `js-yaml`; unparseable YAML → not
+  a marker, let the other markers decide). Mirrors the existing non-empty check
+  on `package.json#workspaces`.
+- A workspace marker alone never wins: `resolveLayout` selects the monorepo
+  layout only when `projects/api` or `projects/app` actually exists, else it
+  falls through to the standalone probe. This also covers npm workspaces using
+  `packages/*` and a bare `projects/` dir (a fresh lt-monorepo clone ships only
+  `projects/.gitkeep`).
+- `dev-identity.ts#detectStandaloneKind` is the single source of truth for
+  "is this an API / an App?", shared by `buildIdentity` (URLs) and
+  `resolveLayout` (which processes to spawn) so identity and layout can never
+  disagree. All three shapes are valid: api+app, api-only, app-only.
+- `lt dev up` prints the `db:` line only when an API is present — an App-only
+  project has no Mongo database.
 
 ### `npm run check` has a vulnerability gate; vulns are pinned via `overrides` <!-- Added: 2026-06-16 -->
 `npm run check` is `bash scripts/check.sh` (was a bare `npm install && … && build`

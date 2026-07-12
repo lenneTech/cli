@@ -159,7 +159,7 @@ export function loadRegistry(): ProjectsRegistry {
   try {
     const parsed = JSON.parse(readFileSync(REGISTRY_PATH, 'utf8'));
     if (parsed && typeof parsed === 'object' && parsed.version === 1 && typeof parsed.projects === 'object') {
-      return parsed as ProjectsRegistry;
+      return normalizeRegistry(parsed as ProjectsRegistry);
     }
   } catch {
     /* fall through */
@@ -221,6 +221,22 @@ export function takenInternalPorts(reg: ProjectsRegistry, excludeSlug?: string):
     if (entry.internalPorts.app) ports.add(entry.internalPorts.app);
   }
   return ports;
+}
+
+/**
+ * Drop a `dbName` from any entry that has no `api` subdomain. An App-only
+ * project has no database, yet older registries (written before `lt dev up`
+ * stopped persisting one for App-only stacks) still carry a derived name.
+ * Normalizing once on load lets every reader test `entry.dbName` alone,
+ * instead of repeating `entry.dbName && entry.subdomains.api` at each display.
+ */
+function normalizeRegistry(reg: ProjectsRegistry): ProjectsRegistry {
+  for (const entry of Object.values(reg.projects)) {
+    if (entry?.dbName && !entry.subdomains?.api) {
+      delete entry.dbName;
+    }
+  }
+  return reg;
 }
 
 /** True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var). */

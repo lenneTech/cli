@@ -11,6 +11,7 @@ import type { GluegunFilesystem } from 'gluegun';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
+import { detectStandaloneKind } from './dev-identity';
 import { detectSubProjectContext, detectWorkspaceLayout, findWorkspaceRoot } from './workspace-integration';
 
 export interface DevProjectLayout {
@@ -104,20 +105,32 @@ export function deriveTicketDbName(devDbName: string, ticketId: string): string 
 /**
  * Resolve layout starting from `cwd`. Walks up to find a workspace if
  * cwd is inside `projects/api/` or `projects/app/`.
+ *
+ * A workspace marker alone never wins: it only selects the monorepo layout
+ * when `projects/api` or `projects/app` actually exists. Otherwise we fall
+ * through to the standalone probe — a single-package repo may legitimately
+ * carry a settings-only `pnpm-workspace.yaml` (pnpm 10/11 keeps `overrides`
+ * and build allowlists there), and an npm workspace may use `packages/*`
+ * rather than the lt `projects/*` convention.
  */
 export function resolveLayout(cwd: string, filesystem: GluegunFilesystem): DevProjectLayout {
   const subContext = detectSubProjectContext(cwd, filesystem);
   if (subContext) return monorepoLayout(subContext.workspaceRoot);
 
   const layout = detectWorkspaceLayout(cwd, filesystem);
-  if (layout.hasWorkspace) return monorepoLayout(layout.workspaceDir);
+  if (layout.hasWorkspace) {
+    const mono = monorepoLayout(layout.workspaceDir);
+    if (mono.apiDir || mono.appDir) return mono;
+  }
 
   const workspaceRoot = findWorkspaceRoot(cwd, filesystem);
-  if (workspaceRoot) return monorepoLayout(workspaceRoot);
+  if (workspaceRoot) {
+    const mono = monorepoLayout(workspaceRoot);
+    if (mono.apiDir || mono.appDir) return mono;
+  }
 
-  // Standalone project — figure out if it's API or App.
-  const isApi = existsSync(join(cwd, 'src', 'config.env.ts')) || existsSync(join(cwd, 'nest-cli.json'));
-  const isApp = existsSync(join(cwd, 'nuxt.config.ts'));
+  // Standalone project — API-only, App-only, or a single repo holding both.
+  const { isApi, isApp } = detectStandaloneKind(cwd);
   return {
     apiDir: isApi ? cwd : null,
     appDir: isApp ? cwd : null,

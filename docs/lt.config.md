@@ -450,26 +450,22 @@ lt server create --link /path/to/local/nest-server-starter  # Fastest, but chang
 
 #### `lt deployment create`
 
-Creates deployment configuration for a mono repository.
+Creates the TurboOps deployment config (`.turboops.json`) for a mono repository.
+The Dockerfiles, `docker-compose.yml` and `.gitlab-ci.yml` already ship with the
+lt-monorepo template, so this command only writes the project-specific file and
+prints the one-time TurboOps setup checklist.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `commands.deployment.domain` | `string` | - | Default domain (use `{name}` as placeholder) |
-| `commands.deployment.gitHub` | `boolean` | - | Enable GitHub pipeline by default |
-| `commands.deployment.gitLab` | `boolean` | - | Enable GitLab pipeline by default |
-| `commands.deployment.testRunner` | `string` | `'docker-swarm'` | Default GitLab test runner tag |
-| `commands.deployment.prodRunner` | `string` | `'docker-landing'` | Default GitLab production runner tag |
+| `commands.deployment.noConfirm` | `boolean` | `false` | Skip prompts; resolve every value from flags/config/defaults |
 
 **Example:**
 ```json
 {
   "commands": {
     "deployment": {
-      "domain": "{name}.lenne.tech",
-      "gitHub": false,
-      "gitLab": true,
-      "testRunner": "docker-swarm",
-      "prodRunner": "docker-landing"
+      "domain": "{name}.lenne.tech"
     }
   }
 }
@@ -477,7 +473,7 @@ Creates deployment configuration for a mono repository.
 
 **CLI Override:**
 ```bash
-lt deployment create --domain myproject.example.com --gitLab true --testRunner docker-swarm
+lt deployment create MyProject --domain myproject.example.com --project myproject --noConfirm
 ```
 
 ---
@@ -1003,10 +999,7 @@ The `meta` section stores project information.
   },
   "commands": {
     "deployment": {
-      "gitHub": false,
-      "gitLab": true,
-      "testRunner": "docker-swarm",
-      "prodRunner": "docker-landing"
+      "domain": "{name}.lenne.tech"
     },
     "fullstack": {
       "frontend": "nuxt",
@@ -1052,10 +1045,7 @@ defaults:
 
 commands:
   deployment:
-    gitHub: false
-    gitLab: true
-    testRunner: docker-swarm
-    prodRunner: docker-landing
+    domain: "{name}.lenne.tech"
 
   fullstack:
     frontend: nuxt

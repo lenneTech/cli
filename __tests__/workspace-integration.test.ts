@@ -52,10 +52,37 @@ describe('detectWorkspaceLayout', () => {
     expect(layout.hasApp).toBe(false);
   });
 
-  test('detects workspace when pnpm-workspace.yaml exists', () => {
+  test('detects workspace when pnpm-workspace.yaml declares packages', () => {
     filesystem.write(filesystem.path(tempDir, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
     const layout = detectWorkspaceLayout(tempDir, filesystem);
     expect(layout.hasWorkspace).toBe(true);
+  });
+
+  // pnpm 10/11 keep workspace-scoped SETTINGS (overrides, allowBuilds, …) in
+  // pnpm-workspace.yaml even for single-package repos — both nest-server-starter
+  // and nuxt-base-starter ship such a file. It must not read as a workspace, or
+  // `lt dev up` treats every standalone starter as a monorepo and finds no
+  // projects/api|app (see dev-project.test.ts).
+  test('settings-only pnpm-workspace.yaml (no packages:) is NOT a workspace', () => {
+    filesystem.write(
+      filesystem.path(tempDir, 'pnpm-workspace.yaml'),
+      "overrides:\n  lodash: 4.18.1\nallowBuilds:\n  esbuild: true\n",
+    );
+    const layout = detectWorkspaceLayout(tempDir, filesystem);
+    expect(layout.hasWorkspace).toBe(false);
+  });
+
+  test('pnpm-workspace.yaml with an empty packages list is NOT a workspace', () => {
+    filesystem.write(filesystem.path(tempDir, 'pnpm-workspace.yaml'), 'packages: []\n');
+    const layout = detectWorkspaceLayout(tempDir, filesystem);
+    expect(layout.hasWorkspace).toBe(false);
+  });
+
+  test('unparseable pnpm-workspace.yaml falls through to the other markers', () => {
+    filesystem.write(filesystem.path(tempDir, 'pnpm-workspace.yaml'), 'packages: [\n  - "broken\n');
+    expect(detectWorkspaceLayout(tempDir, filesystem).hasWorkspace).toBe(false);
+    filesystem.dir(filesystem.path(tempDir, 'projects'));
+    expect(detectWorkspaceLayout(tempDir, filesystem).hasWorkspace).toBe(true);
   });
 
   test('detects workspace when projects/ exists even without pnpm-workspace.yaml', () => {

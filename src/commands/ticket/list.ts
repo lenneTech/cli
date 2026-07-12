@@ -57,6 +57,8 @@ const ListCommand: GluegunCommand = {
       info(`  ${dot} ${colors.bold(String(wt.ticket).padEnd(16))} ${colors.dim(`branch ${wt.branch ?? '-'}`)}`);
       if (entry) {
         for (const [sub, host] of Object.entries(entry.subdomains)) info(`       ${sub.padEnd(4)} https://${host}`);
+        // `loadRegistry` strips dbName from API-less entries, so its presence
+        // alone means there is a database to show.
         if (entry.dbName) info(`       db   mongodb://127.0.0.1/${entry.dbName}`);
       }
       info(colors.dim(`       dir  ${wt.path}`));

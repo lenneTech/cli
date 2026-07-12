@@ -1509,28 +1509,88 @@ export class Server {
     // above works indirectly (via `bin/migrate.js` loading ts-node first),
     // but it's fragile: if somebody invokes migrate.js standalone, `require
     // ('../src/core')` would crash because Node cannot load TypeScript.
-    // Replace the file with the explicit, imo-pilot-proven variant that
-    // registers ts-node itself BEFORE requiring the vendored core and
-    // points at the specific migration.helper path (not the index hub).
+    //
+    // Two things this file must get right, both learned the hard way:
+    //   1. ts-node is registered ONLY when the core next to it is still
+    //      TypeScript. In the production image everything is compiled and
+    //      ts-node is pruned, so an unconditional `require('./ts-compiler')`
+    //      would throw MODULE_NOT_FOUND and — under `set -e` in the
+    //      entrypoint — take the whole container down before the server starts.
+    //   2. The Mongo URI comes from resolveMongoUri(), which falls back to
+    //      NSC__MONGOOSE__URI when config.env.ts is not loadable (Docker).
+    //      Reading `config.default.mongoose.uri` directly crashes there.
     const migrateJsPath = `${dest}/migrations-utils/migrate.js`;
-    filesystem.write(
-      migrateJsPath,
-      [
-        '// The vendored core is TypeScript-only (no prebuilt dist/). Register ts-node (via our',
-        '// custom bootstrap) before requiring any vendor module, so that .ts source files are',
-        '// transparently compiled on demand. Uses the same compiler config as the migrate CLI.',
-        "require('./ts-compiler');",
-        '',
-        "const { createMigrationStore } = require('../src/core/modules/migrate/helpers/migration.helper');",
-        "const config = require('../src/config.env');",
-        '',
-        'module.exports = createMigrationStore(',
-        '  config.default.mongoose.uri,',
-        "  'migrations' // optional, default is 'migrations'",
-        ');',
-        '',
-      ].join('\n'),
+    const migrateStoreTemplate = filesystem.read(
+      path.join(__dirname, '..', 'templates', 'vendor-scripts', 'migrate-store.js'),
     );
+    if (!migrateStoreTemplate) {
+      throw new Error(
+        'CLI build is missing templates/vendor-scripts/migrate-store.js — cannot generate migrations-utils/migrate.js.',
+      );
+    }
+    filesystem.write(migrateJsPath, migrateStoreTemplate);
+
+    // The generated migrate.js does `require('./mongo-uri')` (resolveMongoUri).
+    // Unlike ts-compiler.js (written below), that file is NOT generated here — it
+    // ships with nest-server-starter (the vendor clone base) and is copied into
+    // dist/ by `copy:migrations`. Assert it so a non-standard/older starter that
+    // lacks it fails loudly HERE instead of silently skipping every migration at
+    // container start (the entrypoint's `migrate up` is best-effort under `set -e`).
+    if (!filesystem.exists(`${dest}/migrations-utils/mongo-uri.js`)) {
+      this.toolbox.print.warning(
+        '  ⚠ migrations-utils/mongo-uri.js is missing — the generated migrate.js requires it ' +
+          '(resolveMongoUri). Migrations will not run. It normally ships with nest-server-starter; ' +
+          'add it (must export resolveMongoUri) so `migrate up` can resolve the Mongo URI.',
+      );
+    }
+
+    // Compile migrations to JavaScript. The production image prunes ts-node, so
+    // `migrate up` can only load plain .js migrations there. Without this the
+    // entrypoint's migration step never applies anything.
+    const tsconfigBuildPath = `${dest}/tsconfig.build.json`;
+    if (filesystem.exists(tsconfigBuildPath)) {
+      const tsconfigBuildRaw = filesystem.read(tsconfigBuildPath) || '';
+      if (!tsconfigBuildRaw.includes('migrations/**/*.ts')) {
+        // 1. Extend `include` so tsc also emits the .ts migrations + helpers.
+        const includePatched = tsconfigBuildRaw.replace(
+          /"include":\s*\[\s*"src\/\*\*\/\*"\s*\]/,
+          '"include": ["src/**/*", "migrations/**/*.ts", "migrations-utils/**/*.ts"]',
+        );
+        if (includePatched === tsconfigBuildRaw) {
+          this.toolbox.print.warning(
+            '  ⚠ tsconfig.build.json: could not extend "include" automatically — ' +
+              'add "migrations/**/*.ts" and "migrations-utils/**/*.ts" manually, ' +
+              'otherwise migrations are never compiled and the container skips them.',
+          );
+        } else {
+          // 2. Pin rootDir. Once `include` reaches beyond src/, tsc re-infers the
+          //    rootDir from the common parent of ALL included files, which can
+          //    shift the emit layout and relocate the entry point. An explicit
+          //    "rootDir": "./" keeps the output mirroring the project tree:
+          //    `dist/src/main.js` — which is exactly what the Docker entrypoint
+          //    runs (see nest-server-starter/docker-entrypoint.sh) — plus
+          //    `dist/migrations/` and `dist/migrations-utils/`. Without the pin the
+          //    entry can move and the container's `node dist/src/main.js` dies with
+          //    MODULE_NOT_FOUND. Newer starters ship the pin; older ones (pre-9.0) do not.
+          let patched = includePatched;
+          let rootDirPinned = /"rootDir"\s*:/.test(patched);
+          if (!rootDirPinned) {
+            const withRootDir = patched.replace(/("compilerOptions"\s*:\s*\{)/, '$1\n    "rootDir": "./",');
+            if (withRootDir !== patched) {
+              patched = withRootDir;
+              rootDirPinned = true;
+            }
+          }
+          filesystem.write(tsconfigBuildPath, patched);
+          if (!rootDirPinned) {
+            this.toolbox.print.warning(
+              '  ⚠ tsconfig.build.json: extended "include" but could not confirm "rootDir": "./" — ' +
+                'add it manually, otherwise tsc may relocate the emit and `node dist/src/main.js` fails.',
+            );
+          }
+        }
+      }
+    }
 
     // ── 4b. (removed) ─────────────────────────────────────────────────────
     //
@@ -1655,6 +1715,85 @@ export class Server {
           scripts['migrate:test:up'] = `NODE_ENV=test node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:preview:up'] = `NODE_ENV=preview node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:prod:up'] = `NODE_ENV=production node ./bin/migrate.js up ${migrateArgs}`;
+
+          // Make the production build carry a runnable migration setup.
+          //
+          // The image has no ts-node, and the docker entrypoint looks for
+          // `dist/bin/migrate.js`. Without these three scripts the entrypoint
+          // silently skips migrations forever — the failure mode is invisible
+          // until the first real data migration quietly does not run.
+          //
+          //   copy:bin          ships bin/migrate.js into dist/
+          //   copy:migrations   ships only the .js helpers (the .ts migrations
+          //                     are compiled by tsc, see tsconfig.build.json)
+          //   prune:migrations  drops the *.d.ts / *.js.map that tsc emits next
+          //                     to each compiled migration — the runner would
+          //                     otherwise pick the declaration file up as a
+          //                     second migration and throw on `export declare`
+          //
+          // Define each only if the project doesn't already have it, so a
+          // deliberate customization survives a re-run (older starters simply
+          // lack them → still repaired).
+          if (typeof scripts['copy:bin'] !== 'string') {
+            scripts['copy:bin'] = 'cpy ./bin ./dist/ || true';
+          }
+          if (typeof scripts['copy:migrations'] !== 'string') {
+            scripts['copy:migrations'] =
+              'cpy "./migrations-utils/*.js" ./dist/migrations-utils/ && cpy ./tsconfig.json ./dist/';
+          }
+          if (typeof scripts['prune:migrations'] !== 'string') {
+            scripts['prune:migrations'] = 'rimraf --glob "./dist/migrations/*.d.ts" "./dist/migrations/*.js.map"';
+          }
+
+          // Wire the three steps into the build. Order among them is irrelevant:
+          // all three only need to run AFTER tsc, which `build` does first
+          // (copy:bin/copy:migrations copy source files; prune only cleans
+          // tsc's dist/migrations output). A step is already covered when it is
+          // named directly in `build` or reachable through a `copy` aggregator
+          // that `build` runs (newer starters). Older starters have no such
+          // aggregator, so append to `build` — the one script guaranteed to
+          // exist and to run tsc first; without this the sub-scripts are defined
+          // but never invoked and the image ships without dist/bin/migrate.js.
+          //
+          // Use the package-manager `run` the project's own scripts already use
+          // (older starters: npm, newer: pnpm); a hard-coded `pnpm run` would
+          // make `build` die with "pnpm: command not found" in an npm project.
+          const scriptText = Object.values(scripts)
+            .filter((v): v is string => typeof v === 'string')
+            .join('\n');
+          const pmRun = /\bpnpm\s+run\b/.test(scriptText)
+            ? 'pnpm run'
+            : /\byarn\s+run\b/.test(scriptText)
+              ? 'yarn run'
+              : /\bnpm\s+run\b/.test(scriptText)
+                ? 'npm run'
+                : 'pnpm run';
+
+          if (typeof scripts.build === 'string') {
+            const copyAggregator = typeof scripts.copy === 'string' ? scripts.copy : '';
+            const covered = (step: string): boolean =>
+              (scripts.build as string).includes(step) || copyAggregator.includes(step);
+            const missingSteps = ['copy:bin', 'copy:migrations', 'prune:migrations'].filter((s) => !covered(s));
+            if (missingSteps.length > 0) {
+              scripts.build = `${scripts.build}${missingSteps.map((s) => ` && ${pmRun} ${s}`).join('')}`;
+            }
+          } else {
+            this.toolbox.print.warning(
+              '  ⚠ package.json has no "build" script — copy:bin/copy:migrations/prune:migrations were defined but ' +
+                'not wired in; the production image may ship without dist/bin/migrate.js and skip migrations.',
+            );
+          }
+
+          // prune:migrations needs `rimraf`, copy:* need `cpy` (cpy-cli). Older
+          // starters ship cpy-cli but not rimraf — add whatever is missing so
+          // `build` doesn't die on an absent binary.
+          const devDependencies = (
+            pkg.devDependencies && typeof pkg.devDependencies === 'object'
+              ? pkg.devDependencies
+              : (pkg.devDependencies = {})
+          ) as Record<string, string>;
+          if (typeof devDependencies.rimraf !== 'string') devDependencies.rimraf = '^6.0.1';
+          if (typeof devDependencies['cpy-cli'] !== 'string') devDependencies['cpy-cli'] = '^6.0.0';
 
           // Vendor freshness check: reads VENDOR.md baseline version and
           // compares against npm registry. Non-blocking (always exits 0).

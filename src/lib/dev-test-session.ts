@@ -64,6 +64,14 @@ export interface BringUpOptions {
 
 /** Result of a successful bring-up. */
 export interface TestSessionContext {
+  /**
+   * Absolute path to THIS stack's API log (`<root>/.lt-dev/api.test[.<i>].log`),
+   * or undefined for an app-only project. Exported to the Playwright child as
+   * `NEST_SERVER_LOG` so the auth E2E specs read the email-verification token
+   * from the correct isolated log — the spec's own upward-search only knows the
+   * unsharded `api.test.log`, never the per-shard `api.test.<i>.log`.
+   */
+  apiLogPath?: string;
   apiUrl: string;
   /** The App-process env (URLs, CA, flags) — pass this (plus MONGO_URI) to the Playwright child. */
   appEnv: NodeJS.ProcessEnv;
@@ -85,6 +93,26 @@ const TEST_APP_LOG = 'app.test.log';
 const TEST_BRIDGE_FILE = '.env.test';
 /** Internal port band for the test stack — distinct from the dev band (4000+). */
 const TEST_PORT_BASE = 4500;
+
+/**
+ * Throwaway initial-admin credentials for the isolated `lt dev test` database.
+ *
+ * The nest-server core auto-parses these `NSC__…` vars into
+ * `systemSetup.initialAdmin.*` and seeds the admin ONCE on an empty DB (it never
+ * overwrites an existing admin), so a set-up system exists before the suite runs.
+ * A fresh template project's standard auth E2E specs assume such a system — they
+ * do no self-setup — so without this they fail LOCALLY on the empty per-run DB.
+ * These are the exact values the lt-monorepo template CI uses
+ * (`.gitlab-ci.yml` / `.github/workflows/test.yml`), keeping CI ↔ local parity.
+ *
+ * Injected ONLY into the `lt dev test` API process (its DB is fresh + discarded
+ * per run), NEVER into `lt dev up` — no surprise admin in the persistent dev DB.
+ */
+export const TEST_INITIAL_ADMIN_ENV: NodeJS.ProcessEnv = {
+  NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL: 'ci-admin@test.com',
+  NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME: 'CI Admin',
+  NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD: 'CiThrowawayAdmin123!',
+};
 
 /**
  * Heuristic for the default local shard count (`--shard auto` / bare `--shard`).
@@ -240,7 +268,12 @@ export async function bringUpTestSession(
     const entry = ['dist/src/main.js', 'dist/main.js']
       .map((rel) => join(layout.apiDir as string, rel))
       .find((p) => existsSync(p));
-    const apiEnv = { ...devEnv.api.env, NODE_ENV: 'local' };
+    // Seed a throwaway initial admin into the fresh, isolated test DB so the
+    // standard auth E2E specs run against a set-up system — locally exactly like
+    // the lt-monorepo template CI. Defaults first so an explicitly inherited
+    // `NSC__…INITIAL_ADMIN__…` still wins (deliberate override respected). Only
+    // reached from `lt dev test` — `lt dev up` never calls bringUpTestSession.
+    const apiEnv = { ...TEST_INITIAL_ADMIN_ENV, ...devEnv.api.env, NODE_ENV: 'local' };
     let apiSpawn: ReturnType<typeof spawnDetached>;
     if (build === 0 && entry) {
       apiSpawn = spawnDetached('node', [entry], {
@@ -323,7 +356,11 @@ export async function bringUpTestSession(
     if (!apiReady) log.warn(`Test API did not answer 2xx on ${apiUrl}/meta within 120s — the first specs may skip.`);
   }
 
-  return { apiUrl, appEnv: devEnv.app.env, appUrl, dbName, pids, testIdentity };
+  // Expose THIS stack's API log path so the caller can point the auth E2E specs
+  // (via NEST_SERVER_LOG) at the exact isolated log — correct per shard.
+  const apiLogPath = layout.apiDir ? join(layout.root, '.lt-dev', names.apiLog) : undefined;
+
+  return { apiLogPath, apiUrl, appEnv: devEnv.app.env, appUrl, dbName, pids, testIdentity };
 }
 
 /** True when a test session file exists (used by status/down). */
@@ -401,6 +438,10 @@ export async function runShardedTestSession(
         ...ctx.appEnv,
         LT_DEV_TEST_SHARDS: String(total),
         MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}`,
+        // Point the auth E2E specs at THIS shard's API log so they find the
+        // email-verification token — the spec's upward-search only knows the
+        // unsharded `api.test.log`, never the per-shard `api.test.<i>.log`.
+        ...(ctx.apiLogPath ? { NEST_SERVER_LOG: ctx.apiLogPath } : {}),
       };
       const logFile = join(layout.root, '.lt-dev', `shard.${index}.test.log`);
       // Invoke Playwright DIRECTLY via the manager's `exec` (NOT `<pm> run

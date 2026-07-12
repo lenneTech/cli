@@ -1,9 +1,9 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
 import {
   detectWorkspaceLayout,
+  finalizeWorkspaceRoot,
   findWorkspaceRoot,
   reconfigureUpstreamForDownstream,
   runExperimentalNestBaseRename,
@@ -346,14 +346,12 @@ const NewCommand: GluegunCommand = {
       writeApiConfig({ apiDir: apiDest, apiMode, filesystem, frameworkMode });
     }
 
-    // Hoist pnpm config — `setupServerForFullstack` may have produced a
-    // sub-project package.json with `pnpm.overrides` etc. that pnpm
-    // ignores at non-root level.
-    hoistWorkspacePnpmConfig({
-      filesystem,
-      projectDir: workspaceDir,
-      subProjects: ['projects/api', 'projects/app'],
-    });
+    // Normalize the workspace root: hoist pnpm config out of the sub-projects
+    // (`setupServerForFullstack` may have left `pnpm.overrides` etc. at a
+    // non-root level pnpm ignores), drop nested lockfiles the root supersedes,
+    // and guarantee a root `.dockerignore` (Docker never reads a sub-project's
+    // own when building from the root context).
+    finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
 
     // Run install + format unless explicitly skipped (CI/agents may
     // want to chain multiple add-* calls before installing once).

@@ -4,10 +4,13 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable } from '../../lib/caddy';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
-import { hoistWorkspacePnpmConfig } from '../../lib/hoist-workspace-pnpm-config';
 import { setPackageName } from '../../lib/package-name';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
-import { detectWorkspaceLayout, reconfigureUpstreamForDownstream } from '../../lib/workspace-integration';
+import {
+  detectWorkspaceLayout,
+  finalizeWorkspaceRoot,
+  reconfigureUpstreamForDownstream,
+} from '../../lib/workspace-integration';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
 
@@ -682,14 +685,14 @@ const NewCommand: GluegunCommand = {
         serverSpinner.warn('Nest Server Starter not integrated');
       }
 
-      // Hoist workspace-scoped pnpm config out of sub-projects. pnpm only
-      // honors `pnpm.overrides`, `pnpm.onlyBuiltDependencies`, and
-      // `pnpm.ignoredOptionalDependencies` at the workspace root; leaving
-      // them in projects/api/package.json or projects/app/package.json
-      // causes `WARN The field … was found in … This will not take
-      // effect. You should configure … at the root of the workspace
-      // instead.` and silently disables CVE overrides.
-      hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
+      // Normalize the workspace root. Hoists workspace-scoped pnpm config out
+      // of the sub-projects (pnpm only honors `pnpm.overrides` etc. at the
+      // root — otherwise CVE overrides are silently disabled), drops the
+      // starters' standalone pnpm-lock.yaml files the root supersedes, and
+      // guarantees a root `.dockerignore` (else the images carry the host's
+      // node_modules, a stale .output, and a local .env that `nuxt build`
+      // bakes in).
+      finalizeWorkspaceRoot({ filesystem, projectDir });
 
       // Install all packages
       if (!experimental) {

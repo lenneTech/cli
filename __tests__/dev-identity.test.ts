@@ -99,6 +99,26 @@ describe('dev-identity', () => {
       expect(id.subdomains.api).toBeDefined();
       expect(id.subdomains.app).toBeUndefined();
     });
+
+    test('only app dir present → only app subdomain', () => {
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'app-only' }));
+      mkdirSync(join(tmp, 'projects', 'app'), { recursive: true });
+      const id = buildIdentity(tmp);
+      expect(id.subdomains.app?.hostname).toBe('app-only.localhost');
+      expect(id.subdomains.api).toBeUndefined();
+    });
+
+    // A bare `projects/` (e.g. a fresh lt-monorepo clone shipping only a
+    // .gitkeep) must not shadow the standalone probe — otherwise the identity
+    // has zero subdomains and `lt dev up` has nothing to route.
+    test('bare projects/ dir falls back to the standalone probe', () => {
+      writeFileSync(join(tmp, 'package.json'), JSON.stringify({ name: 'web' }));
+      mkdirSync(join(tmp, 'projects'), { recursive: true });
+      writeFileSync(join(tmp, 'nuxt.config.ts'), '');
+      const id = buildIdentity(tmp);
+      expect(id.subdomains.app?.hostname).toBe('web.localhost');
+      expect(id.subdomains.app?.subdir).toBeNull();
+    });
   });
 
   describe('buildIdentity — standalone', () => {

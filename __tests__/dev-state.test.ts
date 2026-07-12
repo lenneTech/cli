@@ -105,6 +105,40 @@ describe('dev-state', () => {
       const reg = loadRegistry();
       expect(reg.projects).toEqual({});
     });
+
+    // An App-only project has no database. Older registries (written before
+    // `lt dev up` stopped persisting one for App-only stacks) still carry a
+    // derived dbName; loadRegistry strips it so readers can test dbName alone.
+    test('strips dbName from an entry without an api subdomain', () => {
+      writeFileSync(
+        process.env.LT_DEV_REGISTRY_PATH!,
+        JSON.stringify({
+          projects: {
+            web: { dbName: 'web-local', internalPorts: { app: 4001 }, path: '/web', subdomains: { app: 'web.localhost' } },
+          },
+          version: 1,
+        }),
+      );
+      expect(loadRegistry().projects.web.dbName).toBeUndefined();
+    });
+
+    test('keeps dbName when an api subdomain is present', () => {
+      writeFileSync(
+        process.env.LT_DEV_REGISTRY_PATH!,
+        JSON.stringify({
+          projects: {
+            crm: {
+              dbName: 'crm-local',
+              internalPorts: { api: 4010, app: 4011 },
+              path: '/crm',
+              subdomains: { api: 'api.crm.localhost', app: 'crm.localhost' },
+            },
+          },
+          version: 1,
+        }),
+      );
+      expect(loadRegistry().projects.crm.dbName).toBe('crm-local');
+    });
   });
 
   describe('session', () => {

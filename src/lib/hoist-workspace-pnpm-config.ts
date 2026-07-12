@@ -1,7 +1,8 @@
 import type { GluegunFilesystem } from 'gluegun';
 
-import { lstatSync } from 'fs';
 import { dump, load } from 'js-yaml';
+
+import { isSymlink } from './fs-utils';
 
 /**
  * pnpm workspace-scoped fields that must live at the workspace root.
@@ -171,15 +172,6 @@ function hoistFromSubWorkspaceYaml(options: {
     filesystem.remove(subWsPath);
   }
   return true;
-}
-
-/** Whether `path` is a symbolic link (false on any stat error). */
-function isSymlink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink();
-  } catch {
-    return false;
-  }
 }
 
 /**

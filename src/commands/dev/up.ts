@@ -103,7 +103,10 @@ const UpCommand: GluegunCommand = {
 
     const layout = resolveLayout(filesystem.cwd(), filesystem);
     if (!layout.apiDir && !layout.appDir) {
-      error('No API or App project detected at this path. Run `lt dev init` first.');
+      error(
+        'No lt project detected at this path. Expected an API (src/config.env.ts or nest-cli.json), ' +
+          'an App (nuxt.config.ts), or a monorepo with projects/api and/or projects/app.',
+      );
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: not a project';
     }
@@ -294,7 +297,9 @@ const UpCommand: GluegunCommand = {
         apiUpstreamPort: existingEntry?.internalPorts.api,
         appHostname: identity.subdomains.app?.hostname,
         appUpstreamPort: existingEntry?.internalPorts.app,
-        dbName: existingEntry?.dbName ?? dbName,
+        // App-only projects have no database — don't advertise a Mongo URL
+        // that nothing listens on.
+        dbName: identity.subdomains.api ? (existingEntry?.dbName ?? dbName) : undefined,
       });
       info('Run `lt dev down` first to force a full restart.');
       if (!parameters.options.fromGluegunMenu) process.exit();
@@ -334,7 +339,7 @@ const UpCommand: GluegunCommand = {
     info(colors.bold(`Starting "${identity.slug}"`) + (ticket ? colors.dim(` (ticket ${ticket})`) : ''));
     if (identity.subdomains.app) info(`  app: https://${identity.subdomains.app.hostname}  →  127.0.0.1:${appPort}`);
     if (identity.subdomains.api) info(`  api: https://${identity.subdomains.api.hostname}  →  127.0.0.1:${apiPort}`);
-    info(`  db:  mongodb://127.0.0.1/${dbName}`);
+    if (identity.subdomains.api) info(`  db:  mongodb://127.0.0.1/${dbName}`);
     info('');
 
     // Build env per process.
@@ -439,7 +444,7 @@ const UpCommand: GluegunCommand = {
       apiUpstreamPort: apiPort,
       appHostname: identity.subdomains.app?.hostname,
       appUpstreamPort: appPort,
-      dbName,
+      dbName: identity.subdomains.api ? dbName : undefined,
     });
     info(colors.dim('Logs: <root>/.lt-dev/api.log, <root>/.lt-dev/app.log'));
     for (const note of rotationNotes) info(colors.dim(note));

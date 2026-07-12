@@ -44,45 +44,49 @@ export interface DevSubdomain {
  * - `projects/app` → `<slug>.localhost` (primary)
  * - `projects/<other>` → `<other>.<slug>.localhost`
  *
- * For standalone projects (single repo, no `projects/` directory):
+ * For standalone projects (single repo, no `projects/api` or `projects/app`):
  * - API project (config.env.ts present) → `api.<slug>.localhost`
  * - App project (nuxt.config.ts present) → `<slug>.localhost`
+ *
+ * Every combination is valid: api+app, api-only, and app-only.
  */
 export function buildIdentity(root: string): DevIdentity {
   const slug = projectSlug(root);
   const subdomains: Record<string, DevSubdomain> = {};
 
-  const projectsDir = join(root, 'projects');
-  if (existsSync(projectsDir)) {
-    // Monorepo: enumerate projects/* subdirectories.
-    const apiDir = join(projectsDir, 'api');
-    const appDir = join(projectsDir, 'app');
+  const apiDir = join(root, 'projects', 'api');
+  const appDir = join(root, 'projects', 'app');
+  const hasApi = existsSync(apiDir);
+  const hasApp = existsSync(appDir);
 
-    if (existsSync(apiDir)) {
+  // Monorepo only when a known subproject is actually present. A bare (or
+  // unrelated) `projects/` directory must not shadow the standalone probe —
+  // it would yield an identity with zero subdomains and no routable URLs.
+  if (hasApi || hasApp) {
+    if (hasApi) {
       subdomains.api = {
         hostname: `api.${slug}.localhost`,
         isPrimaryApp: false,
         subdir: 'projects/api',
       };
     }
-    if (existsSync(appDir)) {
+    if (hasApp) {
       subdomains.app = {
         hostname: `${slug}.localhost`,
         isPrimaryApp: true,
         subdir: 'projects/app',
       };
     }
-  } else {
-    // Standalone — derive from project shape.
-    const isApi = existsSync(join(root, 'src', 'config.env.ts')) || existsSync(join(root, 'nest-cli.json'));
-    const isApp = existsSync(join(root, 'nuxt.config.ts'));
+    return { root, slug, subdomains };
+  }
 
-    if (isApi) {
-      subdomains.api = { hostname: `api.${slug}.localhost`, isPrimaryApp: false, subdir: null };
-    }
-    if (isApp) {
-      subdomains.app = { hostname: `${slug}.localhost`, isPrimaryApp: true, subdir: null };
-    }
+  // Standalone — derive from project shape.
+  const { isApi, isApp } = detectStandaloneKind(root);
+  if (isApi) {
+    subdomains.api = { hostname: `api.${slug}.localhost`, isPrimaryApp: false, subdir: null };
+  }
+  if (isApp) {
+    subdomains.app = { hostname: `${slug}.localhost`, isPrimaryApp: true, subdir: null };
   }
 
   return { root, slug, subdomains };
@@ -125,6 +129,23 @@ export function buildTestIdentity(base: DevIdentity, suffix = '-test'): DevIdent
  */
 export function buildTicketIdentity(base: DevIdentity, id: string): DevIdentity {
   return buildTestIdentity(base, `-${id}`);
+}
+
+/**
+ * Probe a single directory for the shape of a STANDALONE lt project.
+ *
+ * Single source of truth for "is this an API / an App?", shared by
+ * {@link buildIdentity} and `dev-project.ts#resolveLayout` so the identity
+ * (URLs) and the layout (which processes to spawn) can never disagree.
+ *
+ * Both flags can be true (a single repo holding both), and both can be false
+ * (not an lt-dev project).
+ */
+export function detectStandaloneKind(dir: string): { isApi: boolean; isApp: boolean } {
+  return {
+    isApi: existsSync(join(dir, 'src', 'config.env.ts')) || existsSync(join(dir, 'nest-cli.json')),
+    isApp: existsSync(join(dir, 'nuxt.config.ts')),
+  };
 }
 
 /**

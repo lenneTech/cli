@@ -23,11 +23,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
     },
     deployment: {
       domain: 'string',
-      gitHub: 'boolean',
-      gitLab: 'boolean',
       noConfirm: 'boolean',
-      prodRunner: 'string',
-      testRunner: 'string',
     },
     directus: {
       dockerSetup: {

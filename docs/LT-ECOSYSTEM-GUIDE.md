@@ -247,7 +247,7 @@ Monorepo Subprojects:
 | **MongoDB** | `lt mongodb collection-export`, `mongodb s3-restore` |
 | **Qdrant** | `lt qdrant stats`, `qdrant delete` |
 | **Directus** | `lt directus docker-setup`, `directus typegen`, `directus remove` |
-| **Deployment** | `lt deployment create` (GitHub/GitLab pipelines) |
+| **Deployment** | `lt deployment create` (TurboOps config + GitLab pipeline) |
 | **Blocks/Components** | `lt blocks add`, `lt components add` |
 | **Tools** | `lt tools regex`, `tools sha256`, `tools jwt-read`, `tools crypt`, `tools install-scripts` |
 | **Docs** | `lt docs open` |

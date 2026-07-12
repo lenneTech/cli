@@ -28,6 +28,12 @@
 
 import type { GluegunFilesystem, GluegunPatching } from 'gluegun';
 
+import * as yaml from 'js-yaml';
+
+import { ensureRootDockerignore } from './ensure-root-dockerignore';
+import { hoistWorkspacePnpmConfig } from './hoist-workspace-pnpm-config';
+import { removeNestedLockfiles } from './remove-nested-lockfiles';
+
 /**
  * Options accepted by `addApiToWorkspace`. Mirrors the API-related
  * flags exposed by `lt fullstack init` so add-api can offer the same
@@ -87,7 +93,8 @@ export interface WorkspaceLayout {
   hasApp: boolean;
   /**
    * True if the directory looks like an lt-monorepo workspace
-   * (contains `pnpm-workspace.yaml` or a `projects/` directory).
+   * (contains a `pnpm-workspace.yaml` that declares `packages:`, a
+   * `package.json` with `workspaces`, or a `projects/` directory).
    */
   hasWorkspace: boolean;
   /** Absolute or relative workspace root path that was probed. */
@@ -150,6 +157,31 @@ export function detectWorkspaceLayout(workspaceDir: string, filesystem: GluegunF
   const hasApp = filesystem.exists(`${appDir}/package.json`) === 'file';
 
   return { hasApi, hasApp, hasWorkspace, workspaceDir };
+}
+
+/**
+ * Normalize a freshly-populated workspace root after adding or removing a
+ * sub-project. Runs the three idempotent workspace-hygiene steps that
+ * `fullstack init`, `add-api`, and `add-app` all need:
+ *
+ *   1. hoist pnpm workspace-scoped config (`overrides`, `allowBuilds`, …) out
+ *      of the sub-projects into the root — pnpm only honours it at the root;
+ *   2. remove nested `pnpm-lock.yaml` files the root lockfile supersedes;
+ *   3. guarantee a workspace-root `.dockerignore` (Docker never reads a
+ *      sub-project's own `.dockerignore` when building from the root context).
+ *
+ * Each step is a no-op when there is nothing to do, so re-runs are safe.
+ */
+export function finalizeWorkspaceRoot(options: {
+  filesystem: GluegunFilesystem;
+  projectDir: string;
+  subProjects?: string[];
+}): void {
+  const { filesystem, projectDir } = options;
+  const subProjects = options.subProjects ?? ['projects/api', 'projects/app'];
+  hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects });
+  removeNestedLockfiles({ filesystem, projectDir, subProjects });
+  ensureRootDockerignore({ filesystem, projectDir });
 }
 
 /**
@@ -524,15 +556,15 @@ export function writeApiConfig(options: {
  * `detectWorkspaceLayout` and `findWorkspaceRoot`.
  *
  * Recognised markers (any one is sufficient):
- *   - `pnpm-workspace.yaml`           — pnpm workspace
- *   - `package.json` with `workspaces` field — npm/yarn/bun workspaces
+ *   - `pnpm-workspace.yaml` that declares a non-empty `packages:` list
+ *   - `package.json` with a non-empty `workspaces` field — npm/yarn/bun
  *   - `projects/` directory           — lt-monorepo convention
  *
  * Returns false for `node_modules`-style directories that may contain
  * a stray `package.json` with `workspaces`.
  */
 function hasWorkspaceMarker(dir: string, filesystem: GluegunFilesystem): boolean {
-  if (filesystem.exists(`${dir}/pnpm-workspace.yaml`) === 'file') return true;
+  if (pnpmWorkspaceDeclaresPackages(`${dir}/pnpm-workspace.yaml`, filesystem)) return true;
   if (filesystem.exists(`${dir}/projects`) === 'dir') return true;
 
   const pkgPath = `${dir}/package.json`;
@@ -549,4 +581,36 @@ function hasWorkspaceMarker(dir: string, filesystem: GluegunFilesystem): boolean
     return ((ws as { packages: unknown[] }).packages ?? []).length > 0;
   }
   return false;
+}
+
+/**
+ * True only when `pnpm-workspace.yaml` actually declares member packages.
+ *
+ * The file's mere existence is NOT a workspace marker. Since pnpm 10/11 it
+ * is also the canonical home for workspace-scoped *settings* (`overrides`,
+ * `allowBuilds`, `onlyBuiltDependencies`, `minimumReleaseAge*`) — pnpm 11
+ * silently ignores those keys in package.json's `pnpm` block. Both
+ * nest-server-starter and nuxt-base-starter therefore ship a settings-only
+ * `pnpm-workspace.yaml` (no `packages:`) while being plain single-package
+ * projects.
+ *
+ * Treating existence as the marker made every standalone starter look like a
+ * monorepo: `resolveLayout` searched for `projects/api` + `projects/app`,
+ * found neither, and `lt dev up` / `lt dev init` aborted with
+ * "No API or App project detected at this path".
+ *
+ * Unparseable YAML yields false so the remaining markers still decide,
+ * rather than guessing "workspace" from a file we could not read.
+ */
+function pnpmWorkspaceDeclaresPackages(path: string, filesystem: GluegunFilesystem): boolean {
+  if (filesystem.exists(path) !== 'file') return false;
+  const content = filesystem.read(path);
+  if (!content) return false;
+  try {
+    const doc = yaml.load(content) as null | { packages?: unknown };
+    const packages = doc?.packages;
+    return Array.isArray(packages) && packages.length > 0;
+  } catch {
+    return false;
+  }
 }

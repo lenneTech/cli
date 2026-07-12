@@ -1052,24 +1052,45 @@ For mode-aware update workflows after conversion, use:
 
 ### `lt deployment create`
 
-Creates deployment configuration for a monorepo.
+Creates the TurboOps deployment config (`.turboops.json`) in the workspace root and
+prints the one-time TurboOps setup checklist (project, stages, CI/CD variables, DNS,
+stage env vars).
+
+The Dockerfiles, `docker-compose.yml` and `.gitlab-ci.yml` already ship with the
+lt-monorepo template, so nothing else is generated. An existing `.turboops.json` is
+merged, not overwritten — hand-added keys survive a re-run.
+
+**Angular apps** additionally get their environment files pointed at the deployed
+stage URLs, because Angular bakes them into the bundle at build time (Nuxt reads
+them from the TurboOps stage env at runtime, so nothing is patched there):
+
+| File | Stage | API URL | App URL |
+|------|-------|---------|---------|
+| `environment.prod.ts` | `production` | `api.<domain>` | `<domain>` |
+| `environment.develop.ts` | `dev` | `api.dev.<domain>` | `dev.<domain>` |
+| `environment.test.ts` | `dev` | `api.dev.<domain>` | `dev.<domain>` |
+
+`environment.ts` (local dev) is never touched. Only the URL origin is replaced, so
+custom paths (`/v2/graphql`) survive and a re-run with a new domain updates them.
 
 **Usage:**
 ```bash
-lt deployment create [name] [options]
+lt deployment create [name] [domain] [options]
 ```
 
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `--domain <domain>` | Main domain for the project |
-| `--gitHub` | Enable GitHub pipeline |
-| `--gitLab` | Enable GitLab pipeline |
-| `--testRunner <tag>` | GitLab test runner tag |
-| `--prodRunner <tag>` | GitLab production runner tag |
-| `--noConfirm` | Skip confirmation prompts |
+| `--domain <domain>` | Main domain for the project (default: `<name>.lenne.tech`) |
+| `--project <slug>` | TurboOps project slug = registry namespace + login user (default: kebab-case name) |
+| `--noConfirm` | Skip prompts; resolve every value from flags, `lt.config`, or defaults |
 
-**Configuration:** `commands.deployment.*`, `defaults.domain`, `defaults.noConfirm`
+**Configuration:** `commands.deployment.domain`, `commands.deployment.noConfirm`, `defaults.domain`, `defaults.noConfirm`
+
+> **Upgrading from the Docker-Swarm generator:** the old
+> `commands.deployment.gitHub`, `gitLab`, `prodRunner`, and `testRunner` config
+> keys were removed with the switch to TurboOps. They are now flagged as unknown
+> by `lt config validate` — delete them from your `lt.config` if present.
 
 ---
 

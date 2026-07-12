@@ -282,6 +282,8 @@ const StatusCommand: GluegunCommand = {
           for (const [sub, host] of Object.entries(entry.subdomains)) {
             info(`  ${sub.padEnd(6)} https://${host}`);
           }
+          // `loadRegistry` strips dbName from API-less entries, so its
+          // presence alone means there is a database to advertise.
           if (entry.dbName) info(`  db     mongodb://127.0.0.1/${entry.dbName}`);
           const session = loadSession(registryRoot);
           const apiAlive = session?.pids.api ? isPidAlive(session.pids.api) : false;

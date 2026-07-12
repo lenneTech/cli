@@ -158,6 +158,38 @@ run_scenario() {
     else
       fail "migrations-utils/migrate.js does NOT load ts-compiler"
     fi
+    # migrate.js resolves the Mongo URI via ./mongo-uri, which must ship from the starter
+    [[ -f "${api_dir}/migrations-utils/mongo-uri.js" ]] \
+      && pass "migrations-utils/mongo-uri.js present (required by migrate.js)" \
+      || fail "migrations-utils/mongo-uri.js missing — migrate.js require('./mongo-uri') fails at runtime"
+    if grep -q "resolveMongoUri" "${api_dir}/migrations-utils/migrate.js"; then
+      pass "migrations-utils/migrate.js resolves the Mongo URI via resolveMongoUri"
+    else
+      fail "migrations-utils/migrate.js does NOT use resolveMongoUri"
+    fi
+    # Production build ships bin + compiled migrations (the image has no ts-node)
+    if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(s['copy:bin'] && s['copy:migrations'] && s['prune:migrations'] ? 0 : 1)"; then
+      pass "package.json defines copy:bin / copy:migrations / prune:migrations"
+    else
+      fail "package.json missing copy:bin / copy:migrations / prune:migrations"
+    fi
+    if node -e "const s=require('${api_dir}/package.json').scripts; const b=s.build||''; const c=(x)=>b.includes(x)||(s.copy||'').includes(x); process.exit(c('copy:bin')&&c('copy:migrations')&&c('prune:migrations')?0:1)"; then
+      pass "build wires copy:bin / copy:migrations / prune:migrations"
+    else
+      fail "build does NOT wire the migration copy/prune steps"
+    fi
+    # tsconfig.build.json compiles the .ts migrations and pins rootDir so emit stays dist/src/main.js
+    if grep -qF 'migrations/**/*.ts' "${api_dir}/tsconfig.build.json" && grep -q '"rootDir"' "${api_dir}/tsconfig.build.json"; then
+      pass "tsconfig.build.json includes migrations + pins rootDir"
+    else
+      fail "tsconfig.build.json missing migrations include or rootDir pin"
+    fi
+    # rimraf + cpy-cli present for the copy/prune steps
+    if node -e "const d=require('${api_dir}/package.json').devDependencies||{}; process.exit(d.rimraf && d['cpy-cli'] ? 0 : 1)"; then
+      pass "devDependencies include rimraf + cpy-cli"
+    else
+      fail "devDependencies missing rimraf or cpy-cli"
+    fi
     # Vendor freshness check (inline in package.json, no separate files)
     if grep -q '"check:vendor-freshness"' "${api_dir}/package.json"; then
       pass "package.json has check:vendor-freshness script"

@@ -155,24 +155,6 @@
               "description": "Default domain for deployments",
               "examples": ["myproject.lenne.tech"]
             },
-            "gitHub": {
-              "type": "boolean",
-              "description": "Enable GitHub pipeline by default"
-            },
-            "gitLab": {
-              "type": "boolean",
-              "description": "Enable GitLab pipeline by default"
-            },
-            "testRunner": {
-              "type": "string",
-              "description": "Default GitLab test runner tag",
-              "examples": ["docker-swarm"]
-            },
-            "prodRunner": {
-              "type": "string",
-              "description": "Default GitLab production runner tag",
-              "examples": ["docker-landing"]
-            },
             "noConfirm": {
               "type": "boolean",
               "description": "Skip confirmation prompts"

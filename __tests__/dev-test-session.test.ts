@@ -27,6 +27,7 @@ import {
   hasTestSession,
   resolveTestSession,
   tearDownTestSession,
+  TEST_INITIAL_ADMIN_ENV,
   TestSessionLogger,
 } from '../src/lib/dev-test-session';
 
@@ -97,6 +98,20 @@ describe('dev-test-session', () => {
       expect(a.dbName).toBe('svl-sports-system-2200-test');
       const b = resolveTestSession(layout, baseIdentity, 2, 'svl-sports-system-2200');
       expect(b.dbName).toBe('svl-sports-system-2200-test-2');
+    });
+  });
+
+  describe('TEST_INITIAL_ADMIN_ENV', () => {
+    // Drift guard: `lt dev test` seeds the isolated test DB with these exact
+    // NSC__… admin vars so a fresh template project's auth E2E specs run locally
+    // against a set-up system — the same values the lt-monorepo CI uses. If the
+    // template CI credentials change, this must change with them (CI ↔ local).
+    test('matches the lt-monorepo CI initial-admin credentials exactly', () => {
+      expect(TEST_INITIAL_ADMIN_ENV).toEqual({
+        NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL: 'ci-admin@test.com',
+        NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME: 'CI Admin',
+        NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD: 'CiThrowawayAdmin123!',
+      });
     });
   });
 
@@ -171,11 +186,7 @@ describe('dev-test-session', () => {
     });
 
     test('second call is a clean no-op (idempotent)', async () => {
-      saveSession(
-        projectRoot,
-        { pids: { api: 4_000_020 }, startedAt: '2026-06-05T00:00:00Z' },
-        TEST_SESSION_FILE,
-      );
+      saveSession(projectRoot, { pids: { api: 4_000_020 }, startedAt: '2026-06-05T00:00:00Z' }, TEST_SESSION_FILE);
       await tearDownTestSession(layout, baseIdentity, silentLog, { silent: true });
       const second = await tearDownTestSession(layout, baseIdentity, silentLog, { silent: true });
       expect(second.stopped).toEqual([]);

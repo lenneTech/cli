@@ -170,13 +170,14 @@ $ lt fullstack update
 
 ### Vendor-mode housekeeping
 
-Vendor-mode projects ship three maintenance scripts under `scripts/vendor/`:
+Vendor-mode projects carry no separate maintenance scripts under
+`scripts/vendor/` anymore. The vendor-specific surface is now:
 
-| Script | Purpose | Invocation |
+| Concern | Where | Invocation |
 |---|---|---|
-| `check-vendor-freshness.mjs` | Non-blocking warning when upstream has a newer release than the current baseline | `pnpm run check:vendor-freshness` (auto-invoked by `pnpm run check` / `check:fix` / `check:naf`) |
-| `sync-from-upstream.ts` | Diff generator consumed by the `nest-server-core-updater` Claude Code agent | `pnpm run vendor:sync` |
-| `propose-upstream-pr.ts` | Patch-list generator consumed by the `nest-server-core-contributor` agent | `pnpm run vendor:propose-upstream` |
+| Upstream freshness | Inline `check:vendor-freshness` script in `package.json` — reads the `src/core/VENDOR.md` baseline, compares against the npm registry, non-blocking | auto-invoked by `pnpm run check` / `check:fix` / `check:naf`, or `pnpm run check:vendor-freshness` |
+| Sync from upstream | `nest-server-core-updater` Claude Code agent | `/lt-dev:backend:update-nest-server-core` |
+| Propose local changes upstream | `nest-server-core-contributor` Claude Code agent | `/lt-dev:backend:contribute-nest-server-core` |
 
 The vendor-mode baseline (upstream version + commit SHA) is recorded in
 `src/core/VENDOR.md`. Log any substantial local patch there so the updater

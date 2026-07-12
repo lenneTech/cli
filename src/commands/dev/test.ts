@@ -222,6 +222,10 @@ const TestCommand: GluegunCommand = {
         ...readBridgeEnv(layout.root),
         // Playwright global-setup resets THIS db (allow-listed) before the suite.
         MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}`,
+        // Point the auth E2E specs directly at the isolated test API log so they
+        // read the email-verification token without relying on the spec's upward
+        // filesystem search (the CI already documents `lt dev test` as doing this).
+        ...(ctx.apiLogPath ? { NEST_SERVER_LOG: ctx.apiLogPath } : {}),
       };
       if (debug) {
         env.PWDEBUG = '1';
