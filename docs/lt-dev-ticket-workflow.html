@@ -316,7 +316,7 @@
   <div class="page">
     <span class="eyebrow">Baustein 2</span>
     <h2><code style="font-size:.8em">lt ticket</code> — mehrere Tickets gleichzeitig</h2>
-    <p class="lead">Ein Repo, beliebig viele Tickets — jedes in einem eigenen <b>git&nbsp;worktree</b> mit eigenem <code>lt dev</code>-Stack. Frisch aus <code>origin/dev</code>, in Sekunden startklar, voneinander komplett unabhängig.</p>
+    <p class="lead">Ein Repo, beliebig viele Tickets — jedes in einem eigenen <b>git&nbsp;worktree</b> mit eigenem <code>lt dev</code>-Stack. Frisch aus dem Basis-Branch (<code>origin/dev</code>, <code>origin/develop</code>, …), in Sekunden startklar, voneinander komplett unabhängig.</p>
 
     <figure>
       <!-- DIAGRAM B: one repo -> N worktrees -> N stacks -->
@@ -375,7 +375,7 @@
     </figure>
 
     <h3>So einfach geht's</h3>
-<pre><span class="k">lt ticket start</span> <span class="a">DEV-2200</span>           <span class="c"># fetch + worktree aus origin/dev + install + lt dev up</span>
+<pre><span class="k">lt ticket start</span> <span class="a">DEV-2200</span>           <span class="c"># fetch + worktree aus dem Basis-Branch + install + lt dev up</span>
                                 <span class="c">→ <span class="s">https://svl-2200.localhost</span> · DB svl-…-2200 (leer)</span>
 <span class="k">lt ticket start</span> <span class="a">login-fix</span>          <span class="c"># kein Ticket? freier Name → svl-login-fix.localhost</span>
 <span class="k">lt ticket start</span> <span class="a">DEV-2200 --as cof</span>  <span class="c"># Kurzname überschreiben; --branch / --base ebenso</span>
@@ -391,7 +391,7 @@
         <p class="small">Jedes Ticket bekommt <code>&lt;slug&gt;-&lt;id&gt;</code> in URL, DB, Ports, Caddy-Block, Ordnername. Verwechslung ausgeschlossen.</p></div>
       <div class="card"><div class="ico" style="background:linear-gradient(135deg,#06b6d4,#0e7490)">🌱</div>
         <h3>Immer frisch aus dev</h3>
-        <p class="small">Jeder Start macht <code>git fetch</code> und zweigt von <code>origin/dev</code> ab — alle Tickets unabhängig. <code>--base</code> für Ausnahmen.</p></div>
+        <p class="small">Jeder Start macht <code>git fetch</code> und zweigt vom Basis-Branch ab — gesucht wird <code>origin/dev</code>, dann <code>origin/develop</code>, dann der Remote-HEAD (<code>main</code>/<code>master</code>). Findet sich keiner, fragt die CLI nach dem Branch. <code>--base</code> setzt ihn direkt (Pflicht im nicht-interaktiven Betrieb).</p></div>
       <div class="card"><div class="ico" style="background:linear-gradient(135deg,#10b981,#047857)">⚡</div>
         <h3>0&nbsp;s &amp; leicht</h3>
         <p class="small">Worktree teilt das <code>.git</code> — kein Re-Clone. Ein <code>git fetch</code> aktualisiert alle. pnpm hardlinkt aus dem Store.</p></div>

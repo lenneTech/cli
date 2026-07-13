@@ -3,8 +3,9 @@
  * command group).
  *
  * The model: ONE git repo, N git worktrees — one per ticket/feature — each on
- * its own branch (created fresh from `origin/dev` so tickets are independent),
- * each running its own `lt dev` stack on a SUFFIXED identity:
+ * its own branch (created fresh from the repo's base branch — see
+ * {@link resolveBaseRef} — so tickets are independent), each running its own
+ * `lt dev` stack on a SUFFIXED identity:
  *
  *   ticket "DEV-2200"  →  id "2200"  →  svl-2200.localhost / api.svl-2200.localhost
  *                         worktree  <parent>/svl-2200/   branch feat/DEV-2200
@@ -30,6 +31,16 @@ import { paths } from './dev-state';
 
 /** Marker file (under `.lt-dev/`) that tags a worktree with its ticket id. */
 const TICKET_MARKER = 'ticket';
+
+/** The base ref a ticket branch is created from, and how it was found. */
+export interface BaseRefResolution {
+  /** The refs probed, in order (a single entry when `--base` was given). */
+  candidates: string[];
+  /** True when the ref came from an explicit `--base`. */
+  explicit: boolean;
+  /** The first existing candidate, or null when none of them exists. */
+  ref: null | string;
+}
 
 /** Result of the per-project global-setup ticket-safety check (for `lt dev doctor`). */
 export interface GlobalSetupCheck {
@@ -209,6 +220,16 @@ export function gitMainRepoRoot(cwd: string): string {
   return dirname(commonDir);
 }
 
+/** True if `ref` resolves to a commit in the repo (any ref kind: local, remote, tag, sha). */
+export function gitRefExists(repoDir: string, ref: string): boolean {
+  try {
+    execFileSync('git', ['-C', repoDir, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Install dependencies in a freshly-created worktree. Auto-detects the
  * project's package manager from its lockfile (pnpm hard-links from the
@@ -218,6 +239,31 @@ export function gitMainRepoRoot(cwd: string): string {
 export function installWorktreeDeps(dir: string): void {
   const pm = pickPackageManager(dir);
   execFileSync(pm.bin, pm.installArgs, { cwd: dir, stdio: 'inherit' });
+}
+
+/**
+ * Branches offered when the user has to pick a base ref interactively (no
+ * candidate matched). Remote + local branches, most recently committed first,
+ * `origin/HEAD` filtered out (it is an alias, not a branch).
+ */
+export function listBaseRefChoices(repoDir: string, limit = 25): string[] {
+  let out = '';
+  try {
+    out = git(repoDir, [
+      'for-each-ref',
+      '--sort=-committerdate',
+      '--format=%(refname:short)',
+      'refs/remotes',
+      'refs/heads',
+    ]);
+  } catch {
+    return [];
+  }
+  const refs = out
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.endsWith('/HEAD'));
+  return [...new Set(refs)].slice(0, limit);
 }
 
 /** List all worktrees of the repo (parsed from `git worktree list --porcelain`). */
@@ -252,6 +298,29 @@ export function readTicketMarker(root: string): null | string {
   } catch {
     return null;
   }
+}
+
+/**
+ * Resolve the ref a fresh ticket branch is created from.
+ *
+ * An explicit `--base` always wins (and is reported as missing when it does not
+ * resolve). Otherwise the repo's base branch is DISCOVERED, because it is not
+ * called the same everywhere — `nest-server` uses `develop`, the lt starters use
+ * `dev`, GitHub defaults to `main`:
+ *
+ *   origin/dev → origin/develop → the remote's HEAD → origin/main → origin/master
+ *   → the same names as LOCAL branches (repo without a remote)
+ *
+ * `ref: null` means none of them exists — the caller then asks the user
+ * (`lt ticket start`) instead of failing on a hard-coded `origin/dev`.
+ */
+export function resolveBaseRef(repoDir: string, explicit?: string): BaseRefResolution {
+  const wanted = explicit?.trim();
+  if (wanted) {
+    return { candidates: [wanted], explicit: true, ref: gitRefExists(repoDir, wanted) ? wanted : null };
+  }
+  const candidates = baseRefCandidates(repoDir);
+  return { candidates, explicit: false, ref: candidates.find((ref) => gitRefExists(repoDir, ref)) ?? null };
 }
 
 /**
@@ -366,6 +435,28 @@ export function writeTicketMarker(root: string, id: string): void {
   writeFileSync(join(dir, TICKET_MARKER), `${id}\n`, 'utf8');
 }
 
+/** Branch names a project may use as its integration branch, in preference order. */
+const BASE_BRANCH_NAMES = ['dev', 'develop', 'main', 'master'];
+
+/**
+ * The refs {@link resolveBaseRef} probes, in order. Remote branches first (a
+ * ticket must start from the freshest integration state), the remote's own HEAD
+ * ahead of the guessed `main`/`master`, and the local branches last so a repo
+ * without a remote still works.
+ */
+function baseRefCandidates(repoDir: string): string[] {
+  const remoteHead = gitRemoteHead(repoDir);
+  const ordered = [
+    'origin/dev',
+    'origin/develop',
+    ...(remoteHead ? [remoteHead] : []),
+    'origin/main',
+    'origin/master',
+    ...BASE_BRANCH_NAMES,
+  ];
+  return ordered.filter((ref, i) => ordered.indexOf(ref) === i); // dedupe, order preserved
+}
+
 /**
  * Split a worktree's uncommitted changes into "auto-discardable" (framework-
  * generated files + pristine lt-dev self-heal patches) and "real" developer work.
@@ -391,6 +482,23 @@ function finalizeWorktree(partial: Partial<WorktreeInfo>): WorktreeInfo {
 /** Run a git command in `cwd`, returning trimmed stdout. Throws on non-zero exit. */
 function git(cwd: string, args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+}
+
+/**
+ * The branch a remote's HEAD points at (`origin/main`, `origin/develop`, …), or
+ * null. stderr is swallowed: a repo whose `refs/remotes/<remote>/HEAD` was never
+ * set is the normal case here, not an error worth printing.
+ */
+function gitRemoteHead(repoDir: string, remote = 'origin'): null | string {
+  try {
+    const out = execFileSync('git', ['-C', repoDir, 'symbolic-ref', '--short', `refs/remotes/${remote}/HEAD`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 /**

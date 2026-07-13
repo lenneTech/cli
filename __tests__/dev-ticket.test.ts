@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { buildIdentity, buildTicketIdentity } from '../src/lib/dev-identity';
+import { patchApiConfig } from '../src/lib/dev-patches';
 import { deriveTicketDbName } from '../src/lib/dev-project';
 import {
   checkGlobalSetupTicketSafe,
@@ -12,8 +13,11 @@ import {
   deriveTicketId,
   gitBranchExists,
   gitMainRepoRoot,
+  gitRefExists,
+  listBaseRefChoices,
   listWorktrees,
   readTicketMarker,
+  resolveBaseRef,
   resolveDevIdentity,
   worktreeAdd,
   worktreeDirtyOnlyAutoDiscardable,
@@ -23,7 +27,6 @@ import {
   worktreeSafetyReport,
   writeTicketMarker,
 } from '../src/lib/dev-ticket';
-import { patchApiConfig } from '../src/lib/dev-patches';
 
 describe('dev-ticket', () => {
   describe('deriveTicketId', () => {
@@ -429,6 +432,106 @@ describe('dev-ticket — slug for a worktree of an unrenamed lt-monorepo project
     expect(res.identity.slug).toBe('imo-2314'); // NOT imo-2314-2314, NOT lt-monorepo-2314
     expect(res.identity.subdomains.app.hostname).toBe('imo-2314.localhost');
     expect(res.identity.subdomains.api.hostname).toBe('api.imo-2314.localhost');
+  });
+});
+
+// Regression: `lt ticket start` hard-coded `origin/dev` as the base ref, so it
+// died with "fatal: invalid reference: origin/dev" in every repo that names its
+// integration branch differently — e.g. nest-server, which uses `develop`.
+describe('dev-ticket — base ref resolution', () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+  const dirs: string[] = [];
+
+  /** A repo whose remote carries exactly the given branches (first = default). */
+  const repoWithRemoteBranches = (branches: string[]): string => {
+    const remote = mkdtempSync(join(tmpdir(), 'lt-baseref-remote-'));
+    const repo = mkdtempSync(join(tmpdir(), 'lt-baseref-repo-'));
+    dirs.push(remote, repo);
+    git(remote, 'init', '-q', '--bare');
+    git(repo, 'init', '-q');
+    git(repo, 'config', 'user.email', 'ci@lenne.tech');
+    git(repo, 'config', 'user.name', 'ci');
+    git(repo, 'config', 'commit.gpgsign', 'false');
+    writeFileSync(join(repo, 'README.md'), '# repo\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'branch', '-M', branches[0]);
+    git(repo, 'remote', 'add', 'origin', remote);
+    for (const b of branches.slice(1)) git(repo, 'branch', b);
+    for (const b of branches) git(repo, 'push', '-q', 'origin', b);
+    // Only the remote branches must decide — drop the local ones (except the
+    // checked-out default) so the candidate order is actually exercised.
+    for (const b of branches.slice(1)) git(repo, 'branch', '-D', b);
+    return repo;
+  };
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      try {
+        rmSync(d, { force: true, recursive: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  test('prefers origin/dev when it exists', () => {
+    const repo = repoWithRemoteBranches(['dev', 'develop', 'main']);
+    expect(resolveBaseRef(repo).ref).toBe('origin/dev');
+  });
+
+  test('falls back to origin/develop (the nest-server case — no dev branch)', () => {
+    const repo = repoWithRemoteBranches(['develop']);
+    const res = resolveBaseRef(repo);
+    expect(res.ref).toBe('origin/develop');
+    expect(res.explicit).toBe(false);
+    expect(res.candidates).toContain('origin/dev'); // probed first, just absent
+  });
+
+  test('falls back to origin/main when neither dev nor develop exists', () => {
+    const repo = repoWithRemoteBranches(['main']);
+    expect(resolveBaseRef(repo).ref).toBe('origin/main');
+  });
+
+  test('falls back to a LOCAL branch in a repo without a remote', () => {
+    const repo = mkdtempSync(join(tmpdir(), 'lt-baseref-local-'));
+    dirs.push(repo);
+    git(repo, 'init', '-q');
+    git(repo, 'config', 'user.email', 'ci@lenne.tech');
+    git(repo, 'config', 'user.name', 'ci');
+    git(repo, 'config', 'commit.gpgsign', 'false');
+    writeFileSync(join(repo, 'README.md'), '# repo\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'init');
+    git(repo, 'branch', '-M', 'develop');
+    expect(resolveBaseRef(repo).ref).toBe('develop');
+  });
+
+  test('ref is null when nothing matches → the command asks the user', () => {
+    const repo = repoWithRemoteBranches(['trunk']);
+    const res = resolveBaseRef(repo);
+    expect(res.ref).toBeNull();
+    // `trunk` is still offered as a choice in the interactive prompt.
+    expect(listBaseRefChoices(repo)).toContain('origin/trunk');
+    expect(listBaseRefChoices(repo).some((c) => c.endsWith('/HEAD'))).toBe(false);
+  });
+
+  test('an explicit --base wins, and is reported as missing when it does not exist', () => {
+    const repo = repoWithRemoteBranches(['dev', 'release']);
+    expect(resolveBaseRef(repo, 'origin/release')).toEqual({
+      candidates: ['origin/release'],
+      explicit: true,
+      ref: 'origin/release',
+    });
+    expect(resolveBaseRef(repo, 'origin/nope').ref).toBeNull(); // no silent fall-back to origin/dev
+  });
+
+  test('gitRefExists resolves branches, tags and shas — not typos', () => {
+    const repo = repoWithRemoteBranches(['dev']);
+    git(repo, 'tag', 'v1.0.0');
+    expect(gitRefExists(repo, 'origin/dev')).toBe(true);
+    expect(gitRefExists(repo, 'v1.0.0')).toBe(true);
+    expect(gitRefExists(repo, 'origin/typo')).toBe(false);
   });
 });
 

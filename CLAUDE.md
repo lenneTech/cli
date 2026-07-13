@@ -417,6 +417,22 @@ the patch is idempotent, AND a re-run with a NEW domain actually updates the
 files. The old implementation replaced the literal `http://127.0.0.1:3000`, which
 silently did **nothing** on a second run and left the previous domain baked in.
 
+### The base branch is not called `dev` everywhere — never hard-code it <!-- Added: 2026-07-13 -->
+`lt ticket start` created its worktree from a hard-coded `origin/dev`, so it died with
+`fatal: invalid reference: origin/dev` in every repo that names its integration branch
+differently — `nest-server` uses `develop`, GitHub defaults to `main`.
+**Rule:** resolve the base ref, never assume it. `dev-ticket.ts#resolveBaseRef` probes
+`origin/dev` → `origin/develop` → the remote's HEAD (`git symbolic-ref refs/remotes/origin/HEAD`)
+→ `origin/main` → `origin/master` → the same names as LOCAL branches (repo without a remote),
+and returns `ref: null` when none exists instead of guessing. An explicit `--base` always
+wins and is reported as *missing* when it doesn't resolve — it must never silently fall back
+to a guessed branch. On `ref: null` the command ASKS (select from `listBaseRefChoices`, plus a
+free-text escape hatch, re-asked until `gitRefExists`); non-interactive callers
+(`isNonInteractive` — CI / AI agents) get a hard error pointing at `--base`. `git fetch` is
+best-effort (warn + continue on failure) so an offline repo still resolves against local refs,
+and base-ref resolution is skipped entirely when the branch already exists (`worktreeAdd` then
+just checks it out).
+
 ### A `pnpm-workspace.yaml` is NOT a workspace marker by itself <!-- Added: 2026-07-10 -->
 Since pnpm 10/11, `pnpm-workspace.yaml` is also the canonical home for
 workspace-scoped **settings** (`overrides`, `allowBuilds`,
