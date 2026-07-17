@@ -22,6 +22,7 @@
  * Teardown is idempotent and residue-free (processes, Caddy block, env bridge,
  * session file, registry entry), so a stale session is always safely reclaimed.
  */
+import { execFileSync } from 'child_process';
 import { existsSync, readdirSync } from 'fs';
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
@@ -41,6 +42,14 @@ import {
   waitForHttp,
 } from './dev-process';
 import { deriveDbName, deriveTestDbName, DevProjectLayout } from './dev-project';
+
+/** Per-bring-up options. `shardIndex` selects an isolated shard stack; `skipBuild` reuses an existing build. */
+export interface BringUpOptions {
+  /** Override the dev DB the test DB is derived from (per-ticket isolation). */
+  devDbName?: string;
+  shardIndex?: number;
+  skipBuild?: boolean;
+}
 import {
   allocateInternalPort,
   clearSession,
@@ -53,14 +62,6 @@ import {
   TEST_SESSION_FILE,
   withRegistryLock,
 } from './dev-state';
-
-/** Per-bring-up options. `shardIndex` selects an isolated shard stack; `skipBuild` reuses an existing build. */
-export interface BringUpOptions {
-  /** Override the dev DB the test DB is derived from (per-ticket isolation). */
-  devDbName?: string;
-  shardIndex?: number;
-  skipBuild?: boolean;
-}
 
 /** Result of a successful bring-up. */
 export interface TestSessionContext {
@@ -86,6 +87,31 @@ export interface TestSessionLogger {
   dim: (msg: string) => string;
   info: (msg: string) => void;
   warn: (msg: string) => void;
+}
+
+/**
+ * Make sure the Playwright browser build the app's OWN playwright version needs
+ * is installed. A freshly created (or freshly updated) project ships a
+ * playwright.config, but the per-version browser build
+ * (`chromium_headless_shell-<rev>`) may be missing from the machine cache —
+ * every spec then fails with "Executable doesn't exist" (observed: 16/16
+ * failures on a brand-new project, easily misread as a broken stack).
+ * `playwright install chromium` is idempotent and returns in about a second
+ * when the build is already cached, so running it up front costs nothing and
+ * removes a whole class of first-run failures. Best-effort: if the install
+ * fails (offline), the suite still runs and Playwright's own error explains it.
+ */
+export function ensurePlaywrightBrowsers(
+  appDir: string,
+  pm: PackageManagerCommand,
+  logInfo?: (message: string) => void,
+): void {
+  try {
+    const args = pm.exec('playwright', ['install', 'chromium']);
+    execFileSync(pm.bin, args, { cwd: appDir, stdio: 'ignore', timeout: 300_000 });
+  } catch {
+    logInfo?.('playwright install chromium failed — continuing (the suite reports missing browsers itself).');
+  }
 }
 
 const TEST_API_LOG = 'api.test.log';
@@ -409,6 +435,7 @@ export async function runShardedTestSession(
   log: TestSessionLogger,
   opts: { devDbName?: string; forwarded: string[]; pm: PackageManagerCommand; total: number },
 ): Promise<number> {
+  ensurePlaywrightBrowsers(layout.appDir as string, opts.pm, log.info);
   const total = Math.max(2, Math.floor(opts.total));
   const contexts: Array<{ ctx: TestSessionContext; index: number }> = [];
 

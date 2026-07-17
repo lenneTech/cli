@@ -124,6 +124,27 @@ const DoctorCommand: GluegunCommand = {
         line('OK', colors.green, 'global-setup allow-list is ticket + shard safe');
       }
 
+      // 7.5 check.mjs drift: the root wrapper is canonical (bundled with the
+      //     CLI, synced by `lt fullstack update`). A diverged copy silently
+      //     misses fixes (idle-watchdog, install hoisting, summed test
+      //     metrics) — surface it instead of letting copies drift apart.
+      try {
+        const { readFileSync: read } = await import('fs');
+        const { join: j } = await import('path');
+        const projectCheck = j(layout.root, 'scripts', 'check.mjs');
+        const bundledCheck = j(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
+        if (filesystem.exists(projectCheck) && filesystem.exists(bundledCheck)) {
+          if (read(projectCheck, 'utf8') === read(bundledCheck, 'utf8')) {
+            line('OK', colors.green, 'scripts/check.mjs matches the canonical CLI version');
+          } else {
+            line('WARN', colors.yellow, 'scripts/check.mjs differs from the canonical CLI version');
+            line('WARN', colors.yellow, '  run `lt fullstack update` to sync it (skips uncommitted local edits)');
+          }
+        }
+      } catch {
+        /* best-effort diagnostics */
+      }
+
       // 8. Slug ↔ path: is this project's slug registered to a DIFFERENT checkout?
       //    Two clones of the same project (same package.json "name") share the
       //    slug → Caddy block / ports / DB and collide. Surface it proactively.

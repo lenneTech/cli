@@ -1,6 +1,6 @@
 import { dump, load } from 'js-yaml';
 
-import { hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
+import { hoistPackageManager, hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
 
 const { filesystem } = require('gluegun');
 
@@ -336,5 +336,151 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     expect(rootWs().onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
     expect(rootWs().allowBuilds).toEqual({ esbuild: true, sharp: true });
+  });
+});
+
+/**
+ * `packageManager` is a TOP-LEVEL package.json field read by Corepack, so unlike the
+ * pnpm block above its hoist destination is the root package.json. Only the root pin
+ * governs the install; one left behind in projects/app makes
+ * `cd projects/app && pnpm run build` provision a different pnpm than the root used.
+ */
+describe('hoistPackageManager', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = filesystem.path(
+      filesystem.cwd(),
+      '__tests__',
+      'temp-hoist-pm-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+    );
+    filesystem.dir(tempDir);
+  });
+
+  afterEach(() => {
+    if (filesystem.exists(tempDir)) {
+      filesystem.remove(tempDir);
+    }
+  });
+
+  const writeJson = (path: string, data: unknown): void => {
+    filesystem.write(path, JSON.stringify(data, null, 2) + '\n');
+  };
+  const readJson = (path: string): any => JSON.parse(filesystem.read(path) || '{}');
+
+  const PIN_11_13_1 = 'pnpm@11.13.1+sha512.b2fc7683b8a6525414e7d13e1ba28caaddde96bf66ec540bfaeb7e702b81f3e0';
+
+  it('hoists a sub-project pin to a root that has none and strips the sub-project', () => {
+    writeJson(`${tempDir}/package.json`, { engines: { pnpm: '^11.0.0' }, name: 'root' });
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', packageManager: PIN_11_13_1 });
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(readJson(`${tempDir}/package.json`).packageManager).toBe(PIN_11_13_1);
+    expect(readJson(`${tempDir}/projects/app/package.json`).packageManager).toBeUndefined();
+    // Unrelated root fields survive.
+    expect(readJson(`${tempDir}/package.json`).engines).toEqual({ pnpm: '^11.0.0' });
+  });
+
+  it('keeps the highest version across sub-projects and root, incl. integrity hash', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root', packageManager: 'pnpm@11.2.0' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', packageManager: 'pnpm@11.9.0' });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', packageManager: PIN_11_13_1 });
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
+
+    expect(readJson(`${tempDir}/package.json`).packageManager).toBe(PIN_11_13_1);
+    expect(readJson(`${tempDir}/projects/api/package.json`).packageManager).toBeUndefined();
+    expect(readJson(`${tempDir}/projects/app/package.json`).packageManager).toBeUndefined();
+  });
+
+  it('does not downgrade a newer root pin, but still strips the sub-projects', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root', packageManager: 'pnpm@11.20.0' });
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', packageManager: 'pnpm@11.4.0' });
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(readJson(`${tempDir}/package.json`).packageManager).toBe('pnpm@11.20.0');
+    expect(readJson(`${tempDir}/projects/app/package.json`).packageManager).toBeUndefined();
+  });
+
+  it('compares versions numerically, not lexically (11.9.0 < 11.13.1)', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', packageManager: 'pnpm@11.9.0' });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', packageManager: 'pnpm@11.13.1' });
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
+
+    expect(readJson(`${tempDir}/package.json`).packageManager).toBe('pnpm@11.13.1');
+  });
+
+  it('leaves everything untouched when the managers differ', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', packageManager: 'yarn@4.6.0' });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', packageManager: PIN_11_13_1 });
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
+
+    expect(readJson(`${tempDir}/package.json`).packageManager).toBeUndefined();
+    expect(readJson(`${tempDir}/projects/api/package.json`).packageManager).toBe('yarn@4.6.0');
+    expect(readJson(`${tempDir}/projects/app/package.json`).packageManager).toBe(PIN_11_13_1);
+  });
+
+  it('is a no-op when no sub-project carries a pin', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app' });
+    const rootBefore = filesystem.read(`${tempDir}/package.json`);
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(filesystem.read(`${tempDir}/package.json`)).toBe(rootBefore);
+  });
+
+  it('is idempotent', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', packageManager: PIN_11_13_1 });
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+    const rootAfterFirst = filesystem.read(`${tempDir}/package.json`);
+    const appAfterFirst = filesystem.read(`${tempDir}/projects/app/package.json`);
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(filesystem.read(`${tempDir}/package.json`)).toBe(rootAfterFirst);
+    expect(filesystem.read(`${tempDir}/projects/app/package.json`)).toBe(appAfterFirst);
+  });
+
+  it('skips a symlinked sub-project without mutating its source tree', () => {
+    const realFs = require('fs');
+    const realApp = `${tempDir}/external-app`;
+    filesystem.dir(realApp);
+    writeJson(`${realApp}/package.json`, { name: 'app', packageManager: PIN_11_13_1 });
+    filesystem.dir(`${tempDir}/projects`);
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    realFs.symlinkSync(realApp, `${tempDir}/projects/app`);
+
+    hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    // The user's own checkout keeps its pin; nothing hoisted.
+    expect(readJson(`${realApp}/package.json`).packageManager).toBe(PIN_11_13_1);
+    expect(readJson(`${tempDir}/package.json`).packageManager).toBeUndefined();
+  });
+
+  it('tolerates a missing sub-project dir', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+
+    expect(() =>
+      hoistPackageManager({ filesystem, projectDir: tempDir, subProjects: ['projects/does-not-exist'] }),
+    ).not.toThrow();
   });
 });

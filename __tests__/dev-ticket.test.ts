@@ -1,11 +1,13 @@
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
+/** gluegun's OWN parser — the exact code path that produces `parameters.options`. */
+const { parseParams } = require('gluegun/build/toolbox/parameter-tools');
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { buildIdentity, buildTicketIdentity } from '../src/lib/dev-identity';
 import { patchApiConfig } from '../src/lib/dev-patches';
-import { deriveTicketDbName } from '../src/lib/dev-project';
+import { deriveTestDbName, deriveTicketDbName } from '../src/lib/dev-project';
 import {
   checkGlobalSetupTicketSafe,
   clearTicketMarker,
@@ -14,8 +16,12 @@ import {
   gitBranchExists,
   gitMainRepoRoot,
   gitRefExists,
+  isReservedTicketId,
+  isTicketScopedDb,
+  keepDbFlag,
   listBaseRefChoices,
   listWorktrees,
+  planTicketDbDrop,
   readTicketMarker,
   resolveBaseRef,
   resolveDevIdentity,
@@ -27,6 +33,11 @@ import {
   worktreeSafetyReport,
   writeTicketMarker,
 } from '../src/lib/dev-ticket';
+
+/** Parse a real `lt ticket stop …` argv the way gluegun does. */
+function stopArgv(...argv: string[]): Record<string, unknown> {
+  return parseParams(['ticket', 'stop', ...argv]).options;
+}
 
 describe('dev-ticket', () => {
   describe('deriveTicketId', () => {
@@ -43,6 +54,187 @@ describe('dev-ticket', () => {
     test('--as override wins (slugified)', () => {
       expect(deriveTicketId('DEV-2200', 'cof')).toBe('cof');
       expect(deriveTicketId('DEV-2200', 'Check Out')).toBe('check-out');
+    });
+  });
+
+  // `lt ticket stop` drops the ticket's databases BY DEFAULT (the env is gone
+  // afterwards, so they would be orphans). Everything below guards that irreversible
+  // step. These are not hypothetical: each `test` here fails against the naive
+  // implementation and describes a way real data was destroyed.
+  describe('keepDbFlag — the --keep-db opt-out must fail CLOSED', () => {
+    test('no flag → drop (the default)', () => {
+      expect(keepDbFlag({})).toEqual({ keep: false, strayValue: null });
+      expect(keepDbFlag()).toEqual({ keep: false, strayValue: null });
+    });
+
+    test('--keep-db keeps (both key shapes yargs-parser emits, and each alone)', () => {
+      expect(keepDbFlag({ 'keep-db': true, keepDb: true }).keep).toBe(true);
+      expect(keepDbFlag({ keepDb: true }).keep).toBe(true);
+      expect(keepDbFlag({ 'keep-db': true }).keep).toBe(true);
+    });
+
+    // REGRESSION: gluegun parses via yargs-parser and declares no booleans, so
+    // `--keep-db=true` / `--keep-db true` arrive as the STRING 'true' and `--keep-db=1`
+    // as the NUMBER 1. A strict `=== true` check reads all of them as "did not ask to
+    // keep" and DROPS the databases the user explicitly asked to keep. Irreversibly.
+    test.each([['true'], ['1'], [1], ['yes']])('--keep-db=%p (non-boolean from the parser) still keeps', (v) => {
+      expect(keepDbFlag({ 'keep-db': v, keepDb: v }).keep).toBe(true);
+    });
+
+    test('only an EXPLICIT negation still drops', () => {
+      expect(keepDbFlag({ 'keep-db': false, keepDb: false }).keep).toBe(false);
+      expect(keepDbFlag({ 'keep-db': 'false', keepDb: 'false' }).keep).toBe(false);
+      expect(keepDbFlag({ 'keep-db': 0, keepDb: 0 }).keep).toBe(false);
+    });
+
+    // `--keep-db` takes no value, so `lt ticket stop --keep-db 2200` makes yargs-parser
+    // swallow the ticket id as the flag's value — leaving `parameters.first` undefined.
+    // Hand it back so the command can recover it instead of silently stopping a
+    // DIFFERENT ticket (whichever worktree the user happened to stand in).
+    test('a swallowed positional is surfaced, and still keeps', () => {
+      expect(keepDbFlag({ 'keep-db': 2200, keepDb: 2200 })).toEqual({
+        keep: true,
+        strayValue: '2200',
+      });
+      expect(keepDbFlag({ 'keep-db': 'login-fix' })).toEqual({
+        keep: true,
+        strayValue: 'login-fix',
+      });
+    });
+  });
+
+  // Locks the CONTRACT between gluegun's real parser and the guard. If a gluegun /
+  // yargs-parser upgrade changes the option shapes, this fails LOUDLY — instead of
+  // silently dropping a database.
+  describe('keepDbFlag — against gluegun’s real argv parser', () => {
+    test.each([
+      [['2200'], false],
+      [['2200', '--force'], false],
+      [['2200', '--drop-db'], false], // the old opt-in flag → still drops (now a no-op)
+      [['2200', '--no-keep-db'], false],
+      [['2200', '--keep-db'], true],
+      [['2200', '--keepDb'], true],
+      [['2200', '--keep-db=true'], true],
+      [['2200', '--keep-db', 'true'], true],
+      [['2200', '--drop-db', '--keep-db'], true], // ambiguous → never destroy
+    ])('lt ticket stop %j → keep=%s', (argv, keep) => {
+      expect(keepDbFlag(stopArgv(...argv)).keep).toBe(keep);
+    });
+
+    test('`--keep-db <id>` swallows the id — it is recovered, not lost', () => {
+      // The id never reaches the positionals, so `parameters.first` is undefined and the
+      // command would otherwise fall back to the marker → stop a DIFFERENT ticket.
+      expect(parseParams(['ticket', 'stop', '--keep-db', '2200']).array).not.toContain('2200');
+      expect(keepDbFlag(stopArgv('--keep-db', '2200'))).toEqual({ keep: true, strayValue: '2200' });
+    });
+  });
+
+  describe('isReservedTicketId', () => {
+    // These ids derive a ticket DB that collides with the PROJECT's own dev/test DB
+    // (both derivations strip a trailing `-(local|dev)` before adding their suffix).
+    test.each([['local'], ['dev'], ['test'], ['e2e'], ['ci'], ['prod'], ['production'], ['staging']])(
+      '"%s" is reserved',
+      (id) => {
+        expect(isReservedTicketId(id)).toBe(true);
+      },
+    );
+    test('case-insensitive', () => {
+      expect(isReservedTicketId('LOCAL')).toBe(true);
+      expect(isReservedTicketId('Test')).toBe(true);
+    });
+    test('normal ticket ids are fine', () => {
+      expect(isReservedTicketId('2200')).toBe(false);
+      expect(isReservedTicketId('login-fix')).toBe(false);
+      expect(isReservedTicketId('dev-2200')).toBe(false); // only the bare word collides
+    });
+  });
+
+  describe('isTicketScopedDb — the drop can never reach a project database', () => {
+    const projectDevDb = 'imo-local';
+    const projectTestDb = deriveTestDbName(projectDevDb); // imo-test
+
+    test('a ticket’s own databases are accepted', () => {
+      expect(isTicketScopedDb('imo-2200', '2200', projectDevDb)).toBe(true);
+      expect(isTicketScopedDb('imo-2200-test', '2200', projectDevDb)).toBe(true);
+    });
+
+    // The collision that made this guard necessary: ticket id `local` derives
+    // `imo-local` (the developer's MAIN dev DB) and `imo-test` (the project's E2E DB).
+    // Both look perfectly ticket-shaped — only an explicit project-DB exclusion catches them.
+    test('the project’s OWN databases are refused, even when the derivation produced them', () => {
+      expect(deriveTicketDbName(projectDevDb, 'local')).toBe(projectDevDb); // the trap
+      expect(isTicketScopedDb(projectDevDb, 'local', projectDevDb)).toBe(false);
+      expect(isTicketScopedDb(projectTestDb, 'local', projectDevDb)).toBe(false);
+      expect(isTicketScopedDb(projectTestDb, 'test', projectDevDb)).toBe(false);
+      expect(isTicketScopedDb(projectTestDb, 'dev', projectDevDb)).toBe(false);
+    });
+
+    test('another ticket’s database is refused', () => {
+      expect(isTicketScopedDb('imo-2201', '2200', projectDevDb)).toBe(false);
+    });
+
+    test('an unrelated project’s database is refused', () => {
+      expect(isTicketScopedDb('other-project-local', '2200', projectDevDb)).toBe(false);
+    });
+  });
+
+  describe('planTicketDbDrop', () => {
+    const projectDevDb = 'imo-local';
+    const worktreePath = '/repos/imo-2200';
+
+    test('derives the ticket’s dev + test DB when there is no registry entry', () => {
+      expect(planTicketDbDrop({ hasApi: true, projectDevDb, ticketId: '2200', worktreePath })).toEqual({
+        foreignEntryPath: null,
+        refused: [],
+        targets: ['imo-2200', 'imo-2200-test'],
+      });
+    });
+
+    // An App-only project has no MongoDB at all (`normalizeRegistry` encodes this by
+    // deleting `dbName`). Deriving one would invent a database that never existed and
+    // warn twice about failing to drop it.
+    test('App-only project → nothing to drop', () => {
+      expect(planTicketDbDrop({ hasApi: false, projectDevDb, ticketId: '2200', worktreePath }).targets).toEqual([]);
+    });
+
+    test('trusts a registry entry that points at THIS worktree', () => {
+      const plan = planTicketDbDrop({
+        hasApi: true,
+        projectDevDb,
+        registryEntry: { dbName: 'imo-2200', path: worktreePath },
+        ticketId: '2200',
+        worktreePath,
+      });
+      expect(plan.targets).toEqual(['imo-2200', 'imo-2200-test']);
+      expect(plan.foreignEntryPath).toBeNull();
+    });
+
+    // The registry is GLOBAL and keyed by slug alone, so `<slug>-<id>` can be a genuinely
+    // different project: `imo` + ticket `admin` → key `imo-admin`, which a real sibling
+    // project `imo-admin` may already own. Its dbName is ITS dev DB — dropping it would
+    // destroy another project's data.
+    test('ignores a registry entry owned by a DIFFERENT checkout', () => {
+      const plan = planTicketDbDrop({
+        hasApi: true,
+        projectDevDb,
+        registryEntry: { dbName: 'imo-admin-local', path: '/elsewhere/imo-admin' },
+        ticketId: 'admin',
+        worktreePath: '/repos/imo-admin',
+      });
+      expect(plan.foreignEntryPath).toBe('/elsewhere/imo-admin');
+      expect(plan.targets).not.toContain('imo-admin-local'); // the other project's DB
+      expect(plan.targets).toEqual(['imo-admin', 'imo-admin-test']); // ours, derived
+    });
+
+    test('refuses a reserved id that derives onto the project’s own databases', () => {
+      const plan = planTicketDbDrop({
+        hasApi: true,
+        projectDevDb,
+        ticketId: 'local',
+        worktreePath,
+      });
+      expect(plan.targets).toEqual([]);
+      expect(plan.refused).toEqual(['imo-local', 'imo-test']);
     });
   });
 
@@ -102,7 +294,12 @@ describe('dev-ticket', () => {
     });
     afterEach(() => rmSync(root, { force: true, recursive: true }));
 
-    const layoutFor = (r: string) => ({ apiDir: join(r, 'projects', 'api'), appDir: join(r, 'projects', 'app'), root: r, workspace: true });
+    const layoutFor = (r: string) => ({
+      apiDir: join(r, 'projects', 'api'),
+      appDir: join(r, 'projects', 'app'),
+      root: r,
+      workspace: true,
+    });
 
     test('no marker → plain project identity', () => {
       const res = resolveDevIdentity(layoutFor(root));

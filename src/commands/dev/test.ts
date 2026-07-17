@@ -10,6 +10,7 @@ import { appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import {
   autoShardCount,
   bringUpTestSession,
+  ensurePlaywrightBrowsers,
   runShardedTestSession,
   tearDownAllTestSessions,
   tearDownTestSession,
@@ -238,6 +239,9 @@ const TestCommand: GluegunCommand = {
       info('');
 
       const appPm = pickPackageManager(layout.appDir);
+      // Self-heal: install the app's Playwright browser build if missing —
+      // idempotent (~1s when cached); a fresh project otherwise fails every spec.
+      ensurePlaywrightBrowsers(layout.appDir, appPm, (m) => info(colors.dim(m)));
       exitCode = await runChildInherit(appPm.bin, appPm.runScript('test:e2e', forwarded), {
         cwd: layout.appDir,
         env,

@@ -1,6 +1,6 @@
 import { load } from 'js-yaml';
 
-import { hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
+import { hoistPackageManager, hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
 import { buildIdentity } from '../src/lib/dev-identity';
 import { setPackageName } from '../src/lib/package-name';
 
@@ -45,12 +45,19 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
   const readJson = (path: string): any => JSON.parse(filesystem.read(path) || '{}');
   const readYaml = (path: string): any => load(filesystem.read(path) || '') || {};
 
+  /** The exact pin nuxt-base-template ships, as written by `corepack up`. */
+  const APP_PIN = 'pnpm@11.13.1+sha512.b2fc7683b8a6525414e7d13e1ba28caaddde96bf66ec540bfaeb7e702b81f3e0';
+
   function scaffoldClonedMonorepo(root: string): void {
     // Root: as cloned from lt-monorepo (pnpm 11). Workspace-scoped settings
     // live in pnpm-workspace.yaml; it seeds one of its own overrides.
+    // NOTE: lt-monorepo ships NO `packageManager` — it only declares
+    // `engines.pnpm: "^11.0.0"`. The exact pin arrives via hoistPackageManager
+    // from the starters. Without it Corepack would download the latest pnpm and
+    // break against that engines range once pnpm 12 ships.
     writeJson(`${root}/package.json`, {
+      engines: { node: '>= 22', pnpm: '^11.0.0' },
       name: 'lt-monorepo',
-      packageManager: 'pnpm@11.5.1',
       private: true,
       version: '1.0.0',
     });
@@ -71,8 +78,14 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
 
     // APP: nuxt-base-template (pnpm-11) keeps config in pnpm-workspace.yaml,
     // carrying the allowBuilds object map (NOT the onlyBuiltDependencies array
-    // twin) and a first-party minimumReleaseAgeExclude glob.
+    // twin) and a first-party minimumReleaseAgeExclude glob. Its package.json
+    // carries the exact Corepack pin (incl. integrity hash, maintained via
+    // `corepack up`) that must end up at the workspace root.
     filesystem.dir(`${root}/projects/app`);
+    writeJson(`${root}/projects/app/package.json`, {
+      name: 'nuxt-base-template',
+      packageManager: APP_PIN,
+    });
     filesystem.write(
       `${root}/projects/app/pnpm-workspace.yaml`,
       [
@@ -136,6 +149,28 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
     expect(filesystem.exists(`${projectDir}/projects/app/pnpm-workspace.yaml`)).toBe(false);
   });
 
+  it('hoists the app pin to the root so one pnpm governs the whole build', () => {
+    const projectDir = `${tempDir}/shop`;
+    filesystem.dir(projectDir);
+    scaffoldClonedMonorepo(projectDir);
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
+    hoistPackageManager({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
+
+    // The root now pins the exact version incl. integrity hash: `pnpm install`
+    // at the root is deterministic and survives the pnpm 12 release.
+    expect(readJson(`${projectDir}/package.json`).packageManager).toBe(APP_PIN);
+    // engines guard untouched — pin (provisioning) and range (guard) coexist.
+    expect(readJson(`${projectDir}/package.json`).engines).toEqual({ node: '>= 22', pnpm: '^11.0.0' });
+
+    // Sub-project pin gone: otherwise `cd projects/app && pnpm run build` (what
+    // projects/app/Dockerfile does) would resolve the NEAREST package.json and
+    // provision a second pnpm inside the same build.
+    expect(readJson(`${projectDir}/projects/app/package.json`).packageManager).toBeUndefined();
+    // Renaming the root must not have been clobbered by the pin write.
+    expect(readJson(`${projectDir}/projects/app/package.json`).name).toBe('nuxt-base-template');
+  });
+
   it('is idempotent across the whole init fixup sequence', () => {
     const projectDir = `${tempDir}/shop`;
     filesystem.dir(projectDir);
@@ -144,11 +179,14 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
     const run = (): void => {
       setPackageName({ filesystem, name: 'shop', packageJsonPath: `${projectDir}/package.json` });
       hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
+      hoistPackageManager({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
     };
 
     run();
     const afterFirst = filesystem.read(`${projectDir}/pnpm-workspace.yaml`);
+    const rootPkgAfterFirst = filesystem.read(`${projectDir}/package.json`);
     run();
     expect(filesystem.read(`${projectDir}/pnpm-workspace.yaml`)).toBe(afterFirst);
+    expect(filesystem.read(`${projectDir}/package.json`)).toBe(rootPkgAfterFirst);
   });
 });

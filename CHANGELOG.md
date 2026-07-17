@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## Unreleased
+
+### ⚠ BREAKING CHANGES
+
+* **ticket:** `lt ticket stop` now **drops the ticket's databases by default.**
+
+  Previously they survived unless you passed `--drop-db`. They are now dropped unless you
+  pass `--keep-db`. `--drop-db` is still accepted but is a no-op (dropping is the default).
+
+  **Why:** `lt ticket stop` removes the entire environment — the worktree *and* the registry
+  entry — so the ticket's databases are orphans the moment it returns: nothing references
+  them, nothing lists them, nothing ever reuses them. Left behind, they just accumulate.
+
+  **What this means for you:** any script or habit that relied on a bare `lt ticket stop`
+  preserving the database is affected — and it is affected by *omission*, so there is no flag
+  to notice. Pass `--keep-db` where you need the data to survive. Interactive runs are asked
+  for confirmation first (`--noConfirm` skips the prompt).
+
+  **What is never dropped:** the project's own `<base>-local` / `<base>-test` databases,
+  another ticket's database, or a database named by a registry entry belonging to a different
+  checkout. Anything not provably this ticket's is refused with a warning.
+
+* **ticket:** `lt ticket start` now refuses the reserved ids `local`, `dev`, `test`, `e2e`,
+  `ci`, `prod`, `production` and `staging`. Their derived database name collides with the
+  project's own dev/test database. Use `--as <id>` to map such a name to a distinct id.
+
 ### [1.24.1](https://github.com/lenneTech/cli/compare/v1.24.0...v1.24.1) (2026-05-20)
 
 

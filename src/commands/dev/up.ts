@@ -6,10 +6,12 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable, caddyDaemonRunning, CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
+import { buildIdentity } from '../../lib/dev-identity';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { addToGitignore, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
 import { killProcessGroup, listenSnapshot, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
-import { resolveLayout } from '../../lib/dev-project';
+import { deriveDbName, resolveLayout } from '../../lib/dev-project';
+import { collectDevPrunePlan } from '../../lib/dev-prune';
 import {
   allocateInternalPort,
   classifyComponentHealth,
@@ -22,7 +24,7 @@ import {
   takenInternalPorts,
   withRegistryLock,
 } from '../../lib/dev-state';
-import { resolveDevIdentity } from '../../lib/dev-ticket';
+import { dropDatabases, gitMainRepoRoot, listDatabaseNames, resolveDevIdentity } from '../../lib/dev-ticket';
 
 /**
  * Start API + App behind Caddy with project-specific URLs.
@@ -455,6 +457,74 @@ const UpCommand: GluegunCommand = {
       warning('Nothing was spawned. Check package.json scripts (`start` for api, `dev` for app).');
       if (pids.api) killProcessGroup(pids.api);
       if (pids.app) killProcessGroup(pids.app);
+    }
+
+    // AUTO-PRUNE — restarting an environment is the moment to clean up after its
+    // predecessors: orphaned ticket DBs (ids from this repo's own feat/* branches,
+    // no live worktree/registry entry, `--keep-db` records excluded), stale shard
+    // test DBs, and dead-path registry entries. Same guards as `lt dev prune`;
+    // best-effort and non-blocking — a failure here must never affect `up` itself.
+    // Opt out with `--no-prune`.
+    if (parameters.options.prune !== false) {
+      try {
+        let mainRepoRoot = layout.root;
+        try {
+          mainRepoRoot = gitMainRepoRoot(layout.root);
+        } catch {
+          /* not a git repo — registry prune still applies */
+        }
+        const mainLayout = resolveLayout(mainRepoRoot, filesystem);
+        const baseSlug = buildIdentity(mainRepoRoot).slug;
+        const plan = collectDevPrunePlan({
+          loadRegistry,
+          mainRepoRoot,
+          observedDbNames: mainLayout.apiDir ? listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot]) : null,
+          projectDevDb: deriveDbName(mainLayout.apiDir, baseSlug),
+          slug: baseSlug,
+        });
+        const dbTargets = [...new Set([...plan.orphan.targets, ...plan.shardTargets])];
+        if (dbTargets.length > 0) {
+          const { dropped, reason } = dropDatabases(dbTargets, undefined, [mainLayout.apiDir, mainRepoRoot]);
+          if (dropped.length > 0) {
+            info(colors.dim(`Pruned ${dropped.length} orphaned test/ticket database(s): ${dropped.join(', ')}`));
+          }
+          if (reason) {
+            info(
+              colors.dim(
+                `(prune incomplete — ${reason === 'no-mongosh' ? 'mongosh missing' : 'MongoDB unreachable'}; run \`lt dev prune\` later)`,
+              ),
+            );
+          }
+        }
+        if (plan.registryPrune.length > 0) {
+          // Under the registry lock: a parallel `lt dev up` (another project) may be
+          // REGISTERING right now — an unlocked read-modify-write here would clobber
+          // its fresh entry (classic lost update; observed with two simultaneous ups).
+          const removed = await withRegistryLock(() => {
+            const reg = loadRegistry();
+            const gone: string[] = [];
+            for (const key of plan.registryPrune) {
+              if (reg.projects[key] && !existsSync(reg.projects[key].path)) {
+                delete reg.projects[key];
+                gone.push(key);
+              }
+            }
+            if (gone.length > 0) {
+              saveRegistry(reg);
+            }
+            return gone;
+          });
+          if (removed.length > 0) {
+            info(
+              colors.dim(
+                `Pruned ${removed.length} dead registry entr${removed.length === 1 ? 'y' : 'ies'}: ${removed.join(', ')} (ports reclaimed)`,
+              ),
+            );
+          }
+        }
+      } catch {
+        /* never block `up` on cleanup */
+      }
     }
 
     if (!parameters.options.fromGluegunMenu) process.exit();

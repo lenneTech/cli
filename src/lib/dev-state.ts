@@ -61,6 +61,12 @@ export interface ProjectsRegistryEntry {
   dbName?: string;
   /** Internal ports (Caddy upstreams) — frozen on first `up`. */
   internalPorts: { api?: number; app?: number };
+  /**
+   * Databases the user explicitly kept via `lt ticket stop --keep-db`, recorded on
+   * the MAIN project's entry (the ticket's own entry is deleted on stop). The
+   * orphan-DB sweep (`lt dev prune` / `lt dev up`) must never collect these.
+   */
+  keptDbs?: string[];
   /** ISO timestamp of last `up`. */
   lastUsedAt?: string;
   /** Absolute project root. */
@@ -191,6 +197,15 @@ export function loadSession(root: string, sessionFile: string = SESSION_FILE): D
   return null;
 }
 
+/** True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var). */
+export function sameRealPath(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
+}
+
 /** Atomically persist the registry. */
 export function saveRegistry(reg: ProjectsRegistry): void {
   mkdirSync(dirname(REGISTRY_PATH), { recursive: true });
@@ -237,15 +252,6 @@ function normalizeRegistry(reg: ProjectsRegistry): ProjectsRegistry {
     }
   }
   return reg;
-}
-
-/** True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var). */
-function sameRealPath(a: string, b: string): boolean {
-  try {
-    return realpathSync(a) === realpathSync(b);
-  } catch {
-    return a === b;
-  }
 }
 
 const LOCK_PATH = `${REGISTRY_PATH}.lock`;

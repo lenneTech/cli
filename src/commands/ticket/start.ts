@@ -14,6 +14,7 @@ import {
   gitMainRepoRoot,
   gitRefExists,
   installWorktreeDeps,
+  isReservedTicketId,
   listBaseRefChoices,
   resolveBaseRef,
   worktreeAdd,
@@ -74,6 +75,18 @@ const StartCommand: GluegunCommand = {
 
     const base = buildIdentity(mainRepoRoot);
     const id = deriveTicketId(name, parameters.options.as != null ? String(parameters.options.as) : undefined);
+
+    // `local`/`dev`/`test`/… would derive a ticket DB that collides with the PROJECT's own
+    // dev or test database (both derivations strip a trailing `-(local|dev)` before adding
+    // their suffix, so the name round-trips). `lt ticket stop` would then be aimed at the
+    // developer's own data. Refuse the id instead of creating that trap.
+    if (isReservedTicketId(id)) {
+      error(`Ticket id "${id}" is reserved — its database would collide with the project's own.`);
+      info(colors.dim(`  Pick a different name, or map it to a distinct id: lt ticket start ${name} --as ${id}-fix`));
+      if (!parameters.options.fromGluegunMenu) process.exit(1);
+      return 'ticket start: reserved id';
+    }
+
     const branch =
       typeof parameters.options.branch === 'string' ? parameters.options.branch : defaultTicketBranch(name);
     const ticketIdentity = buildTicketIdentity(base, id);

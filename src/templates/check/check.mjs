@@ -25,7 +25,7 @@
  * Exit code: 0 when every step passed, 1 otherwise (preserves the contract the
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,8 +66,14 @@ function classify(cmd) {
   const c = cmd.toLowerCase();
   if (c.includes("vendor-freshness"))
     return { fatal: false, kind: "vendor", label: "vendor-freshness" };
+  // Dependency install — hoisted to ONE workspace-level run (see buildGroups):
+  // api and app chains both start with `pnpm install --frozen-lockfile`, and
+  // running those CONCURRENTLY (parallel groups) mutates the same workspace
+  // node_modules from two processes at once.
+  if (/\b(pnpm|npm|yarn|bun)\s+(install|ci)\b/.test(c))
+    return { fatal: true, kind: "install", label: "install" };
   if (c.includes("audit")) return { fatal: true, kind: "audit", label: "audit" };
-  if (c.includes("format:check") || c.includes("oxfmt") || c.includes("prettier"))
+  if (c.includes("format:check") || c.includes("oxfmt"))
     return { fatal: true, kind: "format", label: "format" };
   if (c.includes("lint")) return { fatal: true, kind: "lint", label: "lint" };
   if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:unit|test:ci/.test(c))
@@ -86,7 +92,6 @@ function toFixCommand(kind, cmd) {
   if (kind === "format") {
     if (/\bformat:check\b/.test(cmd)) return cmd.replace(/\bformat:check\b/, "format");
     if (/\boxfmt\b/.test(cmd)) return cmd.replace(/\s--check\b/, "");
-    if (/\bprettier\b/.test(cmd)) return cmd.replace(/\s--check\b/, " --write");
     return cmd;
   }
   if (kind === "lint") {
@@ -99,16 +104,30 @@ function toFixCommand(kind, cmd) {
 }
 
 // ── metric parsers ─────────────────────────────────────────────────────────
+// Sum capture group 1 across every match of `re` (which must carry the `g` flag).
+// Returns null when nothing matched, so callers can tell "absent" from "zero".
+function sumMatches(clean, re) {
+  let total = null;
+  for (const m of clean.matchAll(re)) {
+    const n = Number(m[1]);
+    if (Number.isFinite(n)) total = (total ?? 0) + n;
+  }
+  return total;
+}
+// A single test step may invoke vitest more than once (`test` is
+// `vitest:unit && vitest`), emitting one summary block per run. Sum them all —
+// reading only the first silently under-reports every later run: the api step
+// showed "16 passed" (unit only) while its 69 e2e tests ran unseen.
 function parseVitest(out) {
   const clean = stripAnsi(out);
-  const tests = clean.match(/Tests\s+(?:(\d+)\s+failed[^\n]*?)?(\d+)\s+passed/i);
-  const files = clean.match(/Test Files\s+(?:(\d+)\s+failed[^\n]*?)?(\d+)\s+passed/i);
-  const failed = clean.match(/Tests\s+(\d+)\s+failed/i);
-  if (!tests && !files) return null;
+  const passed = sumMatches(clean, /Tests\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
+  const files = sumMatches(clean, /Test Files\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
+  const failed = sumMatches(clean, /Tests\s+(\d+)\s+failed/gi);
+  if (passed == null && files == null) return null;
   return {
-    failed: failed ? Number(failed[1]) : 0,
-    files: files ? Number(files[2]) : null,
-    passed: tests ? Number(tests[2]) : null,
+    failed: failed ?? 0,
+    files,
+    passed,
   };
 }
 function parseLint(out) {
@@ -142,21 +161,105 @@ async function runAudit(auditCmd) {
   return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total };
 }
 
+// Watchdog: kill a TEST step whose child produces NO output for this long. A
+// wedged test run (workers idle at 0% CPU — e.g. one spec file grinding through
+// retries after its app/socket state broke under load) otherwise spins the live
+// view forever: the spinner only proves the child process exists, not that it
+// progresses. Only test steps are watched: build / typecheck / audit
+// legitimately buffer all their output to the end (and go silent under a
+// non-TTY pipe), so watching them would false-kill a slow-but-progressing run.
+// Override with --idle-timeout=<seconds> or CHECK_IDLE_TIMEOUT (seconds); 0
+// disables it.
+const IDLE_TIMEOUT_MS = (() => {
+  const flag = process.argv.find((a) => a.startsWith("--idle-timeout="));
+  const raw = flag ? flag.slice("--idle-timeout=".length) : process.env.CHECK_IDLE_TIMEOUT;
+  const DEFAULT_MS = 300 * 1000;
+  if (raw === undefined || raw === "") return DEFAULT_MS;
+  const seconds = Number(raw);
+  if (seconds === 0) return 0; // explicit opt-out
+  // Invalid value (typo, unit suffix, negative) → keep the protection at its
+  // default rather than silently disabling it.
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    process.stderr.write(`[check] ignoring invalid idle-timeout "${raw}", using ${DEFAULT_MS / 1000}s\n`);
+    return DEFAULT_MS;
+  }
+  return seconds * 1000;
+})();
+
 // ── command runner ─────────────────────────────────────────────────────────
 const RUNNING = new Set();
-function capture(cmd, cwd) {
+
+// Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
+// fork workers). Killing only the direct child orphans the tree — exactly the
+// zombie workers a deadlock leaves behind. Children are collected via pgrep
+// and killed leaves-first.
+function killTree(child, signal = "SIGTERM") {
+  const pids = [];
+  const collect = (pid) => {
+    pids.push(pid);
+    let out = "";
+    try {
+      out = execSync(`pgrep -P ${pid}`, { stdio: ["ignore", "pipe", "ignore"] })
+        .toString()
+        .trim();
+    } catch {
+      /* no children */
+    }
+    if (out) for (const p of out.split("\n")) collect(Number(p));
+  };
+  collect(child.pid);
+  for (const pid of pids.reverse()) {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+// idleTimeoutMs > 0 arms the no-output watchdog for this child; 0 (the default)
+// runs it unwatched. Only callers that KNOW the child streams progress (test
+// steps) should pass a timeout — see runGroup.
+function capture(cmd, cwd, idleTimeoutMs = 0) {
   return new Promise((resolve) => {
     const child = spawn(cmd, { cwd, shell: true });
     RUNNING.add(child);
     let out = "";
+    let idleTimer = null;
+    let killTimer = null;
+    let watchdogHit = false;
+    // Any output resets the watchdog — only complete silence for the full
+    // window counts as wedged. Escalate to SIGKILL for processes that ignore
+    // SIGTERM.
+    const armWatchdog = () => {
+      if (!idleTimeoutMs) return;
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        watchdogHit = true;
+        killTree(child);
+        killTimer = setTimeout(() => killTree(child, "SIGKILL"), 5000);
+        killTimer.unref();
+      }, idleTimeoutMs);
+    };
     const onData = (d) => {
       out += d;
+      armWatchdog();
       if (VERBOSE) process.stdout.write(d);
     };
+    armWatchdog();
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);
     const done = (code, extra) => {
+      clearTimeout(idleTimer);
+      clearTimeout(killTimer);
       RUNNING.delete(child);
+      if (watchdogHit) {
+        const note =
+          `[watchdog] step produced no output for ${Math.round(idleTimeoutMs / 1000)}s — ` +
+          "process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), " +
+          `not a slow run. Re-run the step directly to debug: \`${cmd}\``;
+        return resolve({ code: 1, out: `${out}\n${note}` });
+      }
       resolve({ code, out: extra ? `${out}\n${extra}` : out });
     };
     child.on("close", (code) => done(code ?? 1));
@@ -166,11 +269,34 @@ function capture(cmd, cwd) {
 function killAll() {
   for (const child of RUNNING) {
     try {
-      child.kill("SIGTERM");
+      killTree(child);
     } catch {
       /* already gone */
     }
   }
+}
+
+// A child killed by a signal surfaces through the package manager as a
+// "Command failed with exit code 143/137" line (SIGTERM/SIGKILL), NOT as a test
+// assertion failure — and the outer shell then reports its own generic exit 1,
+// so `code` alone never reveals it. Surface the signal so the reason isn't
+// mistaken for a real failure: the usual cause is resource pressure (parallel
+// checks/builds swapping the machine) or an external kill.
+function signalExitHint(out) {
+  const clean = stripAnsi(out);
+  // The watchdog also kills via SIGTERM, so pnpm's "exit code 143" ends up in
+  // the output — but that path already carries its own [watchdog] note with the
+  // correct (deadlock) diagnosis. Don't stack a contradictory "external kill"
+  // hint on top of it.
+  if (/\[watchdog\]/.test(clean)) return null;
+  const m = clean.match(/Command failed with exit code (137|143)\b/);
+  if (!m) return null;
+  const sig = m[1] === "143" ? "SIGTERM" : "SIGKILL";
+  return (
+    `[check] step ended via ${sig} (exit ${m[1]}) — the process was killed, not an assertion failure. ` +
+    "Usual cause: resource pressure (parallel checks/builds swapping) or an external kill. " +
+    "Re-run this project's check alone to confirm."
+  );
 }
 
 // ── live multi-line status (one line per running project) ────────────────────
@@ -255,9 +381,23 @@ function asProject(rel, check) {
   return { check, dir: rel === "." ? ROOT : join(ROOT, rel), name: pkg.name || rel, rel };
 }
 
-// Workspace sub-projects whose `check` is a real chain; if there are none (a
+// Workspace sub-projects and their real check chain; if there are none (a
 // single-package repo), fall back to the root project — whose real chain lives
 // in `check:raw`, because the root `check` is THIS wrapper.
+//
+// A member's `check` is frequently THIS wrapper too: the lt starters ship their
+// own scripts/check.mjs so they also work standalone (`lt server create`), and
+// `lt fullstack init` clones them verbatim into projects/*. Treating that as
+// "no real chain" silently dropped EVERY member — the run then fell back to the
+// root, whose chain is just `pnpm -r run check`, and reported the whole
+// monorepo as one opaque step with "no test step / 0 passed" while the members'
+// tests were in fact running, unseen. So resolve a member exactly like the root:
+// wrapper `check` means the real chain lives in `check:raw`.
+function realChain(pkg) {
+  if (!IS_ORCHESTRATOR(pkg.scripts?.check)) return pkg.scripts?.check ?? null;
+  return pkg.scripts?.["check:raw"] ?? null;
+}
+
 function discoverProjects() {
   const projects = [];
   for (const glob of workspaceGlobs()) {
@@ -268,7 +408,8 @@ function discoverProjects() {
       } catch {
         continue;
       }
-      if (!IS_ORCHESTRATOR(pkg.scripts?.check)) projects.push(asProject(rel, pkg.scripts.check));
+      const chain = realChain(pkg);
+      if (chain) projects.push(asProject(rel, chain));
     }
   }
   if (projects.length === 0) {
@@ -290,6 +431,7 @@ function discoverProjects() {
 // package manager) is captured so the run mirrors the chain's own audit.
 function buildGroups(projects) {
   let auditCmd = null;
+  let installCmd = null;
   const groups = projects.map((project) => {
     const steps = [];
     for (const raw of project.check
@@ -301,11 +443,19 @@ function buildGroups(projects) {
         if (!auditCmd) auditCmd = raw;
         continue;
       }
+      if (meta.kind === "install") {
+        // Hoisted like the audit: one workspace-level install BEFORE the
+        // fan-out. In a pnpm workspace every member's install resolves the
+        // whole workspace anyway, and two parallel installs race on the same
+        // node_modules.
+        if (!installCmd) installCmd = raw;
+        continue;
+      }
       steps.push({ ...meta, cmd: toFixCommand(meta.kind, raw), cwd: project.dir });
     }
     return { project, steps };
   });
-  return { auditCmd, groups };
+  return { auditCmd, groups, installCmd };
 }
 
 // ── per-project runner ───────────────────────────────────────────────────────
@@ -320,7 +470,10 @@ async function runGroup(group, states, results, abort) {
     st.current = step.label;
     st.stepStart = Date.now();
     if (!TTY) process.stdout.write(`  ${C.dim("→")} ${shortRel(rel)} · ${step.label}\n`);
-    const { code, out } = await capture(step.cmd, step.cwd);
+    // Watchdog only on test steps (see IDLE_TIMEOUT_MS): a test runner streams
+    // output continuously, so prolonged silence == deadlocked workers. Other
+    // steps buffer their output and must run unwatched.
+    const { code, out } = await capture(step.cmd, step.cwd, step.kind === "test" ? IDLE_TIMEOUT_MS : 0);
     const dur = Date.now() - st.stepStart;
     const r = { dur, kind: step.kind, label: step.label, project: rel };
     if (step.kind === "test") r.tests = parseVitest(out);
@@ -330,7 +483,12 @@ async function runGroup(group, states, results, abort) {
       st.failed = step.label;
       if (!abort.hit) {
         abort.hit = true;
-        abort.failure = { out, project: rel, step: `${shortRel(rel)} · ${step.label}` };
+        const hint = signalExitHint(out);
+        abort.failure = {
+          out: hint ? `${out}\n${hint}` : out,
+          project: rel,
+          step: `${shortRel(rel)} · ${step.label}`,
+        };
         killAll();
       }
       return;
@@ -352,8 +510,9 @@ async function main() {
     console.error(C.red("No workspace projects with a `check` script found."));
     process.exit(1);
   }
-  const { auditCmd, groups } = buildGroups(projects);
-  const stepCount = groups.reduce((n, g) => n + g.steps.length, 0) + (auditCmd ? 1 : 0);
+  const { auditCmd, groups, installCmd } = buildGroups(projects);
+  const stepCount =
+    groups.reduce((n, g) => n + g.steps.length, 0) + (auditCmd ? 1 : 0) + (installCmd ? 1 : 0);
   const mode = SEQUENTIAL ? "sequential" : "parallel";
   const pkgName = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).name;
 
@@ -367,6 +526,26 @@ async function main() {
 
   const results = [];
 
+  // Step -1 — single hoisted workspace install (before audit and fan-out).
+  // The member chains each start with their own `pnpm install --frozen-lockfile`;
+  // running it ONCE at the workspace root is equivalent and removes the race of
+  // two parallel installs mutating the same node_modules.
+  if (installCmd) {
+    const t = Date.now();
+    if (!TTY) process.stdout.write(`  ${C.dim("→")} install\n`);
+    else drawLive([`${C.cyan(FRAMES[0])} install`]);
+    const { code, out } = await capture(installCmd, ROOT);
+    const dur = Date.now() - t;
+    if (code !== 0) {
+      liveCount = 0; // the failure line must survive — nothing may overwrite it
+      console.log(`${C.red("✗")} install ${C.dim(`(${fmtDuration(dur)})`)}`);
+      return fail(`install (${installCmd})`, out, started);
+    }
+    if (!TTY) process.stdout.write(`  ${C.green("✓")} install ${C.dim(`(${fmtDuration(dur)})`)}\n`);
+    // TTY success: no permanent line — see the audit block below.
+    results.push({ dur, kind: "step", label: "install", project: "." });
+  }
+
   // Step 0 — single workspace audit (blocking gate, runs before the fan-out).
   // Mirrors the chain's own audit command (scope/level/PM); skipped only when
   // the chain has no audit step.
@@ -375,9 +554,9 @@ async function main() {
     if (!TTY) process.stdout.write(`  ${C.dim("→")} audit\n`);
     else drawLive([`${C.cyan(FRAMES[0])} audit`]);
     const audit = await runAudit(auditCmd);
-    liveCount = 0;
     const dur = Date.now() - t;
     if (audit.blocking) {
+      liveCount = 0; // the failure line must survive — nothing may overwrite it
       const summary = audit.counts
         ? `${audit.total} vuln (${renderVulnLine(audit.counts)})`
         : "failed";
@@ -388,10 +567,16 @@ async function main() {
         started,
       );
     }
-    console.log(
-      `${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}`,
-    );
+    if (!TTY) {
+      process.stdout.write(
+        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+      );
+    }
+    // TTY success: NO permanent line — the live status view overwrites the audit
+    // row (like every other step); the result lands in the report twice: the
+    // Steps list (entry below) and the Vulnerabilities section.
     results.push({ audit, kind: "audit" });
+    results.push({ dur, kind: "step", label: "audit", project: "." });
   }
 
   // Per-project steps — parallel by default, serial with --sequential.

@@ -14,6 +14,7 @@ This document provides a comprehensive reference for all `lt` CLI commands. For 
 - [CLI Commands](#cli-commands)
 - [Server Commands](#server-commands)
 - [Local Development Commands](#local-development-commands)
+- [Ticket Commands](#ticket-commands)
 - [Ports Commands](#ports-commands)
 - [Git Commands](#git-commands)
 - [Fullstack Commands](#fullstack-commands)
@@ -488,6 +489,27 @@ Sends `SIGTERM` to the detached process group (negative PID) so descendants — 
 
 ---
 
+### `lt dev prune`
+
+Remove the leftovers that accumulate around parallel ticket work.
+
+**Usage:**
+```bash
+lt dev prune             # interactive (confirms DB drops, default yes)
+lt dev prune --dry-run   # show the plan, change nothing
+lt dev prune --noConfirm # documented default without a prompt
+```
+
+Collects three classes of orphans:
+
+1. **Orphaned ticket databases** of the current project — `<base>-<id>` (+`-test`, `-test-<n>`) whose ticket has neither a live worktree nor a live registry entry. Ticket ids come from this repo's own `feat/*` branches (the durable record `lt ticket stop` keeps), never from name shapes — so sibling projects sharing a name prefix are safe. Databases recorded via `lt ticket stop --keep-db` are never touched.
+2. **Stale shard test databases** (`<base>-test-<n>` from `lt dev test --shard`) when no test session is running.
+3. **Dead registry entries** (any project) — the recorded path no longer exists, so the entry and its reserved internal ports are reclaimed. Databases of dead MAIN projects are never dropped (a deleted folder is not consent to destroy data).
+
+`lt dev up` runs the same collection automatically after a successful start (opt out with `--no-prune`), so restarting an environment always cleans up after its predecessors. Database access uses `mongosh` when available and falls back to the project's own `mongodb` driver otherwise — a machine without mongosh no longer silently skips every drop.
+
+---
+
 ### `lt dev status`
 
 Show what is registered + running.
@@ -613,6 +635,114 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 `lt dev init` injects a tiny `// >>> lt-dev:bridge >>>` block at the top of `playwright.config.ts` that loads this file at config-load time — making Playwright (CLI, IDE, VS Code extension) automatically use the `lt dev` URLs and trust the local CA, without inheriting the parent shell.
 
 `lt dev down` removes the bridge file so subsequent runs without `lt dev up` fall back cleanly to the classic `localhost:3000`/`localhost:3001` defaults.
+
+---
+
+## Ticket Commands
+
+One fully isolated dev environment per ticket: a git worktree on its own branch, its own
+`lt dev` stack, its own URLs (`<slug>-<id>.localhost`), its own ports, and its own database
+(`<base>-<id>`). Several tickets run side by side without colliding.
+
+### `lt ticket start`
+
+Create a ticket environment: worktree + branch + isolated stack.
+
+**Usage:**
+```bash
+lt ticket start DEV-2200
+lt ticket start login-fix --as lf
+lt ticket start DEV-2200 --base origin/develop --no-up
+```
+
+**Parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `<name>` | Ticket id (`DEV-2200` → id `2200`) or free feature name (slugified) | — |
+| `--as` | Explicit short id, overriding the derived one | derived from name |
+| `--base` | Base ref for the new branch | probes `origin/dev` → `develop` → remote HEAD → `main` → `master` |
+| `--branch` | Explicit branch name | `feat/<name>` |
+| `--no-up` | Only create the worktree; do not boot the stack | `false` |
+
+**Reserved ids:** `local`, `dev`, `test`, `e2e`, `ci`, `prod`, `production`, `staging` are
+refused. Their derived database name would collide with the *project's own* dev/test
+database (both derivations strip a trailing `-(local|dev)` before appending their suffix,
+so e.g. project DB `imo-local` + ticket id `local` derives back to `imo-local`). Use `--as`
+to map such a name to a distinct id.
+
+---
+
+### `lt ticket stop`
+
+Tear a ticket environment down: stop the stack, remove the worktree, **drop the ticket's
+databases**. The branch is kept, so committed work is never lost.
+
+**Usage:**
+```bash
+lt ticket stop 2200
+lt ticket stop 2200 --keep-db
+lt ticket stop                  # from INSIDE a ticket worktree → cleans up "this" env
+```
+
+**Parameters:**
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `<id>` | Ticket id. Omit it inside a ticket worktree to stop *that* environment | from `.lt-dev/ticket` marker |
+| `--keep-db` | Keep the ticket databases instead of dropping them | `false` (they ARE dropped) |
+| `--force` | Remove even with uncommitted changes / unpushed commits | `false` |
+| `--noConfirm` | Skip the confirmation prompt for the database drop | `false` |
+| `--drop-db` | **Deprecated no-op** — dropping is the default now | — |
+
+**Databases are dropped by default.** `lt ticket stop` removes the whole environment —
+worktree *and* registry entry — so its databases are orphans the moment it returns: nothing
+references them, nothing lists them, nothing reuses them. Left behind, they simply
+accumulate. The command asks before dropping (unless `--noConfirm`), and `--keep-db` opts
+out entirely.
+
+**What it will never drop:** the project's own `<base>-local` / `<base>-test` databases, a
+database belonging to a *different* ticket, or one named by a registry entry that turns out
+to belong to another checkout. Anything that is not provably this ticket's database is
+refused with a warning rather than guessed at.
+
+**Ordering:** the worktree is removed *before* the databases are dropped. Removing a worktree
+can fail (locked, modified submodule, permissions); dropping a database cannot be undone. So
+the fallible step runs first — if it fails, nothing was destroyed.
+
+---
+
+### `lt ticket list`
+
+Dashboard of all ticket environments: URLs, branch, status, database.
+
+**Usage:**
+```bash
+lt ticket list
+```
+
+---
+
+### `lt ticket switch`
+
+Print a ticket worktree's path and open it in the editor.
+
+**Usage:**
+```bash
+lt ticket switch 2200
+```
+
+---
+
+### `lt ticket test`
+
+Run the E2E suite inside a ticket's isolated stack and database.
+
+**Usage:**
+```bash
+lt ticket test 2200
+lt ticket test 2200 --shard 2
+```
 
 ---
 

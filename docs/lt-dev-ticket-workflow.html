@@ -383,7 +383,7 @@
 <span class="k">lt ticket list</span>                    <span class="c"># Dashboard: alle Tickets + URLs + Branch + Status + DB</span>
 <span class="k">lt ticket switch</span> <span class="a">2200</span>           <span class="c"># Pfad zeigen + im Editor öffnen</span>
 <span class="k">lt ticket test</span> <span class="a">2200 --shard 2</span>    <span class="c"># E2E im isolierten Ticket-Stack/-DB</span>
-<span class="k">lt ticket stop</span> <span class="a">2200 --drop-db</span>    <span class="c"># down + worktree entfernen (Branch bleibt); --drop-db löscht DBs</span></pre>
+<span class="k">lt ticket stop</span> <span class="a">2200</span>             <span class="c"># down + worktree + DBs entfernen (Branch bleibt); --keep-db behält die DBs</span></pre>
 
     <div class="grid g3" style="margin-top:8px">
       <div class="card"><div class="ico" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">🎯</div>
@@ -457,7 +457,7 @@
     <div class="steps">
       <div class="step"><div class="n"></div><div><b>Morgens:</b> <code>lt ticket start DEV-2200</code>, <code>lt ticket start DEV-2201</code>, <code>lt ticket start login-fix</code> — drei Tabs, drei VS-Code-Fenster, drei Claude-Sessions. Jede Umgebung ist sofort im Browser unter ihrer eigenen URL.</div></div>
       <div class="step"><div class="n"></div><div><b>Mittags:</b> Review-Feedback zu 2201 kommt rein — du wechselst per <code>lt ticket switch 2201</code>, fixst, <code>lt ticket test 2201</code> läuft <i>parallel</i> während 2200 weiter im Browser offen ist.</div></div>
-      <div class="step"><div class="n"></div><div><b>Nachmittags:</b> 2200 ist fertig → committen, pushen, MR. <code>lt ticket stop 2200 --drop-db</code> räumt restlos auf. 2201 und login-fix laufen ungestört weiter.</div></div>
+      <div class="step"><div class="n"></div><div><b>Nachmittags:</b> 2200 ist fertig → committen, pushen, MR. <code>lt ticket stop 2200</code> räumt restlos auf (Stack, Worktree und DBs). 2201 und login-fix laufen ungestört weiter.</div></div>
       <div class="step"><div class="n"></div><div><b>Überblick jederzeit:</b> <code>lt ticket list</code> zeigt alle Umgebungen mit URLs, Branch, Status und DB — du verlierst nie den Faden.</div></div>
     </div>
   </div>
@@ -532,7 +532,7 @@
     <div class="grid g2">
       <div class="card"><div class="ico" style="background:linear-gradient(135deg,#f43f5e,#be123c)">🛡️</div>
         <h3>Kein versehentlicher Datenverlust</h3>
-        <p class="small"><code>lt ticket stop</code> verweigert das Entfernen, solange <b>uncommittete</b> oder <b>ungepushte</b> Arbeit existiert — mit klarer Auflistung. <code>--force</code> überschreibt bewusst. Generierte Dateien (<code>.nuxtrc</code> &amp; Co.) blockieren nicht.</p></div>
+        <p class="small"><code>lt ticket stop</code> verweigert das Entfernen, solange <b>uncommittete</b> oder <b>ungepushte</b> Arbeit existiert — mit klarer Auflistung. <code>--force</code> überschreibt bewusst. Generierte Dateien (<code>.nuxtrc</code> &amp; Co.) blockieren nicht. Die <b>Ticket-DBs</b> werden dabei gelöscht (sie wären danach verwaist) — vorher fragt der Befehl nach; <code>--keep-db</code> behält sie. Die Projekt-DBs werden dabei <i>nie</i> angefasst.</p></div>
       <div class="card"><div class="ico" style="background:linear-gradient(135deg,#f59e0b,#b45309)">🩺</div>
         <h3>Selbstdiagnose</h3>
         <p class="small"><code>lt dev doctor</code> prüft Caddy, CA, DNS, Ports — und warnt, wenn ein <code>global-setup</code> Ticket-Test-DBs nicht zurücksetzen würde, samt exaktem Fix.</p></div>
@@ -541,7 +541,7 @@
         <p class="small">Jede Claude-Session in einem Ticket-Worktree erkennt am <code>.lt-dev/ticket</code>-Marker automatisch ihr Ticket — und sieht jede Runde Ticket-ID, URLs und DB. Keine getrackte Datei wird verändert.</p></div>
       <div class="card"><div class="ico" style="background:linear-gradient(135deg,#10b981,#047857)">🧹</div>
         <h3>Restfreier Teardown</h3>
-        <p class="small">Prozesse, Caddy-Block, Session, Registry-Eintrag, Ports — alles wird sauber zurückgegeben. <code>lt ticket stop</code> ohne ID räumt sogar das <i>aktuelle</i> Worktree auf.</p></div>
+        <p class="small">Prozesse, Caddy-Block, Session, Registry-Eintrag, Ports und die <b>Ticket-Datenbanken</b> — alles wird sauber zurückgegeben. <code>lt ticket stop</code> ohne ID räumt sogar das <i>aktuelle</i> Worktree auf.</p></div>
     </div>
   </div>
 </section>
@@ -569,7 +569,7 @@
 <span class="k">lt ticket list</span>            <span class="c"># Dashboard</span>
 <span class="k">lt ticket switch</span> <span class="a">2200</span>     <span class="c"># öffnen</span>
 <span class="k">lt ticket test</span> <span class="a">2200</span>       <span class="c"># isolierte E2E</span>
-<span class="k">lt ticket stop</span> <span class="a">2200</span>       <span class="c"># aufräumen (Branch bleibt)</span>
+<span class="k">lt ticket stop</span> <span class="a">2200</span>       <span class="c"># aufräumen: Worktree + DBs (Branch bleibt)</span>
 <span class="m">/lt-dev:take-ticket</span>        <span class="c"># Ticket im aktuellen Checkout</span>
 <span class="m">/lt-dev:git:ship</span>           <span class="c"># fertig → autonom nach dev</span></pre>
       </div>

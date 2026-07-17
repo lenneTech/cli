@@ -417,6 +417,58 @@ the patch is idempotent, AND a re-run with a NEW domain actually updates the
 files. The old implementation replaced the literal `http://127.0.0.1:3000`, which
 silently did **nothing** on a second run and left the previous domain baked in.
 
+### A flag that PREVENTS destruction must fail closed — `=== true` fails open <!-- Added: 2026-07-14 -->
+gluegun parses argv with **`yargs-parser` and declares no booleans**
+(`node_modules/gluegun/build/toolbox/parameter-tools.js` → `yargsParse(commandArray)`), so a
+flag does NOT arrive as `true` in most spellings people actually type:
+
+| argv | `parameters.options['keep-db']` |
+|---|---|
+| `--keep-db` | `true` (boolean) |
+| `--keep-db=true` / `--keep-db true` | `'true'` (**STRING**) |
+| `--keep-db=1` | `1` (**NUMBER**) |
+| `--keep-db 2200` | `2200` — **and the positional is GONE** (`parameters.first` is `undefined`) |
+
+The idiom `options.x === true` is therefore only safe for flags that **ENABLE** something
+(`--force`, `--dry-run`): a parse quirk means "don't force" → fail-CLOSED → safe. It is
+exactly backwards for a flag that **PREVENTS** something. `lt ticket stop --keep-db=true`
+evaluated `'true' === true` → `false` → and **dropped the database the user explicitly asked
+to keep**. Irreversibly.
+
+**Rules:**
+- A guard on a destructive action reads the flag's **presence** as intent; only an explicit
+  negation (`--no-x`, `--x=false`) proceeds. See `dev-ticket.ts#keepDbFlag`.
+- A value-less flag can swallow the next positional. Surface it (`strayValue`) and recover
+  it — never let it silently fall through to a marker/default and act on a *different*
+  target than the user named.
+- Extract the decision into a **pure predicate** in `src/lib/` and test it against gluegun's
+  own `parseParams` (see the contract suite in `__tests__/dev-ticket.test.ts`). A guard
+  buried in the gluegun `run()` closure is untestable, and this one was destroying data.
+- The rest of the repo already writes `=== true || === 'true'` in 15+ places. Follow it.
+
+### Derived names for destructive targets need a post-condition <!-- Added: 2026-07-14 -->
+`lt ticket stop` drops the ticket's databases by default (the env — worktree AND registry
+entry — is gone afterwards, so they are orphans nothing references, lists, or reuses; keeping
+them was how machines accumulated hundreds of dead DBs). But the name it drops is **derived**,
+never observed — and two derivations round-trip onto the *wrong* database:
+
+- **Reserved ids.** `deriveTicketDbName` and `deriveTestDbName` both strip a trailing
+  `-(local|dev)` before appending their suffix. So project DB `imo-local` + ticket id `local`
+  derives back to **`imo-local`** (the developer's main dev DB) and its test DB to
+  **`imo-test`** (the project's E2E DB). Same for ids `dev` and `test`.
+- **Slug-keyed global registry.** `~/.lenneTech/projects.json` is keyed by slug alone, so
+  `<slug>-<id>` can be a genuinely different project (`imo` + ticket `admin` collides with a
+  real sibling project `imo-admin`). Its `dbName` is *that* project's.
+
+**Rule:** never let a derivation aim an irreversible action. Validate the *result* against the
+target's expected shape and refuse anything else (`isTicketScopedDb`, `planTicketDbDrop`), and
+reject the inputs that create the collision (`isReservedTicketId`, enforced in `ticket start`).
+Also: run the **fallible** step before the **irreversible** one — `git worktree remove` can
+fail, `dropDatabase` cannot be undone, so the worktree goes first. And keep `dropDatabase`'s
+shape: the DB name travels percent-encoded in the URI **path** and `--eval` is a **constant**,
+which is what makes an arbitrary name un-injectable — do not batch the drops into a built eval
+to save a spawn.
+
 ### The base branch is not called `dev` everywhere — never hard-code it <!-- Added: 2026-07-13 -->
 `lt ticket start` created its worktree from a hard-coded `origin/dev`, so it died with
 `fatal: invalid reference: origin/dev` in every repo that names its integration branch

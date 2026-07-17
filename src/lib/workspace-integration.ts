@@ -31,7 +31,7 @@ import type { GluegunFilesystem, GluegunPatching } from 'gluegun';
 import * as yaml from 'js-yaml';
 
 import { ensureRootDockerignore } from './ensure-root-dockerignore';
-import { hoistWorkspacePnpmConfig } from './hoist-workspace-pnpm-config';
+import { hoistPackageManager, hoistWorkspacePnpmConfig } from './hoist-workspace-pnpm-config';
 import { removeNestedLockfiles } from './remove-nested-lockfiles';
 
 /**
@@ -161,13 +161,17 @@ export function detectWorkspaceLayout(workspaceDir: string, filesystem: GluegunF
 
 /**
  * Normalize a freshly-populated workspace root after adding or removing a
- * sub-project. Runs the three idempotent workspace-hygiene steps that
+ * sub-project. Runs the four idempotent workspace-hygiene steps that
  * `fullstack init`, `add-api`, and `add-app` all need:
  *
  *   1. hoist pnpm workspace-scoped config (`overrides`, `allowBuilds`, …) out
  *      of the sub-projects into the root — pnpm only honours it at the root;
- *   2. remove nested `pnpm-lock.yaml` files the root lockfile supersedes;
- *   3. guarantee a workspace-root `.dockerignore` (Docker never reads a
+ *   2. hoist the Corepack `packageManager` pin to the root — only the root pin
+ *      governs the install, and a pin left in a sub-project makes
+ *      `cd projects/app && pnpm run build` provision a different pnpm than the
+ *      root install used;
+ *   3. remove nested `pnpm-lock.yaml` files the root lockfile supersedes;
+ *   4. guarantee a workspace-root `.dockerignore` (Docker never reads a
  *      sub-project's own `.dockerignore` when building from the root context).
  *
  * Each step is a no-op when there is nothing to do, so re-runs are safe.
@@ -180,6 +184,7 @@ export function finalizeWorkspaceRoot(options: {
   const { filesystem, projectDir } = options;
   const subProjects = options.subProjects ?? ['projects/api', 'projects/app'];
   hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects });
+  hoistPackageManager({ filesystem, projectDir, subProjects });
   removeNestedLockfiles({ filesystem, projectDir, subProjects });
   ensureRootDockerignore({ filesystem, projectDir });
 }
@@ -225,8 +230,13 @@ export function findWorkspaceRoot(startDir: string, filesystem: GluegunFilesyste
  */
 export function isNonInteractive(noConfirmFlag: boolean): boolean {
   if (noConfirmFlag) return true;
-  // process.stdin may be undefined in some test runners — guard.
-  return Boolean(process.stdin && process.stdin.isTTY === false);
+  // Non-TTY stdin (pipes, scripts, CI, AI agents) must never sit on an
+  // interactive prompt. NOTE: Node leaves `isTTY` UNDEFINED (not false) on
+  // non-TTY streams, so the previous `isTTY === false` test classified every
+  // piped invocation as interactive — `lt ticket stop` then hung forever on its
+  // confirm prompt when run from a script. `!isTTY` treats undefined and false
+  // alike; a missing stdin (some test runners) cannot prompt either.
+  return !process.stdin || !process.stdin.isTTY;
 }
 
 /**

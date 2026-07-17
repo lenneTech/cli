@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { addToGitignore } from '../../lib/dev-patches';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
 import { healCheckWrapper } from '../../lib/heal-check-wrapper';
@@ -208,6 +209,16 @@ const NewCommand: GluegunCommand = {
     if (changedCheck.length > 0) {
       info('');
       success(`  Installed/updated the check wrapper: ${changedCheck.join(', ')}`);
+    }
+
+    // ── Self-heal: keep `.lt-dev/` out of git ──────────────────────────────
+    //
+    // Newer templates ship the entry, but pre-existing projects predate it —
+    // `lt dev up` then dirties `.gitignore` in every ticket worktree, which
+    // used to block every `lt ticket stop` at its safety gate. Idempotent.
+    if (addToGitignore(cwd, '.lt-dev/')) {
+      info('');
+      success('  Added `.lt-dev/` to .gitignore');
     }
 
     info('');
