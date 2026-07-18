@@ -41,6 +41,14 @@ import { deriveTicketId, isReservedTicketId, isTicketScopedDb, listWorktrees } f
 /** Branch prefix `lt ticket start` creates worktrees on. */
 const TICKET_BRANCH_PREFIX = 'feat/';
 
+/**
+ * Slug convention of the lt-dev fullstack smoke test (`/lt-dev:fullstack:smoke-test`).
+ * Its throwaway projects are named `lt-smoke-test`, so every database under this
+ * prefix is ephemeral BY CONVENTION — reserve the prefix for smoke-test runs and
+ * never name a real project like this.
+ */
+export const SMOKE_TEST_DB_PREFIX = 'lt-smoke-test';
+
 /** Everything `lt dev prune` (or the `lt dev up` auto-prune) would do — pure planning. */
 export interface DevPrunePlan {
   /** Server listing used for observation, or null when unavailable. */
@@ -51,6 +59,8 @@ export interface DevPrunePlan {
   registryPrune: string[];
   /** Stale sharded-test databases of THIS project. */
   shardTargets: string[];
+  /** Orphaned smoke-test databases (global — the smoke-test slug is a reserved convention). */
+  smokeTargets: string[];
 }
 
 export interface OrphanSweepPlan {
@@ -90,6 +100,7 @@ export function collectDevPrunePlan(args: {
       projectDevDb,
       projectRoot: mainRepoRoot,
     }),
+    smokeTargets: planSmokeTestDbSweep({ observedDbNames, registry }),
   };
 }
 
@@ -216,6 +227,54 @@ export function planRegistryPrune(registry: ProjectsRegistry): string[] {
   return Object.entries(registry.projects)
     .filter(([, entry]) => entry.path && !existsSync(entry.path))
     .map(([key]) => key);
+}
+
+/**
+ * Orphaned smoke-test databases. The `/lt-dev:fullstack:smoke-test` command
+ * scaffolds throwaway projects under the reserved {@link SMOKE_TEST_DB_PREFIX}
+ * slug; their databases (`lt-smoke-test-local`, `lt-smoke-test-test`, ticket
+ * variants, …) are ephemeral by convention. When the run's cleanup could not
+ * drop them (e.g. a blocking policy hook) they linger and — worse — get
+ * REUSED by the next run's stack, leaking state between test runs (observed:
+ * a previous run's user made a fresh sign-up probe fail with
+ * "Email already registered").
+ *
+ * Fail-closed gates, in line with the rest of this module:
+ *   - No server listing → empty plan.
+ *   - A LIVE registry entry under the prefix (path exists ⇒ a smoke test is
+ *     running right now) → empty plan; never pull the DB out from under an
+ *     active run.
+ *   - Names recorded as kept (`keptDbs`) or referenced by any live entry's
+ *     `dbName` are never touched.
+ */
+export function planSmokeTestDbSweep(args: { observedDbNames: null | string[]; registry: ProjectsRegistry }): string[] {
+  const { observedDbNames, registry } = args;
+  if (!observedDbNames || observedDbNames.length === 0) return [];
+
+  const entries = Object.entries(registry.projects);
+  const smokeRunLive = entries.some(
+    ([key, entry]) =>
+      (key === SMOKE_TEST_DB_PREFIX || key.startsWith(`${SMOKE_TEST_DB_PREFIX}-`)) &&
+      entry.path &&
+      existsSync(entry.path),
+  );
+  if (smokeRunLive) return [];
+
+  const protectedNames = new Set<string>();
+  for (const [, entry] of entries) {
+    if (entry.dbName && entry.path && existsSync(entry.path)) {
+      protectedNames.add(entry.dbName);
+      protectedNames.add(deriveTestDbName(entry.dbName));
+    }
+    for (const kept of entry.keptDbs ?? []) {
+      protectedNames.add(kept);
+    }
+  }
+
+  return observedDbNames.filter(
+    (name) =>
+      (name === SMOKE_TEST_DB_PREFIX || name.startsWith(`${SMOKE_TEST_DB_PREFIX}-`)) && !protectedNames.has(name),
+  );
 }
 
 /**

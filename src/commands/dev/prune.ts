@@ -19,7 +19,12 @@ import { isNonInteractive } from '../../lib/workspace-integration';
  *      `lt ticket stop --keep-db` are never touched.
  *   2. STALE SHARD TEST DATABASES (`<base>-test-<n>` from `lt dev test --shard`)
  *      when no test session is running — they are reset on every run anyway.
- *   3. DEAD REGISTRY ENTRIES (all projects): path no longer exists → the entry and
+ *   3. ORPHANED SMOKE-TEST DATABASES (global): the `/lt-dev:fullstack:smoke-test`
+ *      throwaway projects use the reserved `lt-smoke-test` slug; their DBs are
+ *      ephemeral by convention. Leftovers (e.g. a blocked drop during the run's
+ *      cleanup) would be REUSED by the next run's stack and leak state between
+ *      test runs — swept here whenever no live smoke-test run is registered.
+ *   4. DEAD REGISTRY ENTRIES (all projects): path no longer exists → the entry and
  *      its reserved ports are reclaimed. Databases of dead MAIN projects are NEVER
  *      dropped (a deleted folder is not consent to destroy data).
  *
@@ -64,9 +69,11 @@ const PruneCommand: GluegunCommand = {
       slug,
     });
 
-    const dbTargets = [...new Set([...plan.orphan.targets, ...plan.shardTargets])];
+    const dbTargets = [...new Set([...plan.orphan.targets, ...plan.shardTargets, ...plan.smokeTargets])];
     if (dbTargets.length === 0 && plan.registryPrune.length === 0) {
-      success('Nothing to prune — no orphaned ticket DBs, no stale shard DBs, no dead registry entries.');
+      success(
+        'Nothing to prune — no orphaned ticket DBs, no stale shard DBs, no smoke-test DBs, no dead registry entries.',
+      );
       if (plan.orphan.protected.length > 0) {
         info(colors.dim(`  kept (registry keptDbs / referenced): ${plan.orphan.protected.join(', ')}`));
       }
@@ -81,6 +88,10 @@ const PruneCommand: GluegunCommand = {
     if (plan.shardTargets.length > 0) {
       info(colors.bold('Stale shard test databases (no test session running):'));
       plan.shardTargets.forEach((db) => info(colors.dim(`  • ${db}`)));
+    }
+    if (plan.smokeTargets.length > 0) {
+      info(colors.bold('Orphaned smoke-test databases (reserved lt-smoke-test prefix, no live run):'));
+      plan.smokeTargets.forEach((db) => info(colors.dim(`  • ${db}`)));
     }
     if (plan.orphan.protected.length > 0) {
       info(colors.dim(`Kept (recorded via --keep-db or still referenced): ${plan.orphan.protected.join(', ')}`));

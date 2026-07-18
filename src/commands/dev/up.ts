@@ -482,7 +482,7 @@ const UpCommand: GluegunCommand = {
           projectDevDb: deriveDbName(mainLayout.apiDir, baseSlug),
           slug: baseSlug,
         });
-        const dbTargets = [...new Set([...plan.orphan.targets, ...plan.shardTargets])];
+        const dbTargets = [...new Set([...plan.orphan.targets, ...plan.shardTargets, ...plan.smokeTargets])];
         if (dbTargets.length > 0) {
           const { dropped, reason } = dropDatabases(dbTargets, undefined, [mainLayout.apiDir, mainRepoRoot]);
           if (dropped.length > 0) {

@@ -10,6 +10,7 @@ import {
   listPastTicketIds,
   planOrphanTicketDbSweep,
   planRegistryPrune,
+  planSmokeTestDbSweep,
   planStaleShardDbSweep,
 } from '../src/lib/dev-prune';
 
@@ -214,6 +215,74 @@ describe('dev-prune', () => {
         subdomains: {},
       };
       expect(planRegistryPrune(registry)).toEqual(['gone']);
+    });
+  });
+
+  describe('planSmokeTestDbSweep', () => {
+    test('collects every DB under the reserved smoke-test prefix, nothing else', () => {
+      const targets = planSmokeTestDbSweep({
+        observedDbNames: [
+          'lt-smoke-test-local',
+          'lt-smoke-test-test',
+          'lt-smoke-test-develop',
+          'lt-smoke-test', // bare name counts too
+          'lt-smoke-testing-local', // different slug — NOT ours (no dash boundary)
+          'imo-local',
+          'admin',
+        ],
+        registry: emptyRegistry(),
+      });
+      expect(targets.sort()).toEqual([
+        'lt-smoke-test',
+        'lt-smoke-test-develop',
+        'lt-smoke-test-local',
+        'lt-smoke-test-test',
+      ]);
+    });
+
+    test('no server listing → no sweep (fail closed)', () => {
+      expect(planSmokeTestDbSweep({ observedDbNames: null, registry: emptyRegistry() })).toEqual([]);
+      expect(planSmokeTestDbSweep({ observedDbNames: [], registry: emptyRegistry() })).toEqual([]);
+    });
+
+    test('a LIVE smoke-test run (registry path exists) blocks the whole sweep', () => {
+      const registry = emptyRegistry();
+      registry.projects['lt-smoke-test'] = { dbName: 'lt-smoke-test-local', internalPorts: {}, path: repo, subdomains: {} };
+      expect(
+        planSmokeTestDbSweep({
+          observedDbNames: ['lt-smoke-test-local', 'lt-smoke-test-test'],
+          registry,
+        }),
+      ).toEqual([]);
+    });
+
+    test('a DEAD smoke-test registry entry does not protect its DBs (that is the leak being fixed)', () => {
+      const registry = emptyRegistry();
+      registry.projects['lt-smoke-test'] = {
+        dbName: 'lt-smoke-test-local',
+        internalPorts: {},
+        path: join(repo, 'does-not-exist'),
+        subdomains: {},
+      };
+      expect(
+        planSmokeTestDbSweep({ observedDbNames: ['lt-smoke-test-local'], registry }).sort(),
+      ).toEqual(['lt-smoke-test-local']);
+    });
+
+    test('keptDbs are honored even under the smoke prefix', () => {
+      const registry = emptyRegistry();
+      registry.projects['other'] = {
+        internalPorts: {},
+        keptDbs: ['lt-smoke-test-local'],
+        path: join(repo, 'does-not-exist'),
+        subdomains: {},
+      };
+      expect(
+        planSmokeTestDbSweep({
+          observedDbNames: ['lt-smoke-test-local', 'lt-smoke-test-test'],
+          registry,
+        }),
+      ).toEqual(['lt-smoke-test-test']);
     });
   });
 });
