@@ -56,8 +56,12 @@ const PruneCommand: GluegunCommand = {
     const slug = buildIdentity(mainRepoRoot).slug;
     const projectDevDb = deriveDbName(mainLayout.apiDir, slug);
 
-    const observed = mainLayout.apiDir ? listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot]) : null;
-    if (mainLayout.apiDir && observed === null) {
+    // Always observe — the smoke-test sweep is GLOBAL (reserved prefix), so it
+    // must work from any project, even one without an own API (e.g. the CLI
+    // repo itself). mongosh against the local default URI needs no project
+    // driver; the api dir merely improves the driver fallback when present.
+    const observed = listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot].filter(Boolean));
+    if (observed === null) {
       warning('Could not list databases (mongosh missing or MongoDB unreachable) — only the registry is pruned.');
     }
 

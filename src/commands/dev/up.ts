@@ -478,7 +478,9 @@ const UpCommand: GluegunCommand = {
         const plan = collectDevPrunePlan({
           loadRegistry,
           mainRepoRoot,
-          observedDbNames: mainLayout.apiDir ? listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot]) : null,
+          // Always observe (not only with an own api dir): the smoke-test sweep is
+          // global, and mongosh against the local default URI needs no project driver.
+          observedDbNames: listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot].filter(Boolean)),
           projectDevDb: deriveDbName(mainLayout.apiDir, baseSlug),
           slug: baseSlug,
         });
