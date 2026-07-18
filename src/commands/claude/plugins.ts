@@ -250,11 +250,23 @@ const PluginsCommand: GluegunCommand = {
         }
       }
 
-      pluginsToInstall = [...primaryPlugins, ...externalPlugins];
+      // Also install plugins from accessible private/internal marketplaces — they
+      // only appear in availablePlugins when the user has repo access + a token,
+      // so this auto-installs them for authorized team members and is a no-op for
+      // everyone else.
+      const privateMarketplaceNames = new Set(MARKETPLACES.filter((m) => m.private).map((m) => m.name));
+      const internalPlugins = availablePlugins.filter((p) => privateMarketplaceNames.has(p.marketplaceName));
 
-      if (externalPlugins.length > 0) {
+      pluginsToInstall = [...primaryPlugins, ...externalPlugins, ...internalPlugins];
+
+      if (externalPlugins.length > 0 || internalPlugins.length > 0) {
         info(`Installing ${primaryPlugins.length} plugins from ${primaryMarketplace}`);
-        info(`  + ${externalPlugins.length} default plugins: ${externalPlugins.map((p) => p.pluginName).join(', ')}`);
+        if (externalPlugins.length > 0) {
+          info(`  + ${externalPlugins.length} default plugins: ${externalPlugins.map((p) => p.pluginName).join(', ')}`);
+        }
+        if (internalPlugins.length > 0) {
+          info(`  + ${internalPlugins.length} internal plugins: ${internalPlugins.map((p) => p.pluginName).join(', ')}`);
+        }
       } else {
         info(`Installing all plugins (${pluginsToInstall.length})...`);
       }
