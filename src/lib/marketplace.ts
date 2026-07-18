@@ -2,6 +2,8 @@
  * Plugin marketplace utilities
  * Handles fetching and managing plugins from GitHub-based marketplaces
  */
+import { execSync } from 'child_process';
+
 import { safeJsonParse } from './json-utils';
 
 /**
@@ -12,6 +14,8 @@ export interface MarketplaceConfig {
   apiBase: string;
   /** Unique name identifier for this marketplace */
   name: string;
+  /** Whether this is a private repo requiring an authenticated GitHub token */
+  private?: boolean;
   /** Raw content base URL for direct file access */
   rawBase: string;
   /** GitHub repository in format 'owner/repo' */
@@ -78,6 +82,16 @@ export const MARKETPLACES: MarketplaceConfig[] = [
     rawBase: 'https://raw.githubusercontent.com/anthropics/claude-plugins-official/main',
     repo: 'anthropics/claude-plugins-official',
   },
+  // Private lenne.Tech-internal marketplace. Only reachable for team members with
+  // repo access + a GitHub token (GH_TOKEN/GITHUB_TOKEN or the gh CLI). Without
+  // access it is silently skipped — discovery/install never fail because of it.
+  {
+    apiBase: 'https://api.github.com/repos/lenneTech/claude-code-internal/contents',
+    name: 'lenne-tech-internal',
+    private: true,
+    rawBase: 'https://raw.githubusercontent.com/lenneTech/claude-code-internal/main',
+    repo: 'lenneTech/claude-code-internal',
+  },
 ];
 
 /**
@@ -135,10 +149,24 @@ export async function fetchAvailablePlugins(
 export async function fetchPluginsFromMarketplace(marketplace: MarketplaceConfig): Promise<PluginConfig[]> {
   const plugins: PluginConfig[] = [];
 
+  // Private marketplaces (e.g. the internal one) need a GitHub token. No token
+  // available → silently skip so discovery never fails for users without access.
+  const token = marketplace.private ? getGitHubToken() : undefined;
+  if (marketplace.private && !token) {
+    return plugins;
+  }
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
   try {
-    // First try to read central marketplace.json (used by official marketplace)
-    const marketplaceJsonUrl = `${marketplace.rawBase}/.claude-plugin/marketplace.json`;
-    const marketplaceJsonResponse = await fetch(marketplaceJsonUrl);
+    // First try to read central marketplace.json. Private repos: via the API
+    // contents endpoint with the raw media type (raw.githubusercontent.com does
+    // not serve private content).
+    const marketplaceJsonUrl = marketplace.private
+      ? `${marketplace.apiBase}/.claude-plugin/marketplace.json`
+      : `${marketplace.rawBase}/.claude-plugin/marketplace.json`;
+    const marketplaceJsonResponse = await fetch(marketplaceJsonUrl, {
+      headers: marketplace.private ? { ...authHeaders, Accept: 'application/vnd.github.raw+json' } : authHeaders,
+    });
 
     if (marketplaceJsonResponse.ok) {
       const text = await marketplaceJsonResponse.text();
@@ -158,7 +186,7 @@ export async function fetchPluginsFromMarketplace(marketplace: MarketplaceConfig
     }
 
     // Fallback: Get list of plugin directories and read individual plugin.json files
-    const dirResponse = await fetch(`${marketplace.apiBase}/plugins`);
+    const dirResponse = await fetch(`${marketplace.apiBase}/plugins`, { headers: authHeaders });
     if (!dirResponse.ok) {
       return plugins;
     }
@@ -174,8 +202,12 @@ export async function fetchPluginsFromMarketplace(marketplace: MarketplaceConfig
     // Fetch plugin.json for each plugin in parallel
     const manifestPromises = pluginDirs.map(async (dir) => {
       try {
-        const manifestUrl = `${marketplace.rawBase}/plugins/${dir.name}/.claude-plugin/plugin.json`;
-        const manifestResponse = await fetch(manifestUrl);
+        const manifestUrl = marketplace.private
+          ? `${marketplace.apiBase}/plugins/${dir.name}/.claude-plugin/plugin.json`
+          : `${marketplace.rawBase}/plugins/${dir.name}/.claude-plugin/plugin.json`;
+        const manifestResponse = await fetch(manifestUrl, {
+          headers: marketplace.private ? { ...authHeaders, Accept: 'application/vnd.github.raw+json' } : authHeaders,
+        });
 
         if (manifestResponse.ok) {
           const manifestText = await manifestResponse.text();
@@ -214,5 +246,24 @@ export function printAvailablePlugins(plugins: PluginConfig[], info: (msg: strin
   info('Available plugins:');
   for (const plugin of plugins) {
     info(`  ${plugin.pluginName} - ${plugin.description}`);
+  }
+}
+
+/**
+ * Resolve a GitHub token for authenticated access to private marketplaces.
+ * Tries GH_TOKEN / GITHUB_TOKEN, then the gh CLI. Returns undefined when none is
+ * available — callers then simply skip private marketplaces (commands never fail).
+ * @returns A GitHub token or undefined
+ */
+function getGitHubToken(): string | undefined {
+  const fromEnv = process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (fromEnv) {
+    return fromEnv.trim();
+  }
+  try {
+    const fromGh = execSync('gh auth token', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return fromGh || undefined;
+  } catch {
+    return undefined;
   }
 }
