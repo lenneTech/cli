@@ -292,10 +292,12 @@ const NewCommand: GluegunCommand = {
     info(`     - dev domains:        dev.${domain} (app) + api.dev.${domain} (api)`);
     info(`  2. CI/CD variables: TURBOOPS_PROJECT=${project} and TURBOOPS_TOKEN=<token> (masked).`);
     info('     GitLab: Settings > CI/CD > Variables. GitHub: a repo variable + a repo secret.');
-    info('  3. DNS A/AAAA records -> your server IP. A wildcard matches exactly ONE label, so:');
+    info('  3. DNS A/AAAA records -> your server IP:');
     info(`     - ${domain}          (apex — NOT covered by a wildcard)`);
-    info(`     - *.${domain}        (covers api.${domain} and dev.${domain})`);
-    info(`     - *.dev.${domain}    (covers api.dev.${domain})`);
+    info(`     - *.${domain}        (covers api.${domain}, dev.${domain} AND api.dev.${domain}:`);
+    info('       a DNS wildcard matches one or MORE labels, RFC 4592)');
+    info(`     - *.dev.${domain}    only needed if dev.${domain} exists as an EXPLICIT record`);
+    info('       (an explicit node blocks the parent wildcard for names below it)');
     info('  4. Set the stage env vars in TurboOps (per stage), e.g. for production:');
     info(`       NODE_ENV=production, NSC__BASE_URL=https://api.${domain},`);
     info('       NSC__MONGOOSE__URI, NSC__BETTER_AUTH__SECRET, NSC__AI__ENCRYPTION_SECRET,');
