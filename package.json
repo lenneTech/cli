@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.37.1",
+  "version": "1.37.2",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -61,19 +61,19 @@
     "bin"
   ],
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1053.0",
+    "@aws-sdk/client-s3": "3.1090.0",
     "@lenne.tech/cli-plugin-helper": "0.0.14",
-    "axios": "1.16.1",
+    "axios": "1.18.1",
     "bcrypt": "6.0.0",
-    "defuddle": "0.18.1",
+    "defuddle": "0.19.1",
     "glob": "13.0.6",
     "gluegun": "5.2.2",
     "js-sha256": "0.11.1",
-    "js-yaml": "4.2.0",
+    "js-yaml": "4.3.0",
     "jsdom": "29.1.1",
     "lodash": "4.18.1",
     "open": "11.0.0",
-    "playwright-core": "1.60.0",
+    "playwright-core": "1.61.1",
     "ts-morph": "28.0.0",
     "ts-node": "10.9.2",
     "turndown": "7.2.4",
@@ -88,9 +88,9 @@
     "@types/js-yaml": "4.0.9",
     "@types/jsdom": "28.0.1",
     "@types/lodash": "4.17.24",
-    "@types/node": "25.9.1",
+    "@types/node": "26.1.1",
     "@types/turndown": "5.0.6",
-    "ejs": "5.0.2",
+    "ejs": "6.0.1",
     "eslint": "9.39.4",
     "husky": "9.1.7",
     "jest": "30.4.2",
@@ -100,20 +100,10 @@
     "ts-jest": "29.4.11"
   },
   "//overrides": {
-    "brace-expansion@5.0.2 - 5.0.5": "Security fix: GHSA-jxxr-4gwj-5jf2 (large numeric range defeats max DoS protection) in brace-expansion 5.0.2-5.0.5 - transitive via minimatch under glob, @ts-morph/common, @typescript-eslint/typescript-estree. Remove once those parents resolve minimatch to a brace-expansion >=5.0.6.",
-    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep.",
-    "js-yaml": "Security fix: GHSA-h67p-54hq-rp68 (quadratic-complexity DoS in merge-key handling) in js-yaml <=4.1.1. Forces 4.2.0 everywhere, incl. the 3.14.2 pulled transitively by @istanbuljs/load-nyc-config under babel-plugin-istanbul (jest coverage); that loader only runs js-yaml when reading a YAML nyc config, which this project does not use. Remove once the jest toolchain resolves js-yaml >=4.2.0 itself.",
-    "form-data": "Security fix: GHSA-hmw2-7cc7-3qxx (CRLF injection via unescaped multipart field names) in form-data 4.0.0-4.0.5 - transitive via axios. Remove once axios pins form-data >=4.0.6.",
-    "@babel/core": "Security fix: GHSA-4x5r-pxfx-6jf8 (arbitrary file read via sourceMappingURL) in @babel/core <=7.29.0 - transitive via the jest toolchain. Remove once jest resolves @babel/core >=7.29.6.",
-    "undici": "Security fix: GHSA-vmh5-mc38-953g (TLS certificate validation bypass via dropped requestTls in SOCKS5 ProxyAgent) and GHSA-pr7r-676h-xcf6 (cross-user info disclosure via shared cache whitespace bypass) in undici 7.0.0-7.27.2 - transitive via jsdom (jest test environment). Forces 7.28.0, which satisfies jsdom's ^7.25.0 range. Remove once jsdom resolves undici >=7.28.0."
+    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep."
   },
   "overrides": {
-    "@babel/core": "7.29.7",
-    "brace-expansion@5.0.2 - 5.0.5": "5.0.6",
-    "form-data": "4.0.6",
-    "js-yaml": "4.2.0",
-    "semver@*": "7.8.1",
-    "undici": "7.28.0"
+    "semver@*": "7.8.5"
   },
   "jest": {
     "testEnvironment": "node",
@@ -130,36 +120,5 @@
         }
       ]
     }
-  },
-  "pnpm": {
-    "overrides": {
-      "@apollo/server": "5.5.1",
-      "@babel/plugin-transform-modules-systemjs": "7.29.4",
-      "@hono/node-server": "1.19.14",
-      "@protobufjs/utf8": "1.1.1",
-      "ajv": "8.20.0",
-      "axios": "1.16.0",
-      "brace-expansion@<1.1.13": "1.1.14",
-      "brace-expansion@>=2.0.0 <2.0.3": "2.1.0",
-      "brace-expansion@>=5.0.0 <5.0.6": "5.0.6",
-      "effect": "3.21.2",
-      "fast-uri": "3.1.2",
-      "hono": "4.12.22",
-      "lodash": "4.18.1",
-      "picomatch": "4.0.4",
-      "qs": "6.15.2",
-      "uuid": "14.0.0",
-      "vite": "8.0.10",
-      "ws@>=8.0.0 <8.20.1": "8.21.0"
-    },
-    "onlyBuiltDependencies": [
-      "@apollo/protobufjs",
-      "@compodoc/compodoc",
-      "@nestjs/core",
-      "@scarf/scarf",
-      "@swc/core",
-      "bcrypt",
-      "esbuild"
-    ]
   }
 }
