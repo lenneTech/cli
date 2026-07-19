@@ -212,6 +212,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`/`deriveTestDbName` (test-DB name is `<…>-test`, distinct from `<…>-local` and the API unit-test DB). |
 | Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. |
 | Detached-spawn binary override | `src/commands/dev/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups, or bun-based projects via wrapper script). |
+| Compiled API launch (opt-in) | `src/lib/dev-api-launch.ts` | `--api-compiled` on `lt dev up` runs the API compiled (`node dist/src/main.js`) instead of ts-node, for stability under browser load (DEV-2525) — same reason `lt dev test` runs compiled. `startCompiledApi` = build → `migrate:up` (parity with the default `migrate:up && start:local`; a failed migration ABORTS the start rather than booting a half-migrated DB) → `spawnDetached('node', [entry], { NODE_ENV: 'local' })`; auto-falls-back to the ts-node `start` on build failure / missing dist entry. `findCompiledEntry` (the compiled-entry allowlist `dist/src/main.js` → `dist/main.js`) is single-sourced here and reused by `dev-test-session.ts`. Flag parsed by `isApiCompiledRequested` (honours `--api-compiled` and `--api-compiled=true`, per the yargs-parser gotcha). Only (re)starts a component that is NOT healthy — a running API is kept (`lt dev down` first to switch it). |
 | Project-local state | `<project>/.lt-dev/{state.json,api.log,app.log,.env}` | Auto-added to `.gitignore` by `lt dev init`. State JSON is schema-validated on load. The `.env` file is the **ENV bridge** (see below). |
 | ENV bridge for external tools | `src/lib/dev-env-bridge.ts` | `lt dev up` writes `<root>/.lt-dev/.env`; `lt dev test` writes `<root>/.lt-dev/.env.test` (same shape, test URLs + `LT_DEV_DB_NAME=<…>-test`) so test runners pick up the isolated stack without disturbing the dev `.env`. Both contain all URLs + `NODE_EXTRA_CA_CERTS`. External test runners (Playwright, IDE extensions, custom scripts) load these files via the auto-injected bridge block in `playwright.config.ts` (see `dev-patches.ts#patchPlaywrightConfig`). `lt dev down` + test teardown remove their respective files. |
 | One-shot isolated test wrapper | `src/commands/dev/test.ts` | `lt dev test` (App mode, default) brings up an isolated parallel stack via `dev-test-session.ts`, runs `pnpm run test:e2e` with `.env.test` loaded, then tears the stack down. `--keep` leaves the stack up for debugging (stop later with `lt dev test down`). `--debug` sets `PWDEBUG=1` + `HEADED=1`. `--api` skips the stack and runs `pnpm run test:e2e` in `projects/api` (already DB-isolated). Forwards args after `--`. Signal-safe: SIGINT/SIGTERM trigger teardown before exit. |
@@ -222,7 +223,7 @@ ports. Developers and Claude Code never see the internal ports.
 3. **`lt dev init [--skip-install]`** (alias `migrate`, `m`) — once per project. Idempotent ENV-aware patches + CLAUDE.md URL block + registry entry + `.gitignore`. **Auto-chains:** when the machine isn't prepared yet, runs `lt dev install` first (`--skip-install` opts out).
 
 **Mutual install↔init auto-chaining (no infinite regress):** the two commands prepare each other's precondition, but the chain is **one hop deep and structurally non-recursive** because each command calls the *helper* of the other (`runInstall` / `runMigrate` in `dev-install-helper.ts` / `dev-migrate-helper.ts`), never the other command. Pure predicates in `src/lib/dev-bootstrap.ts` (`isMachinePrepared`, `isProjectInitialized`, `isLtDevProject`) gate the decision and make re-runs no-ops. `runInstall` never calls `process.exit` (the command decides the exit code).
-4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached. **Self-healing prerequisites:** it no longer just *warns* about legacy hardcoded ports — it runs the same `autoPatch` as `lt dev init` over `config.env.ts`/`nuxt.config.ts`/`playwright.config.ts` so an unmigrated project becomes env-aware (honours the injected `PORT`/URLs) in one command; idempotent (no-op on already-env-aware configs). `autoPatch` only ever touches those configs — never CLAUDE.md — so it is safe in a ticket worktree (ticket URLs reach Claude via the lt-dev plugin hook + `.lt-dev/ticket` marker, not the committed CLAUDE.md; the base project still gets its CLAUDE.md URL block). **Health-aware & idempotent:** re-running probes the actual ports (not just the recorded supervisor PID) and only (re)starts components that are NOT truly serving — a CRASHED one (supervisor/nodemon alive but ts-node dead → port free) or a DEAD one — while leaving a healthy component running untouched (its PID is preserved). Before respawning it terminates the crashed supervisor's whole group (so the idle nodemon doesn't leak and stack) and reclaims any orphaned listener squatting the reused port. All-healthy → no-op (exit 0, "already running"). ts-node is kept (NOT `node dist`) so edits hot-reload immediately.
+4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached. **Self-healing prerequisites:** it no longer just *warns* about legacy hardcoded ports — it runs the same `autoPatch` as `lt dev init` over `config.env.ts`/`nuxt.config.ts`/`playwright.config.ts` so an unmigrated project becomes env-aware (honours the injected `PORT`/URLs) in one command; idempotent (no-op on already-env-aware configs). `autoPatch` only ever touches those configs — never CLAUDE.md — so it is safe in a ticket worktree (ticket URLs reach Claude via the lt-dev plugin hook + `.lt-dev/ticket` marker, not the committed CLAUDE.md; the base project still gets its CLAUDE.md URL block). **Health-aware & idempotent:** re-running probes the actual ports (not just the recorded supervisor PID) and only (re)starts components that are NOT truly serving — a CRASHED one (supervisor/nodemon alive but ts-node dead → port free) or a DEAD one — while leaving a healthy component running untouched (its PID is preserved). Before respawning it terminates the crashed supervisor's whole group (so the idle nodemon doesn't leak and stack) and reclaims any orphaned listener squatting the reused port. All-healthy → no-op (exit 0, "already running"). By default ts-node is kept (NOT `node dist`) so edits hot-reload immediately; the explicit opt-in `--api-compiled` (parsed via `isApiCompiledRequested`, launched by `startCompiledApi` in `dev-api-launch.ts`) deliberately runs the API compiled for stability under browser load (DEV-2525), knowingly trading hot reload.
 5. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
 6. **`lt dev status [--all]`** — current project or all registered. **Honest liveness:** a component is "running" only when its supervisor PID is alive AND its internal port is actually bound; supervisor-alive-but-port-free reads as `crashed` (not the old misleading "running"), and a mixed up/down project shows `degraded` in `--all`. Both point at `lt dev up` to restart just the down half.
 7. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics (checks our LaunchAgent, **not** `brew services caddy`).
@@ -343,9 +344,11 @@ its internal port is bound — use `classifyComponentHealth({ pid, portBound })`
 (`src/lib/dev-process.ts`) probe. `crashed` = wrapper up, port free. Consumed by
 `lt dev status` (honest labels) and `lt dev up` (selective restart of only the
 down component; it terminates the crashed supervisor's group first via
-`terminateProcessGroup` so the idle nodemon doesn't leak/stack). Never fall back
-to compiled `node dist` to "stabilise" — that breaks hot-reload; restart-on-crash
-(`lt dev up`) is the intended remedy.
+`terminateProcessGroup` so the idle nodemon doesn't leak/stack). The *automatic*
+crash-heal must never silently switch to compiled `node dist` to "stabilise" — that
+breaks hot-reload; restart-on-crash (`lt dev up`) is the intended remedy. The
+user-driven `--api-compiled` opt-in is the sanctioned exception: it trades hot reload
+*knowingly*, on explicit request (see `dev-api-launch.ts#startCompiledApi`).
 
 ### `projectSlug` ignores unmodified template names + is worktree-aware <!-- Added: 2026-06-16 -->
 `dev-identity.ts#projectSlug` is the single source of truth for the `lt dev` slug
@@ -533,6 +536,19 @@ loader only parses YAML when reading an nyc config file, which this project neve
 does, and jest 30 uses the v8 coverage provider, so the override is inert at
 runtime (verified via `jest --coverage`).
 
+### A command's `help` export must ride on `module.exports =`, not a bare `export const` <!-- Added: 2026-07-19 -->
+Gluegun command modules export the command via `module.exports = XCommand`, which
+**reassigns** `module.exports` and clobbers any `exports.help` a sibling
+`export const help: CommandHelp` set earlier (the classic CJS/ESM interop trap: after
+the reassignment the `exports` alias is detached from `module.exports`).
+`loadCommandHelp` (`src/lib/command-help.ts`) reads `mod.help || mod.default.help` off
+the REQUIRED module — i.e. off `module.exports` — so a bare `export const help` is
+invisible and `--help-json` stays `richHelp: false`. **Rule:** attach `help` to the
+exported object: `module.exports = Object.assign(XCommand, { help })` (keep the
+`export const help: CommandHelp` too, for the type + importers). The first help export
+in the repo lives in [src/commands/dev/up.ts](src/commands/dev/up.ts); verify the
+wiring with `lt dev up --help-json` → `richHelp: true` listing the command's own options.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash
@@ -553,7 +569,7 @@ Key flags: `--noConfirm` skips all confirmations, `--name` sets the project/modu
 - `--help-json` — same help as a single JSON document on stdout. Stable contract (`HelpJsonShape` in `src/lib/command-help.ts`); always includes `command`, `description`, `options`, `globalFlags` and a `richHelp` boolean. Use this when an AI agent needs to discover a command's surface programmatically.
 - `--noConfirm` — skip confirmations.
 
-When adding a new command, the global `installHelpInterceptor` ([src/cli.ts:28](src/cli.ts#L28) → [src/lib/command-help.ts](src/lib/command-help.ts)) handles `--help` and `--help-json` automatically. Export `const help: CommandHelp` from the command module to make the JSON payload rich (`richHelp: true`); without it the agent still gets a usable fallback with the global flags and the gluegun metadata.
+When adding a new command, the global `installHelpInterceptor` ([src/cli.ts:28](src/cli.ts#L28) → [src/lib/command-help.ts](src/lib/command-help.ts)) handles `--help` and `--help-json` automatically. Export `const help: CommandHelp` from the command module to make the JSON payload rich (`richHelp: true`); without it the agent still gets a usable fallback with the global flags and the gluegun metadata. Because gluegun commands use `module.exports = XCommand`, attach it via `module.exports = Object.assign(XCommand, { help })` — a bare `export const help` is clobbered by that reassignment (see Gotchas & Learnings).
 
 ---
 

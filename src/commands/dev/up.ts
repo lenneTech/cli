@@ -4,6 +4,8 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning, CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
+import { CommandHelp } from '../../lib/command-help';
+import { isApiCompiledRequested, startCompiledApi } from '../../lib/dev-api-launch';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
 import { buildIdentity } from '../../lib/dev-identity';
@@ -130,6 +132,11 @@ const UpCommand: GluegunCommand = {
     // suffixed so the stack is fully isolated from the base dev session and every
     // other ticket. Without a ticket this is the plain project identity.
     const { dbName, identity, ticket } = resolveDevIdentity(layout, { ticket: parameters.options.ticket });
+
+    // `--api-compiled`: run the API compiled (`node dist`) instead of ts-node.
+    // Trades hot reload for stability — ts-node intermittently dies under browser
+    // load without a stacktrace (DEV-2525); `lt dev test` already runs compiled.
+    const apiCompiled = isApiCompiledRequested(parameters.options);
 
     // Guard against two checkouts of the SAME project (same package.json "name"
     // → same slug → shared URLs / ports / DB / Caddy block). If another checkout
@@ -340,7 +347,12 @@ const UpCommand: GluegunCommand = {
     info('');
     info(colors.bold(`Starting "${identity.slug}"`) + (ticket ? colors.dim(` (ticket ${ticket})`) : ''));
     if (identity.subdomains.app) info(`  app: https://${identity.subdomains.app.hostname}  →  127.0.0.1:${appPort}`);
-    if (identity.subdomains.api) info(`  api: https://${identity.subdomains.api.hostname}  →  127.0.0.1:${apiPort}`);
+    if (identity.subdomains.api)
+      info(
+        `  api: https://${identity.subdomains.api.hostname}  →  127.0.0.1:${apiPort}${
+          apiCompiled ? colors.dim('  (compiled, no hot reload)') : ''
+        }`,
+      );
     if (identity.subdomains.api) info(`  db:  mongodb://127.0.0.1/${dbName}`);
     info('');
 
@@ -373,6 +385,10 @@ const UpCommand: GluegunCommand = {
       if (apiHealth === 'running') {
         pids.api = existingSession?.pids.api;
         kept.push('api');
+        // `--api-compiled` only takes effect when the API (re)starts; a healthy API is
+        // kept as-is (force-restarting it would contradict the keep logic), so tell the
+        // user how to switch a currently-running ts-node API to compiled.
+        if (apiCompiled) info(colors.dim('  --api-compiled: API already running — `lt dev down` first to switch it.'));
       } else {
         await reclaimPort(existingSession?.pids.api, apiPort, apiHealth ?? 'dead');
         // Per-component PM detection: a monorepo may have an npm api and a
@@ -380,11 +396,20 @@ const UpCommand: GluegunCommand = {
         // regenerate a foreign lockfile + crash on un-approved build
         // scripts when run against an npm-only project.
         const apiPm = pickPackageManager(layout.apiDir);
-        const apiResult = spawnDetached(apiPm.bin, apiPm.runScript('start'), {
-          cwd: layout.apiDir,
-          env: devEnv.api.env,
-          logFile: join(layout.root, '.lt-dev', 'api.log'),
-        });
+        const apiLogFile = join(layout.root, '.lt-dev', 'api.log');
+        const apiResult = apiCompiled
+          ? await startCompiledApi({
+              apiDir: layout.apiDir,
+              env: devEnv.api.env,
+              log: { info, warn: warning },
+              logFile: apiLogFile,
+              pm: apiPm,
+            })
+          : spawnDetached(apiPm.bin, apiPm.runScript('start'), {
+              cwd: layout.apiDir,
+              env: devEnv.api.env,
+              logFile: apiLogFile,
+            });
         if (apiResult) {
           pids.api = apiResult.pid;
           started.push('api');
@@ -534,4 +559,33 @@ const UpCommand: GluegunCommand = {
   },
 };
 
-module.exports = UpCommand;
+export const help: CommandHelp = {
+  aliases: ['u'],
+  configuration:
+    'Ephemeral dev-orchestration flags — no lt.config counterpart. Override the spawn binary for both processes via the LT_PNPM_BIN env var.',
+  description:
+    'Start the API + App behind Caddy under stable https://<slug>.localhost URLs. Health-aware and idempotent: re-running (re)starts only the component(s) that are not truly serving.',
+  examples: ['dev up', 'dev up --api-compiled', 'dev up --ticket DEV-1234'],
+  features: [
+    'Registers a Caddy block and allocates opaque internal ports (4000+).',
+    'Spawns API + App detached; persists PIDs to <root>/.lt-dev/state.json.',
+    'Self-heals legacy hardcoded ports and restarts only the down component(s).',
+  ],
+  name: 'up',
+  options: [
+    {
+      description:
+        'Run the API compiled (node dist/src/main.js) instead of ts-node — trades hot reload for stability under browser load (DEV-2525). Builds + migrates first; falls back to the ts-node start if the build fails. Only applies when the API (re)starts.',
+      flag: '--api-compiled',
+      type: 'boolean',
+    },
+    {
+      description:
+        'Suffix the slug / URLs / DB for an isolated ticket stack (also auto-detected from a .lt-dev/ticket marker).',
+      flag: '--ticket',
+      type: 'string',
+    },
+  ],
+};
+
+module.exports = Object.assign(UpCommand, { help });

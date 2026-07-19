@@ -433,6 +433,13 @@ lt dev up
 
 **Alias:** `lt d u`
 
+**Flags:**
+- `--api-compiled` — run the API **compiled** (`node dist/src/main.js`) instead of ts-node. Trades hot reload for stability: under sustained browser / dev-SSR load the ts-node API process intermittently dies without a stacktrace (DEV-2525); the compiled `node` process does not. Opt-in — omit it for the default ts-node hot-reload start. Details:
+  - Builds the API first, then applies pending migrations (`migrate:up`) for parity with the default `migrate:up && start:local`; a failed migration aborts the start rather than booting against a half-migrated DB.
+  - Auto-falls-back to the ts-node `start` if the build fails or produces no `dist` entry, so you never end up with a dead API.
+  - Only takes effect when the API actually (re)starts. A healthy running API is kept as-is — run `lt dev down` first to switch a live ts-node API to compiled.
+  - Accepted spellings: `--api-compiled` or `--api-compiled=true`.
+
 **Environment variables injected:**
 | Variable | Consumer | Example value |
 |----------|----------|---------------|
@@ -467,8 +474,10 @@ Behaviour:
   reclaims any orphaned listener still squatting the reused port.
 
 This is the fix for the "`status` says api running but no data loads" case: a
-crashed ts-node dev API is healed by simply re-running `lt dev up` (it does not
-fall back to compiled `node dist` — ts-node is kept so code edits hot-reload).
+crashed ts-node dev API is healed by simply re-running `lt dev up`. The **automatic**
+heal keeps ts-node (it does not silently switch to compiled `node dist`, so code
+edits still hot-reload); pass the explicit `--api-compiled` flag (see **Flags** above)
+when you deliberately want to trade hot reload for compiled stability.
 
 **Logs:** `<root>/.lt-dev/api.log`, `<root>/.lt-dev/app.log` (append-mode).
 

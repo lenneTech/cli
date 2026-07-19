@@ -28,6 +28,7 @@ import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
 import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
+import { findCompiledEntry } from './dev-api-launch';
 import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
@@ -291,9 +292,7 @@ export async function bringUpTestSession(
       log.info(log.dim('Building API (compiled, for stable long runs) …'));
       build = await runChildInherit(apiPm.bin, apiPm.runScript('build'), { cwd: layout.apiDir, env: process.env });
     }
-    const entry = ['dist/src/main.js', 'dist/main.js']
-      .map((rel) => join(layout.apiDir as string, rel))
-      .find((p) => existsSync(p));
+    const entry = findCompiledEntry(layout.apiDir);
     // Seed a throwaway initial admin into the fresh, isolated test DB so the
     // standard auth E2E specs run against a set-up system — locally exactly like
     // the lt-monorepo template CI. Defaults first so an explicitly inherited
