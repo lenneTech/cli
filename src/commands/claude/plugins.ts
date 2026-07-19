@@ -5,10 +5,12 @@ import { checkMarketplaceExists, findClaudeCli, runClaudeCommand } from '../../l
 import {
   DEFAULT_EXTERNAL_PLUGINS,
   fetchAvailablePlugins,
-  MARKETPLACES,
+  getAllMarketplaces,
   PluginConfig,
+  PRIMARY_MARKETPLACE_NAME,
   printAvailablePlugins,
 } from '../../lib/marketplace';
+import { readConfiguredMarketplaces } from '../../lib/marketplace-config';
 import {
   EMPTY_PLUGIN_CONTENTS,
   handleMissingEnvVars,
@@ -182,10 +184,10 @@ const PluginsCommand: GluegunCommand = {
       process.exit(1);
     }
 
-    // Fetch available plugins from GitHub
+    // Fetch available plugins from all marketplaces (built-in + configured)
     let availablePlugins: PluginConfig[];
     try {
-      availablePlugins = await fetchAvailablePlugins(spin);
+      availablePlugins = await fetchAvailablePlugins(spin, cli);
     } catch (err) {
       error(`Failed to fetch plugins: ${(err as Error).message}`);
       info('');
@@ -236,8 +238,7 @@ const PluginsCommand: GluegunCommand = {
       );
     } else {
       // Install all plugins from primary marketplace (lenne-tech) plus default external plugins
-      const primaryMarketplace = MARKETPLACES[0].name;
-      const primaryPlugins = availablePlugins.filter((p) => p.marketplaceName === primaryMarketplace);
+      const primaryPlugins = availablePlugins.filter((p) => p.marketplaceName === PRIMARY_MARKETPLACE_NAME);
 
       // Add default external plugins
       const externalPlugins: PluginConfig[] = [];
@@ -250,22 +251,28 @@ const PluginsCommand: GluegunCommand = {
         }
       }
 
-      // Also install plugins from accessible private/internal marketplaces — they
-      // only appear in availablePlugins when the user has repo access + a token,
-      // so this auto-installs them for authorized team members and is a no-op for
-      // everyone else.
-      const privateMarketplaceNames = new Set(MARKETPLACES.filter((m) => m.private).map((m) => m.name));
-      const internalPlugins = availablePlugins.filter((p) => privateMarketplaceNames.has(p.marketplaceName));
+      // Also install plugins from configured auto-install marketplaces (e.g. the
+      // internal one). They only appear in availablePlugins when the user has
+      // repo access, so this auto-installs them for authorized team members and
+      // is a no-op for everyone else.
+      const autoInstallNames = new Set(
+        getAllMarketplaces()
+          .filter((m) => m.autoInstall && m.name !== PRIMARY_MARKETPLACE_NAME)
+          .map((m) => m.name),
+      );
+      const internalPlugins = availablePlugins.filter((p) => autoInstallNames.has(p.marketplaceName));
 
       pluginsToInstall = [...primaryPlugins, ...externalPlugins, ...internalPlugins];
 
       if (externalPlugins.length > 0 || internalPlugins.length > 0) {
-        info(`Installing ${primaryPlugins.length} plugins from ${primaryMarketplace}`);
+        info(`Installing ${primaryPlugins.length} plugins from ${PRIMARY_MARKETPLACE_NAME}`);
         if (externalPlugins.length > 0) {
           info(`  + ${externalPlugins.length} default plugins: ${externalPlugins.map((p) => p.pluginName).join(', ')}`);
         }
         if (internalPlugins.length > 0) {
-          info(`  + ${internalPlugins.length} internal plugins: ${internalPlugins.map((p) => p.pluginName).join(', ')}`);
+          info(
+            `  + ${internalPlugins.length} internal plugins: ${internalPlugins.map((p) => p.pluginName).join(', ')}`,
+          );
         }
       } else {
         info(`Installing all plugins (${pluginsToInstall.length})...`);
@@ -384,6 +391,19 @@ const PluginsCommand: GluegunCommand = {
       } else {
         info('  Restart Claude Code to activate the plugins');
       }
+    }
+    info('');
+
+    // Remind the user that marketplaces are configurable and used on every run.
+    const configuredCount = readConfiguredMarketplaces().length;
+    if (configuredCount > 0) {
+      info(
+        `Tip: ${configuredCount} extra marketplace${configuredCount > 1 ? 's' : ''} configured — manage with \`lt claude marketplaces\`.`,
+      );
+    } else {
+      info(
+        'Tip: Add private/internal or extra plugin marketplaces (GitLab, GitHub, any Git host) with `lt claude marketplaces`.',
+      );
     }
     info('');
 

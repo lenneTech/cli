@@ -1812,9 +1812,10 @@ lt claude plugins [plugin-name] [options]
 **Plugin Sources:**
 - [lenne-tech marketplace](https://github.com/lenneTech/claude-code) - lenne.Tech plugins for NestJS development
 - [claude-plugins-official](https://github.com/anthropics/claude-plugins-official) - Official Anthropic plugins (e.g., typescript-lsp)
+- Additional marketplaces you configure via [`lt claude marketplaces`](#lt-claude-marketplaces) — including private/internal repositories on GitLab, GitHub or any Git host. These are read on every run and their plugins auto-installed when accessible.
 
 **Default Behavior:**
-When run without a plugin name, all lenne.Tech plugins plus recommended external plugins (like `typescript-lsp`) are installed automatically.
+When run without a plugin name, all lenne.Tech plugins plus recommended external plugins (like `typescript-lsp`) are installed automatically. Plugins from configured `autoInstall` marketplaces are added as well, but only for users who can access the underlying repository — everyone else silently skips them.
 
 **Examples:**
 ```bash
@@ -1829,6 +1830,47 @@ lt claude plugins --list
 
 # Uninstall a plugin
 lt claude plugins lt-dev --uninstall
+```
+
+---
+
+### `lt claude marketplaces`
+
+Manages **additional** plugin marketplaces used by `lt claude plugins`. Marketplace repositories are **not** hard-coded in the CLI — they live in a local, user-owned config file (`~/.lenneTech/claude-marketplaces.json`), so private/internal repositories stay confidential and any number of extra marketplaces can be added. The config is read on every `lt claude plugins` run.
+
+**Usage:**
+```bash
+lt claude marketplaces [action] [source|name] [options]
+```
+
+**Alias:** `lt claude mp`
+
+**Actions:**
+| Action | Description |
+|--------|-------------|
+| _(none)_ | Interactive menu (list / add / remove) |
+| `list` | Show the configured marketplaces |
+| `add [source]` | Add a marketplace (Git URL or `owner/repo`); prompts for the source if omitted |
+| `remove [name]` | Remove a configured marketplace; prompts for the name if omitted |
+
+**How it works:**
+- Adding a marketplace runs `claude plugin marketplace add <source>`, which clones the repository via your existing Git access (SSH or HTTPS). The real marketplace name is read back from Claude's registry, so it always lines up with the plugin install.
+- Discovery uses the provider-agnostic `git` strategy by default: the marketplace manifest is read from the local checkout — **no API token required**.
+- **Access control is governed solely by your Git permissions.** Users without access to a private repository are skipped silently; the command never fails for them.
+
+**Examples:**
+```bash
+# Interactive management
+lt claude marketplaces
+
+# Add a marketplace (any Git host)
+lt claude marketplaces add git@gitlab.example.com:group/my-marketplace.git
+
+# List configured marketplaces
+lt claude marketplaces list
+
+# Remove one
+lt claude marketplaces remove my-marketplace
 ```
 
 ---

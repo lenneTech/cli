@@ -3,7 +3,7 @@
  * Handles detection and execution of Claude CLI commands
  */
 import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
@@ -13,6 +13,11 @@ import { join } from 'path';
 export const CLAUDE_MARKETPLACES_DIR = join(homedir(), '.claude', 'plugins', 'marketplaces');
 
 /**
+ * Path to the Claude CLI's registry of known marketplaces (name → source).
+ */
+export const CLAUDE_KNOWN_MARKETPLACES_PATH = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+
+/**
  * Result of a Claude CLI command execution
  */
 export interface ClaudeCommandResult {
@@ -20,6 +25,15 @@ export interface ClaudeCommandResult {
   output: string;
   /** Whether the command succeeded (exit code 0) */
   success: boolean;
+}
+
+/**
+ * A single entry from known_marketplaces.json
+ */
+export interface KnownMarketplaceEntry {
+  installLocation?: string;
+  lastUpdated?: string;
+  source?: { repo?: string; source?: string; url?: string };
 }
 
 /**
@@ -71,6 +85,28 @@ export function findClaudeCli(): null | string {
   }
 
   return null;
+}
+
+/**
+ * List the names of all marketplaces known to the Claude CLI.
+ * @returns Array of marketplace names
+ */
+export function listKnownMarketplaceNames(): string[] {
+  return Object.keys(readKnownMarketplaces());
+}
+
+/**
+ * Read the Claude CLI's registry of known marketplaces.
+ * Never throws — returns an empty object when the file is missing or invalid.
+ * @returns Map of marketplace name to its registry entry
+ */
+export function readKnownMarketplaces(): Record<string, KnownMarketplaceEntry> {
+  try {
+    const parsed = JSON.parse(readFileSync(CLAUDE_KNOWN_MARKETPLACES_PATH, 'utf-8'));
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, KnownMarketplaceEntry>) : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
