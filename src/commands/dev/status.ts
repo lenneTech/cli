@@ -10,6 +10,8 @@ import {
   isPidAlive,
   loadRegistry,
   loadSession,
+  partitionComponentStates,
+  summarizeStackHealth,
   TEST_SESSION_FILE,
 } from '../../lib/dev-state';
 import { resolveDevIdentity } from '../../lib/dev-ticket';
@@ -60,23 +62,39 @@ const StatusCommand: GluegunCommand = {
           // port) count toward the health summary.
           const comps: ComponentHealth[] = [];
           if (e.internalPorts.api) {
-            comps.push(classifyComponentHealth({ pid: session?.pids.api, portBound: snap.has(e.internalPorts.api) }));
+            comps.push(
+              classifyComponentHealth({
+                pid: session?.pids.api,
+                portBound: snap.has(e.internalPorts.api),
+                startedAt: session?.startedAt,
+              }),
+            );
           }
           if (e.internalPorts.app) {
-            comps.push(classifyComponentHealth({ pid: session?.pids.app, portBound: snap.has(e.internalPorts.app) }));
+            comps.push(
+              classifyComponentHealth({
+                pid: session?.pids.app,
+                portBound: snap.has(e.internalPorts.app),
+                startedAt: session?.startedAt,
+              }),
+            );
           }
-          const allRunning = comps.length > 0 && comps.every((h) => h === 'running');
-          const anyRunning = comps.some((h) => h === 'running');
-          const anyCrashed = comps.some((h) => h === 'crashed');
+          // Aggregate the per-component health into one honest stack glyph
+          // (pure, unit-tested in dev-state). Presentation (glyph + note) stays here.
+          const stack = summarizeStackHealth(comps);
           let status: string;
           let note = '';
-          if (allRunning) {
+          if (stack === 'running') {
             status = colors.green('●');
-          } else if (anyRunning) {
+          } else if (stack === 'degraded') {
             // Some up, some down — honest "partially up" rather than green.
             status = colors.yellow('◐');
             note = colors.yellow('  degraded — `lt dev up` to restart the down half');
-          } else if (anyCrashed) {
+          } else if (stack === 'starting') {
+            // Still booting after a recent `lt dev up` — not crashed, give it a moment.
+            status = colors.cyan('◐');
+            note = colors.dim('  starting — booting, give it a moment');
+          } else if (stack === 'crashed') {
             status = colors.yellow('◐');
             note = colors.yellow('  crashed — `lt dev up` to restart');
           } else {
@@ -174,17 +192,21 @@ const StatusCommand: GluegunCommand = {
       const apiHealth = classifyComponentHealth({
         pid: session.pids.api,
         portBound: entry.internalPorts.api ? snap.has(entry.internalPorts.api) : false,
+        startedAt: session.startedAt,
       });
       const appHealth = classifyComponentHealth({
         pid: session.pids.app,
         portBound: entry.internalPorts.app ? snap.has(entry.internalPorts.app) : false,
+        startedAt: session.startedAt,
       });
       const label = (health: ComponentHealth): string =>
         health === 'running'
           ? colors.green('running')
-          : health === 'crashed'
-            ? colors.yellow('crashed (supervisor up, port not listening)')
-            : colors.red('dead');
+          : health === 'starting'
+            ? colors.cyan('starting (booting — port not bound yet)')
+            : health === 'crashed'
+              ? colors.yellow('crashed (supervisor up, port not listening)')
+              : colors.red('dead');
 
       if (session.pids.api !== undefined || entry.internalPorts.api) {
         info(`  api: ${label(apiHealth)} (pid ${session.pids.api ?? '-'})`);
@@ -209,10 +231,21 @@ const StatusCommand: GluegunCommand = {
       // half and leaves the healthy one running.
       const apiPresent = session.pids.api !== undefined || !!entry.internalPorts.api;
       const appPresent = session.pids.app !== undefined || !!entry.internalPorts.app;
-      const down = [
-        apiPresent && apiHealth !== 'running' ? 'api' : null,
-        appPresent && appHealth !== 'running' ? 'app' : null,
-      ].filter((c): c is string => c !== null);
+      // A `starting` component is booting, not down — don't tell the user to
+      // restart a healthy stack that just needs a few more seconds. Partition is
+      // pure + unit-tested in dev-state.
+      const { down, starting } = partitionComponentStates([
+        { health: apiHealth, name: 'api', present: apiPresent },
+        { health: appHealth, name: 'app', present: appPresent },
+      ]);
+      if (starting.length > 0) {
+        info('');
+        info(
+          colors.cyan(
+            `  ${starting.join(' + ')} still booting — give it a few seconds, then re-run \`lt dev status\`.`,
+          ),
+        );
+      }
       if (down.length > 0) {
         const crashed = (apiPresent && apiHealth === 'crashed') || (appPresent && appHealth === 'crashed');
         info('');

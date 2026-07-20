@@ -283,16 +283,33 @@ const UpCommand: GluegunCommand = {
     // ── Health-aware (re)start decision ──────────────────────────────────────
     // Probe the just-resolved ports so we can tell a still-serving component
     // from a crashed one (supervisor PID alive, port free). Only dead/crashed
-    // components get (re)started; a healthy one keeps running untouched.
+    // components get (re)started; a running one keeps serving untouched — and a
+    // still-BOOTING one (`starting`: PID alive, port not bound yet, within the
+    // startup grace window after a recent `up`) is ALSO kept, not force-restarted.
+    // Passing `startedAt` is what lets the classifier distinguish that boot window
+    // from a real crash — otherwise a re-run of `lt dev up` during the API's slow
+    // boot would kill the still-booting component and reset its progress (the very
+    // false-positive the `starting` state exists to prevent).
     const hasApi = Boolean(layout.apiDir && existsSync(join(layout.apiDir, 'package.json')) && apiPort);
     const hasApp = Boolean(layout.appDir && existsSync(join(layout.appDir, 'package.json')) && appPort);
     const healthSnap = await listenSnapshot([apiPort, appPort].filter((p): p is number => typeof p === 'number'));
     const apiHealth: ComponentHealth | undefined = hasApi
-      ? classifyComponentHealth({ pid: existingSession?.pids.api, portBound: !!apiPort && healthSnap.has(apiPort) })
+      ? classifyComponentHealth({
+          pid: existingSession?.pids.api,
+          portBound: !!apiPort && healthSnap.has(apiPort),
+          startedAt: existingSession?.startedAt,
+        })
       : undefined;
     const appHealth: ComponentHealth | undefined = hasApp
-      ? classifyComponentHealth({ pid: existingSession?.pids.app, portBound: !!appPort && healthSnap.has(appPort) })
+      ? classifyComponentHealth({
+          pid: existingSession?.pids.app,
+          portBound: !!appPort && healthSnap.has(appPort),
+          startedAt: existingSession?.startedAt,
+        })
       : undefined;
+    // A component we leave running untouched is either serving (`running`) or
+    // still within its boot grace window (`starting`).
+    const isKeepable = (h: ComponentHealth | undefined): boolean => h === 'running' || h === 'starting';
 
     // All present components already serving → nothing to do.
     const presentHealth = [apiHealth, appHealth].filter((h): h is ComponentHealth => h !== undefined);
@@ -315,14 +332,18 @@ const UpCommand: GluegunCommand = {
       return 'dev up: already running';
     }
 
-    // Partial restart — at least one component is healthy and at least one is
-    // down. Announce what we keep vs. restart so the user sees the honest state.
-    const partialRestart = presentHealth.some((h) => h === 'running');
+    // Partial restart — at least one component is kept (running or still booting)
+    // and at least one is down. Announce what we keep vs. restart so the user sees
+    // the honest state. A `starting` component is kept (booting), NOT restarted.
+    const partialRestart = presentHealth.some(isKeepable);
     if (partialRestart) {
-      if (apiHealth === 'running') info(colors.dim(`api healthy (pid ${existingSession?.pids.api}) → keeping`));
-      else if (apiHealth) warning(`api ${apiHealth} (port ${apiPort} not serving) → restarting`);
-      if (appHealth === 'running') info(colors.dim(`app healthy (pid ${existingSession?.pids.app}) → keeping`));
-      else if (appHealth) warning(`app ${appHealth} (port ${appPort} not serving) → restarting`);
+      const announceDecision = (name: 'api' | 'app', h: ComponentHealth | undefined, pid?: number, port?: number) => {
+        if (h === 'running') info(colors.dim(`${name} healthy (pid ${pid}) → keeping`));
+        else if (h === 'starting') info(colors.cyan(`${name} still booting (pid ${pid}) → keeping (grace window)`));
+        else if (h) warning(`${name} ${h} (port ${port} not serving) → restarting`);
+      };
+      announceDecision('api', apiHealth, existingSession?.pids.api, apiPort);
+      announceDecision('app', appHealth, existingSession?.pids.app, appPort);
     }
 
     // Caddy block + reload.
@@ -382,13 +403,15 @@ const UpCommand: GluegunCommand = {
     };
 
     if (hasApi && layout.apiDir && apiPort) {
-      if (apiHealth === 'running') {
+      if (isKeepable(apiHealth)) {
         pids.api = existingSession?.pids.api;
         kept.push('api');
-        // `--api-compiled` only takes effect when the API (re)starts; a healthy API is
-        // kept as-is (force-restarting it would contradict the keep logic), so tell the
-        // user how to switch a currently-running ts-node API to compiled.
-        if (apiCompiled) info(colors.dim('  --api-compiled: API already running — `lt dev down` first to switch it.'));
+        // `--api-compiled` only takes effect when the API (re)starts; a running or
+        // still-booting API is kept as-is (force-restarting it would contradict the
+        // keep logic), so tell the user how to switch a currently-live ts-node API
+        // to compiled.
+        if (apiCompiled)
+          info(colors.dim('  --api-compiled: API already running/booting — `lt dev down` first to switch it.'));
       } else {
         await reclaimPort(existingSession?.pids.api, apiPort, apiHealth ?? 'dead');
         // Per-component PM detection: a monorepo may have an npm api and a
@@ -422,7 +445,7 @@ const UpCommand: GluegunCommand = {
       }
     }
     if (hasApp && layout.appDir && appPort) {
-      if (appHealth === 'running') {
+      if (isKeepable(appHealth)) {
         pids.app = existingSession?.pids.app;
         kept.push('app');
       } else {
@@ -445,10 +468,19 @@ const UpCommand: GluegunCommand = {
       }
     }
 
-    // Persist the session (PIDs) — merging kept (healthy) + freshly started PIDs.
-    // The registry entry (ports) was already reserved atomically above. On a
-    // partial restart we preserve the original session start time.
-    const startedAt = existingSession && kept.length > 0 ? existingSession.startedAt : new Date().toISOString();
+    // Persist the session (PIDs) — merging kept (running/booting) + freshly
+    // started PIDs. The registry entry (ports) was already reserved atomically
+    // above. Reset the session clock ONLY when something was actually (re)started:
+    //   - A freshly restarted component MUST get "now" so its startup grace window
+    //     is measured from its real start — inheriting a stale `startedAt` would
+    //     make a just-restarted, still-booting component read as `crashed` during
+    //     its own boot (a kept `running` component is classified by port-bound, not
+    //     `startedAt`, so a fresh timestamp never mis-ages it).
+    //   - When nothing was started (all kept — e.g. both still booting), preserve
+    //     the original so repeated `up` during a boot can't keep extending the
+    //     grace window indefinitely.
+    const startedAt =
+      started.length > 0 ? new Date().toISOString() : (existingSession?.startedAt ?? new Date().toISOString());
     saveSession(layout.root, { pids, startedAt });
 
     // Write the ENV bridge so external tools (Playwright, IDE test runners,
@@ -458,7 +490,9 @@ const UpCommand: GluegunCommand = {
 
     const summary =
       started.length === 0
-        ? 'Nothing restarted'
+        ? kept.length > 0
+          ? `Kept ${kept.join('+')} (already running or booting)`
+          : 'Nothing restarted'
         : kept.length > 0
           ? `Restarted ${started.join('+')} (kept ${kept.join('+')})`
           : `Started ${started.join('+')}`;

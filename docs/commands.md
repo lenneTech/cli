@@ -467,8 +467,11 @@ a still-serving component from a *crashed* one (the supervisor / nodemon survive
 ts-node crash and the recorded PID stays alive while nothing listens on the port).
 Behaviour:
 - **All present components truly serving** → no-op, exits 0 with "already running".
-- **Some serving, some down** → restarts ONLY the down component(s); a healthy one
-  keeps running untouched and its PID is preserved in the session.
+- **Still booting** (PID alive, port not bound yet, within the 60 s startup grace
+  window) → KEPT, not restarted. Re-running `lt dev up` while the API is still
+  booting must not kill and restart the still-booting component.
+- **Some serving, some down** → restarts ONLY the down (`crashed`/`dead`)
+  component(s); a running or still-booting one keeps its PID untouched.
 - Before respawning a crashed component it terminates that supervisor's whole
   process group (so its idle `nodemon` doesn't leak / stack a second one) and
   reclaims any orphaned listener still squatting the reused port.
@@ -534,12 +537,17 @@ lt dev status --all   # every project in the registry
 The current-project view shows subdomains → upstream ports, db URI, per-component
 health, and live `lsof` state. **Health is honest:** a component is reported
 `running` only when its supervisor PID is alive AND its internal port is actually
-bound. A supervisor that survived a ts-node crash (PID alive, port free) is shown
-as `crashed (supervisor up, port not listening)` instead of the old misleading
-`running`, with a hint to run `lt dev up` to restart just that one.
+bound. A component that is PID-alive but not yet bound is `starting (booting — port
+not bound yet)` during the first 60 s after `lt dev up` (the slow API boot: swc
+compile + Mongo + Better Auth + migrations) — booting, not down, so no restart is
+suggested. Once that grace window elapses with the port still free, a supervisor
+that survived a ts-node crash (PID alive, port free) is shown as `crashed
+(supervisor up, port not listening)` instead of the old misleading `running`, with
+a hint to run `lt dev up` to restart just that one.
 
 The `--all` view lists every project with a single indicator:
 - `●` (green) — all present components serving
+- `◐` (cyan) — `starting` (booting within the startup grace window — give it a moment)
 - `◐` (yellow) — `degraded` (some up, some down) or `crashed` (supervisor up, port free)
 - `○` (dim) — stopped
 

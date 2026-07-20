@@ -217,7 +217,27 @@ export function spawnDetached(
 
   let child: ChildProcess | undefined;
   try {
-    child = spawn(cmd, args, {
+    // Raise the soft file-descriptor limit before exec-ing the real command.
+    // macOS's default soft RLIMIT_NOFILE is 256 (launchd/system default), inherited
+    // by the terminal that runs `lt dev up` and therefore by these detached children
+    // — it is NOT a consequence of the lt-dev LaunchAgent (which runs only Caddy).
+    // The dev file-watcher (nest/nuxt → chokidar) exhausts a soft-256 limit on a
+    // monorepo → intermittent "EMFILE: too many open files, watch" crashes on boot
+    // that force a manual `lt dev up`. We wrap the command in `sh -c "ulimit …; exec …"`:
+    //   - `exec` replaces the shell IN PLACE → the recorded PID and the detached
+    //     process group are still the real process (PID tracking + group-kill in
+    //     `terminateProcessGroup` keep working).
+    //   - `"$0" "$@"` pass cmd + args verbatim — no shell-quoting / injection.
+    //   - the cascade tries a high limit first, falling back on machines with a
+    //     lower `kern.maxfilesperproc`; `2>/dev/null` keeps it best-effort.
+    // Note: because the outer `spawn('/bin/sh', …)` almost always succeeds, a bogus
+    // `cmd` no longer surfaces as `pid === undefined` here — the inner `exec` fails
+    // (exit 127) a few ms later. Callers briefly record a live-then-dead PID, which
+    // `classifyComponentHealth` reaps as `dead`/`crashed` on the next status/up. We
+    // deliberately don't watch for that here: a detached, unref'd child's 127 exit is
+    // racy to observe, and callers must be self-correcting against real crashes anyway.
+    const raiseFdLimit = 'ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true';
+    child = spawn('/bin/sh', ['-c', `${raiseFdLimit}; exec "$0" "$@"`, cmd, ...args], {
       cwd: opts.cwd,
       detached: true,
       env: opts.env,

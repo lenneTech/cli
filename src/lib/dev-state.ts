@@ -36,12 +36,37 @@ import { dirname, join } from 'path';
  * "waiting for file changes". The recorded wrapper PID is therefore still alive
  * even though nothing listens on the internal port. Liveness needs BOTH signals:
  *
- *   - `running` — wrapper PID alive AND the internal port is bound (truly serving)
- *   - `crashed` — wrapper PID alive BUT the port is free (zombie supervisor; the
- *                 inner process died — `lt dev up` restarts just this component)
- *   - `dead`    — no live wrapper PID at all
+ *   - `running`  — wrapper PID alive AND the internal port is bound (truly serving)
+ *   - `starting` — wrapper PID alive, port not bound YET, but still within the
+ *                  startup grace window after `lt dev up`. A component (esp. the
+ *                  API: swc compile + Mongo connect + route registration) can take
+ *                  15-30s+ to bind its port; during that window "port free" means
+ *                  BOOTING, not crashed. Reporting it as `crashed` was a
+ *                  false-positive that made users restart a healthy, still-booting
+ *                  stack.
+ *   - `crashed`  — wrapper PID alive BUT the port is free AND the grace window has
+ *                  elapsed (zombie supervisor; the inner process died —
+ *                  `lt dev up` restarts just this component)
+ *   - `dead`     — no live wrapper PID at all
  */
-export type ComponentHealth = 'crashed' | 'dead' | 'running';
+export type ComponentHealth = 'crashed' | 'dead' | 'running' | 'starting';
+
+/**
+ * How long after `lt dev up` a not-yet-bound-but-PID-alive component is treated
+ * as `starting` (booting) rather than `crashed`. Covers the slow API boot
+ * (compile + Mongo + Better Auth + AI tools + migrations) with headroom.
+ */
+export const STARTUP_GRACE_MS = 60_000;
+
+/** One component's presence + health, used by {@link partitionComponentStates}. */
+export interface ComponentPresence {
+  /** Classified health of the component. */
+  health: ComponentHealth;
+  /** Component label, e.g. `'api'` / `'app'`. */
+  name: string;
+  /** Whether the project actually has this component (registered port or recorded PID). */
+  present: boolean;
+}
 
 /** Per-project session state (PIDs of detached processes). */
 export interface DevSessionState {
@@ -76,14 +101,70 @@ export interface ProjectsRegistryEntry {
 }
 
 /**
+ * Aggregate a stack's per-component health into a single summary state for the
+ * `lt dev status --all` glyph. Precedence mirrors the honest-liveness rules:
+ *   - `running`  — every present component is serving
+ *   - `degraded` — at least one running AND at least one not (mixed up/down)
+ *   - `starting` — none running yet, but at least one still booting (grace window)
+ *   - `crashed`  — none running/booting, but at least one crashed (supervisor up, port free)
+ *   - `stopped`  — nothing present, or all dead
+ */
+export type StackHealth = 'crashed' | 'degraded' | 'running' | 'starting' | 'stopped';
+
+/**
  * Classify a component's true health from its recorded wrapper PID plus whether
  * its internal port is actually bound (caller provides the port probe result,
  * typically from a single {@link import('./dev-process').listenSnapshot} call).
+ *
+ * When `startedAt` is supplied, a PID-alive-but-port-unbound component is reported
+ * as `starting` (booting) rather than `crashed` for the first {@link STARTUP_GRACE_MS}
+ * after `lt dev up` — see the {@link ComponentHealth} doc block for the full state
+ * model and the false-positive it prevents.
  */
-export function classifyComponentHealth(opts: { pid?: number; portBound: boolean }): ComponentHealth {
+export function classifyComponentHealth(opts: {
+  pid?: number;
+  portBound: boolean;
+  /** Session start (ISO). When given, a not-yet-bound component within the grace window is `starting`. */
+  startedAt?: string;
+  /** Override the startup grace window (ms). Defaults to {@link STARTUP_GRACE_MS}. */
+  startupGraceMs?: number;
+}): ComponentHealth {
   const wrapperAlive = typeof opts.pid === 'number' && isPidAlive(opts.pid);
   if (!wrapperAlive) return 'dead';
-  return opts.portBound ? 'running' : 'crashed';
+  if (opts.portBound) return 'running';
+  // Wrapper alive but the port is not bound. Within the startup grace window after
+  // `lt dev up` this is a still-BOOTING component, not a crash (avoids the
+  // false-positive that told users to restart a healthy, still-booting stack).
+  const graceMs = opts.startupGraceMs ?? STARTUP_GRACE_MS;
+  if (opts.startedAt) {
+    const ageMs = Date.now() - new Date(opts.startedAt).getTime();
+    if (Number.isFinite(ageMs) && ageMs >= 0 && ageMs < graceMs) return 'starting';
+  }
+  return 'crashed';
+}
+
+/**
+ * Split present components into those still booting (`starting`) vs. genuinely
+ * down (present, not running, not starting). A `starting` component is booting,
+ * not down — it must NEVER appear in the "restart the down half" hint, otherwise
+ * the user is told to restart a healthy, still-booting stack.
+ */
+export function partitionComponentStates(components: ComponentPresence[]): { down: string[]; starting: string[] } {
+  const starting = components.filter((c) => c.present && c.health === 'starting').map((c) => c.name);
+  const down = components
+    .filter((c) => c.present && c.health !== 'running' && c.health !== 'starting')
+    .map((c) => c.name);
+  return { down, starting };
+}
+
+/** See {@link StackHealth} for the precedence rules this implements. */
+export function summarizeStackHealth(components: ComponentHealth[]): StackHealth {
+  if (components.length === 0) return 'stopped';
+  if (components.every((h) => h === 'running')) return 'running';
+  if (components.some((h) => h === 'running')) return 'degraded';
+  if (components.some((h) => h === 'starting')) return 'starting';
+  if (components.some((h) => h === 'crashed')) return 'crashed';
+  return 'stopped';
 }
 
 const REGISTRY_PATH = process.env.LT_DEV_REGISTRY_PATH || join(homedir(), '.lenneTech', 'projects.json');

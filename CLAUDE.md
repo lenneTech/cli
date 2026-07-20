@@ -207,7 +207,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
 | Caddy service lifecycle | `src/lib/dev-service.ts` + `src/commands/dev/{install,uninstall}.ts` | Per-OS service runner. macOS: per-user LaunchAgent `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`. Linux: `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`. Render helpers (`renderLaunchAgentPlist`, `renderSystemdUnit`) are pure + unit-tested; side-effecting ops accept an injectable `ShellRunner`. **Critical:** plist sets `HOME=$userHome` env so caddy persists its CA under `~/Library/Application Support/Caddy/`, not the launchd-empty default. `userHome()` is `process.env.HOME || homedir()` because real `os.homedir()` on macOS goes through `getpwuid()` and ignores HOME — required so test files can redirect side-effects to a tmpdir. The `caddy trust` instructions surfaced to users **must** include `-E HOME="$HOME"` for the same reason in sudo context. |
 | install↔init auto-chaining | `src/lib/dev-bootstrap.ts` (predicates) + `src/lib/dev-install-helper.ts` (`runInstall`) + `src/lib/dev-migrate-helper.ts` (`runMigrate`/`printMigrateResult`) + `src/commands/dev/{install,init}.ts` | `lt dev init` runs install first when `!isMachinePrepared()`; `lt dev install` runs init after when `isLtDevProject() && !isProjectInitialized()`. Non-recursive by construction: commands call the *helpers*, never each other. Opt-outs: `--skip-install` (init), `--skip-init` (install). `runInstall` must NOT call `process.exit`. |
-| Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. Foreground helpers: `runChildInherit` (synchronous-feel child with inherited stdio — build/test runners) and `waitForHttp` (curl-based readiness probe over HTTPS; treats any 1xx-5xx as up). |
+| Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`); it wraps the command in `/bin/sh -c 'ulimit -n …; exec "$0" "$@"'` to raise `RLIMIT_NOFILE` before exec (fixes EMFILE chokidar-watcher crashes on boot) — `exec` keeps the recorded PID/process-group identical, and `"$0" "$@"` passes cmd+args verbatim (injection-safe). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. Foreground helpers: `runChildInherit` (synchronous-feel child with inherited stdio — build/test runners) and `waitForHttp` (curl-based readiness probe over HTTPS; treats any 1xx-5xx as up). |
 | Test session (isolated parallel stack) | `src/lib/dev-test-session.ts` (+ `dev-identity.ts#buildTestIdentity`, `dev-state.ts#TEST_SESSION_FILE`) | `bringUpTestSession` boots a SECOND stack (own URLs `<slug>-test.localhost` / `api.<slug>-test.localhost`, own port band 4500+, own Caddy block `lt-dev:<slug>-test`, own DB `<…>-test`, own session file `state.test.json`, own env bridge `.env.test`, own log files `{api,app}.test.log`) PARALLEL to the dev session — Playwright never touches developer data, and the dev stack keeps running while tests run. API is run **compiled** (`node dist/src/main.js`) for ts-node stability across long suites; falls back to `pnpm start`. `tearDownTestSession` is idempotent + residue-free (registry entry, session file, env bridge, Caddy block all dropped). `lt dev down` also tears down any lingering test stack. The `-test` suffix on the DB matches the TestHelper guard pattern `(-local|-ci|-e2e|-test)$`. |
 | Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`/`deriveTestDbName` (test-DB name is `<…>-test`, distinct from `<…>-local` and the API unit-test DB). |
 | Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. |
@@ -225,7 +225,7 @@ ports. Developers and Claude Code never see the internal ports.
 **Mutual install↔init auto-chaining (no infinite regress):** the two commands prepare each other's precondition, but the chain is **one hop deep and structurally non-recursive** because each command calls the *helper* of the other (`runInstall` / `runMigrate` in `dev-install-helper.ts` / `dev-migrate-helper.ts`), never the other command. Pure predicates in `src/lib/dev-bootstrap.ts` (`isMachinePrepared`, `isProjectInitialized`, `isLtDevProject`) gate the decision and make re-runs no-ops. `runInstall` never calls `process.exit` (the command decides the exit code).
 4. **`lt dev up`** — registers Caddy block, allocates internal ports (start 4000), spawns API+App detached. **Self-healing prerequisites:** it no longer just *warns* about legacy hardcoded ports — it runs the same `autoPatch` as `lt dev init` over `config.env.ts`/`nuxt.config.ts`/`playwright.config.ts` so an unmigrated project becomes env-aware (honours the injected `PORT`/URLs) in one command; idempotent (no-op on already-env-aware configs). `autoPatch` only ever touches those configs — never CLAUDE.md — so it is safe in a ticket worktree (ticket URLs reach Claude via the lt-dev plugin hook + `.lt-dev/ticket` marker, not the committed CLAUDE.md; the base project still gets its CLAUDE.md URL block). **Health-aware & idempotent:** re-running probes the actual ports (not just the recorded supervisor PID) and only (re)starts components that are NOT truly serving — a CRASHED one (supervisor/nodemon alive but ts-node dead → port free) or a DEAD one — while leaving a healthy component running untouched (its PID is preserved). Before respawning it terminates the crashed supervisor's whole group (so the idle nodemon doesn't leak and stack) and reclaims any orphaned listener squatting the reused port. All-healthy → no-op (exit 0, "already running"). By default ts-node is kept (NOT `node dist`) so edits hot-reload immediately; the explicit opt-in `--api-compiled` (parsed via `isApiCompiledRequested`, launched by `startCompiledApi` in `dev-api-launch.ts`) deliberately runs the API compiled for stability under browser load (DEV-2525), knowingly trading hot reload.
 5. **`lt dev down`** — SIGTERM the process group, removes Caddy block.
-6. **`lt dev status [--all]`** — current project or all registered. **Honest liveness:** a component is "running" only when its supervisor PID is alive AND its internal port is actually bound; supervisor-alive-but-port-free reads as `crashed` (not the old misleading "running"), and a mixed up/down project shows `degraded` in `--all`. Both point at `lt dev up` to restart just the down half.
+6. **`lt dev status [--all]`** — current project or all registered. **Honest liveness:** a component is "running" only when its supervisor PID is alive AND its internal port is actually bound; supervisor-alive-but-port-free reads as `starting` while within the 60s startup grace window (booting — a cyan `◐`, never listed as "down") and as `crashed` once it elapses (not the old misleading "running"), and a mixed up/down project shows `degraded` in `--all`. Both point at `lt dev up` to restart just the down half (a `starting` component is left booting, not restarted).
 7. **`lt dev doctor`** — Caddy + CA + DNS + port diagnostics (checks our LaunchAgent, **not** `brew services caddy`).
 8. **`lt dev test [--api] [--keep] [--debug] [-- args]`** / **`lt dev test down`** — App mode (default) brings up an ISOLATED parallel stack (`<slug>-test.localhost` / `api.<slug>-test.localhost`, DB `<…>-test`), runs Playwright against it, then tears it down. The dev `lt dev up` session is never touched. `--keep` leaves the test stack up for debugging; `lt dev test down` tears a leftover stack down. `--api` runs the API E2E suite in the api project instead (already DB-isolated, no stack needed). Forwards args after `--` to the test runner.
 9. **`lt dev tunnel [--api]`** — Cloudflare Quick Tunnel: foreground `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`, prints the public `*.trycloudflare.com` URL. The host-header rewrite is mandatory — without it Caddy's vhost match fails for the random tunnel URL. Tunnels only expose ONE subdomain at a time; start a second `lt dev tunnel --api` in another shell for full external usage.
@@ -339,16 +339,63 @@ file changes"), so the recorded wrapper PID stays alive while NOTHING listens on
 the internal port. Any liveness check based on `isPidAlive(pids.api)` alone is
 therefore a lie ("api: running" while `curl :PORT` → connection refused).
 **Rule:** treat a component as `running` only when the supervisor PID is alive AND
-its internal port is bound — use `classifyComponentHealth({ pid, portBound })`
-(`src/lib/dev-state.ts`) with a `listenSnapshot([...ports])`
-(`src/lib/dev-process.ts`) probe. `crashed` = wrapper up, port free. Consumed by
-`lt dev status` (honest labels) and `lt dev up` (selective restart of only the
-down component; it terminates the crashed supervisor's group first via
-`terminateProcessGroup` so the idle nodemon doesn't leak/stack). The *automatic*
-crash-heal must never silently switch to compiled `node dist` to "stabilise" — that
-breaks hot-reload; restart-on-crash (`lt dev up`) is the intended remedy. The
-user-driven `--api-compiled` opt-in is the sanctioned exception: it trades hot reload
+its internal port is bound — use
+`classifyComponentHealth({ pid, portBound, startedAt })` (`src/lib/dev-state.ts`)
+with a `listenSnapshot([...ports])` (`src/lib/dev-process.ts`) probe. The classifier
+is a **4-state** model:
+- `running` — wrapper PID alive AND port bound.
+- `starting` — wrapper PID alive, port NOT bound yet, but within `STARTUP_GRACE_MS`
+  (60s) of `startedAt`. The slow API boot (swc compile + Mongo + Better Auth +
+  migrations) can take 15-30s+ to bind its port; during that window "port free"
+  means BOOTING, not crashed — reporting it as `crashed` was a false-positive that
+  made users restart a healthy, still-booting stack. Passing `startedAt` is what
+  unlocks this state; without it a booting component still reads as `crashed`
+  (backward compatible). Guarded against clock skew / unparseable timestamps
+  (`Number.isFinite(ageMs) && ageMs >= 0`).
+- `crashed` — wrapper PID alive, port free, AND the grace window has elapsed.
+- `dead` — no live wrapper PID.
+
+Consumed by `lt dev status` (honest labels + a cyan `starting` glyph; the pure
+`summarizeStackHealth` / `partitionComponentStates` helpers drive the `--all` glyph
+and the down-half hint, and a `starting` component is NEVER listed as "down") and
+`lt dev up` (selective restart: a `running` OR still-booting `starting` component is
+KEPT — re-running `up` during a boot must NOT kill+restart the still-booting
+component; only `crashed`/`dead` are (re)started, terminating the crashed
+supervisor's group first via `terminateProcessGroup` so the idle nodemon doesn't
+leak/stack). `up` resets the session `startedAt` only when something was actually
+(re)started, so a freshly restarted component's grace window is measured from its
+real start, not an inherited stale time. The *automatic* crash-heal must never
+silently switch to compiled `node dist` to "stabilise" — that breaks hot-reload;
+restart-on-crash (`lt dev up`) is the intended remedy. The user-driven
+`--api-compiled` opt-in is the sanctioned exception: it trades hot reload
 *knowingly*, on explicit request (see `dev-api-launch.ts#startCompiledApi`).
+
+### `spawnDetached` raises the FD limit via an exec-in-place `sh` wrapper <!-- Added: 2026-07-20 -->
+`spawnDetached` (`src/lib/dev-process.ts`) launches each `lt dev` component as
+`spawn('/bin/sh', ['-c', 'ulimit -n 65536 …|| ulimit -n 10240 …|| true; exec "$0" "$@"', cmd, ...args])`
+instead of `spawn(cmd, args)` directly. Reason: macOS's default soft `RLIMIT_NOFILE`
+is **256** (launchd/system default, inherited by the terminal that runs `lt dev up`
+and thus by its detached children — NOT a consequence of the lt-dev LaunchAgent,
+which runs only Caddy). The dev file-watcher (nest/nuxt → chokidar) exhausts a
+soft-256 limit on a monorepo → intermittent `EMFILE: too many open files, watch`
+crashes on boot that forced a manual `lt dev up`.
+**Two invariants a future edit must NOT break** (both unit-tested in
+`__tests__/dev-process.test.ts`):
+- **`exec` stays** — it replaces the shell image IN PLACE, so `child.pid` and the
+  detached process group are still the REAL process. PID tracking + the negative-PID
+  group-kill in `terminateProcessGroup` / `killProcessGroup` depend on this. (Test:
+  the child echoes its own `process.pid`; it must equal the recorded pid.)
+- **`"$0" "$@"` stays** — cmd/args arrive as separate, double-quoted positional
+  parameters, never interpolated into the `-c` script text, so shell metacharacters
+  in a path/arg cannot inject. (Test: args with `;`, `|`, `$(…)`, backticks arrive
+  verbatim.)
+The ulimit cascade tries a high limit first and falls back on machines with a lower
+`kern.maxfilesperproc`; `2>/dev/null … || true` keeps it best-effort so it can never
+fail the spawn. `/bin/sh` is hardcoded — fine, the whole `lt dev` module is already
+Unix-only (process groups, LaunchAgent/systemd). Side effect: a bogus `cmd` no longer
+returns `pid === undefined` (the outer `sh` spawns fine; the inner `exec` exits 127 a
+few ms later), but `classifyComponentHealth` reaps that as `dead`/`crashed` on the
+next status/up, so callers self-correct.
 
 ### `projectSlug` ignores unmodified template names + is worktree-aware <!-- Added: 2026-06-16 -->
 `dev-identity.ts#projectSlug` is the single source of truth for the `lt dev` slug

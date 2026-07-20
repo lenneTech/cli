@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { rotateLogFile, runChildInherit, terminateProcessGroup, waitForHttp } from '../src/lib/dev-process';
+import { rotateLogFile, runChildInherit, spawnDetached, terminateProcessGroup, waitForHttp } from '../src/lib/dev-process';
 
 describe('rotateLogFile', () => {
   let dir: string;
@@ -147,5 +147,95 @@ describe('terminateProcessGroup', () => {
     const gone = await terminateProcessGroup(pid, 400);
     expect(gone).toBe(true);
     expect(isAlive(pid)).toBe(false);
+  });
+});
+
+describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
+  let dir: string;
+  const spawnedPids: number[] = [];
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'lt-dev-spawn-'));
+  });
+
+  afterEach(() => {
+    // Children exit on their own (write + exit); this is a belt-and-braces sweep.
+    for (const pid of spawnedPids.splice(0)) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+      try {
+        process.kill(pid, 'SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }
+    rmSync(dir, { force: true, recursive: true });
+  });
+
+  /** Poll the detached child's log file until it has content or the budget elapses. */
+  async function readLogWhenReady(logFile: string, budgetMs = 3_000): Promise<string> {
+    const deadline = Date.now() + budgetMs;
+    while (Date.now() < deadline) {
+      if (existsSync(logFile)) {
+        const content = readFileSync(logFile, 'utf8');
+        if (content.length > 0) return content;
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    return existsSync(logFile) ? readFileSync(logFile, 'utf8') : '';
+  }
+
+  it('preserves PID identity through the wrapper — the recorded pid IS the real process', async () => {
+    const logFile = join(dir, 'pid.log');
+    const result = spawnDetached('node', ['-e', 'process.stdout.write(String(process.pid))'], {
+      cwd: process.cwd(),
+      env: process.env,
+      logFile,
+    });
+    if (!result) throw new Error('spawnDetached returned undefined');
+    spawnedPids.push(result.pid);
+
+    const reported = (await readLogWhenReady(logFile)).trim();
+    // `exec` replaces the shell in-place, so the child's own process.pid must equal
+    // the pid spawnDetached recorded — the invariant PID-tracking + group-kill rely on.
+    expect(reported).toBe(String(result.pid));
+  });
+
+  it('passes args verbatim — no shell word-splitting, glob, or command substitution', async () => {
+    const logFile = join(dir, 'args.log');
+    // Args laden with shell metacharacters: if any were re-parsed by the `sh -c`
+    // wrapper, the echoed values would differ (or `pwned`/`nope` would execute).
+    const args = ['a; b | c', '$(echo pwned)', 'has spaces', '`echo nope`', '*'];
+    const result = spawnDetached(
+      'node',
+      ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', ...args],
+      { cwd: process.cwd(), env: process.env, logFile },
+    );
+    if (!result) throw new Error('spawnDetached returned undefined');
+    spawnedPids.push(result.pid);
+
+    const out = (await readLogWhenReady(logFile)).trim();
+    expect(JSON.parse(out)).toEqual(args);
+  });
+
+  it('raises the soft file-descriptor limit above the problematic default before exec', async () => {
+    const logFile = join(dir, 'ulimit.log');
+    const result = spawnDetached('sh', ['-c', 'ulimit -n'], {
+      cwd: process.cwd(),
+      env: process.env,
+      logFile,
+    });
+    if (!result) throw new Error('spawnDetached returned undefined');
+    spawnedPids.push(result.pid);
+
+    const raw = (await readLogWhenReady(logFile)).trim();
+    // The cascade raises the soft limit well past the macOS default soft-256 the
+    // chokidar watcher exhausts (or leaves an already-higher / unlimited value intact).
+    if (raw !== 'unlimited') {
+      expect(Number(raw)).toBeGreaterThan(256);
+    }
   });
 });
