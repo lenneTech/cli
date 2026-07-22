@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.41.1",
+  "version": "1.41.2",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -46,14 +46,10 @@
     "start:build": "npm run build && node bin/lt --compiled-build",
     "start:compiled": "node bin/lt --compiled-build",
     "test": "jest --testTimeout=60000",
-    "watch": "jest --watch",
-    "release": "standard-version && git push --follow-tags origin main",
-    "release:minor": "standard-version --release-as minor && git push --follow-tags origin main",
-    "release:major": "standard-version --release-as major && git push --follow-tags origin main"
+    "watch": "jest --watch"
   },
   "files": [
     "tsconfig.json",
-    "tslint.json",
     "build",
     "LICENSE",
     "README.md",
@@ -96,7 +92,6 @@
     "jest": "30.4.2",
     "prettier": "3.8.3",
     "rimraf": "6.1.3",
-    "standard-version": "9.5.0",
     "ts-jest": "29.4.11"
   },
   "//overrides": {

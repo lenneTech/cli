@@ -6,7 +6,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 
 import { buildIdentity, buildTicketIdentity } from '../src/lib/dev-identity';
-import { patchApiConfig } from '../src/lib/dev-patches';
+import { patchApiConfig, patchPlaywrightConfig } from '../src/lib/dev-patches';
 import { deriveTestDbName, deriveTicketDbName } from '../src/lib/dev-project';
 import {
   checkGlobalSetupTicketSafe,
@@ -560,6 +560,36 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
     // A real edit to a DIFFERENT tracked file also blocks (config reverted first).
     git(repo, 'checkout', '--', cfg);
     writeFileSync(join(repo, 'feature.ts'), 'x');
+    expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(false);
+  });
+
+  test('a playwright bridge block restyled by the project formatter stays auto-discardable', () => {
+    // `patchPlaywrightConfig` deliberately does NOT rewrite a bridge block that
+    // the consumer's own formatter restyled — otherwise patcher and formatter
+    // flip it forever. The pristine check must tolerate exactly the same drift,
+    // or `lt ticket stop` classifies a merely reformatted config as real work
+    // and refuses to remove the worktree.
+    mkdirSync(join(repo, 'projects', 'app'), { recursive: true });
+    const pw = join(repo, 'projects', 'app', 'playwright.config.ts');
+    writeFileSync(pw, "export default {\n  use: {\n    baseURL: 'http://localhost:3001',\n  },\n};\n");
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'add playwright config');
+    git(repo, 'push', '-q', 'origin', 'dev');
+
+    expect(patchPlaywrightConfig(pw).patched).toBe(true);
+    expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(true);
+
+    // The project's formatter now restyles the injected block (quote flip).
+    const endsAt = readFileSync(pw, 'utf8').indexOf('// <<<');
+    const content = readFileSync(pw, 'utf8');
+    writeFileSync(pw, content.slice(0, endsAt).replace(/'/g, '"') + content.slice(endsAt));
+    expect(readFileSync(pw, 'utf8')).not.toBe(content); // guard: mutation applied
+
+    expect(worktreeSafetyReport(repo).dirtySource).toEqual([]);
+    expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(true);
+
+    // But a real edit OUTSIDE the bridge block still blocks auto-discard.
+    writeFileSync(pw, `${readFileSync(pw, 'utf8')}\nconst mine = 1;\n`);
     expect(worktreeDirtyOnlyAutoDiscardable(repo)).toBe(false);
   });
 });

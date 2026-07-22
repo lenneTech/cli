@@ -5,6 +5,7 @@ import { join } from 'path';
 import {
   addToGitignore,
   autoPatch,
+  canonicaliseBridgeSpan,
   patchApiConfig,
   patchClaudeMd,
   patchNuxtConfig,
@@ -115,8 +116,8 @@ describe('dev-patches', () => {
       writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
-      expect(out).toMatch(/^\/\/ >>> lt-dev:bridge >>>/);
-      expect(out).toContain('// <<< lt-dev:bridge <<<');
+      expect(out).toMatch(/^\/\/ >>> lt-dev:bridge v\d+ >>>/);
+      expect(out).toMatch(/\/\/ <<< lt-dev:bridge v\d+ <<</);
       expect(out).toContain(".lt-dev/.env");
       expect(out).toMatch(/process\.env\[.+\] === undefined/); // existing env wins
     });
@@ -142,8 +143,150 @@ describe('dev-patches', () => {
       patchPlaywrightConfig(f);
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
-      const matches = (out.match(/>>> lt-dev:bridge >>>/g) || []).length;
+      const matches = (out.match(/>>> lt-dev:bridge/g) || []).length;
       expect(matches).toBe(1);
+    });
+
+    test('idempotent against the consumer project formatter — no phantom diff after every run', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+
+      // Simulate the consumer's formatter normalising the injected block. Which
+      // direction it flips is project-specific — do not assume one — so the
+      // patcher must not care: rewriting the block back on every run leaves
+      // playwright.config.ts permanently dirty in the working tree after each
+      // `lt dev test`, with formatter and patcher flipping it forever.
+      const formatted = readFileSync(f, 'utf8').replace(/'/g, '"');
+      writeFileSync(f, formatted);
+
+      // "after EVERY run" is the actual contract, so assert it stays stable.
+      for (let i = 0; i < 3; i++) {
+        const r = patchPlaywrightConfig(f);
+        expect(r.patched).toBe(false);
+        expect(r.replacements).toBe(0);
+        expect(readFileSync(f, 'utf8')).toBe(formatted);
+      }
+    });
+
+    test('leaves a block the formatter reflowed (whitespace only) alone', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+
+      // The whitespace axis of the comparison: re-indent every line and collapse
+      // the multi-line `if` body onto one line — both things a formatter with a
+      // different config legitimately does.
+      const reflowed = readFileSync(f, 'utf8')
+        .replace(/^ {2}/gm, '    ')
+        .replace(
+          '    if (__ltDevExists(__candidate)) {\n        __ltDevEnvFile = __candidate;\n        break;\n    }',
+          '    if (__ltDevExists(__candidate)) { __ltDevEnvFile = __candidate; break; }',
+        );
+      expect(reflowed).not.toBe(readFileSync(f, 'utf8')); // guard: mutation applied
+      writeFileSync(f, reflowed);
+
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(false);
+      expect(readFileSync(f, 'utf8')).toBe(reflowed);
+    });
+
+    test('CRLF line endings are not treated as an outdated block', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      const crlf = readFileSync(f, 'utf8').replace(/\n/g, '\r\n');
+      writeFileSync(f, crlf);
+
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(false);
+      expect(readFileSync(f, 'utf8')).toBe(crlf);
+    });
+
+    test('re-injects when the loader was folded behind a comment (inert block)', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+
+      // Merging a comment line with the following import swallows the loader:
+      // every character survives, only a newline became a space. A comparison
+      // that collapses `\s+` into ' ' cannot see the difference — and would
+      // leave the bridge silently inert, so `.lt-dev/.env` never loads and
+      // Playwright falls back to localhost:3001 (possibly another project).
+      const inert = readFileSync(f, 'utf8').replace(
+        'projects/app.\nimport { existsSync',
+        'projects/app. import { existsSync',
+      );
+      expect(inert).not.toBe(readFileSync(f, 'utf8')); // guard: mutation applied
+      writeFileSync(f, inert);
+
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(true);
+      const out = readFileSync(f, 'utf8');
+      expect(out).not.toMatch(/\/\/[^\n]*import \{ existsSync as __ltDevExists/);
+      expect((out.match(/>>> lt-dev:bridge/g) || []).length).toBe(1);
+    });
+
+    test('re-injects when the whole block was flattened into one comment', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      const flattened = readFileSync(f, 'utf8').replace(/\n/g, ' ');
+      writeFileSync(f, flattened);
+
+      expect(patchPlaywrightConfig(f).patched).toBe(true);
+      expect(readFileSync(f, 'utf8')).toMatch(/^\/\/ >>> lt-dev:bridge v\d+ >>>\n/);
+    });
+
+    test('upgrades an unversioned (v1) block even when it differs only in formatting', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      // Take the CURRENT block and downgrade it to the unversioned v1 marker,
+      // changing nothing else. Content-wise it is semantically identical, so a
+      // pure content comparison would call it up to date — but shipping a
+      // formatting-only fix (as 1.32.1 did) must still reach such a project.
+      const v1 = readFileSync(f, 'utf8')
+        .replace(/\/\/ >>> lt-dev:bridge v\d+ >>>/, '// >>> lt-dev:bridge >>>')
+        .replace(/\/\/ <<< lt-dev:bridge v\d+ <<</, '// <<< lt-dev:bridge <<<');
+      writeFileSync(f, v1);
+
+      const r = patchPlaywrightConfig(f);
+      expect(r.patched).toBe(true);
+      const out = readFileSync(f, 'utf8');
+      expect(out).toMatch(/>>> lt-dev:bridge v\d+ >>>/);
+      expect((out.match(/>>> lt-dev:bridge/g) || []).length).toBe(1);
+    });
+
+    test('drops bridge imports a formatter hoisted above the start marker', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      // organize-imports moves the two bridge imports to the very top, i.e.
+      // OUTSIDE the markers. Re-injecting the block verbatim would then declare
+      // `__ltDevExists` twice → duplicate-identifier error in the consumer.
+      const hoisted = readFileSync(f, 'utf8');
+      const importLines = (hoisted.match(/^import \{[^}]*__ltDev[^}]*\} from '[^']*';$/gm) || []).join('\n');
+      expect(importLines).not.toBe('');
+      writeFileSync(f, `${importLines}\n${hoisted.replace(/\/\/ >>> lt-dev:bridge v\d+ >>>/, '// >>> lt-dev:bridge >>>')}`);
+
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      expect((out.match(/__ltDevExists as|as __ltDevExists/g) || []).length).toBe(1);
+      expect((out.match(/as __ltDevDirname/g) || []).length).toBe(1);
+    });
+
+    test('reversed markers do not duplicate the surrounding user code', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(
+        f,
+        ['// <<< lt-dev:bridge <<<', "const keep = 'USER CODE';", '// >>> lt-dev:bridge >>>', 'export default {};'].join('\n'),
+      );
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      expect((out.match(/const keep = 'USER CODE';/g) || []).length).toBe(1);
+      expect((out.match(/>>> lt-dev:bridge/g) || []).length).toBe(1);
+      expect((out.match(/<<< lt-dev:bridge/g) || []).length).toBe(1);
     });
 
     test('replaces an outdated bridge block with the upward-searching loader', () => {
@@ -159,7 +302,8 @@ describe('dev-patches', () => {
       const r = patchPlaywrightConfig(f);
       expect(r.patched).toBe(true);
       const out = readFileSync(f, 'utf8');
-      expect((out.match(/>>> lt-dev:bridge >>>/g) || []).length).toBe(1);
+      expect((out.match(/>>> lt-dev:bridge/g) || []).length).toBe(1);
+      expect(out).toMatch(/>>> lt-dev:bridge v\d+ >>>/); // upgraded to a versioned marker
       expect(out).toContain('__ltDevDirname');
       expect(out).not.toContain("__ltDevResolve(process.cwd(), '.lt-dev/.env')");
     });
@@ -177,8 +321,10 @@ describe('dev-patches', () => {
       const f = join(tmp, 'playwright.config.ts');
       writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
       // First pass applies the URL patch and inserts the current bridge block;
-      // a second pass on the now fully-patched file must be a no-op. (A stale
-      // bridge block is intentionally NOT a no-op — see the outdated-block test.)
+      // a second pass on the now fully-patched file must be a no-op. (A block
+      // that is stale by VERSION or differs SEMANTICALLY is intentionally NOT a
+      // no-op — see the outdated-block / v1-upgrade tests. A merely
+      // formatting-stale block IS a no-op — see the formatter test.)
       patchPlaywrightConfig(f);
       const r = patchPlaywrightConfig(f);
       expect(r.patched).toBe(false);
@@ -251,6 +397,54 @@ describe('dev-patches', () => {
       expect(out).not.toMatch(/slowMo:\s*10\b/);
       // Idempotent: a second pass changes nothing.
       expect(patchPlaywrightConfig(f).patched).toBe(false);
+    });
+  });
+
+  describe('bridge block invariants', () => {
+    // The comparison maps BOTH quote characters to one and collapses runs of
+    // whitespace. That is only semantics-preserving because no string literal
+    // in the emitted block contains a quote or meaningful internal whitespace
+    // (`normalise("const S = \"'\"")` === `normalise("const S = '\"'")`, which
+    // are different values). Pin the assumption so a future edit to the block
+    // fails here rather than silently making two different blocks compare equal.
+    test('no emitted string literal contains a quote or whitespace', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      const out = readFileSync(f, 'utf8');
+      const block = out.slice(out.indexOf('// >>>'), out.indexOf('// <<<'));
+      const literals = block
+        .split(/\r?\n/)
+        .filter((l) => !l.trim().startsWith('//'))
+        .join('\n')
+        .match(/'[^']*'|"[^"]*"/g) || [];
+      expect(literals.length).toBeGreaterThan(0);
+      for (const lit of literals) {
+        expect(lit.slice(1, -1)).not.toMatch(/['"\s]/);
+      }
+    });
+
+    test('canonicaliseBridgeSpan ignores block restyling but nothing outside it', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+      const original = readFileSync(f, 'utf8');
+
+      // Restyling INSIDE the markers must compare equal...
+      const endsAt = original.indexOf('// <<<');
+      const restyled = original.slice(0, endsAt).replace(/'/g, '"') + original.slice(endsAt);
+      expect(restyled).not.toBe(original); // guard: mutation applied
+      expect(canonicaliseBridgeSpan(restyled)).toBe(canonicaliseBridgeSpan(original));
+
+      // ...while a real edit OUTSIDE them must not.
+      const edited = `${original}\nconst mine = 1;\n`;
+      expect(canonicaliseBridgeSpan(edited)).not.toBe(canonicaliseBridgeSpan(original));
+    });
+
+    test('canonicaliseBridgeSpan is a no-op without a well-formed span', () => {
+      expect(canonicaliseBridgeSpan('export default {};')).toBe('export default {};');
+      const reversed = '// <<< lt-dev:bridge <<<\nx\n// >>> lt-dev:bridge >>>';
+      expect(canonicaliseBridgeSpan(reversed)).toBe(reversed);
     });
   });
 

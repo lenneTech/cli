@@ -6,3 +6,4 @@
 - [Gluegun filesystem is sync](gluegun_filesystem_sync.md) — filesystem.read/write/exists are synchronous (fs-jetpack wrappers); expected pattern in this CLI codebase
 - [mongosh is a separate install from mongod](mongosh_not_installed.md) — mongosh-backed cleanup paths can silently no-op; mongod runs on Kai's box but mongosh is absent
 - [CLI repo perf reviews are static-only](cli_repo_static_only.md) — reviewing the lt CLI itself = static diff analysis; no server/bundle/DB, k6 + Lighthouse N/A
+- [CLI perf cost calibration](cli_perf_calibration.md) — measured: writeFileSync ~100us vs 1KB regex normalise ~7us; avoided writes are the lever, not CPU

@@ -210,7 +210,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`); it wraps the command in `/bin/sh -c 'ulimit -n …; exec "$0" "$@"'` to raise `RLIMIT_NOFILE` before exec (fixes EMFILE chokidar-watcher crashes on boot) — `exec` keeps the recorded PID/process-group identical, and `"$0" "$@"` passes cmd+args verbatim (injection-safe). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. Foreground helpers: `runChildInherit` (synchronous-feel child with inherited stdio — build/test runners) and `waitForHttp` (curl-based readiness probe over HTTPS; treats any 1xx-5xx as up). |
 | Test session (isolated parallel stack) | `src/lib/dev-test-session.ts` (+ `dev-identity.ts#buildTestIdentity`, `dev-state.ts#TEST_SESSION_FILE`) | `bringUpTestSession` boots a SECOND stack (own URLs `<slug>-test.localhost` / `api.<slug>-test.localhost`, own port band 4500+, own Caddy block `lt-dev:<slug>-test`, own DB `<…>-test`, own session file `state.test.json`, own env bridge `.env.test`, own log files `{api,app}.test.log`) PARALLEL to the dev session — Playwright never touches developer data, and the dev stack keeps running while tests run. API is run **compiled** (`node dist/src/main.js`) for ts-node stability across long suites; falls back to `pnpm start`. `tearDownTestSession` is idempotent + residue-free (registry entry, session file, env bridge, Caddy block all dropped). `lt dev down` also tears down any lingering test stack. The `-test` suffix on the DB matches the TestHelper guard pattern `(-local|-ci|-e2e|-test)$`. |
 | Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`/`deriveTestDbName` (test-DB name is `<…>-test`, distinct from `<…>-local` and the API unit-test DB). |
-| Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. |
+| Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url` + the marker-bracketed `lt-dev:bridge vN` block), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. The bridge block is re-injected on a **version** bump (`BRIDGE_VERSION`) or a **semantic** code change — never for the consumer formatter's restyling, which owns that file. `canonicaliseBridgeSpan` exports that comparison for `dev-ticket.ts`. |
 | Detached-spawn binary override | `src/commands/dev/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups, or bun-based projects via wrapper script). |
 | Compiled API launch (opt-in) | `src/lib/dev-api-launch.ts` | `--api-compiled` on `lt dev up` runs the API compiled (`node dist/src/main.js`) instead of ts-node, for stability under browser load (DEV-2525) — same reason `lt dev test` runs compiled. `startCompiledApi` = build → `migrate:up` (parity with the default `migrate:up && start:local`; a failed migration ABORTS the start rather than booting a half-migrated DB) → `spawnDetached('node', [entry], { NODE_ENV: 'local' })`; auto-falls-back to the ts-node `start` on build failure / missing dist entry. `findCompiledEntry` (the compiled-entry allowlist `dist/src/main.js` → `dist/main.js`) is single-sourced here and reused by `dev-test-session.ts`. Flag parsed by `isApiCompiledRequested` (honours `--api-compiled` and `--api-compiled=true`, per the yargs-parser gotcha). Only (re)starts a component that is NOT healthy — a running API is kept (`lt dev down` first to switch it). |
 | Project-local state | `<project>/.lt-dev/{state.json,api.log,app.log,.env}` | Auto-added to `.gitignore` by `lt dev init`. State JSON is schema-validated on load. The `.env` file is the **ENV bridge** (see below). |
@@ -261,11 +261,11 @@ pattern and inject `frameworkImport` into every `template.generate`
 props block.
 
 **Regression safety:** before releasing a new CLI version, run
-`pnpm run test:vendor-init` to verify all 4 init scenarios still pass.
+`npm run test:vendor-init` to verify all 4 init scenarios still pass.
 The script creates fresh projects in `/tmp/lt-it/*`, runs the full
 init → generate → tsc → build → migrate:list pipeline, and asserts
 ~120 invariants. Runs in ~15-20 minutes on a decent machine. Also run
-`pnpm run test:frontend-vendor-init` to cover the frontend-vendor and
+`npm run test:frontend-vendor-init` to cover the frontend-vendor and
 fullstack-both-vendor paths.
 
 ---
@@ -518,6 +518,57 @@ fail, `dropDatabase` cannot be undone, so the worktree goes first. And keep `dro
 shape: the DB name travels percent-encoded in the URI **path** and `--eval` is a **constant**,
 which is what makes an arbitrary name un-injectable — do not batch the drops into a built eval
 to save a spawn.
+
+### A patcher that owns a block inside a formatted file must compare it semantically — and version it <!-- Added: 2026-07-22 -->
+`patchPlaywrightConfig` (`src/lib/dev-patches.ts`) injects a marker-bracketed
+`// >>> lt-dev:bridge vN >>>` block into the CONSUMER project's
+`playwright.config.ts` — a file that project's own formatter owns and restyles on
+every `format` / pre-commit run. The block used to be compared **byte-for-byte**
+against the freshly generated one, so any cosmetic reformatting read as
+"outdated", got rewritten, and the formatter flipped it straight back: every
+`lt dev up` / `lt dev test` left `playwright.config.ts` permanently dirty in the
+working tree. Confirmed in the wild — `document-analyzer` carried a quote-flipped
+block and was rewritten on every single lt-dev command.
+
+**This was the SECOND fix for the same class.** 1.32.1 (`69cdabb`) tried to solve
+it by making the EMITTED block match one formatter's output (`"utf8"` → `'utf8'`,
+expanded braces). That only holds for projects on that exact formatter + config.
+Never chase a formatter's style; be indifferent to it.
+
+**Three rules, all load-bearing:**
+
+1. **Compare semantically — but drop comment lines, do NOT collapse newlines.**
+   A `//` comment is terminated by a newline, so a `\s+ → ' '` collapse makes a
+   fully commented-out (inert) loader normalise *identically* to a live one: the
+   patcher would accept it as up to date and the bridge would silently never load
+   `.lt-dev/.env` again, with Playwright falling back to `localhost:3001` —
+   possibly a parallel project's stack. `normaliseBridgeBlock` therefore drops
+   comment lines entirely (so rewording a comment is free) and only then
+   normalises quotes + intra-line whitespace. Measured against a 15-case matrix:
+   comment-dropping 14/15, whitespace-collapsing 11/15.
+2. **Version the marker; bump `BRIDGE_VERSION` on EVERY block change — including
+   a formatting-only one.** Since the content comparison ignores quote style and
+   whitespace, a cosmetic fix would otherwise never reach already-patched
+   projects. Exactly what 1.32.1's fix would have hit. The version lives in the
+   marker, so it survives any reformatting; an unversioned v1 marker parses as 0
+   and upgrades cleanly.
+3. **Keep the two notions of "already patched" in sync.**
+   `dev-ticket.ts#isPristineLtDevPatch` re-derives `autoPatch(HEAD blob)` and
+   compares to the working tree to decide whether `lt ticket stop` may discard a
+   dirty config. When the patcher started tolerating formatter drift, that check
+   still compared byte-for-byte — so a merely reformatted config read as *real
+   developer work* and the worktree removal was refused. It now routes both sides
+   through `canonicaliseBridgeSpan`, which canonicalises **only** the marker span
+   and leaves every other byte exact — being lenient outside the markers could
+   silently discard genuine work.
+
+**Do not state a formatter's default in a comment without checking it.** A
+docs-review verified oxfmt 0.59.0 (as shipped by nuxt-base-starter, no config)
+normalises to SINGLE quotes, while a real vendored project showed a
+double-quoted block — i.e. the direction is project-specific. The original
+comment asserted the opposite of the verified behaviour, which is the same
+misconception that produced the 1.32.1 approach. Say "project-specific", not a
+vendor name.
 
 ### The base branch is not called `dev` everywhere — never hard-code it <!-- Added: 2026-07-13 -->
 `lt ticket start` created its worktree from a hard-coded `origin/dev`, so it died with

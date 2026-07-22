@@ -5,12 +5,38 @@
  * defaults and make it env-aware so it can be served behind Caddy
  * under `https://<slug>.localhost`.
  *
- * Each patch is a regex-based replace that matches only the legacy
- * form. Already-patched files are no-ops.
+ * Most patches are regex-based replaces that match only the legacy
+ * form; the marker-bracketed `lt-dev:bridge` block in
+ * playwright.config.ts is located by its markers instead. Already-patched
+ * files are no-ops — including when the consumer's own formatter has since
+ * restyled an injected block: that block is compared SEMANTICALLY (see
+ * `BRIDGE_VERSION` / `normaliseBridgeBlock`), not byte-for-byte.
  */
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 import { DevIdentity } from './dev-identity';
+
+/**
+ * Version of the `lt-dev:bridge` block emitted into a consumer's
+ * `playwright.config.ts`. It travels IN the markers
+ * (`// >>> lt-dev:bridge v2 >>>`), which is what makes a genuine upgrade
+ * detectable independently of formatting.
+ *
+ * **Bump this on every change to `bridgeBlock`** — including a
+ * formatting-only one. The content comparison deliberately ignores quote
+ * style and whitespace (the consumer's formatter owns that file), so
+ * without a bump a cosmetic fix would never reach already-patched
+ * projects. That is exactly what happened to 1.32.1's `"utf8"` → `'utf8'`
+ * fix, which is why the version exists.
+ */
+const BRIDGE_VERSION = 2;
+
+/** Matches any bridge marker, versioned or not — v1 shipped without one. */
+const BRIDGE_START_RE = /\/\/ >>> lt-dev:bridge(?: v(\d+))? >>>/;
+const BRIDGE_END_RE = /\/\/ <<< lt-dev:bridge(?: v(\d+))? <<</;
+
+/** Imports the bridge block owns; a stray copy outside it must be dropped. */
+const BRIDGE_IMPORT_RE = /^\s*import \{[^}]*__ltDev(?:Exists|Read|Dirname|Resolve)[^}]*\} from '[^']*';?\s*$/gm;
 
 export interface PatchResult {
   /** Absolute path. */
@@ -39,6 +65,31 @@ export function autoPatch(file: string): PatchResult {
   if (file.endsWith('nuxt.config.ts')) return patchNuxtConfig(file);
   if (file.endsWith('playwright.config.ts')) return patchPlaywrightConfig(file);
   return { file, patched: false, replacements: 0 };
+}
+
+/**
+ * Replace the `lt-dev:bridge` span inside a whole file with its canonical
+ * comparison form, leaving every other byte untouched.
+ *
+ * For callers that must decide "is this file exactly what `autoPatch` would
+ * produce, or did a developer edit it?" — most importantly
+ * `dev-ticket.ts#isPristineLtDevPatch`, which gates whether `lt ticket stop`
+ * may discard a dirty config. Since the patcher deliberately tolerates the
+ * consumer formatter restyling the block, such a comparison MUST tolerate it
+ * too; otherwise a formatter-touched config reads as real developer work and
+ * the worktree removal is refused.
+ *
+ * Everything outside the markers stays byte-exact on purpose — being lenient
+ * there could let genuine work be silently discarded.
+ */
+export function canonicaliseBridgeSpan(content: string): string {
+  const start = BRIDGE_START_RE.exec(content);
+  const end = BRIDGE_END_RE.exec(content);
+  if (!start || !end || end.index <= start.index) return content;
+  const endsAt = end.index + end[0].length;
+  return (
+    content.slice(0, start.index) + normaliseBridgeBlock(content.slice(start.index, endsAt)) + content.slice(endsAt)
+  );
 }
 
 /**
@@ -163,8 +214,12 @@ export function patchNuxtConfig(file: string): PatchResult {
  * any env.
  *
  * Patches applied (each idempotent):
- *   1. Top-of-file: `if (existsSync('.lt-dev/.env')) loadEnv(...)` block,
- *      bracketed by `// >>> lt-dev:bridge >>>` markers.
+ *   1. Top-of-file: a dotenv loader that searches UP from cwd for
+ *      `.lt-dev/.env`, bracketed by `// >>> lt-dev:bridge vN >>>` markers.
+ *      Re-injected when the marker's version differs from `BRIDGE_VERSION`
+ *      (a genuine upgrade) or when the block's CODE differs semantically
+ *      (tampering / corruption) — but NOT when the consumer's formatter
+ *      merely restyled it, which owns this file and must stay free to.
  *   2. Hardcoded baseURL/host/url for `http://localhost:3001` →
  *      `process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3001'`.
  *   3. `webServer` wrapped in an `LT_DEV_ACTIVE` guard so Playwright reuses
@@ -198,8 +253,8 @@ export function patchPlaywrightConfig(file: string): PatchResult {
   //    a direct `playwright test` run) usually sit in `projects/app`. The
   //    original cwd-only resolve missed it, so direct runs fell back to
   //    `localhost:3001` and could collide with a parallel project.
-  const bridgeStart = '// >>> lt-dev:bridge >>>';
-  const bridgeEnd = '// <<< lt-dev:bridge <<<';
+  const bridgeStart = `// >>> lt-dev:bridge v${BRIDGE_VERSION} >>>`;
+  const bridgeEnd = `// <<< lt-dev:bridge v${BRIDGE_VERSION} <<<`;
   const bridgeBlock = [
     bridgeStart,
     '// Auto-load <root>/.lt-dev/.env when `lt dev up` is active so',
@@ -228,15 +283,46 @@ export function patchPlaywrightConfig(file: string): PatchResult {
     '}',
     bridgeEnd,
   ].join('\n');
-  const bridgeStartIdx = after.indexOf(bridgeStart);
-  const bridgeEndIdx = after.indexOf(bridgeEnd);
-  if (bridgeStartIdx === -1) {
+  // Locate ANY bridge marker, versioned or not — v1 shipped unversioned and
+  // must still be recognised (and upgraded) rather than double-injected.
+  const startMatch = BRIDGE_START_RE.exec(after);
+  const endMatch = BRIDGE_END_RE.exec(after);
+  const bridgeStartIdx = startMatch ? startMatch.index : -1;
+  const bridgeEndIdx = endMatch ? endMatch.index : -1;
+  // A start marker without a well-ordered end marker is a corrupted block: the
+  // slice arithmetic below would duplicate everything between the two (and the
+  // user's code with it). `patchClaudeMd` already guards its span this way.
+  const spanIsSane = bridgeStartIdx !== -1 && bridgeEndIdx > bridgeStartIdx;
+
+  if (bridgeStartIdx === -1 || !spanIsSane) {
+    // Markers present but unusable (e.g. reversed). Strip the STRAY MARKERS
+    // ONLY — never the text between them: with the markers out of order that
+    // text is the user's own code, not our block, so slicing the span out
+    // would delete their work (and slicing it in would duplicate it).
+    if (!spanIsSane) after = after.replace(BRIDGE_START_RE, '').replace(BRIDGE_END_RE, '');
+    // A formatter with organize-imports may have hoisted the block's imports
+    // out of the markers; leaving them behind would duplicate the `__ltDev*`
+    // bindings and break the consumer's config with a duplicate-identifier
+    // error. They are ours to own, so it is safe to drop them.
+    after = after.replace(BRIDGE_IMPORT_RE, '').replace(/^\n+/, '');
     after = `${bridgeBlock}\n${after}`;
     count++;
-  } else if (bridgeEndIdx !== -1) {
-    const rebuilt = after.slice(0, bridgeStartIdx) + bridgeBlock + after.slice(bridgeEndIdx + bridgeEnd.length);
-    if (rebuilt !== after) {
-      after = rebuilt;
+  } else {
+    const existing = after.slice(bridgeStartIdx, bridgeEndIdx + endMatch![0].length);
+    // Two independent reasons to re-inject:
+    //  (a) VERSION — the marker carries the block's version, so a genuine
+    //      upgrade is detected regardless of how the consumer formatted it.
+    //      This is what keeps formatting-only fixes shippable (see
+    //      BRIDGE_VERSION); an unversioned v1 marker yields `undefined` here.
+    //  (b) CODE — the block's code differs semantically, i.e. it was tampered
+    //      with or corrupted. Cosmetic reformatting by the consumer's own
+    //      formatter is deliberately NOT a reason: rewriting it back on every
+    //      run is what used to leave playwright.config.ts permanently dirty in
+    //      the working tree, with formatter and patcher flipping it forever.
+    const existingVersion = Number(startMatch![1] ?? 0);
+    if (existingVersion !== BRIDGE_VERSION || normaliseBridgeBlock(existing) !== normaliseBridgeBlock(bridgeBlock)) {
+      const head = after.slice(0, bridgeStartIdx).replace(BRIDGE_IMPORT_RE, '');
+      after = head + bridgeBlock + after.slice(bridgeEndIdx + endMatch![0].length);
       count++;
     }
   }
@@ -312,4 +398,32 @@ export function patchPlaywrightConfig(file: string): PatchResult {
   if (count === 0) return { file, patched: false, replacements: 0 };
   writeFileSync(file, after, 'utf8');
   return { file, patched: true, replacements: count };
+}
+
+/**
+ * Canonical form of a bridge block for comparison purposes.
+ *
+ * Compares only the CODE: comment lines are dropped entirely, so rewording
+ * a comment never triggers a rewrite — and, crucially, code that a reflow
+ * folded behind a `//` VANISHES from the comparison and is therefore
+ * detected as changed. A plain `\s+ → ' '` collapse would erase newlines
+ * instead, which makes a fully commented-out (inert) loader normalise
+ * identically to a live one: the block would silently never load
+ * `.lt-dev/.env` again and Playwright would fall back to `localhost:3001`.
+ *
+ * Quote style and intra-line whitespace are normalised away because the
+ * consumer's formatter owns this file (which direction it flips is
+ * project-specific — do not assume). Blind spot to keep in mind: a change
+ * that differs ONLY in quotes or whitespace is invisible here, which is
+ * what `BRIDGE_VERSION` is for.
+ */
+function normaliseBridgeBlock(s: string): string {
+  return s
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l !== '' && !l.startsWith('//'))
+    .join(' ')
+    .replace(/['"]/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

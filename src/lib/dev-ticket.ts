@@ -25,7 +25,7 @@ import { basename, dirname, join } from 'path';
 
 import { buildIdentity, buildTicketIdentity, DevIdentity, slugify } from './dev-identity';
 import { pickPackageManager } from './dev-package-manager';
-import { autoPatch } from './dev-patches';
+import { autoPatch, canonicaliseBridgeSpan } from './dev-patches';
 import { deriveDbName, deriveTestDbName, deriveTicketDbName, DevProjectLayout } from './dev-project';
 import { paths, sameRealPath } from './dev-state';
 
@@ -939,7 +939,16 @@ function isPristineLtDevPatch(worktreePath: string, relPath: string): boolean {
   try {
     writeFileSync(tmp, head, 'utf8');
     autoPatch(tmp);
-    return readFileSync(tmp, 'utf8') === current;
+    const derived = readFileSync(tmp, 'utf8');
+    if (derived === current) return true;
+    // The patcher deliberately lets the consumer's formatter restyle the
+    // injected `lt-dev:bridge` block (quote style, wrapping) without rewriting
+    // it — so a byte-exact comparison would classify a merely reformatted
+    // playwright.config.ts as real developer work and make `lt ticket stop`
+    // refuse to remove the worktree. Compare the bridge span in its canonical
+    // form; everything OUTSIDE the markers stays byte-exact, so genuine edits
+    // are still never auto-discarded.
+    return canonicaliseBridgeSpan(derived) === canonicaliseBridgeSpan(current);
   } catch {
     return false;
   } finally {

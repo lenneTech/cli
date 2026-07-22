@@ -196,11 +196,16 @@ run_scenario() {
     else
       fail "package.json missing check:vendor-freshness script"
     fi
-    # check / check:fix / check:naf wired to freshness check
-    if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(s.check && s.check.includes('check:vendor-freshness') ? 0 : 1)"; then
-      pass "check script hooks check:vendor-freshness"
+    # check / check:fix / check:naf wired to freshness check.
+    # `check` itself is the report-driven wrapper (`node scripts/check.mjs`),
+    # which delegates to `check:raw` — so the hook lives in check:raw, never in
+    # the wrapper (see src/lib/heal-check-wrapper.ts + hookCheckFreshness).
+    # Assert on the chain that actually runs: check:raw when the wrapper is
+    # installed, otherwise `check` itself.
+    if node -e "const s=require('${api_dir}/package.json').scripts; const chain = s['check:raw'] || s.check; process.exit(chain && chain.includes('check:vendor-freshness') ? 0 : 1)"; then
+      pass "check chain hooks check:vendor-freshness"
     else
-      fail "check script does NOT hook check:vendor-freshness"
+      fail "check chain does NOT hook check:vendor-freshness"
     fi
     # CLAUDE.md vendor block
     if grep -q 'lt-vendor-marker' "${api_dir}/CLAUDE.md"; then
