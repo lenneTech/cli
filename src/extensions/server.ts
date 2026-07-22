@@ -9,6 +9,7 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
+import { stripComments } from '../lib/strip-comments';
 import {
   BACKEND_VENDOR_MARKER,
   buildBackendVendorBlock,
@@ -2806,7 +2807,14 @@ export class Server {
           recursive: true,
         }) || [];
       for (const file of files) {
-        const content = this.filesystem.read(file) || '';
+        const raw = this.filesystem.read(file) || '';
+        // Strip comments before matching. The keyword-anchored pattern is not enough on its own:
+        // a docblock that DOCUMENTS the conversion legitimately quotes the very syntax it looks
+        // for — nest-server-starter's `tests/unit/bootstrap-diagnostics.spec.ts` contains
+        // "rewrites `from '@lenne.tech/nest-server'` to a relative `./core` path", which matched
+        // and told the user to rewrite imports that file does not have. A detector that reads
+        // comments as code produces false alarms on exactly the files that explain it best.
+        const content = stripComments(raw);
         if (pattern ? pattern.test(content) : content.includes(needle)) {
           stale.push(file.replace(`${dest}/`, ''));
         }

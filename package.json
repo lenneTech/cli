@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.41.0",
+  "version": "1.41.1",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -100,10 +100,16 @@
     "ts-jest": "29.4.11"
   },
   "//overrides": {
-    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep."
+    "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep.",
+    "brace-expansion@<1.1.16": "DoS via exponential-time expansion of consecutive non-expanding {} groups (GHSA-3jxr-9vmj-r5cp, high). Transitive via dotgitignore/eslint/fs-jetpack/glob/test-exclude > minimatch. One bounded key per affected major so each can only raise a vulnerable version, never cap a patched one - remove once minimatch requests the patched ranges.",
+    "brace-expansion@>=2.0.0 <2.1.2": "Same advisory, 2.x line.",
+    "brace-expansion@>=5.0.0 <5.0.7": "Same advisory, 5.x line. Floored at >=5.0.0 so a future 3.x/4.x dependency is not silently forced across two majors."
   },
   "overrides": {
-    "semver@*": "7.8.5"
+    "semver@*": "7.8.5",
+    "brace-expansion@<1.1.16": "1.1.16",
+    "brace-expansion@>=2.0.0 <2.1.2": "2.1.2",
+    "brace-expansion@>=5.0.0 <5.0.7": "5.0.7"
   },
   "jest": {
     "testEnvironment": "node",

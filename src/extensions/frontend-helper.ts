@@ -1,6 +1,7 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
+import { stripComments } from '../lib/strip-comments';
 import {
   buildFrontendVendorBlock,
   FRONTEND_VENDOR_MARKER,
@@ -936,7 +937,11 @@ export class FrontendHelper {
 
     for (const absFile of allFiles) {
       if (skipPathContaining && absFile.includes(skipPathContaining)) continue;
-      const content = filesystem.read(absFile) || '';
+      // Strip comments first — a docblock that DOCUMENTS the conversion legitimately quotes the
+      // very import syntax this looks for, and would otherwise be reported as a file the user has
+      // to fix by hand. Same false-positive class that hit the backend detector on
+      // nest-server-starter's bootstrap-diagnostics.spec.ts.
+      const content = stripComments(filesystem.read(absFile) || '');
       const matches = typeof needle === 'string' ? content.includes(needle) : needle.test(content);
       if (matches) {
         stale.push(absFile.replace(`${appDir}/`, ''));
