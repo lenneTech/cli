@@ -21,11 +21,14 @@ process.env.LT_DEV_CADDYFILE = CADDYFILE_TMP;
 
 import { writeEnvBridge } from '../src/lib/dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from '../src/lib/dev-identity';
+import { pickPackageManager } from '../src/lib/dev-package-manager';
 import { DevProjectLayout } from '../src/lib/dev-project';
 import { loadRegistry, saveRegistry, saveSession, TEST_SESSION_FILE } from '../src/lib/dev-state';
 import {
+  buildShardPlaywrightInvocation,
   hasTestSession,
   resolveTestSession,
+  shardReportDir,
   tearDownTestSession,
   TEST_INITIAL_ADMIN_ENV,
   TestSessionLogger,
@@ -210,6 +213,60 @@ describe('dev-test-session', () => {
       const after = loadRegistry();
       expect(after.projects[baseIdentity.slug]).toBeDefined();
       expect(after.projects[baseIdentity.slug].dbName).toBe('svl-local');
+    });
+  });
+
+  describe('buildShardPlaywrightInvocation (DEV-2676 skip-gate regression)', () => {
+    // Both fixtures pass an EXPLICIT env so the resolution is hermetic: a runner
+    // shell that exports the documented `LT_PM_BIN` / `LT_PNPM_BIN` overrides must
+    // not flip the pnpm fixture off its fallback (no lockfile + empty env → pnpm).
+    const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
+    const npm = pickPackageManager('/does-not-exist', { LT_PM_BIN: 'npm' } as NodeJS.ProcessEnv);
+
+    test('NEVER injects a --reporter flag — that would replace the project reporter list', () => {
+      // The whole ticket: a CLI `--reporter` REPLACES playwright.config.ts's
+      // `reporter` array, dropping the DEV-2098 no-skips release gate. The shard
+      // path must therefore leave the reporter to the project config.
+      const { args } = buildShardPlaywrightInvocation(pnpm, 1, 2, [], '/tmp/report');
+      // `.startsWith('--reporter')` subsumes the exact old `--reporter=line` string.
+      expect(args.some((a) => a.startsWith('--reporter'))).toBe(false);
+    });
+
+    test('pnpm: exec playwright test --shard=i/N with forwarded args, no reporter', () => {
+      const { args } = buildShardPlaywrightInvocation(pnpm, 2, 3, ['forms-audit', '--grep', 'E32'], '/tmp/r');
+      expect(args).toEqual(['exec', 'playwright', 'test', '--shard=2/3', 'forms-audit', '--grep', 'E32']);
+    });
+
+    test('npm: keeps the `--` separator before the binary, still no reporter', () => {
+      const { args } = buildShardPlaywrightInvocation(npm, 1, 2, [], '/tmp/r');
+      expect(args).toEqual(['exec', '--', 'playwright', 'test', '--shard=1/2']);
+      expect(args.some((a) => a.startsWith('--reporter'))).toBe(false);
+    });
+
+    test('isolates the HTML reporter per shard + forces open:never (shard-safe, generic no-op)', () => {
+      // The one config reporter that is shard-hostile: N shards share one project
+      // dir and would all write `playwright-report/`. A per-shard output dir +
+      // `open: never` keep them from racing; both env vars are inert when the
+      // project has no HTML reporter.
+      const { env } = buildShardPlaywrightInvocation(pnpm, 4, 4, [], '/root/.lt-dev/shard.4.playwright-report');
+      expect(env.PLAYWRIGHT_HTML_OPEN).toBe('never');
+      expect(env.PLAYWRIGHT_HTML_OUTPUT_DIR).toBe('/root/.lt-dev/shard.4.playwright-report');
+      // Pin the env to EXACTLY these two keys: it is spread into the real shard
+      // process, so a stray key would silently shadow one of its vars.
+      expect(Object.keys(env).sort()).toEqual(['PLAYWRIGHT_HTML_OPEN', 'PLAYWRIGHT_HTML_OUTPUT_DIR']);
+    });
+
+    test('npm: forwarded args survive verbatim AFTER the `--` separator, in order', () => {
+      const { args } = buildShardPlaywrightInvocation(npm, 2, 2, ['forms-audit', '--grep', 'E32'], '/tmp/r');
+      expect(args).toEqual(['exec', '--', 'playwright', 'test', '--shard=2/2', 'forms-audit', '--grep', 'E32']);
+    });
+
+    test('shardReportDir gives each shard its OWN report dir — the isolation guarantee', () => {
+      // The per-shard-distinctness (which buildShardPlaywrightInvocation only
+      // echoes) lives here, so prove it directly: same root, different index →
+      // different dir. This is what stops N shards racing on one report folder.
+      expect(shardReportDir('/root', 1)).toBe('/root/.lt-dev/shard.1.playwright-report');
+      expect(shardReportDir('/root', 1)).not.toBe(shardReportDir('/root', 2));
     });
   });
 });

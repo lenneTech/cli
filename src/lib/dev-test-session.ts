@@ -388,6 +388,52 @@ export async function bringUpTestSession(
   return { apiLogPath, apiUrl, appEnv: devEnv.app.env, appUrl, dbName, pids, testIdentity };
 }
 
+/**
+ * Build the Playwright CLI argv + per-shard env overrides for ONE shard of a
+ * `lt dev test --shard` run.
+ *
+ * DEV-2676 — reporter handling: this path must NOT pass `--reporter`. A CLI
+ * `--reporter` REPLACES the project's whole `reporter` list from
+ * playwright.config.ts (Playwright resolves CLI-over-config, it never appends —
+ * `Runner._parseConfig` in playwright's `lib/runner/index.js` does
+ * `result.reporter = [...configOverrides.reporter]`), silently dropping any
+ * release gate a project wires in AS a reporter. SVL's DEV-2098 gate (`./tests/no-skips.reporter.ts`)
+ * turns a run RED when a spec was skipped; the old `--reporter=line` here
+ * clobbered it, so a skipped test passed with exit 0 under `--shard` — the exact
+ * hole this closes. Omitting `--reporter` lets the configured reporters run (the
+ * gate included); Playwright auto-prepends a compact `line` (local) / `dot` (CI)
+ * reporter when none of them claim stdio, so the captured per-shard log stays
+ * readable without us overriding anything.
+ *
+ * The HTML reporter is the only common config reporter that is shard-hostile:
+ * every shard shares one project dir and would write the same
+ * `playwright-report/`, racing each other's report files. We hand each shard its
+ * own HTML output dir and force `open: never` (defensive — the non-TTY,
+ * file-captured child never auto-opens a browser anyway). Both env vars are
+ * inert for a project without an HTML reporter, so the fix stays generic.
+ *
+ * Playwright is invoked via the manager's `exec` (NOT `<pm> run test:e2e -- …`):
+ * forwarding option flags through `<pm> run`'s `--` is unreliable — pnpm passed
+ * the separator on to Playwright, which then read `--shard` as a file FILTER, so
+ * every shard ran the whole suite. `exec` hands args straight to the binary
+ * (mirrors CI); the helper inserts `--` for npm so those flags survive.
+ */
+export function buildShardPlaywrightInvocation(
+  pm: PackageManagerCommand,
+  shardIndex: number,
+  total: number,
+  forwarded: readonly string[],
+  htmlReportDir: string,
+): { args: string[]; env: NodeJS.ProcessEnv } {
+  return {
+    args: pm.exec('playwright', ['test', `--shard=${shardIndex}/${total}`, ...forwarded]),
+    env: {
+      PLAYWRIGHT_HTML_OPEN: 'never',
+      PLAYWRIGHT_HTML_OUTPUT_DIR: htmlReportDir,
+    },
+  };
+}
+
 /** True when a test session file exists (used by status/down). */
 export function hasTestSession(root: string): boolean {
   return loadSession(root, TEST_SESSION_FILE) !== null;
@@ -460,6 +506,18 @@ export async function runShardedTestSession(
       // suite runs under concurrent sharded load, so it can relax navigation /
       // test timeouts (N built SSR servers + N Chromium saturate the CPU and slow
       // every navigation) without loosening them for serial runs.
+      // Reporter + shard args come from the shared helper, which deliberately
+      // does NOT inject `--reporter` so the project's own release gate (e.g.
+      // SVL's DEV-2098 no-skips reporter) still runs under `--shard` (DEV-2676),
+      // and isolates the HTML report per shard.
+      const reportDir = shardReportDir(layout.root, index);
+      const { args, env: reporterEnv } = buildShardPlaywrightInvocation(
+        opts.pm,
+        index,
+        total,
+        opts.forwarded,
+        reportDir,
+      );
       const env: NodeJS.ProcessEnv = {
         ...ctx.appEnv,
         LT_DEV_TEST_SHARDS: String(total),
@@ -468,21 +526,9 @@ export async function runShardedTestSession(
         // email-verification token — the spec's upward-search only knows the
         // unsharded `api.test.log`, never the per-shard `api.test.<i>.log`.
         ...(ctx.apiLogPath ? { NEST_SERVER_LOG: ctx.apiLogPath } : {}),
+        ...reporterEnv,
       };
       const logFile = join(layout.root, '.lt-dev', `shard.${index}.test.log`);
-      // Invoke Playwright DIRECTLY via the manager's `exec` (NOT `<pm> run
-      // test:e2e -- …`): forwarding option flags through `<pm> run`'s `--`
-      // is unreliable — pnpm passed the separator on to Playwright, which
-      // then read `--shard` / `--reporter` as file FILTERS (not options) →
-      // every shard ran the whole suite. `<pm> exec` hands args straight
-      // to the binary (mirrors CI); the helper inserts `--` for npm so
-      // those flags don't get re-parsed as npm's own.
-      const args = opts.pm.exec('playwright', [
-        'test',
-        `--shard=${index}/${total}`,
-        '--reporter=line',
-        ...opts.forwarded,
-      ]);
       const code = await runChildToFile(opts.pm.bin, args, { cwd: appDir, env, logFile });
       return { code, index, logFile };
     }),
@@ -497,6 +543,17 @@ export async function runShardedTestSession(
     log.info(`  shard ${r.index}/${total}: ${ok ? 'passed' : `FAILED (exit ${r.code})`}  (log: ${r.logFile})`);
   }
   return failed === 0 ? 0 : 1;
+}
+
+/**
+ * The per-shard HTML report directory. Distinct per shard (the `<index>` in the
+ * path) so N shards never race on a shared `playwright-report/` — this is the
+ * actual isolation `buildShardPlaywrightInvocation`'s `PLAYWRIGHT_HTML_OUTPUT_DIR`
+ * relies on. Extracted as a pure helper so the shard-distinctness guarantee is
+ * unit-testable without booting the (deliberately untested) real orchestrator.
+ */
+export function shardReportDir(root: string, shardIndex: number): string {
+  return join(root, '.lt-dev', `shard.${shardIndex}.playwright-report`);
 }
 
 /**
