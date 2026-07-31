@@ -9,6 +9,12 @@ type: project
 - Full `npm run build`: ~62 seconds (dominated by test suite at ~65s, not tsc)
 - TS5 reference: pure build script was ~9s (also included lint, but test suite was faster)
 
+**Cold vs warm (re-verified 2026-07-31, tsc 6.0.3):** the ~3s figure is the WARM
+number (measured 3.6s). A COLD `npx tsc -p .` — first compile in a session, no
+warm FS cache, npx resolving the binary — measured **15.5s**. Do not read a
+one-shot 15s cold sample as a compile-time regression; re-run once and compare
+the warm number.
+
 **Why:** Useful for future reviews to distinguish compile-time regression from test-time growth.
 
 **How to apply:** When reviewing TypeScript version bumps, time `tsc --noEmit` separately from `npm run build` to isolate compile cost from test cost.

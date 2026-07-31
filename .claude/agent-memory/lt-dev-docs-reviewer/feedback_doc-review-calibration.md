@@ -29,7 +29,18 @@ gets ignored with it.
 - When recommending a `CLAUDE.md` Gotcha, **draft the exact paste-ready text** (title +
   `<!-- Added: … -->` + body) instead of just asking for one.
 - **Verify factual claims in comments**, don't just check that a comment exists. Claims about
-  third-party tool defaults (formatter quote style, parser behaviour) have been wrong in this repo
-  before — run the tool and check.
+  third-party tool behaviour have been wrong in this repo **twice** now, so treat every such
+  sentence as unverified until checked against the installed package:
+  - a comment asserted a formatter's default quote style, which was actually project-specific;
+  - a `dev-test-session.ts` comment asserted "unlike `NUXT_BUILD_DIR`, Nitro reads no such
+    variable on its own" — neither `NUXT_BUILD_DIR` nor `NITRO_OUTPUT_DIR` is framework-native
+    (grep `@nuxt/schema` + `nitropack` in a starter's `node_modules/.pnpm`; both are read only by
+    the project's own `nuxt.config.ts`).
+  The recurring shape is an **asymmetric contrast** ("unlike X, Y needs …") that silently
+  promotes X to a framework feature. Check BOTH halves, and check whether the same file already
+  states the opposite elsewhere — self-contradiction within one file is the cheapest tell.
+  Cross-repo claims *are* verifiable and were all correct here: a starter version floor
+  (`git log --oneline` around the release commit), a TurboOps "since vX" claim (`git log
+  vA..vB`), and a quoted upstream error string / API call.
 - Published artifacts (commit messages, release notes, CHANGELOG entries) are **English**.
   See [[english-for-published-artifacts]].
