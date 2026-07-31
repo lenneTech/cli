@@ -22,14 +22,33 @@ import { isSymlink } from './fs-utils';
  * is hoisted too so a sub-project's first-party exemption (e.g.
  * `@lenne.tech/*`) keeps working in the monorepo — otherwise the
  * minimum-release-age gate would block freshly published own packages.
+ *
+ * `auditConfig` is nested (`{ ignoreGhsas: [...], ignoreCves: [...] }`), so it
+ * needs a one-level-deeper merge than the flat object fields. It MUST be hoisted:
+ * the CI audit job is deploy-blocking, and a settings-only sub-workspace file is
+ * deleted after hoisting (see hoistFromSubWorkspaceYaml). Without this the
+ * starter's assessed-advisory allowlist is destroyed rather than merely ignored,
+ * and the generated project's very first pipeline goes red on an advisory that
+ * was already justified upstream.
  */
 const OBJECT_FIELDS = ['overrides', 'allowBuilds'] as const;
 const ARRAY_FIELDS = ['onlyBuiltDependencies', 'ignoredOptionalDependencies', 'minimumReleaseAgeExclude'] as const;
-const WORKSPACE_SCOPED_PNPM_FIELDS = [...OBJECT_FIELDS, ...ARRAY_FIELDS] as const;
+/** Objects whose values are arrays to be unioned, not replaced. */
+const NESTED_ARRAY_FIELDS = ['auditConfig'] as const;
+
+/** Provenance note written above a hoisted `auditConfig` — see `annotateAuditConfig`. */
+const AUDIT_CONFIG_NOTE =
+  '# Hoisted from the sub-projects by the lt CLI. These advisory suppressions now\n' +
+  '# apply to EVERY package in this workspace, not just the one that justified\n' +
+  '# them — review before adding, and drop entries once the advisory is fixed.';
+const WORKSPACE_SCOPED_PNPM_FIELDS = [...OBJECT_FIELDS, ...ARRAY_FIELDS, ...NESTED_ARRAY_FIELDS] as const;
 
 type PnpmConfigField = (typeof WORKSPACE_SCOPED_PNPM_FIELDS)[number];
 
 const isArrayField = (field: PnpmConfigField): boolean => (ARRAY_FIELDS as readonly string[]).includes(field);
+
+const isNestedArrayField = (field: PnpmConfigField): boolean =>
+  (NESTED_ARRAY_FIELDS as readonly string[]).includes(field);
 
 interface PackageJson {
   [k: string]: unknown;
@@ -192,8 +211,31 @@ export function hoistWorkspacePnpmConfig(options: {
     // Keep allowBuilds (pnpm 11) and onlyBuiltDependencies (pnpm 10) in sync so
     // the build-script allowlist survives regardless of which key pnpm reads.
     syncBuildAllowlists(rootWs);
-    filesystem.write(rootWsPath, dump(rootWs, { lineWidth: -1, sortKeys: false }));
+    filesystem.write(rootWsPath, annotateAuditConfig(dump(rootWs, { lineWidth: -1, sortKeys: false })));
   }
+}
+
+/**
+ * Mark a hoisted `auditConfig` as workspace-wide, in the file itself.
+ *
+ * `auditConfig.ignoreGhsas` / `.ignoreCves` are not ordinary settings — they
+ * SUPPRESS vulnerability findings, and the CI audit job is deploy-blocking.
+ * Hoisting changes their blast radius: an advisory a sub-project justified for
+ * one dev-only transitive dep now also silences that same advisory when it turns
+ * up in a sibling's RUNTIME tree, and pnpm's `auditConfig` has no expiry. That is
+ * the correct trade (the alternative — deleting the settings-only sub file
+ * unhoisted — destroys the allowlist and reddens the first pipeline), but it must
+ * not be invisible.
+ *
+ * A comment in the YAML is where a reviewer actually looks: it survives in the
+ * file, shows up in the `git diff` that introduces it, and needs no plumbing
+ * through the void-returning scaffolding call chain.
+ */
+function annotateAuditConfig(yaml: string): string {
+  if (!/^auditConfig:/m.test(yaml) || yaml.includes(AUDIT_CONFIG_NOTE)) {
+    return yaml;
+  }
+  return yaml.replace(/^auditConfig:/m, `${AUDIT_CONFIG_NOTE}\nauditConfig:`);
 }
 
 /**
@@ -296,6 +338,26 @@ function mergePnpmFieldValue(field: PnpmConfigField, rootValue: unknown, subValu
     const rootArr = Array.isArray(rootValue) ? (rootValue as string[]) : [];
     const subArr = Array.isArray(subValue) ? (subValue as string[]) : [];
     return Array.from(new Set([...rootArr, ...subArr])).sort((a, b) => a.localeCompare(b));
+  }
+  // Nested (`auditConfig.ignoreGhsas` / `.ignoreCves`): union each inner array
+  // instead of letting the sub-project's object replace the root's. A plain
+  // key-by-key merge would drop every advisory the root had already justified.
+  if (isNestedArrayField(field)) {
+    const asObj = (v: unknown): Record<string, unknown> =>
+      v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+    const rootObj = asObj(rootValue);
+    const subObj = asObj(subValue);
+    const merged: Record<string, unknown> = { ...rootObj };
+    for (const [key, value] of Object.entries(subObj)) {
+      if (Array.isArray(value) || Array.isArray(merged[key])) {
+        const a = Array.isArray(merged[key]) ? (merged[key] as string[]) : [];
+        const b = Array.isArray(value) ? (value as string[]) : [];
+        merged[key] = Array.from(new Set([...a, ...b])).sort((x, y) => x.localeCompare(y));
+      } else {
+        merged[key] = value;
+      }
+    }
+    return Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)));
   }
   const rootObj =
     rootValue && typeof rootValue === 'object' && !Array.isArray(rootValue)

@@ -153,7 +153,7 @@ All code generators are **mode-aware**: In vendor mode they use relative paths t
 | Command | Purpose |
 |---------|---------|
 | `lt fullstack init` | Create fullstack monorepo (see above) |
-| `lt fullstack update` | Show mode-specific update instructions for backend AND frontend |
+| `lt fullstack update` | Show mode-specific update instructions — **and self-heal generated project scaffolding** (see `docs/commands.md`) |
 | **`lt fullstack convert-mode`** | **Convert backend AND frontend between npm and vendor mode in a single command** |
 
 **Fullstack mode conversion in one command:**

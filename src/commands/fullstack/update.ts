@@ -6,6 +6,7 @@ import { addToGitignore } from '../../lib/dev-patches';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
 import { healCheckWrapper } from '../../lib/heal-check-wrapper';
+import { healVendorMigrateStore } from '../../lib/heal-vendor-migrate-store';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
 /**
@@ -219,6 +220,23 @@ const NewCommand: GluegunCommand = {
     if (addToGitignore(cwd, '.lt-dev/')) {
       info('');
       success('  Added `.lt-dev/` to .gitignore');
+    }
+
+    // ── Self-heal: repair the vendor-mode migration store ──────────────────
+    //
+    // `migrations-utils/migrate.js` is written ONCE, at conversion time. Projects
+    // converted before the template stopped requiring ts-node unconditionally keep
+    // the broken file forever — it is project scaffolding, not `src/core/`, so no
+    // update path ever revisits it. Those containers die with
+    // `Cannot find module 'ts-node'` before applying a single migration, and stay
+    // healthy while doing so, because the entrypoint degrades the failure to a
+    // warning on purpose. Idempotent, and deliberately blind to stores that guard
+    // the require their own way.
+    const migrateStoreAsset = join(__dirname, '..', '..', 'templates', 'vendor-scripts', 'migrate-store.js');
+    const changedStore = healVendorMigrateStore(apiDir, migrateStoreAsset);
+    if (changedStore.length > 0) {
+      info('');
+      success(`  Repaired the vendor migration store: ${changedStore.join(', ')}`);
     }
 
     info('');

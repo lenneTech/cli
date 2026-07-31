@@ -208,6 +208,90 @@ describe('hoistWorkspacePnpmConfig', () => {
     expect(rootWs().overrides).toEqual({ 'defu@<=6.1.4': '6.1.7' });
   });
 
+  it('hoists auditConfig, unioning the inner arrays instead of replacing them', () => {
+    // Regression: `auditConfig` was NOT in the hoist whitelist, and a
+    // settings-only sub-workspace file is REMOVED after hoisting — so the
+    // starter's assessed-advisory allowlist was destroyed, not merely ignored.
+    // With a deploy-blocking audit job that means the generated project's first
+    // pipeline is red on an advisory that was already justified upstream.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.write(
+      `${tempDir}/pnpm-workspace.yaml`,
+      ['auditConfig:', '  ignoreGhsas:', '    - GHSA-root-only', ''].join('\n'),
+    );
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      [
+        'auditConfig:',
+        '  ignoreGhsas:',
+        '    - GHSA-sub-only',
+        '    - GHSA-root-only',
+        '  ignoreCves:',
+        '    - CVE-2026-14257',
+        '',
+      ].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+
+    // Union, deduped and sorted — the root's own entry must survive.
+    expect(rootWs().auditConfig).toEqual({
+      ignoreCves: ['CVE-2026-14257'],
+      ignoreGhsas: ['GHSA-root-only', 'GHSA-sub-only'],
+    });
+    expect(filesystem.exists(`${tempDir}/projects/api/pnpm-workspace.yaml`)).toBe(false);
+  });
+
+  it('marks a hoisted auditConfig as workspace-wide, in the file itself', () => {
+    // These entries SUPPRESS vulnerability findings and the CI audit job is
+    // deploy-blocking. Hoisting is correct (the alternative destroys the
+    // allowlist) but it widens the blast radius from one package to all of
+    // them, so it must not be invisible to whoever reviews the diff.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      ['auditConfig:', '  ignoreGhsas:', '    - GHSA-sub-only', ''].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+
+    const raw = filesystem.read(`${tempDir}/pnpm-workspace.yaml`) || '';
+    expect(raw).toMatch(/#.*EVERY package in this workspace/);
+    expect(raw.indexOf('# Hoisted from the sub-projects')).toBeLessThan(raw.indexOf('auditConfig:'));
+    // The note must not accumulate on a second hoist.
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+    const again = filesystem.read(`${tempDir}/pnpm-workspace.yaml`) || '';
+    expect(again.match(/# Hoisted from the sub-projects/g) || []).toHaveLength(1);
+  });
+
+  it('hoists an auditConfig that only the sub-project has', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      ['auditConfig:', '  ignoreCves:', '    - CVE-2026-1', ''].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+    expect(rootWs().auditConfig).toEqual({ ignoreCves: ['CVE-2026-1'] });
+  });
+
+  it('keeps a non-array nested auditConfig value instead of dropping it', () => {
+    // pnpm may grow scalar keys under auditConfig; the union branch only applies
+    // to arrays, and the else-branch must not silently discard the rest.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      ['auditConfig:', '  someScalar: true', '  ignoreGhsas:', '    - GHSA-x', ''].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+    expect(rootWs().auditConfig).toEqual({ ignoreGhsas: ['GHSA-x'], someScalar: true });
+  });
+
   it('keeps a sub-project pnpm-workspace.yaml that declares packages, minus hoisted keys', () => {
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/app`);

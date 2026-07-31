@@ -23,7 +23,7 @@
  * session file, registry entry), so a stale session is always safely reclaimed.
  */
 import { execFileSync } from 'child_process';
-import { existsSync, readdirSync } from 'fs';
+import { existsSync, readdirSync, rmSync } from 'fs';
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
@@ -33,7 +33,7 @@ import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
 import { type PackageManagerCommand, pickPackageManager } from './dev-package-manager';
-import { autoPatch } from './dev-patches';
+import { addToGitignore, autoPatch } from './dev-patches';
 import {
   listenSnapshot,
   runChildInherit,
@@ -140,6 +140,49 @@ export const TEST_INITIAL_ADMIN_ENV: NodeJS.ProcessEnv = {
   NSC__SYSTEM_SETUP__INITIAL_ADMIN__NAME: 'CI Admin',
   NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD: 'CiThrowawayAdmin123!',
 };
+
+/**
+ * The Nuxt build directory the test stack's app process uses — never the one
+ * `nuxt dev` / the IDE write (`.nuxt`), never the check chain's (`.nuxt-check`).
+ *
+ * `@nuxt/cli` takes its lock ON the build directory
+ * (`acquireLock(nuxt.options.buildDir)`), so sharing it does not merely
+ * interleave writes — it makes the second command ABORT: a `lt dev test` next to
+ * a parked `lt dev up` died with "Another Nuxt dev is already running", the test
+ * app never started, and every spec then failed on a missing selector. That
+ * reads like broken specs while being pure infrastructure, which is what made it
+ * expensive to diagnose. A directory of its own frees the lock and the writes in
+ * one move.
+ *
+ * Projects whose `nuxt.config.ts` does not (yet) read `NUXT_BUILD_DIR` simply
+ * ignore it, so this needs no per-project case distinction.
+ */
+export const TEST_NUXT_BUILD_DIR = '.nuxt-test';
+
+/**
+ * The Nitro OUTPUT directory the test stack builds into (DEV-2724).
+ *
+ * A second axis from `TEST_NUXT_BUILD_DIR`, not a duplicate of it: `buildDir`
+ * and Nitro's `output.dir` are unrelated knobs, so isolating the former left
+ * `.output/` shared. That matters here more than anywhere else, because this
+ * stack does not run `nuxt dev` — it serves the production bundle, rebuilding on
+ * every run, and therefore overwrites the tree a local `pnpm run build` (or a
+ * server started from it) is using.
+ *
+ * NEITHER variable is framework-native — verified against `@nuxt/schema` 4.4.8,
+ * `nitropack` 2.13.4 and `c12`: none of them reads `NUXT_BUILD_DIR` or
+ * `NITRO_OUTPUT_DIR`. Both levers are opened by the project's own
+ * `nuxt.config.ts` (`buildDir: process.env.NUXT_BUILD_DIR || '.nuxt'`,
+ * `nitro.output.dir: process.env.NITRO_OUTPUT_DIR || '.output'`); nuxt-base-starter
+ * ≥ 2.16.0 ships both. Do NOT write "unlike NUXT_BUILD_DIR, …" here: that
+ * asymmetric contrast silently promotes one of them to a framework feature and
+ * makes readers forward only the other, which reintroduces the collision this
+ * whole mechanism exists to prevent.
+ *
+ * Projects that forward neither simply keep building into `.nuxt` / `.output`,
+ * which is why `testAppEntryCandidates()` still looks there.
+ */
+export const TEST_NITRO_OUTPUT_DIR = '.output-test';
 
 /**
  * Heuristic for the default local shard count (`--shard auto` / bare `--shard`).
@@ -279,6 +322,12 @@ export async function bringUpTestSession(
     identity: testIdentity,
   });
 
+  // Every app process below — the build, the built server, and the dev-server
+  // fallback — runs with THIS env, so the test stack never touches the build dir
+  // `nuxt dev` and the IDE use. Declared out here because the session context
+  // hands it to the Playwright child as well.
+  const appEnv = buildTestAppEnv(devEnv.app.env);
+
   const pids: { api?: number; app?: number } = {};
 
   // --- API: compiled (`node dist`) for stability; fall back to the project's
@@ -324,32 +373,49 @@ export async function bringUpTestSession(
   // buildDevEnv sets NUXT_PUBLIC_API_PROXY=false, so the built app talks
   // cross-origin to the test API exactly like prod (the injected session cookie
   // must be a cross-subdomain DOMAIN cookie — see the project's parseCookieHeader).
-  // Rebuilt every run so the suite never hits stale code (no build-skip / reuse). ---
+  // Rebuilt every run so the suite never hits stale code (no build-skip / reuse).
+  // `appEnv` pins NUXT_BUILD_DIR to its own dir, which is what lets this run next
+  // to a parked `lt dev up` at all: the Nuxt lock sits on the build dir, so the
+  // build below used to abort outright against a running dev server (DEV-2715).
+  // The fallback needs it just as much — that path IS a second `nuxt dev`.
+  // It also pins NITRO_OUTPUT_DIR (DEV-2724), so the rebuild below stops
+  // overwriting the `.output/` a local `pnpm run build` is serving — and the
+  // entry lookup moves with it, or the spawn would find nothing and drop to the
+  // slow `pnpm dev` fallback. ---
   if (layout.appDir && appPort) {
+    // The isolated build trees are new names this CLI invented, so a project
+    // whose `.gitignore` predates the starter's `.nuxt-*` / `.output-*` globs
+    // leaves them UNTRACKED — a `git add -A` away from committing a Nitro
+    // bundle (which inlines runtimeConfig defaults), and enough to make
+    // `lt ticket stop` see uncommitted work. Idempotent, like every other
+    // `addToGitignore` call.
+    addToGitignore(layout.appDir, '.nuxt-*');
+    addToGitignore(layout.appDir, '.output-*');
+
     const appPm = pickPackageManager(layout.appDir);
     let appBuild: null | number = 0;
     if (!skipBuild) {
       log.info(log.dim('Building App (nuxt build, for speed + prod-fidelity) …'));
       appBuild = await runChildInherit(appPm.bin, appPm.runScript('build'), {
         cwd: layout.appDir,
-        env: devEnv.app.env,
+        env: appEnv,
       });
     }
-    const appEntry = ['.output/server/index.mjs']
+    const appEntry = testAppEntryCandidates()
       .map((rel) => join(layout.appDir as string, rel))
       .find((p) => existsSync(p));
     let appSpawn: ReturnType<typeof spawnDetached>;
     if (appBuild === 0 && appEntry) {
       appSpawn = spawnDetached('node', [appEntry], {
         cwd: layout.appDir,
-        env: devEnv.app.env,
+        env: appEnv,
         logFile: join(layout.root, '.lt-dev', names.appLog),
       });
     } else {
       log.warn(`built app not available — falling back to \`${appPm.bin} dev\` (slower: cold-compiles routes).`);
       appSpawn = spawnDetached(appPm.bin, appPm.runScript('dev'), {
         cwd: layout.appDir,
-        env: devEnv.app.env,
+        env: appEnv,
         logFile: join(layout.root, '.lt-dev', names.appLog),
       });
     }
@@ -385,7 +451,7 @@ export async function bringUpTestSession(
   // (via NEST_SERVER_LOG) at the exact isolated log — correct per shard.
   const apiLogPath = layout.apiDir ? join(layout.root, '.lt-dev', names.apiLog) : undefined;
 
-  return { apiLogPath, apiUrl, appEnv: devEnv.app.env, appUrl, dbName, pids, testIdentity };
+  return { apiLogPath, apiUrl, appEnv, appUrl, dbName, pids, testIdentity };
 }
 
 /**
@@ -432,6 +498,21 @@ export function buildShardPlaywrightInvocation(
       PLAYWRIGHT_HTML_OUTPUT_DIR: htmlReportDir,
     },
   };
+}
+
+/**
+ * The env the test stack's APP process runs with: the isolated dev env plus its
+ * own Nuxt build dir.
+ *
+ * The pin goes LAST on purpose — unlike `TEST_INITIAL_ADMIN_ENV`, which is
+ * spread first so a deliberately inherited credential still wins. Here the
+ * isolation IS the contract: `buildDevEnv` seeds the app env from `process.env`,
+ * so a shell that exports `NUXT_BUILD_DIR` (left over from debugging a check
+ * run, say) would otherwise hand the test stack the dev — or the gate — dir
+ * straight back, and the collision returns silently.
+ */
+export function buildTestAppEnv(appEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...appEnv, NITRO_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR, NUXT_BUILD_DIR: TEST_NUXT_BUILD_DIR };
 }
 
 /** True when a test session file exists (used by status/down). */
@@ -638,8 +719,43 @@ export async function tearDownTestSession(
     saveRegistry(reg);
   }
 
+  // Reclaim the isolated build trees. They exist only for this stack and are
+  // rebuilt from scratch on every run (there is no build-skip / reuse), so
+  // keeping them buys nothing and costs 37-294 MB per project — permanently,
+  // since nothing else ever removes them. Only the SUFFIXED names are touched:
+  // a project that does not forward the env vars builds into the shared
+  // `.nuxt` / `.output`, which belong to the developer's own `pnpm run build`.
+  if (layout.appDir) {
+    for (const dir of [TEST_NUXT_BUILD_DIR, TEST_NITRO_OUTPUT_DIR]) {
+      const path = join(layout.appDir, dir);
+      try {
+        if (existsSync(path)) {
+          rmSync(path, { force: true, recursive: true });
+          stopped.push(`${dir}/`);
+        }
+      } catch {
+        // Best effort — a locked build tree must not fail the teardown.
+      }
+    }
+  }
+
   if (!opts.silent && stopped.length > 0) log.info(`Stopped test stack: ${stopped.join(', ')}`);
   return { stopped };
+}
+
+/**
+ * Where to look for the built server entry, in priority order.
+ *
+ * The isolated dir comes FIRST and that ordering is load-bearing: `.find()` takes
+ * the first hit and a stale `.output/` from an earlier local build is the normal
+ * case, so the shared path first would serve that stale bundle while the fresh
+ * build sat unused. The shared path remains as a fallback for projects whose
+ * `nuxt.config.ts` does not forward `NITRO_OUTPUT_DIR` yet — without it they
+ * would find no entry at all and drop to the slow `pnpm dev` fallback, which is
+ * a second `nuxt dev` and re-takes the build-dir lock DEV-2715 just freed.
+ */
+export function testAppEntryCandidates(): string[] {
+  return [`${TEST_NITRO_OUTPUT_DIR}/server/index.mjs`, '.output/server/index.mjs'];
 }
 
 /**

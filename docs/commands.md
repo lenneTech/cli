@@ -606,6 +606,46 @@ lt dev doctor
 
 ---
 
+### `lt dev vscode`
+
+Apply a verified low-memory profile to VS Code's **user** settings. Targets the per-workspace TypeScript servers, which dominate memory once several monorepos are open at once: every workspace root spawns its own semantic TS server, so eight monorepos with an `api` and an `app` root each add up to 16 of them.
+
+**Usage:**
+```bash
+lt dev vscode              # preview, then apply after confirmation
+lt dev vscode --dry-run    # show the diff, write nothing
+lt dev vscode --explain    # print the profile with reasons + the keys left out on purpose
+lt dev vscode --revert     # remove the profile keys again
+lt dev vscode --variant cursor   # limit to one: code | insiders | cursor | vscodium
+lt dev vscode --noConfirm  # skip the confirmation prompt
+```
+
+**Alias:** `lt d vsc`
+
+**Profile:**
+
+| Key | Value | Why |
+|---|---|---|
+| `typescript.tsserver.maxTsServerMemory` | 2048 | Per-server heap ceiling; the default is 3072 and multiplies across every open root |
+| `typescript.preferences.includePackageJsonAutoImports` | `off` | Auto-import stops scanning every package.json — the largest monorepo win |
+| `typescript.disableAutomaticTypeAcquisition` | `true` | Skips the `@types` download/scan pass |
+| `files.watcherExclude` | node_modules, dist, `.nuxt*`, `.output*`, .git internals | Keeps the file watcher off generated trees |
+| `search.exclude` | node_modules, dist, `.nuxt*`, `.output*` | Keeps full-text search from indexing them |
+
+The globs are `.nuxt*` / `.output*`, not the bare names: a glob segment matches whole path segments, so `**/.nuxt/**` would leave the sibling build dirs (`.nuxt-check` from the check chain, `.nuxt-test` / `.output-test` from `lt dev test`) watched and indexed — and a `.output-test` tree is 37-294 MB.
+
+**Safety:** JSONC-aware via `jsonc-parser`, so comments and formatting in a hand-maintained `settings.json` survive. Refuses to write into a file it cannot parse or a symlink, backs up to `settings.json.bak` (the **first** backup is kept, so a later run — including `--revert` — cannot overwrite the record of the pre-tuning state), and merges the object-valued exclude maps so hand-added entries are kept. Re-running is a true no-op.
+
+**`--revert`** subtracts only the entries this profile contributed, so a hand-maintained exclusion is never removed along with them. For the scalar keys it deletes the key, restoring VS Code's own default — an explicit value that preceded the tuning is not restored; that is what the `.bak` is for.
+
+**Detects:** VS Code, VS Code Insiders, Cursor, VSCodium — every variant whose user settings file exists.
+
+**After applying**, restart VS Code (or run *Developer: Reload Window*) — the TypeScript servers read these settings at startup, so nothing changes until they do.
+
+Run `--explain` to see three commonly recommended keys the profile deliberately omits, each with the manifest check or measurement that ruled it out.
+
+---
+
 ### `lt dev test`
 
 One-shot E2E wrapper: ensure `up`, wait for the App URL, run `pnpm run test:e2e` with the `.lt-dev/.env` bridge loaded. Optional teardown after.
@@ -649,7 +689,37 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 | `LT_DEV_ACTIVE`, `LT_DEV_DB_NAME` | Marker keys for consumers |
 | `NODE_EXTRA_CA_CERTS` | Path to Caddy's root CA cert (auto-detected) |
 
-`lt dev init` injects a tiny `// >>> lt-dev:bridge >>>` block at the top of `playwright.config.ts` that loads this file at config-load time — making Playwright (CLI, IDE, VS Code extension) automatically use the `lt dev` URLs and trust the local CA, without inheriting the parent shell.
+Additionally, `lt dev test` exports two build-directory keys into the app process it
+spawns. They are **not** written to the bridge file — they scope one run, not the
+project:
+
+| Key | Value | Why |
+|-----|-------|-----|
+| `NUXT_BUILD_DIR` | `.nuxt-test` | Nuxt holds its lock on the build dir (`acquireLock(nuxt.options.buildDir)`). Sharing `.nuxt` with a parked `nuxt dev` did not interleave writes — it made the test build **abort** with "Another Nuxt dev is already running", so the app never came up and every spec failed on a missing selector. That reads like broken specs while being pure infrastructure. |
+| `NITRO_OUTPUT_DIR` | `.output-test` | A separate axis: `buildDir` and Nitro's `output.dir` are unrelated knobs. `lt dev test` serves the production bundle, so it rebuilds on every run and used to overwrite the `.output` a local `pnpm run build` was using. |
+
+**The project must forward both**, or the isolation silently degrades to the shared
+directories. `nuxt-base-starter` ≥ 2.16.0 does this out of the box:
+
+```ts
+// nuxt.config.ts
+buildDir: process.env.NUXT_BUILD_DIR || '.nuxt',
+nitro: { output: { dir: process.env.NITRO_OUTPUT_DIR || '.output' } },
+```
+
+**Neither key is framework-native**, despite the prefixes — verified against
+`@nuxt/schema`, `nitropack` and `c12`: none of them reads `NUXT_BUILD_DIR` or
+`NITRO_OUTPUT_DIR`. Both levers are opened by the project's own `nuxt.config.ts`,
+which is why the two-line snippet above is required rather than optional. (Singling
+one of them out as "not a framework feature" reads as if the other one were, and a
+reader acting on that forwards only half — leaving exactly the collision this
+section exists to prevent.) For projects that have not adopted it, the CLI keeps a
+`.output/server/index.mjs` fallback when locating the built server.
+
+A project that ignores both keys still works; it just loses the isolation, so a
+`lt dev test` run and a parked `nuxt dev` collide again.
+
+`lt dev init` injects a tiny `// >>> lt-dev:bridge v2 >>>` block at the top of `playwright.config.ts` that loads this file at config-load time — making Playwright (CLI, IDE, VS Code extension) automatically use the `lt dev` URLs and trust the local CA, without inheriting the parent shell.
 
 `lt dev down` removes the bridge file so subsequent runs without `lt dev up` fall back cleanly to the classic `localhost:3000`/`localhost:3001` defaults.
 
@@ -1127,6 +1197,36 @@ lt fullstack add-app [options]
 
 ---
 
+### `lt fullstack update`
+
+Prints the mode-specific update entry points for backend and frontend — **and repairs generated project scaffolding on the way**. The name undersells it: this command writes files.
+
+**Usage:**
+```bash
+lt fullstack update
+```
+
+**Self-heals** (each is idempotent and a no-op when nothing is wrong):
+
+| What | Why it needs healing |
+|---|---|
+| `.gitignore` — adds `.lt-dev/` | Added after many projects were scaffolded |
+| `check` wrapper script | Same |
+| Vendor `CLAUDE.md` | Same |
+| `migrations-utils/migrate.js` | Written **once**, at vendor-conversion time. It is project scaffolding, not `src/core/`, so no update path ever revisits it — a project converted before the template stopped requiring `ts-node` unconditionally keeps the broken file forever, and every deployed container then dies with `Cannot find module 'ts-node'` before applying a single migration (silently, because the entrypoint degrades a migration failure to a warning on purpose). |
+
+The migration-store repair is deliberately narrow. It acts **only** when the `require('./ts-compiler')` is a top-level, unconditional statement — the one shape that provably cannot survive a production image where `ts-node` was pruned. Any conditional form (inside `try`, `if`, a function, a ternary) is the project's own working solution and is left untouched, because the replacement is not behaviour-neutral: the bundled template hardcodes the collection name and takes its URI from `./mongo-uri`, so overwriting a customized store would empty the migration ledger and re-run every historical migration.
+
+Before overwriting, the command establishes that the change is undoable. A file that git tracks and that is unmodified is simply replaced (git has the copy). A file git cannot recover — untracked, `.gitignore`d, or outside a repo — gets a `.bak` first. A tracked file with **uncommitted** changes is never touched and is reported as skipped:
+
+```
+migrations-utils/migrate.js (skipped: uncommitted changes — commit or discard them, then re-run)
+```
+
+That skip line is the only signal that a repair was needed but not applied — commit or discard, then re-run.
+
+---
+
 ### `lt fullstack convert-mode`
 
 Convert **both** backend (`projects/api/`) and frontend (`projects/app/`) of a fullstack monorepo between npm mode and vendor mode in a single command. Auto-detects the subprojects, shows the plan for each side, and orchestrates the backend + frontend conversions sequentially.
@@ -1219,6 +1319,36 @@ them from the TurboOps stage env at runtime, so nothing is patched there):
 
 `environment.ts` (local dev) is never touched. Only the URL origin is replaced, so
 custom paths (`/v2/graphql`) survive and a re-run with a new domain updates them.
+
+#### Database host: always stack-prefixed, never bare `mongo`
+
+The printed checklist spells the DB URI out per stage, and the exact host matters:
+
+```
+NSC__MONGOOSE__URI=mongodb://<user>:<pass>@<project>-production_mongo:27017/<db>?authSource=admin
+NSC__MONGOOSE__URI=mongodb://<user>:<pass>@<project>-dev_mongo:27017/<db>?authSource=admin
+```
+
+**Never `mongodb://mongo:27017/<db>`.** The project's own `docker-compose.yml` names
+the service `mongo`, which makes the short name the obvious guess — and the wrong
+one. TurboOps deploys every stack onto a shared overlay network, where the bare
+service name is an alias that *every* stack's `mongo` answers to. The connection
+then lands on a foreign project's database, and on a different one per connection.
+
+The symptoms do not look like a configuration problem: writes split across two
+databases, sessions that vanish after a reconnect, files whose bytes are "sometimes"
+missing. Meanwhile the application's own database sits empty. A project lost a day of
+debugging to this (DEV-2140) with the application code fully correct.
+
+TurboOps rejects bare DB hosts and isolates bare-named DB services from the shared
+overlay since v1.72.0 — but only from that version, and only for stacks deployed
+after it. The stack-prefixed host is correct either way, so use it unconditionally.
+
+The prefix fixes **which** database you reach, not **who** may reach it: the overlay
+network stays shared, so the database credentials are the actual boundary. Give the
+mongo service a user and password and connect with
+`mongodb://<user>:<pass>@<project>-<stage>_mongo:27017/<db>?authSource=admin` — an
+unauthenticated instance is readable and writable by every co-tenant stack.
 
 **Usage:**
 ```bash

@@ -94,9 +94,12 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
 - See @src/templates/completion/ for examples
 - `src/templates/vendor-scripts/` ships `migrate-store.js`, which
   `convertCloneToVendored` writes into a vendored project's
-  `migrations-utils/migrate.js` (probes for the compiled migration helper,
-  else registers ts-node, then resolves the Mongo URI via the starter's
-  `migrations-utils/mongo-uri.js`). It is **NOT** linted by the CLI's own
+  `migrations-utils/migrate.js` at conversion time (probes for the compiled
+  migration helper, else registers ts-node, then resolves the Mongo URI via the
+  starter's `migrations-utils/mongo-uri.js`) — and which
+  `healVendorMigrateStore` (`src/lib/heal-vendor-migrate-store.ts`, run from
+  `lt fullstack update`) re-writes for older projects still carrying an
+  unguarded top-level ts-node require. It is **NOT** linted by the CLI's own
   ESLint (the whole `src/templates/**` tree is ignored — see
   `eslint.config.mjs`). The former three maintenance scripts
   (`check-vendor-freshness.mjs`, `sync-from-upstream.ts`,
@@ -205,10 +208,11 @@ ports. Developers and Claude Code never see the internal ports.
 | ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
 | Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
+| VS Code memory profile | `src/commands/dev/vscode.ts` + `src/lib/vscode-settings.ts` | `lt dev vscode` (alias `vsc`) tunes the USER `settings.json` of VS Code / Insiders / Cursor / VSCodium. Machine-level, not project-level — no registry or Caddy involvement. JSONC-aware via `jsonc-parser` (lazy-required, since gluegun loads every command on every `lt` run) so comments survive; refuses an unparseable file or a symlink; keeps the FIRST `settings.json.bak`. Object-valued exclude maps are MERGED on apply (user entries win) and SUBTRACTED on `--revert`, so an undo never removes a hand-maintained exclusion. `MEMORY_PROFILE` targets the per-root SEMANTIC TS servers and excludes `**/.nuxt*/**` / `**/.output*/**` (segment globs — the bare names miss `.nuxt-test`); `EXCLUDED_FROM_PROFILE` records three commonly recommended keys that were ruled out, surfaced by `--explain`. `--dry-run` uses presence-as-intent (`isPreventingFlagSet`), not `=== true`, because it PREVENTS a write; `--noConfirm` must be an explicit CLI flag — a repo-local `lt.config.json` must not silence a prompt guarding a machine-global write. |
 | Caddy service lifecycle | `src/lib/dev-service.ts` + `src/commands/dev/{install,uninstall}.ts` | Per-OS service runner. macOS: per-user LaunchAgent `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`. Linux: `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`. Render helpers (`renderLaunchAgentPlist`, `renderSystemdUnit`) are pure + unit-tested; side-effecting ops accept an injectable `ShellRunner`. **Critical:** plist sets `HOME=$userHome` env so caddy persists its CA under `~/Library/Application Support/Caddy/`, not the launchd-empty default. `userHome()` is `process.env.HOME || homedir()` because real `os.homedir()` on macOS goes through `getpwuid()` and ignores HOME — required so test files can redirect side-effects to a tmpdir. The `caddy trust` instructions surfaced to users **must** include `-E HOME="$HOME"` for the same reason in sudo context. |
 | install↔init auto-chaining | `src/lib/dev-bootstrap.ts` (predicates) + `src/lib/dev-install-helper.ts` (`runInstall`) + `src/lib/dev-migrate-helper.ts` (`runMigrate`/`printMigrateResult`) + `src/commands/dev/{install,init}.ts` | `lt dev init` runs install first when `!isMachinePrepared()`; `lt dev install` runs init after when `isLtDevProject() && !isProjectInitialized()`. Non-recursive by construction: commands call the *helpers*, never each other. Opt-outs: `--skip-install` (init), `--skip-init` (install). `runInstall` must NOT call `process.exit`. |
 | Process management | `src/lib/dev-process.ts` | `spawnDetached` keeps the Claude Code session unblocked (logs to `<root>/.lt-dev/{api,app}.log`); it wraps the command in `/bin/sh -c 'ulimit -n …; exec "$0" "$@"'` to raise `RLIMIT_NOFILE` before exec (fixes EMFILE chokidar-watcher crashes on boot) — `exec` keeps the recorded PID/process-group identical, and `"$0" "$@"` passes cmd+args verbatim (injection-safe). `killProcessGroup` uses negative-PID SIGTERM to reach the Nest watcher + Vite + Nuxt children. Single-call `listenSnapshot` for multi-port lsof. Foreground helpers: `runChildInherit` (synchronous-feel child with inherited stdio — build/test runners) and `waitForHttp` (curl-based readiness probe over HTTPS; treats any 1xx-5xx as up). |
-| Test session (isolated parallel stack) | `src/lib/dev-test-session.ts` (+ `dev-identity.ts#buildTestIdentity`, `dev-state.ts#TEST_SESSION_FILE`) | `bringUpTestSession` boots a SECOND stack (own URLs `<slug>-test.localhost` / `api.<slug>-test.localhost`, own port band 4500+, own Caddy block `lt-dev:<slug>-test`, own DB `<…>-test`, own session file `state.test.json`, own env bridge `.env.test`, own log files `{api,app}.test.log`) PARALLEL to the dev session — Playwright never touches developer data, and the dev stack keeps running while tests run. API is run **compiled** (`node dist/src/main.js`) for ts-node stability across long suites; falls back to `pnpm start`. `tearDownTestSession` is idempotent + residue-free (registry entry, session file, env bridge, Caddy block all dropped). `lt dev down` also tears down any lingering test stack. The `-test` suffix on the DB matches the TestHelper guard pattern `(-local|-ci|-e2e|-test)$`. Sharded runs (`runShardedTestSession` → `buildShardPlaywrightInvocation`) deliberately pass NO `--reporter` so a project's release-gate reporters (e.g. a no-skips gate) survive under `--shard` (DEV-2676); the HTML reporter is isolated per shard via `shardReportDir()` + `PLAYWRIGHT_HTML_OUTPUT_DIR`/`PLAYWRIGHT_HTML_OPEN=never`. |
+| Test session (isolated parallel stack) | `src/lib/dev-test-session.ts` (+ `dev-identity.ts#buildTestIdentity`, `dev-state.ts#TEST_SESSION_FILE`) | `bringUpTestSession` boots a SECOND stack (own URLs `<slug>-test.localhost` / `api.<slug>-test.localhost`, own port band 4500+, own Caddy block `lt-dev:<slug>-test`, own DB `<…>-test`, own session file `state.test.json`, own env bridge `.env.test`, own log files `{api,app}.test.log`, own Nuxt build dir `.nuxt-test` + Nitro output dir `.output-test` via `buildTestAppEnv` — DEV-2715/DEV-2724, both project-forwarded and NOT framework-native, with `testAppEntryCandidates()` looking in the isolated dir FIRST and falling back to `.output/`; `.gitignore` is healed with `.nuxt-*`/`.output-*` and the suffixed dirs are removed on teardown) PARALLEL to the dev session — Playwright never touches developer data, and the dev stack keeps running while tests run. API is run **compiled** (`node dist/src/main.js`) for ts-node stability across long suites; falls back to `pnpm start`. `tearDownTestSession` is idempotent + residue-free (registry entry, session file, env bridge, Caddy block all dropped). `lt dev down` also tears down any lingering test stack. The `-test` suffix on the DB matches the TestHelper guard pattern `(-local|-ci|-e2e|-test)$`. Sharded runs (`runShardedTestSession` → `buildShardPlaywrightInvocation`) deliberately pass NO `--reporter` so a project's release-gate reporters (e.g. a no-skips gate) survive under `--shard` (DEV-2676); the HTML reporter is isolated per shard via `shardReportDir()` + `PLAYWRIGHT_HTML_OUTPUT_DIR`/`PLAYWRIGHT_HTML_OPEN=never`. |
 | Workspace/standalone detection | `src/lib/dev-project.ts` | Reuses `workspace-integration.ts` helpers; never duplicates detection logic. Also exports `apiNeedsPortPatch`/`appNeedsPortPatch`/`deriveDbName`/`deriveTestDbName` (test-DB name is `<…>-test`, distinct from `<…>-local` and the API unit-test DB). |
 | Idempotent legacy port patches | `src/lib/dev-patches.ts` | Patches `config.env.ts` (port 3000), `nuxt.config.ts` (port 3001 + vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url` + the marker-bracketed `lt-dev:bridge vN` block), and the CLAUDE.md URL block. All return a no-op `PatchResult` for missing files. The bridge block is re-injected on a **version** bump (`BRIDGE_VERSION`) or a **semantic** code change — never for the consumer formatter's restyling, which owns that file. `canonicaliseBridgeSpan` exports that comparison for `dev-ticket.ts`. |
 | Detached-spawn binary override | `src/commands/dev/up.ts` | `process.env.LT_PNPM_BIN` overrides the hardcoded `pnpm` binary (corporate / pinned setups, or bun-based projects via wrapper script). |
@@ -668,6 +672,117 @@ project's release-gate reporters; isolate a shard-hostile reporter through its o
 env vars instead. The pure `shardReportDir(root, index)` + `buildShardPlaywrightInvocation`
 helpers are unit-tested in `__tests__/dev-test-session.test.ts` so the reporter
 contract can never silently regress.
+
+### Nuxt's lock is on the BUILD DIR — a shared `.nuxt` aborts the second command, it doesn't race it <!-- Added: 2026-07-31 -->
+`@nuxt/cli` takes its lock ON the build directory (`acquireLock(nuxt.options.buildDir)`).
+So a `lt dev test` build next to a parked `lt dev up` did not interleave writes into
+`.nuxt` — it **aborted** with `Another Nuxt dev is already running (PID N)`. The test
+app never came up and every spec then failed on a missing selector, i.e. the symptom
+reads as *broken specs* while the cause is pure infrastructure. That mis-signal is
+what made it expensive (DEV-2715). `bringUpTestSession` therefore pins
+`NUXT_BUILD_DIR=.nuxt-test` and, on a SECOND independent axis,
+`NITRO_OUTPUT_DIR=.output-test` (DEV-2724) — `buildDir` and Nitro's `output.dir` are
+unrelated knobs, so isolating the first left `.output/` shared, and this stack serves
+the production bundle and rebuilds every run, overwriting the tree a local
+`pnpm run build` was serving.
+
+**Neither variable is framework-native.** Verified against `@nuxt/schema` 4.4.8,
+`nitropack` 2.13.4 and `c12`: none of them reads either name. Only the project's
+`nuxt.config.ts` opens the lever (`buildDir: process.env.NUXT_BUILD_DIR || '.nuxt'`,
+`nitro.output.dir: process.env.NITRO_OUTPUT_DIR || '.output'`) — `nuxt-base-starter`
+≥ 2.16.0 ships both. Never write "unlike NUXT_BUILD_DIR, …": that asymmetric contrast
+silently promotes one of them to a framework feature and makes readers forward only
+the other. A project that forwards neither still works, it just loses the isolation,
+which is why `testAppEntryCandidates()` keeps `.output/server/index.mjs` as a
+fallback — with the isolated dir FIRST, because `.find()` takes the first hit and a
+stale `.output/` from an earlier local build is the normal case.
+
+**A new build dir is a new name three other matchers must learn.** All three match
+whole path SEGMENTS, so `.nuxt` never covers `.nuxt-test`:
+`dev-ticket.ts#GENERATED_PATHS` (else `lt ticket stop` sees a 300 MB build tree as
+uncommitted work and REFUSES to remove the worktree), the project's `.gitignore`
+(`addToGitignore(appDir, '.nuxt-*' / '.output-*')` in `bringUpTestSession`, for
+projects predating the starter's globs), and `vscode-settings.ts#MEMORY_PROFILE`
+(`**/.nuxt*/**`, else the memory profile watches and indexes the very trees it exists
+to exclude). `tearDownTestSession` removes the suffixed dirs — never the bare ones,
+which belong to the developer's own build.
+
+### A destructive self-heal must prove the hazard, not fail to recognise a guard <!-- Added: 2026-07-31 -->
+Anything the CLI writes ONCE into a generated project has no update path — the core
+updater only touches `src/core/`. `migrations-utils/migrate.js` is the example:
+projects converted before the template stopped requiring `ts-node` unconditionally
+kept a store that dies with `Cannot find module 'ts-node'` in the pruned production
+image, silently, because `docker-entrypoint.sh` degrades a migration failure to a
+warning on purpose. Hence `healVendorMigrateStore` in `lt fullstack update`, next to
+`healCheckWrapper` / `healVendorClaudeMd`.
+
+**The trap is the detection direction.** The first version asked "can I SEE a guard?"
+and treated "no" as proof that none exists — it knew exactly two shapes
+(`require.resolve` probe, `try {`), so a production-safe
+`if (!fs.existsSync(compiled)) require('./ts-compiler')` read as broken and was
+replaced. And the replacement is NOT behaviour-neutral: the bundled template
+hardcodes the collection name and takes its URI from `./mongo-uri`, so the project's
+ledger came back EMPTY and the next `migrate:up` re-ran every historical migration
+against the live database.
+
+**Rules for any heal that overwrites project code:**
+- Prove the hazard positively (`hasTopLevelTsCompilerRequire`: the require must be a
+  TOP-LEVEL, unconditional statement). Everything conditional is the project's own
+  solution. "Unrecognised" ≠ "absent".
+- Decide on the **AST**, not on regex-stripped text. A regex has no
+  string/template/regex-literal state, so a `/*` or `//` inside a literal erases the
+  guard from the analysed text and triggers the overwrite. (`lib/strip-comments.ts`
+  already solves the comment half with the TS scanner — reuse it or go one better.)
+- Establish recoverability directly: empty `git status --porcelain` does NOT mean
+  "committed", it also means ignored / untracked / not a repo — precisely the cases
+  where nothing can be recovered. Use `git ls-files --error-unmatch`, write a `.bak`
+  when git has no copy, skip a tracked-but-dirty file, and write via temp+rename.
+- Never write through a symlink.
+
+### Hoisting a settings-only `pnpm-workspace.yaml` DELETES it — so every field must be hoisted <!-- Added: 2026-07-31 -->
+`hoistFromSubWorkspaceYaml` removes a sub-project's settings-only
+`pnpm-workspace.yaml` after hoisting. A field missing from
+`WORKSPACE_SCOPED_PNPM_FIELDS` (`src/lib/hoist-workspace-pnpm-config.ts`) is
+therefore not merely *ignored*, it is **destroyed**. `auditConfig` was missing, so the
+starter's assessed-advisory allowlist (`ignoreGhsas` / `ignoreCves`) vanished and a
+generated project's first CI run went red on an advisory already justified upstream —
+with the deploy-blocking audit gate as the messenger. It also needs a level DEEPER
+merge than the flat object fields (`NESTED_ARRAY_FIELDS`): a plain key-by-key merge
+lets the sub-project's object replace the root's and drops every advisory the root
+justified; the inner arrays must be unioned. **When adding a pnpm workspace setting
+anywhere in the stack, add it here too and pick the right merge class** — flat object,
+array-union, or nested-array-union. Note `auditConfig` SUPPRESSES vulnerability
+findings, so hoisting widens its blast radius from one package to the whole
+workspace; `annotateAuditConfig` writes that fact into the YAML as a comment so a
+reviewer sees it in the diff.
+
+### A bare Docker service name is a Swarm alias — never use it as a DB host <!-- Added: 2026-07-31 -->
+`lt deployment create`'s checklist spells the Mongo host out per stage
+(`mongodb://<user>:<pass>@<project>-<stage>_mongo:27017/<db>?authSource=admin`)
+instead of leaving it abstract. Reason: every other variable in that checklist carries
+a concrete value, so a bare name forces the reader to invent one — and the only
+reference in sight is the project's own `docker-compose.yml`, where the service is
+called `mongo`. `mongodb://mongo:27017/…` is the natural guess and the wrong one:
+TurboOps puts every stack on a shared overlay network, where the short name is an
+alias that EVERY stack's `mongo` answers to. The connection lands on a foreign
+project's database, and on a different one per connection. The symptoms never look
+like configuration: writes split across two databases, sessions that vanish after a
+reconnect, files whose bytes are "sometimes" missing — while the application's own DB
+sits empty and the code is fully correct (DEV-2140). TurboOps rejects bare DB hosts
+since v1.72.0, but only for stacks deployed after it.
+**The prefix fixes WHICH database you reach, not WHO may reach it** — the overlay
+network stays shared, so DB credentials are the actual boundary. Generalise: any host
+in generated instructions that resolves through a shared container network must be
+spelled out fully, with auth. A short name is not a name, it is a race.
+
+### `git-commands.test.ts` makes REAL network calls with a 60s timeout <!-- Added: 2026-07-31 -->
+`__tests__/git-commands.test.ts` shells out to `lt git update` / `git create` /
+`git reset`, which run a real `git fetch` against `origin`. SSH's connect timeout and
+the Jest `--testTimeout` are BOTH 60s, so whenever the remote is unreachable (offline,
+VPN, sandboxed session) those four tests time out and the suite reports a failure that
+has nothing to do with the code. Diagnose before believing it: `time git ls-remote
+origin HEAD` — ~60s wall-clock at ~0% CPU means network, not regression. The rest of
+the suite is hermetic (`npx jest --testPathIgnorePatterns "git-commands"` → all green).
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

@@ -300,7 +300,26 @@ const NewCommand: GluegunCommand = {
     info('       (an explicit node blocks the parent wildcard for names below it)');
     info('  4. Set the stage env vars in TurboOps (per stage), e.g. for production:');
     info(`       NODE_ENV=production, NSC__BASE_URL=https://api.${domain},`);
-    info('       NSC__MONGOOSE__URI, NSC__BETTER_AUTH__SECRET, NSC__AI__ENCRYPTION_SECRET,');
+    // The DB host is spelled out per stage on purpose. Every other variable in
+    // this checklist carries a concrete value; leaving this one as a bare name
+    // forces the reader to invent it, and the only reference in sight is the
+    // project's own docker-compose.yml, where the service is called `mongo`.
+    // `mongodb://mongo:27017/...` is the natural guess — and the wrong one: the
+    // short name is a Swarm alias on a network shared by every stack, so it
+    // resolves to a FOREIGN project's database (and to a different one on each
+    // connection). Symptoms are split-brain writes, sessions that vanish, and
+    // data quietly landing in someone else's MongoDB. See DEV-2140.
+    info(
+      `       NSC__MONGOOSE__URI=mongodb://<user>:<pass>@${project}-production_mongo:27017/${project}?authSource=admin,`,
+    );
+    info(`         (dev stage: mongodb://<user>:<pass>@${project}-dev_mongo:27017/${project}?authSource=admin)`);
+    info('         NOTE: always the stack-prefixed host `<project>-<stage>_mongo`, never a bare');
+    info('         `mongo` — the short name is shared across stacks and resolves to a FOREIGN');
+    info('         database, non-deterministically per connection.');
+    info('         The stack-prefix fixes WHICH database you reach, not WHO may reach it:');
+    info('         the overlay network is shared, so the DB credentials are the actual');
+    info('         boundary. Set them in the mongo service and never deploy it open.');
+    info('       NSC__BETTER_AUTH__SECRET, NSC__AI__ENCRYPTION_SECRET,');
     if (isAngular) {
       info('       NSC__EMAIL__SMTP__*, NSC__EMAIL__DEFAULT_SENDER__EMAIL');
       info('     The Angular app needs no URL env vars — they are baked into');

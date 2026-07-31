@@ -692,9 +692,24 @@ function runWithProjectDriver(
   }
 }
 
-/** Framework-generated / ephemeral paths a dev/build run dirties (never real work). */
+/**
+ * Framework-generated / ephemeral paths a dev/build run dirties (never real work).
+ *
+ * `.nuxt` and `.output` carry an optional `-<suffix>`: the build directory is no
+ * longer a single well-known name. The check chain builds into `.nuxt-check` and
+ * `lt dev test` into `.nuxt-test` / `.output-test`, precisely so they do not
+ * collide with a parked `nuxt dev` (the Nuxt lock sits on the build dir).
+ *
+ * Without the suffix these read as REAL developer work — a glob segment matches
+ * whole segments, so `.nuxt` never covered `.nuxt-test` — and
+ * `worktreeSafetyReport` then classifies a 300 MB build tree as uncommitted
+ * work, making `lt ticket stop` REFUSE to remove the worktree over files the
+ * developer never wrote. Only projects whose app `.gitignore` predates the
+ * starter's `.nuxt-*` globs are affected, but that is exactly the population the
+ * rest of this CLI's heal machinery exists to serve.
+ */
 const GENERATED_PATHS =
-  /(^|\/)(\.nuxtrc|\.nuxt|\.nitro|\.output|dist|\.turbo|\.cache|\.eslintcache)(\/|$)|\.tsbuildinfo$/;
+  /(^|\/)(\.nuxtrc|\.nuxt(-[\w.]+)?|\.nitro|\.output(-[\w.]+)?|dist|\.turbo|\.cache|\.eslintcache)(\/|$)|\.tsbuildinfo$/;
 
 /** The three git-tracked configs `lt dev up` self-heals to be env-aware. */
 const LT_DEV_MANAGED_CONFIG = /(?:^|\/)(?:config\.env\.ts|nuxt\.config\.ts|playwright\.config\.ts)$/;

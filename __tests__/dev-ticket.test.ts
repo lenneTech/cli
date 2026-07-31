@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 /** gluegun's OWN parser — the exact code path that produces `parameters.options`. */
 const { parseParams } = require('gluegun/build/toolbox/parameter-tools');
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { dirname, join } from 'path';
 
 import { buildIdentity, buildTicketIdentity } from '../src/lib/dev-identity';
 import { patchApiConfig, patchPlaywrightConfig } from '../src/lib/dev-patches';
@@ -513,6 +513,32 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
     expect(worktreeDirtyOnlyGenerated(repo)).toBe(true); // only a framework-generated file
     writeFileSync(join(repo, 'feature.ts'), 'x');
     expect(worktreeDirtyOnlyGenerated(repo)).toBe(false); // a real source change is present
+  });
+
+  // The build directory is no longer one well-known name: the check chain builds
+  // into `.nuxt-check` and `lt dev test` into `.nuxt-test` / `.output-test`, so
+  // they do not collide with a parked `nuxt dev`. A pattern matching only the
+  // bare names classified a 300 MB build tree as real developer work, and
+  // `lt ticket stop` then refused to remove the worktree over files nobody wrote.
+  test('sibling build dirs (.nuxt-test / .output-test / .nuxt-check) count as generated', () => {
+    for (const rel of [
+      join('projects', 'app', '.nuxt-test', 'f.mjs'),
+      join('projects', 'app', '.output-test', 'server', 'index.mjs'),
+      join('projects', 'app', '.nuxt-check', 'f.mjs'),
+      join('projects', 'app', '.output', 'server', 'index.mjs'),
+      join('projects', 'app', '.nuxt', 'f.mjs'),
+    ]) {
+      mkdirSync(dirname(join(repo, rel)), { recursive: true });
+      writeFileSync(join(repo, rel), 'x');
+      expect({ rel, generated: worktreeDirtyOnlyGenerated(repo) }).toEqual({ rel, generated: true });
+      expect(worktreeSafetyReport(repo).dirtySource).toEqual([]);
+      rmSync(join(repo, rel));
+    }
+
+    // The suffix must not swallow a real source directory that merely starts the same.
+    mkdirSync(join(repo, 'projects', 'app', 'nuxt-helpers'), { recursive: true });
+    writeFileSync(join(repo, 'projects', 'app', 'nuxt-helpers', 'x.ts'), 'x');
+    expect(worktreeDirtyOnlyGenerated(repo)).toBe(false);
   });
 
   test('worktreeSafetyReport: pushed+clean → safe; uncommitted source / unpushed commit → flagged', () => {
