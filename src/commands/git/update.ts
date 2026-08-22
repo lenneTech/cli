@@ -56,7 +56,7 @@ const NewCommand: GluegunCommand = {
 
       // Fetch to see incoming changes (use short SSH timeout so it doesn't hang offline)
       await run(
-        'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null || true',
+        'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null || true',
       );
 
       // Check for incoming commits
@@ -96,7 +96,7 @@ const NewCommand: GluegunCommand = {
     // Update
     const updateSpin = spin(`Update branch ${branch}`);
     await run(
-      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null || true && GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git pull --rebase',
+      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null || true && GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git pull --rebase',
     );
     updateSpin.succeed();
 

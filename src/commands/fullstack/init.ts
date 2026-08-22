@@ -4,6 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable } from '../../lib/caddy';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
+import { failRun } from '../../lib/fail-run';
 import { setPackageName } from '../../lib/package-name';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 import {
@@ -48,11 +49,12 @@ const NewCommand: GluegunCommand = {
 
     // Hint for non-interactive callers (e.g. Claude Code)
     toolbox.tools.nonInteractiveHint(
-      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor> [--framework-upstream-branch <ref>] [--next: implies nuxt-base-starter#next unless --frontend-branch overrides] [--dry-run] --noConfirm',
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor: workspace-wide, applies to API and frontend> [--frontend-framework-mode <npm|vendor>: overrides --framework-mode for the frontend only] [--framework-upstream-branch <ref>] [--next: implies nuxt-base-starter#next unless --frontend-branch overrides] [--dry-run] --noConfirm',
     );
 
     // Check git
     if (!(await git.gitInstalled())) {
+      failRun(toolbox);
       return;
     }
 
@@ -127,6 +129,7 @@ const NewCommand: GluegunCommand = {
         if (cwdLayout.hasApi && cwdLayout.hasApp) {
           error('Workspace already has both projects/api and projects/app — nothing to add.');
           info('Use `lt fullstack add-api --help-json` or `lt fullstack add-app --help-json` to inspect options.');
+          failRun(toolbox);
           return;
         }
         if (cwdLayout.hasApp && !cwdLayout.hasApi) {
@@ -163,6 +166,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(projectDir)) {
       info('');
       error(`There's already a folder named "${projectDir}" here.`);
+      failRun(toolbox);
       return;
     }
 
@@ -172,6 +176,7 @@ const NewCommand: GluegunCommand = {
       frontend = cliFrontend === 'angular' ? 'angular' : cliFrontend === 'nuxt' ? 'nuxt' : null;
       if (!frontend) {
         error('Invalid frontend option. Use "angular" or "nuxt".');
+        failRun(toolbox);
         return;
       }
     } else if (configFrontend) {
@@ -255,6 +260,7 @@ const NewCommand: GluegunCommand = {
       frameworkMode = cliFrameworkMode;
     } else if (cliFrameworkMode) {
       error(`Invalid --framework-mode value "${cliFrameworkMode}". Use "npm" or "vendor".`);
+      failRun(toolbox);
       return;
     } else if (configFrameworkMode === 'npm' || configFrameworkMode === 'vendor') {
       frameworkMode = configFrameworkMode;
@@ -282,17 +288,30 @@ const NewCommand: GluegunCommand = {
       | 'vendor'
       | undefined;
 
+    // Precedence: frontend-specific CLI flag > workspace-wide CLI flag >
+    // frontend-specific config > workspace-wide config > vendor default.
+    //
+    // `--framework-mode` is the workspace-wide default and MUST propagate here.
+    // Without that inheritance, `--framework-mode npm` silently produced an
+    // npm API next to a vendored frontend — visible only as the M1..M3 steps in
+    // a `--dry-run` plan, or afterwards as an unexpected `app/core/` tree.
+    // Consumers who genuinely want mixed modes pass `--frontend-framework-mode`.
     let frontendFrameworkMode: 'npm' | 'vendor';
     if (cliFrontendFrameworkMode === 'npm' || cliFrontendFrameworkMode === 'vendor') {
       frontendFrameworkMode = cliFrontendFrameworkMode;
     } else if (cliFrontendFrameworkMode) {
       error(`Invalid --frontend-framework-mode value "${cliFrontendFrameworkMode}". Use "npm" or "vendor".`);
+      failRun(toolbox);
       return;
+    } else if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
+      frontendFrameworkMode = cliFrameworkMode;
+      info(`Using frontend framework mode from --framework-mode: ${frontendFrameworkMode}`);
     } else if (configFrontendFrameworkMode === 'npm' || configFrontendFrameworkMode === 'vendor') {
       frontendFrameworkMode = configFrontendFrameworkMode;
       info(`Using frontend framework mode from lt.config: ${frontendFrameworkMode}`);
-    } else if (noConfirm) {
-      frontendFrameworkMode = 'vendor';
+    } else if (configFrameworkMode === 'npm' || configFrameworkMode === 'vendor') {
+      frontendFrameworkMode = configFrameworkMode;
+      info(`Using frontend framework mode from lt.config frameworkMode: ${frontendFrameworkMode}`);
     } else {
       // Default to vendor without asking (unless user sets it explicitly)
       frontendFrameworkMode = 'vendor';
@@ -440,12 +459,14 @@ const NewCommand: GluegunCommand = {
       await system.run(`git clone https://github.com/lenneTech/lt-monorepo.git ${projectDir}`);
     } catch (err) {
       workspaceSpinner.fail(`Failed to clone monorepo: ${err.message}`);
+      failRun(toolbox);
       return;
     }
 
     // Check for directory
     if (!filesystem.isDirectory(`./${projectDir}`)) {
       workspaceSpinner.fail(`The directory "${projectDir}" could not be created.`);
+      failRun(toolbox);
       return;
     }
 
@@ -512,6 +533,7 @@ const NewCommand: GluegunCommand = {
       await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
     } catch (err) {
       error(`Failed to initialize git: ${err.message}`);
+      failRun(toolbox);
       return;
     }
 
@@ -521,6 +543,7 @@ const NewCommand: GluegunCommand = {
         await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
       } catch (err) {
         error(`Failed to add remote: ${err.message}`);
+        failRun(toolbox);
         return;
       }
     }
@@ -550,6 +573,7 @@ const NewCommand: GluegunCommand = {
 
     if (!frontendResult.success) {
       error(`Failed to set up ${frontend} frontend: ${frontendResult.path}`);
+      failRun(toolbox);
       return;
     }
 
@@ -601,6 +625,7 @@ const NewCommand: GluegunCommand = {
 
       if (!apiResult.success) {
         serverSpinner.fail(`Failed to set up API: ${apiResult.path}`);
+        failRun(toolbox);
         return;
       }
 
@@ -705,6 +730,7 @@ const NewCommand: GluegunCommand = {
           installSpinner.succeed('Successfully installed all packages');
         } catch (err) {
           installSpinner.fail(`Failed to install packages: ${err.message}`);
+          failRun(toolbox);
           return;
         }
       } else {
@@ -741,6 +767,7 @@ const NewCommand: GluegunCommand = {
         await system.run(`cd ${projectDir} && git add . && git commit -m "Initial commit"`);
       } catch (err) {
         error(`Failed to create initial commit: ${err.message}`);
+        failRun(toolbox);
         return;
       }
 
@@ -750,6 +777,7 @@ const NewCommand: GluegunCommand = {
           await system.run(`cd ${projectDir} && git push -u origin dev`);
         } catch (err) {
           error(`Failed to push to remote: ${err.message}`);
+          failRun(toolbox);
           return;
         }
       }

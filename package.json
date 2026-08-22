@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.42.0",
+  "version": "1.43.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -65,7 +65,7 @@
     "glob": "13.0.6",
     "gluegun": "5.2.2",
     "js-sha256": "1.0.0",
-    "js-yaml": "4.3.0",
+    "js-yaml": "4.3.1",
     "jsdom": "29.1.1",
     "jsonc-parser": "3.3.1",
     "lodash": "4.18.1",
@@ -104,7 +104,8 @@
     "//minimatch-note": "brace-expansion 1.x and 2.x are END OF LINE for GHSA-mh99-v99m-4gvg: the advisory range is <=5.0.7 across ALL majors and upstream patched ONLY 5.0.8+. 1.1.18 and 2.1.4 are the newest releases of their majors and remain vulnerable. Forcing brace-expansion 5.x globally is NOT an option: 5.x is ESM/tshy and exports an object ({ expand, ... }) while 1.x/2.x export the function itself, so minimatch 3.x/5.x would die on `expand is not a function`. The only real fix is to raise each CONSUMER off minimatch 3.x/5.x, which is what the scoped entries below do. Each was verified against the consumer's actual call site before being added. The eslint / @eslint/eslintrc / @eslint/config-array entries were REMOVED in 1.42.0: eslint 10 requests minimatch ^10.2.5 itself, config-array ^10.2.4, and eslintrc is no longer in the tree at all.",
     "minimatch@>=4 <10": "Bounded raise of every minimatch 4.x-9.x install to 10.2.6, whose brace-expansion ^5.0.8 is patched. Covers filelist (gluegun > ejs > jake > filelist, PRODUCTION-reachable, minimatch ^5.0.1), @typescript-eslint/typescript-estree (^9.0.4) and jest-config/jest-runtime/@jest/reporters (^9). Verified safe per consumer: filelist calls only the static helper `minimatch.match(files, pat, opts)`; typescript-estree calls the named `minimatch(filePath, pattern, { dot: true })`; the three jest packages declare minimatch but never require it. Floored at >=4 so the 3.x line is NOT swept in: minimatch 3.x is callable while 9.x/10.x export an object with __esModule but no `default` key, so sweeping it would break any consumer that calls the default export. Drop once these consumers request minimatch >=10 themselves.",
     "babel-plugin-istanbul > test-exclude@<8": "test-exclude 6.0.0 pins minimatch ^3.0.4 and glob ^7. test-exclude 8.0.0 uses minimatch ^10.2.2 + glob ^13 (the glob major this project already ships) and is still CJS with the same `module.exports = TestExclude` class shape, so babel-plugin-istanbul's _interopRequireDefault + `new TestExclude(opts)` keeps working. Drop once babel-plugin-istanbul widens its ^6.0.0 range.",
-    "fs-jetpack > minimatch@<10": "Same chain, PRODUCTION-reachable (gluegun > fs-jetpack). Safe: lib/utils/matcher.js does `require('minimatch').Minimatch` and uses only `new Minimatch(pattern, { matchBase, nocomment, nocase, dot })`, `.negate` and `.match()` - all verified against 10.x. Not fixable by upgrading fs-jetpack: gluegun@5.2.2 is the latest release and fs-jetpack@5.1.0 still requests minimatch ^5.1.0 (brace-expansion ^2.0.1, also unpatched)."
+    "fs-jetpack > minimatch@<10": "Same chain, PRODUCTION-reachable (gluegun > fs-jetpack). Safe: lib/utils/matcher.js does `require('minimatch').Minimatch` and uses only `new Minimatch(pattern, { matchBase, nocomment, nocase, dot })`, `.negate` and `.match()` - all verified against 10.x. Not fixable by upgrading fs-jetpack: gluegun@5.2.2 is the latest release and fs-jetpack@5.1.0 still requests minimatch ^5.1.0 (brace-expansion ^2.0.1, also unpatched).",
+    "@istanbuljs/load-nyc-config": "GHSA-5p4m-2wfm-xmqj (high): quadratic CPU consumption resolving !!omap. Patched only in 4.3.1 - the advisory states the fix was NOT backported to 3.x, so 3.15.0 is the end of its line and there is nothing to raise it to within the major. The one 3.x path is dev-only: ts-jest > @jest/transform > babel-plugin-istanbul > @istanbuljs/load-nyc-config > js-yaml@3.15.0. Cross-major export shape verified before adding (repo policy): load-nyc-config calls `require('js-yaml').load(...)` at index.js:80, and 4.x exports `load` - so the raise is API-compatible. It is also strictly SAFER: 4.x `load` behaves like 3.x `safeLoad`, refusing arbitrary type construction, and the input here is a repo-local .nycrc.yml. Scoped to this ONE consumer rather than raised globally: that is the call site whose shape was verified, and a global raise would silently apply to consumers nobody checked. A top-level `js-yaml@<4.3.1` selector was tried first and npm did not apply it to this nested path at all - the scoped form is what actually resolves. Remove once ts-jest's istanbul chain requests a patched js-yaml itself."
   },
   "overrides": {
     "semver@*": "7.8.5",
@@ -117,7 +118,10 @@
     "babel-plugin-istanbul": {
       "test-exclude@<8": "8.0.0"
     },
-    "minimatch@>=4 <10": "10.2.6"
+    "minimatch@>=4 <10": "10.2.6",
+    "@istanbuljs/load-nyc-config": {
+      "js-yaml": "4.3.1"
+    }
   },
   "//jest.workerIdleMemoryLimit": "Recycle a ts-jest worker once its heap passes this. Guards against an intermittent `A jest worker process was terminated by another process: signal=SIGSEGV` that kills ONE suite while every other test passes (seen twice in marketplace*, both under `npm run check`, never reproducible on demand - 0 in 9 targeted runs incl. --maxWorkers=16). It is a worker crash, NOT an assertion failure: the signature is `Test suite failed to run` with the remaining count still green. All versions are current and in-range (node 24 / jest 30 / ts-jest 29 / ts 6), so this is a resilience measure against unbounded worker heap growth, not a proven root-cause fix - if it recurs, capture the suite name and re-open.",
   "jest": {

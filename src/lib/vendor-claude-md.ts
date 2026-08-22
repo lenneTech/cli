@@ -105,6 +105,21 @@ export function buildFrontendVendorBlock(): string {
     '- **Contribute back:** run `/lt-dev:frontend:contribute-nuxt-extensions-core`.',
     '- **Freshness check:** `pnpm run check:vendor-freshness` warns when',
     '  upstream has a newer release than the baseline.',
+    '',
+    '**If `config.public.*` types as `unknown`** (projects vendored before lt CLI',
+    '1.43.0), check with:',
+    '',
+    '    grep -rn "declare module \'@nuxt/schema\'" app/core/',
+    '',
+    'A match means the vendored core still augments `PublicRuntimeConfig` under both',
+    '`nuxt/schema` and `@nuxt/schema`. Those are one interface (the former re-exports',
+    "the latter), and as project source they close a cycle with Nuxt's generated",
+    'runtime-config types — TS2310, which `skipLibCheck` hides, so every',
+    '`config.public.*` read silently becomes `unknown`. Delete both blocks from',
+    '`app/core/runtime/types/module.ts`; nothing is lost, because `ltExtensions`',
+    "reaches the app through the module's runtime-config defaults either way.",
+    'New conversions strip them automatically — but a core update copies upstream',
+    'verbatim, so re-run the grep after every sync.',
   ]);
 }
 

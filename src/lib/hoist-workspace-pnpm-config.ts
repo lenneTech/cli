@@ -36,13 +36,197 @@ const ARRAY_FIELDS = ['onlyBuiltDependencies', 'ignoredOptionalDependencies', 'm
 /** Objects whose values are arrays to be unioned, not replaced. */
 const NESTED_ARRAY_FIELDS = ['auditConfig'] as const;
 
+/** The union of all three, in declaration order. Declared here, with its inputs,
+ * because the comment-carrying helpers below default their `fields` parameter to it. */
+const WORKSPACE_SCOPED_PNPM_FIELDS = [...OBJECT_FIELDS, ...ARRAY_FIELDS, ...NESTED_ARRAY_FIELDS] as const;
+
+/**
+ * Comment blocks harvested from the source files, keyed `<field>\0<key>`.
+ *
+ * `js-yaml`'s `dump()` writes values and nothing else, so every hoist used to
+ * arrive in the generated project as a bare list of entries with their reasons
+ * stripped. That is not cosmetic. The whole point of the entries in
+ * `pnpm-workspace.yaml` is that they look wrong: `'msgpackr-extract': false`
+ * denies a build for a package `pnpm why` cannot even find (it enters through an
+ * optional peer), and the starter carries twenty lines explaining why deleting it
+ * breaks the first install of every new project. Those twenty lines are exactly
+ * what did not survive — so the generated project shows the trap without the
+ * warning, to the one audience that has no access to the source repo.
+ *
+ * Carried textually rather than through a comment-preserving YAML library: the
+ * merge below normalises, unions and sorts across three source documents, and an
+ * AST round-trip would have to answer which of two conflicting comments wins for
+ * every merged key. Lifting the block that sits directly above a key and
+ * re-attaching it to the same key is the part that actually carries the meaning.
+ */
+type KeyComments = Map<string, string>;
+
+/**
+ * Separator for the composite map key.
+ *
+ * `\0` rather than a space, because a YAML mapping key may legally contain
+ * spaces — `overrides` selectors like `minimatch@>=5.0.0 <10.2.6` do — and a
+ * space would let two different (field, key) pairs collide on one entry,
+ * silently attaching one entry's reasoning to another's. Written as an escape
+ * rather than a literal control character: a raw NUL in the source makes git
+ * treat this file as binary, which costs every future reviewer the diff.
+ */
+const KEY_SEPARATOR = '\0';
+
+/**
+ * Control characters that must never survive into an emitted YAML comment.
+ *
+ * Everything below U+0020 except TAB (U+0009) and LF (U+000A) — CR included,
+ * deliberately: it is the one that reads as whitespace and parses as a line
+ * break. LF cannot appear here (the harvest splits on it) and TAB is harmless.
+ */
+const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/;
+
+const commentKey = (field: string, key: string): string => `${field}${KEY_SEPARATOR}${key}`;
+
+/**
+ * Comment blocks attached to the entries of each top-level mapping in `raw`.
+ *
+ * Only contiguous `#` lines DIRECTLY above an entry are taken, and a blank line
+ * ends the block — a comment separated from a key by an empty line belongs to the
+ * section, not to that key, and re-attaching it would silently move a section
+ * header onto whichever entry happened to come first.
+ */
+export function extractKeyComments(raw: string, fields: readonly string[] = WORKSPACE_SCOPED_PNPM_FIELDS): KeyComments {
+  const out: KeyComments = new Map();
+  if (!raw) return out;
+  const lines = raw.split('\n');
+
+  let field: null | string = null;
+  let fieldIndent = 0;
+  let pending: string[] = [];
+
+  for (const line of lines) {
+    const topLevel = /^([A-Za-z_][\w-]*):\s*$/.exec(line);
+    if (topLevel) {
+      field = fields.includes(topLevel[1]) ? topLevel[1] : null;
+      fieldIndent = 0;
+      pending = [];
+      continue;
+    }
+    if (field === null) continue;
+
+    if (/^\s*$/.test(line)) {
+      pending = [];
+      continue;
+    }
+    const indent = line.search(/\S/);
+    // Back at column 0 → the mapping is over (a new top-level key or a list item).
+    if (indent === 0) {
+      field = null;
+      pending = [];
+      continue;
+    }
+    if (/^\s*#/.test(line)) {
+      // A bare CR is NOT a line break to `String.split('\n')` but IS one to every
+      // YAML parser. So a comment containing one is re-emitted verbatim, and
+      // everything after the CR becomes real YAML at a column of its author's
+      // choosing. Verified against pnpm 11: a comment carrying
+      // `\r  left-pad: 9.9.9` installs as a workspace-wide `overrides` entry —
+      // an arbitrary version force in every generated project — while the line
+      // still renders as an ordinary comment in editors and diffs.
+      //
+      // Dropping the whole block is the right response rather than sanitising it:
+      // a rationale nobody can read is worth less than the risk of guessing what
+      // the author meant.
+      if (CONTROL_CHARS.test(line)) {
+        pending = [];
+        continue;
+      }
+      pending.push(line.trimStart());
+      continue;
+    }
+    const entry = /^\s*((?:'[^']*')|(?:"[^"]*")|(?:[^\s:#][^:]*?))\s*:/.exec(line);
+    if (!entry) {
+      pending = [];
+      continue;
+    }
+    // Nested deeper than the first entry level (e.g. `auditConfig.ignoreGhsas`
+    // items) — the block belongs to the inner key, which this pass does not carry.
+    if (fieldIndent === 0) fieldIndent = indent;
+    if (indent === fieldIndent && pending.length) {
+      out.set(commentKey(field, unquoteYamlKey(entry[1])), pending.join('\n'));
+    }
+    pending = [];
+  }
+
+  return out;
+}
+
+/**
+ * Put the harvested comment blocks back above their keys in dumped YAML.
+ *
+ * A key whose comment is already present is left alone, so re-running the hoist
+ * over an already-annotated file is idempotent rather than stuttering.
+ */
+export function reattachKeyComments(
+  yaml: string,
+  comments: KeyComments,
+  fields: readonly string[] = WORKSPACE_SCOPED_PNPM_FIELDS,
+): string {
+  if (comments.size === 0) return yaml;
+  const lines = yaml.split('\n');
+  const out: string[] = [];
+
+  let field: null | string = null;
+  let fieldIndent = 0;
+
+  for (const line of lines) {
+    const topLevel = /^([A-Za-z_][\w-]*):\s*$/.exec(line);
+    if (topLevel) {
+      field = fields.includes(topLevel[1]) ? topLevel[1] : null;
+      fieldIndent = 0;
+      out.push(line);
+      continue;
+    }
+
+    if (field !== null && !/^\s*$/.test(line)) {
+      const indent = line.search(/\S/);
+      if (indent === 0) {
+        field = null;
+      } else {
+        const entry = /^\s*((?:'[^']*')|(?:"[^"]*")|(?:[^\s:#][^:]*?))\s*:/.exec(line);
+        if (entry) {
+          if (fieldIndent === 0) fieldIndent = indent;
+          if (indent === fieldIndent) {
+            const block = comments.get(commentKey(field, unquoteYamlKey(entry[1])));
+            // `out[out.length - 1]`, not `.at(-1)`: this project's tsconfig lib
+            // predates ES2022.
+            const already = (out[out.length - 1] ?? '').trim().startsWith('#');
+            // Second gate on purpose: harvest is one source of blocks today, and a
+            // control character reaching the emitted file is the whole exploit.
+            if (block && !already && !CONTROL_CHARS.test(block)) {
+              const pad = ' '.repeat(indent);
+              out.push(...block.split('\n').map((l) => `${pad}${l}`));
+            }
+          }
+        }
+      }
+    }
+
+    out.push(line);
+  }
+
+  return out.join('\n');
+}
+
+/** `'msgpackr-extract'` / `"foo"` / `foo` all denote the same mapping key. */
+function unquoteYamlKey(raw: string): string {
+  const trimmed = raw.trim();
+  const quoted = /^(['"])([\s\S]*)\1$/.exec(trimmed);
+  return quoted ? quoted[2] : trimmed;
+}
+
 /** Provenance note written above a hoisted `auditConfig` — see `annotateAuditConfig`. */
 const AUDIT_CONFIG_NOTE =
   '# Hoisted from the sub-projects by the lt CLI. These advisory suppressions now\n' +
   '# apply to EVERY package in this workspace, not just the one that justified\n' +
   '# them — review before adding, and drop entries once the advisory is fixed.';
-const WORKSPACE_SCOPED_PNPM_FIELDS = [...OBJECT_FIELDS, ...ARRAY_FIELDS, ...NESTED_ARRAY_FIELDS] as const;
-
 type PnpmConfigField = (typeof WORKSPACE_SCOPED_PNPM_FIELDS)[number];
 
 const isArrayField = (field: PnpmConfigField): boolean => (ARRAY_FIELDS as readonly string[]).includes(field);
@@ -190,6 +374,12 @@ export function hoistWorkspacePnpmConfig(options: {
   // `packages:` and any root-owned settings are preserved.
   const rootWs = readYaml(filesystem, rootWsPath) ?? {};
 
+  // Why the reasons are harvested rather than regenerated: they are prose written
+  // by whoever added the entry, and no rule can reconstruct them. The root's own
+  // comments are collected FIRST so that where two sources annotate the same key,
+  // the root's wording wins — it is the file a maintainer of THIS workspace edits.
+  const comments: KeyComments = extractKeyComments(filesystem.read(rootWsPath) ?? '');
+
   let rootChanged = false;
 
   for (const subDir of subProjects) {
@@ -202,7 +392,7 @@ export function hoistWorkspacePnpmConfig(options: {
     if (hoistFromSubPackageJson({ filesystem, rootWs, subPath })) {
       rootChanged = true;
     }
-    if (hoistFromSubWorkspaceYaml({ filesystem, rootWs, subPath })) {
+    if (hoistFromSubWorkspaceYaml({ comments, filesystem, rootWs, subPath })) {
       rootChanged = true;
     }
   }
@@ -211,7 +401,8 @@ export function hoistWorkspacePnpmConfig(options: {
     // Keep allowBuilds (pnpm 11) and onlyBuiltDependencies (pnpm 10) in sync so
     // the build-script allowlist survives regardless of which key pnpm reads.
     syncBuildAllowlists(rootWs);
-    filesystem.write(rootWsPath, annotateAuditConfig(dump(rootWs, { lineWidth: -1, sortKeys: false })));
+    const dumped = dump(rootWs, { lineWidth: -1, sortKeys: false });
+    filesystem.write(rootWsPath, annotateAuditConfig(reattachKeyComments(dumped, comments)));
   }
 }
 
@@ -297,16 +488,25 @@ function hoistFromSubPackageJson(options: {
 
 /** Source 2: the sub-project's pnpm-workspace.yaml. */
 function hoistFromSubWorkspaceYaml(options: {
+  comments: KeyComments;
   filesystem: GluegunFilesystem;
   rootWs: Record<string, unknown>;
   subPath: string;
 }): boolean {
-  const { filesystem, rootWs, subPath } = options;
+  const { comments, filesystem, rootWs, subPath } = options;
   const subWsPath = `${subPath}/pnpm-workspace.yaml`;
   if (!filesystem.exists(subWsPath)) return false;
 
+  const raw = filesystem.read(subWsPath) ?? '';
   const ws = readYaml(filesystem, subWsPath);
   if (!ws) return false;
+
+  // Harvest BEFORE hoisting: this file is about to be deleted (or stripped of
+  // exactly these keys), and with it the only copy of the reasoning. An entry
+  // already annotated by the root keeps the root's wording.
+  for (const [key, block] of extractKeyComments(raw)) {
+    if (!comments.has(key)) comments.set(key, block);
+  }
 
   if (!hoistFields(rootWs, ws)) return false;
 

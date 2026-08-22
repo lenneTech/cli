@@ -630,13 +630,64 @@ vulnerable deps. Bypass explicitly with `npm run check --force` (npm sets
 `check.sh` is a single orchestrator (not an `&&` chain) precisely so `--force`
 reaches it reliably — args appended to an `&&` chain only hit the LAST command.
 **Fixing vulns:** transitive CVEs are pinned in the npm `overrides` block (mirror a
-human-readable reason into the sibling `//overrides` doc object), e.g. `js-yaml`
-4.2.0 (GHSA-h67p-54hq-rp68), `form-data` 4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core`
-7.29.7 (GHSA-4x5r-pxfx-6jf8). Note `js-yaml` is forced globally to 4.2.0 even though
-`@istanbuljs/load-nyc-config` (under babel-plugin-istanbul) pulls a 3.x copy — that
-loader only parses YAML when reading an nyc config file, which this project never
-does, and jest 30 uses the v8 coverage provider, so the override is inert at
-runtime (verified via `jest --coverage`).
+human-readable reason into the sibling `//overrides` doc object), e.g. `form-data`
+4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core` 7.29.7 (GHSA-4x5r-pxfx-6jf8).
+
+`js-yaml` is at **4.3.1** (GHSA-5p4m-2wfm-xmqj, quadratic CPU in `!!omap`; the fix
+was NOT backported to 3.x, so 3.15.0 is the end of its line). The 3.x copy under
+`@istanbuljs/load-nyc-config` is raised by a **consumer-scoped** override —
+`"@istanbuljs/load-nyc-config": { "js-yaml": "4.3.1" }` — not a global force. Two
+things to know before touching it: a top-level `js-yaml@<4.3.1` selector was tried
+first and npm did **not** apply it to that nested path at all, and the raise is
+cross-major, so it needed the export-shape check this repo requires — the loader
+calls `require('js-yaml').load(...)` (index.js:80), which 4.x provides, and 4.x
+`load` behaves like 3.x `safeLoad`, i.e. strictly safer for a config file. Also
+note the override is NOT inert: `js-yaml` is a direct production dependency of this
+CLI (`src/extensions/config.ts`, `src/lib/hoist-workspace-pnpm-config.ts`).
+
+### `lt fullstack init` used to exit 0 on EVERY error path <!-- Added: 2026-08-23 -->
+A gluegun command that `return`s leaves the process at exit code 0. Until 1.43.0 every
+failure in `fullstack/init.ts` — clone failed, `pnpm install` aborted, invalid flag
+value, target dir exists — printed red and reported SUCCESS to `$?`. A CI job or agent
+checking the exit code saw a half-built workspace as a good scaffold.
+**Rule:** every early `return` on an error path calls `failRun(toolbox)` first
+(`src/lib/fail-run.ts`), which sets `process.exitCode = 1` guarded by
+`!parameters.options.fromGluegunMenu` — the same guard the other exit-code call sites
+use (`dev test`, `dev tunnel`, `tools ocr`, `workspace-integration`).
+`process.exitCode`, never `process.exit()`: the latter can truncate the spinner's own
+failure message. **`add-api.ts` and `add-app.ts` are covered too, and that is not
+optional** — `init` DELEGATES to them inside an existing workspace, so covering only
+`init.ts` made the exit code depend on which directory the user was standing in.
+`__tests__/fullstack-init-exit-code.test.ts` enforces it from both sides: a structural
+walk over every bare `return;` in all three files, plus one real `spawnSync` that
+asserts exit 1 for an existing target directory.
+
+### Vendoring makes the framework's `allowBuilds` the PROJECT's problem <!-- Added: 2026-08-23 -->
+The vendor conversion resolves the core's import closure into direct dependencies, so
+packages only nest-server knew about (`bullmq` → `msgpackr` → `msgpackr-extract`)
+become the generated project's own. pnpm 11 does not treat an unlisted build script as
+"deny" — it ABORTS with `ERR_PNPM_IGNORED_BUILDS`, i.e. a project that cannot be
+installed at all. nest-server's `pnpm-workspace.yaml` is not in its npm tarball, so the
+clone during conversion is the only moment it can be read;
+`adoptUpstreamBuildAllowlist` snapshots it there. **Additive only** — and "already
+decided" is judged on the RAW key, never on a boolean-narrowed copy: js-yaml 4 uses the
+YAML 1.2 core schema, so `esbuild: no` / `off` are STRINGS, and narrowing first turned
+a maintainer's deny into "no opinion" and adopted upstream's `true`.
+
+### A `nuxt/schema` augmentation is harmless in node_modules and fatal as project source <!-- Added: 2026-08-23 -->
+nuxt-extensions' `runtime/types/module.ts` augments `PublicRuntimeConfig` under BOTH
+`nuxt/schema` and `@nuxt/schema`; the former re-exports the latter, so it is ONE
+interface decorated twice. In npm mode the file never enters the consumer's program.
+Vendoring copies it to `app/core/`, the project's `include` picks it up, and it closes a
+cycle with Nuxt's generated `interface PublicRuntimeConfig extends UserPublicRuntimeConfig`
+→ TS2310, which `skipLibCheck: true` HIDES. Visible symptom: every `config.public.*`
+infers as `unknown` in every vendor-mode project (the default for `lt fullstack init`).
+Diagnose with `npx vue-tsc --noEmit -p .nuxt/tsconfig.json --skipLibCheck false | grep TS2310`.
+`stripVendorSchemaAugmentation` removes it during conversion and leaves a note in its
+place; a block it cannot parse is WARNED about rather than silently retained, because
+silence there means the bug ships and the conversion still reported success.
+Measured 2026-08-22. General rule: a transform that turns package typings into project
+source owns what that change of status implies.
 
 ### A command's `help` export must ride on `module.exports =`, not a bare `export const` <!-- Added: 2026-07-19 -->
 Gluegun command modules export the command via `module.exports = XCommand`, which

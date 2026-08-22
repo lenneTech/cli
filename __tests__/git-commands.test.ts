@@ -2,8 +2,37 @@ import { filesystem, system } from 'gluegun';
 
 const src = filesystem.path(__dirname, '..');
 
+/**
+ * Environment that keeps git NON-INTERACTIVE, so these tests measure the command
+ * rather than the machine's credential state.
+ *
+ * Every `lt git …` command here reaches a `git fetch`. On a 1Password-backed
+ * machine the SSH agent is present but each signature needs an interactive
+ * approval; non-interactively it waits and then reports
+ * `communication with agent failed`. Measured: **61 s** per fetch, so
+ * `lt git update --dry-run` took 62 s — just past jest's 60 s cap. Four tests
+ * failed as timeouts with nothing in the output pointing at authentication, and
+ * they failed identically on an untouched checkout.
+ *
+ * **`IdentityAgent=none` is the load-bearing option**, not `BatchMode`. BatchMode
+ * only suppresses password PROMPTS; here nothing is prompted — the agent is
+ * contacted and stalls. Taking the agent out of the path drops the same fetch to
+ * **1 s** with a clean `Permission denied (publickey)`.
+ *
+ * This narrows what the tests measure rather than weakening them: a failed fetch
+ * is a path these commands are asserted to handle, and it is now reached
+ * deterministically instead of depending on whether someone approved a key
+ * prompt in the last few minutes.
+ */
+const NON_INTERACTIVE_GIT = {
+  GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o ConnectTimeout=5',
+  GIT_TERMINAL_PROMPT: '0',
+};
+
 const cli = async (cmd: string) =>
-  system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`);
+  system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`, {
+    env: { ...process.env, ...NON_INTERACTIVE_GIT },
+  });
 
 // Check if we're on a branch (not detached HEAD) - required for git commands
 const isOnBranch = async (): Promise<boolean> => {
@@ -53,6 +82,39 @@ const hasUpstreamBranch = async (): Promise<boolean> => {
 };
 
 export {};
+
+describe('git ssh environment contract', () => {
+  // Pins the `:-` default. Assigning GIT_SSH_COMMAND outright overrode any caller
+  // who had configured ssh deliberately — including this very test file — and cost
+  // 61 s per fetch on a machine whose agent needs interactive approval.
+  const nodeFs = require('fs');
+  const nodePath = require('path');
+
+  const SOURCES = ['src/extensions/git.ts', 'src/commands/git/reset.ts', 'src/commands/git/update.ts'];
+
+  test('every GIT_SSH_COMMAND assignment defers to an existing value', () => {
+    const offenders: string[] = [];
+    for (const rel of SOURCES) {
+      const body: string = nodeFs.readFileSync(nodePath.join(src, rel), 'utf8');
+      body.split('\n').forEach((line: string, i: number) => {
+        if (!line.includes('GIT_SSH_COMMAND=')) return;
+        if (line.trim().startsWith('*')) return; // the explanatory comment block
+        if (!/GIT_SSH_COMMAND="\\?\$\{GIT_SSH_COMMAND:-/.test(line)) {
+          offenders.push(`${rel}:${i + 1} assigns GIT_SSH_COMMAND unconditionally — use "\${GIT_SSH_COMMAND:-…}"`);
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test('the contract check is not vacuous — the assignments exist', () => {
+    const found = SOURCES.reduce(
+      (n, rel) => n + (nodeFs.readFileSync(nodePath.join(src, rel), 'utf8').match(/GIT_SSH_COMMAND="/g) ?? []).length,
+      0,
+    );
+    expect(found).toBeGreaterThanOrEqual(5);
+  });
+});
 
 describe('Git Commands', () => {
   let onBranch: boolean;

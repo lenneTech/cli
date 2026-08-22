@@ -143,7 +143,7 @@ export class Git {
 
     // Get branches (use short SSH timeout so fetch doesn't hang in offline environments)
     const branches = await system.run(
-      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null; git show-branch --list',
+      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null; git show-branch --list',
     );
     branches.split('\n').forEach((item) => {
       const matches = item.match(/\[(.*?)]/);
@@ -239,6 +239,27 @@ export class Git {
   /**
    * Check if git is installed (cached for performance)
    */
+  /**
+   * Why the git calls in this repo spell `GIT_SSH_COMMAND="\${GIT_SSH_COMMAND:-…}"` (shell default)
+   * rather than assigning it outright.
+   *
+   * These commands do a best-effort `git fetch` to see whether the branch is
+   * behind. They set `BatchMode=yes` so ssh fails instead of PROMPTING — but an
+   * agent that stalls is not a prompt. On a 1Password-backed machine the agent is
+   * reachable and every signature needs an interactive approval; unattended it
+   * waits and then reports `communication with agent failed`. Measured: **61 s per
+   * fetch**, so `lt git update --dry-run` took 62 s and `lt git create --dry-run`
+   * 123 s (two fetches). `ConnectTimeout` does not bound it — that covers the TCP
+   * connect, not the agent.
+   *
+   * Waiting for a human to approve a key is legitimate for an interactive command,
+   * so the default is unchanged. What was wrong is that the assignment was
+   * UNCONDITIONAL: it overrode a caller who had deliberately configured ssh,
+   * including a test harness trying to make the behaviour deterministic. The
+   * `:-` default respects an existing value and keeps the old behaviour when there
+   * is none. `IdentityAgent=none` in the caller's env then drops the same fetch to
+   * ~1 s with a clean `Permission denied (publickey)`.
+   */
   public async gitInstalled() {
     // Return cached result if available
     if (this.gitInstalledCache !== null) {
@@ -324,7 +345,7 @@ export class Git {
 
     // Update infos (use short SSH timeout so fetch doesn't hang in offline environments)
     const fetch = await system.run(
-      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o ConnectTimeout=5 -o BatchMode=yes" git fetch 2>/dev/null || true',
+      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null || true',
     );
     if (fetch.length && !fetch.startsWith('remote')) {
       info(`Could not update infos ${fetch.length}`);

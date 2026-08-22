@@ -2,6 +2,7 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { stripComments } from '../lib/strip-comments';
+import { stripVendorSchemaAugmentation } from '../lib/strip-vendor-schema-augmentation';
 import {
   buildFrontendVendorBlock,
   FRONTEND_VENDOR_MARKER,
@@ -604,6 +605,27 @@ export class FrontendHelper {
 
     // ── 4. Rewrite nuxt.config.ts module entry ──────────────────────────
     this.rewriteNuxtConfig(dest, 'vendor');
+
+    // ── 4b. Drop the core's `nuxt/schema` runtime-config augmentation ────
+    //
+    // Harmless inside node_modules, poisonous as project source: it augments the
+    // same interface under both `nuxt/schema` and `@nuxt/schema` (the former
+    // re-exports the latter) and closes a cycle with Nuxt's generated
+    // runtime-config types. TS2310 — suppressed by `skipLibCheck`, so all a
+    // developer sees is every `config.public.*` typed `unknown`. See the lib for
+    // the measurement.
+    const strippedAugmentation = stripVendorSchemaAugmentation({ coreDir, filesystem });
+    if (strippedAugmentation.touched.length > 0) {
+      this.toolbox.print.info(
+        `  vendored core: removed the nuxt/schema runtime-config augmentation from ${strippedAugmentation.touched.length} file(s) — keeps config.public.* typed`,
+      );
+    }
+    // A block the transform could not process is left in place, which means the
+    // TS2310 bug ships with the project. Silence there would be the worst of both
+    // worlds: the conversion reports success and the typing is broken anyway.
+    for (const warning of strippedAugmentation.warnings) {
+      this.toolbox.print.warning(`  ⚠ vendored core: ${warning}`);
+    }
 
     // ── 5. package.json: remove @lenne.tech/nuxt-extensions, merge deps ─
     const pkgPath = path.join(dest, 'package.json');

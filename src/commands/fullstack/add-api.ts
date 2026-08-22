@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { failRun } from '../../lib/fail-run';
 import {
   detectWorkspaceLayout,
   finalizeWorkspaceRoot,
@@ -82,6 +83,7 @@ const NewCommand: GluegunCommand = {
     );
 
     if (!(await git.gitInstalled())) {
+      failRun(toolbox);
       return;
     }
 
@@ -145,12 +147,14 @@ const NewCommand: GluegunCommand = {
       error(
         `No fullstack workspace detected at "${workspaceDir}". Expected pnpm-workspace.yaml, package.json#workspaces, or a projects/ directory. Use \`lt fullstack init\` for a fresh workspace.`,
       );
+      failRun(toolbox);
       return;
     }
     if (layout.hasApi) {
       error(
         `An API already exists at "${workspaceDir}/projects/api". Remove it first or use \`lt fullstack init\` in a fresh directory.`,
       );
+      failRun(toolbox);
       return;
     }
 
@@ -193,6 +197,7 @@ const NewCommand: GluegunCommand = {
       frameworkMode = cliFrameworkMode;
     } else if (cliFrameworkMode) {
       error(`Invalid --framework-mode value "${cliFrameworkMode}". Use "npm" or "vendor".`);
+      failRun(toolbox);
       return;
     } else if (configFrameworkMode === 'npm' || configFrameworkMode === 'vendor') {
       frameworkMode = configFrameworkMode;
@@ -304,6 +309,7 @@ const NewCommand: GluegunCommand = {
 
     if (!apiResult.success) {
       apiSpinner.fail(`Failed to set up API: ${apiResult.path}`);
+      failRun(toolbox);
       return;
     }
     apiSpinner.succeed(`API integrated (${apiResult.method})`);

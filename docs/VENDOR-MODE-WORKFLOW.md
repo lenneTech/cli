@@ -443,6 +443,41 @@ git commit -m "chore: revert fullstack to npm mode
 
 ## Troubleshooting
 
+### Problem: `config.public.*` is `unknown` in a project vendored before 1.43.0
+
+**Symptom.** `nuxt typecheck` fails with `Argument of type 'unknown' is not
+assignable to parameter of type 'string'` on code that is correct, at any
+`useRuntimeConfig().public.x` read.
+
+**Check whether you are affected** — version-independent:
+
+```bash
+grep -rn "declare module '@nuxt/schema'" projects/app/app/core/
+```
+
+**Cause.** The vendored nuxt-extensions core augments `PublicRuntimeConfig` under
+both `nuxt/schema` and `@nuxt/schema`. The former re-exports the latter, so that
+is one interface decorated twice; as project source it closes a cycle with Nuxt's
+generated runtime-config types. TypeScript reports
+`TS2310: Type 'PublicRuntimeConfig' recursively references itself as a base type`,
+which Nuxt's `skipLibCheck: true` suppresses — so only the confusing symptom is
+visible. See it with:
+
+```bash
+cd projects/app && npx vue-tsc --noEmit -p .nuxt-check/tsconfig.json --skipLibCheck false | grep TS2310
+```
+
+**Repair.** Delete the two `declare module '…/schema'` blocks from
+`projects/app/app/core/runtime/types/module.ts`. Nothing is lost — `ltExtensions`
+reaches the consumer through the module's runtime-config defaults, which Nuxt
+writes into the generated types either way.
+
+New conversions strip the blocks automatically (`stripVendorSchemaAugmentation`).
+**Re-check after every core update:** the updater copies upstream files verbatim
+and would bring them back. The template's own `CLAUDE.md` carries the same repair
+note for the project side.
+
+
 ### Problem: `tsc` fails with `new Error('msg', { cause })` error
 
 **Cause:** TypeScript target is too old (ES2020 or lower).

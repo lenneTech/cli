@@ -1,6 +1,11 @@
 import { dump, load } from 'js-yaml';
 
-import { hoistPackageManager, hoistWorkspacePnpmConfig } from '../src/lib/hoist-workspace-pnpm-config';
+import {
+  extractKeyComments,
+  hoistPackageManager,
+  hoistWorkspacePnpmConfig,
+  reattachKeyComments,
+} from '../src/lib/hoist-workspace-pnpm-config';
 
 const { filesystem } = require('gluegun');
 
@@ -429,6 +434,199 @@ describe('hoistWorkspacePnpmConfig', () => {
  * governs the install; one left behind in projects/app makes
  * `cd projects/app && pnpm run build` provision a different pnpm than the root used.
  */
+/**
+ * The reasons must survive the hoist, not just the values.
+ *
+ * Every entry in `pnpm-workspace.yaml` is there because something would otherwise
+ * break, and several of them look WRONG on sight — `'msgpackr-extract': false`
+ * denies a build for a package `pnpm why` cannot find, because it enters through
+ * an optional peer that only exists in vendor mode. The starter carries twenty
+ * lines saying exactly that, ending in "deleting this stops the first install of
+ * every new project".
+ *
+ * `js-yaml`'s `dump()` writes values and nothing else, so those twenty lines used
+ * to stop at the repo boundary: the generated project inherited the trap and none
+ * of the warning, and its maintainer is precisely the person who cannot read the
+ * source repo. A tidy-minded cleanup then removes the entry, and the next
+ * `pnpm install` fails on something with no visible connection to the deletion.
+ */
+describe('hoistWorkspacePnpmConfig — comment preservation', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = filesystem.path(
+      filesystem.cwd(),
+      '__tests__',
+      'temp-comments-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+    );
+    filesystem.dir(tempDir);
+    filesystem.write(`${tempDir}/package.json`, JSON.stringify({ name: 'root' }));
+    filesystem.write(`${tempDir}/pnpm-workspace.yaml`, 'packages:\n  - projects/*\n');
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(`${tempDir}/projects/api/package.json`, JSON.stringify({ name: 'api' }));
+  });
+
+  afterEach(() => {
+    if (filesystem.exists(tempDir)) filesystem.remove(tempDir);
+  });
+
+  const hoist = (): void =>
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+  const rootText = (): string => filesystem.read(`${tempDir}/pnpm-workspace.yaml`) || '';
+
+  const SUB_WS = [
+    'allowBuilds:',
+    '  # Do NOT delete this as a dead entry — bullmq is an optional peer and only',
+    '  # becomes real in vendor mode, where it pulls msgpackr-extract in.',
+    "  'msgpackr-extract': false",
+    '  bcrypt: true',
+    '',
+  ].join('\n');
+
+  it('carries an entry comment from the sub-project into the root file', () => {
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, SUB_WS);
+    hoist();
+    expect(rootText()).toContain('# Do NOT delete this as a dead entry');
+  });
+
+  it('attaches the comment to the right key, even after re-quoting and re-sorting', () => {
+    // The dump re-emits `'msgpackr-extract'` unquoted and sorts the map, so a
+    // naive line-offset carry-over would land the block on `bcrypt`.
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, SUB_WS);
+    hoist();
+    const lines = rootText().split('\n');
+    const noteAt = lines.findIndex((l) => l.includes('Do NOT delete'));
+    const keyAt = lines.findIndex((l) => /msgpackr-extract['"]?:/.test(l));
+    expect(noteAt).toBeGreaterThanOrEqual(0);
+    expect(keyAt).toBeGreaterThan(noteAt);
+    // Nothing but the rest of the same block may sit between them.
+    expect(lines.slice(noteAt, keyAt).every((l) => l.trim().startsWith('#'))).toBe(true);
+  });
+
+  it("keeps the root's own wording when both files annotate the same key", () => {
+    filesystem.write(
+      `${tempDir}/pnpm-workspace.yaml`,
+      "packages:\n  - projects/*\nallowBuilds:\n  # Root decided this deliberately.\n  bcrypt: true\n",
+    );
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      'allowBuilds:\n  # Sub-project wording.\n  bcrypt: true\n  esbuild: true\n',
+    );
+    hoist();
+    expect(rootText()).toContain('# Root decided this deliberately.');
+    expect(rootText()).not.toContain('# Sub-project wording.');
+  });
+
+  it('does not duplicate comments when the hoist runs again', () => {
+    // `lt fullstack add-api` on an existing workspace re-runs the hoist over an
+    // ALREADY-annotated root file. Stuttering blocks would grow it every time.
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, SUB_WS);
+    hoist();
+    const first = rootText();
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, SUB_WS);
+    hoist();
+    const occurrences = (rootText().match(/Do NOT delete this as a dead entry/g) || []).length;
+    expect(occurrences).toBe(1);
+    expect(rootText()).toBe(first);
+  });
+
+  it('reattaching over already-annotated YAML is a no-op', () => {
+    // The test above CANNOT see the idempotency guard: the second hoist finds
+    // nothing to move, short-circuits on `rootChanged === false`, and never
+    // re-enters `reattachKeyComments` at all. It asserted a property that held
+    // before the guard existed. This one drives the helper directly — with the
+    // guard removed it produces a doubled comment block.
+    const comments = extractKeyComments("allowBuilds:\n  # why\n  'a-b': false\n");
+    const once = reattachKeyComments('allowBuilds:\n  a-b: false\n', comments);
+    expect(once).toContain('# why');
+    expect(reattachKeyComments(once, comments)).toBe(once);
+  });
+
+  it('does not harvest comments from keys nested one level deeper', () => {
+    // The neighbouring list-item fixture is rejected one branch EARLIER (a `- x`
+    // line never matches the entry regex), so it never reaches the depth guard it
+    // claims to test — removing the guard left every test green. A nested MAP is
+    // what actually exercises it.
+    const nested = 'overrides:\n  a: 1\n  nested:\n    # inner note\n    b: 2\n';
+    expect([...extractKeyComments(nested).keys()]).toEqual([]);
+
+    // Control, so the assertion above cannot pass merely because nothing is ever
+    // harvested: the SAME comment one level up IS taken.
+    const topLevel = 'overrides:\n  # outer note\n  a: 1\n';
+    expect([...extractKeyComments(topLevel).keys()]).toHaveLength(1);
+  });
+
+  it('keeps two keys apart even when one contains a space', () => {
+    // Why the separator is `\0` and not a space: `overrides` selectors legally
+    // contain spaces. With a space separator, `overrides` + `a b` and `overrides a`
+    // + `b` collapse onto one entry — one override's reasoning silently attached
+    // to another's.
+    const comments = extractKeyComments(
+      "overrides:\n  # range note\n  'minimatch@>=5.0.0 <10.2.6': 10.2.6\n",
+    );
+    expect([...comments.keys()]).toEqual(['overrides\u0000minimatch@>=5.0.0 <10.2.6']);
+    const out = reattachKeyComments("overrides:\n  'minimatch@>=5.0.0 <10.2.6': 10.2.6\n", comments);
+    expect(out).toContain('# range note');
+  });
+
+  it('still produces valid YAML that parses back to the same values', () => {
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, SUB_WS);
+    hoist();
+    const parsed: any = load(rootText());
+    expect(parsed.allowBuilds).toEqual({ bcrypt: true, 'msgpackr-extract': false });
+  });
+});
+
+describe('extractKeyComments / reattachKeyComments', () => {
+  it('ignores a block separated from its key by a blank line', () => {
+    // Such a block is a section header. Re-attaching it would move a heading onto
+    // whichever entry happened to sort first — a confident, wrong explanation.
+    const comments = extractKeyComments('allowBuilds:\n  # Section heading.\n\n  bcrypt: true\n');
+    expect(comments.size).toBe(0);
+  });
+
+  it('does not harvest from fields it has no business rewriting', () => {
+    const comments = extractKeyComments('somethingElse:\n  # note\n  key: true\n');
+    expect(comments.size).toBe(0);
+  });
+
+  it('treats quoted and unquoted spellings of a key as the same key', () => {
+    const comments = extractKeyComments("allowBuilds:\n  # note\n  'a-b': false\n");
+    expect(reattachKeyComments('allowBuilds:\n  a-b: false\n', comments)).toContain('# note');
+  });
+
+  it('drops a comment carrying a control character instead of re-emitting it', () => {
+    // A bare CR is not a line break to `split('\n')` but IS one to every YAML
+    // parser, so everything after it is re-emitted as real YAML. Verified against
+    // pnpm 11: this exact block installs `left-pad: 9.9.9` as a workspace-wide
+    // `overrides` entry in the generated project, while the line still looks like
+    // an ordinary comment in an editor.
+    const poisoned = 'overrides:\n  # rationale for the pin\r  left-pad: 9.9.9\n  semver: 7.8.5\n';
+    expect([...extractKeyComments(poisoned).keys()]).toEqual([]);
+
+    const out = reattachKeyComments('overrides:\n  semver: 7.8.5\n', extractKeyComments(poisoned));
+    expect(out).not.toContain('left-pad');
+    expect(load(out) as any).toEqual({ overrides: { semver: '7.8.5' } });
+  });
+
+  it('still carries an ordinary comment (the control-char guard is not a blanket)', () => {
+    const clean = 'overrides:\n  # a normal reason\n  semver: 7.8.5\n';
+    expect([...extractKeyComments(clean).keys()]).toHaveLength(1);
+  });
+
+  it('is a no-op when there is nothing to reattach', () => {
+    const yaml = 'allowBuilds:\n  bcrypt: true\n';
+    expect(reattachKeyComments(yaml, new Map())).toBe(yaml);
+  });
+
+  it('leaves nested list items alone', () => {
+    // `auditConfig.ignoreGhsas` entries sit one level deeper; their comments belong
+    // to the inner key, which this pass deliberately does not carry.
+    const comments = extractKeyComments('auditConfig:\n  ignoreGhsas:\n    # why\n    - GHSA-x\n');
+    expect([...comments.keys()]).toEqual([]);
+  });
+});
+
 describe('hoistPackageManager', () => {
   let tempDir: string;
 

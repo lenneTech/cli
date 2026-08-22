@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { failRun } from '../../lib/fail-run';
 import { detectWorkspaceLayout, finalizeWorkspaceRoot, findWorkspaceRoot } from '../../lib/workspace-integration';
 
 /**
@@ -63,6 +64,7 @@ const NewCommand: GluegunCommand = {
     );
 
     if (!(await git.gitInstalled())) {
+      failRun(toolbox);
       return;
     }
 
@@ -124,12 +126,14 @@ const NewCommand: GluegunCommand = {
       error(
         `No fullstack workspace detected at "${workspaceDir}". Expected pnpm-workspace.yaml, package.json#workspaces, or a projects/ directory. Use \`lt fullstack init\` for a fresh workspace.`,
       );
+      failRun(toolbox);
       return;
     }
     if (layout.hasApp) {
       error(
         `An app already exists at "${workspaceDir}/projects/app". Remove it first or use \`lt fullstack init\` in a fresh directory.`,
       );
+      failRun(toolbox);
       return;
     }
 
@@ -139,6 +143,7 @@ const NewCommand: GluegunCommand = {
       frontend = cliFrontend;
     } else if (cliFrontend) {
       error('Invalid --frontend option. Use "angular" or "nuxt".');
+      failRun(toolbox);
       return;
     } else if (configFrontend === 'angular' || configFrontend === 'nuxt') {
       frontend = configFrontend;
@@ -163,6 +168,7 @@ const NewCommand: GluegunCommand = {
       frontendFrameworkMode = cliFrontendFrameworkMode;
     } else if (cliFrontendFrameworkMode) {
       error(`Invalid --frontend-framework-mode value "${cliFrontendFrameworkMode}". Use "npm" or "vendor".`);
+      failRun(toolbox);
       return;
     } else if (configFrontendFrameworkMode === 'npm' || configFrontendFrameworkMode === 'vendor') {
       frontendFrameworkMode = configFrontendFrameworkMode;
@@ -244,6 +250,7 @@ const NewCommand: GluegunCommand = {
 
     if (!result.success) {
       appSpinner.fail(`Failed to set up ${frontend} frontend: ${result.path}`);
+      failRun(toolbox);
       return;
     }
     appSpinner.succeed(`${frontend} integrated (${result.method})`);

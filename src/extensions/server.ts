@@ -7,6 +7,7 @@ import * as ts from 'typescript';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
+import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { stripComments } from '../lib/strip-comments';
@@ -1183,6 +1184,22 @@ export class Server {
       // the upstream package.json ranges (still better than nothing).
     }
 
+    // Snapshot the upstream pnpm-workspace.yaml. It carries `allowBuilds`, the map
+    // that decides which packages may run install scripts — and vendoring is what
+    // makes the framework's entries the PROJECT's problem: step 5b turns the core's
+    // import closure into direct dependencies, so packages nest-server knew about
+    // (bullmq → msgpackr → msgpackr-extract) become the project's own. pnpm 11 aborts
+    // the install outright on an unlisted one, so a missing entry is an unusable
+    // project rather than a warning. This file is NOT in nest-server's npm tarball,
+    // so the clone is the only moment it can be read at all.
+    let upstreamWorkspaceYaml = '';
+    try {
+      upstreamWorkspaceYaml = filesystem.read(`${tmpClone}/pnpm-workspace.yaml`) || '';
+    } catch {
+      // Best-effort: an older framework revision may predate the file. The project
+      // then keeps exactly the allowlist its own template shipped.
+    }
+
     // Snapshot the upstream CLAUDE.md for section-merge into projects/api/CLAUDE.md.
     // The nest-server CLAUDE.md contains framework-specific instructions that
     // Claude Code needs to work correctly with the vendored source (API conventions,
@@ -1696,6 +1713,17 @@ export class Server {
           upstreamDeps,
           upstreamDevDeps,
         });
+
+        // The closure above just made framework-only packages direct dependencies of
+        // this project. Their build-script decisions have to come along, or the first
+        // `pnpm install` stops on ERR_PNPM_IGNORED_BUILDS. Additive only — a decision
+        // the project already made is never overwritten.
+        const adoptedBuilds = adoptUpstreamBuildAllowlist({ dest, filesystem, upstreamWorkspaceYaml });
+        if (adoptedBuilds.length > 0) {
+          this.toolbox.print.info(
+            `  vendored core allowlist: adopted ${adoptedBuilds.length} build decision(s) from nest-server → ${adoptedBuilds.join(', ')}`,
+          );
+        }
 
         // Add a script to run the local bin/migrate.js. The starter's
         // existing migrate:* scripts are already correct for npm mode; we

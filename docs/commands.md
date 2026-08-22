@@ -1075,6 +1075,15 @@ Installs helper scripts:
 
 ### `lt fullstack init`
 
+**Exit codes.** `0` on success, `1` on any failure — a failed clone, an aborted
+`pnpm install`, an invalid flag value, an existing target directory. Until 1.43.0
+every one of those exited `0`, so `lt fullstack init … && echo ok` printed `ok`
+after a broken scaffold; scripts and CI jobs that check `$?` need no workaround
+any more. The same contract holds for `lt fullstack add-api` / `add-app`, which
+`init` delegates to inside an existing workspace. A cancelled interactive prompt
+is not a failure and still exits `0`.
+
+
 Creates a new fullstack workspace with API and frontend.
 
 **Usage:**
