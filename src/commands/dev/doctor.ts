@@ -124,21 +124,42 @@ const DoctorCommand: GluegunCommand = {
         line('OK', colors.green, 'global-setup allow-list is ticket + shard safe');
       }
 
-      // 7.5 check.mjs drift: the root wrapper is canonical (bundled with the
+      // 7.5 check wrapper drift: the root wrapper is canonical (bundled with the
       //     CLI, synced by `lt fullstack update`). A diverged copy silently
       //     misses fixes (idle-watchdog, install hoisting, summed test
       //     metrics) — surface it instead of letting copies drift apart.
+      //
+      //     Checked over the WHOLE copy set, not just `check.mjs`: the wrapper
+      //     imports siblings, so a missing or stale one makes `check` die with
+      //     ERR_MODULE_NOT_FOUND (or an import mismatch) before running a single
+      //     step. Reporting only on `check.mjs` meant doctor printed a green
+      //     "matches the canonical CLI version" for a project whose `check` was
+      //     completely broken — and doctor is the tool people reach for exactly
+      //     then.
       try {
         const { readFileSync: read } = await import('fs');
         const { join: j } = await import('path');
-        const projectCheck = j(layout.root, 'scripts', 'check.mjs');
+        const { resolveCopySet } = await import('../../lib/heal-check-wrapper');
         const bundledCheck = j(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
-        if (filesystem.exists(projectCheck) && filesystem.exists(bundledCheck)) {
-          if (read(projectCheck, 'utf8') === read(bundledCheck, 'utf8')) {
-            line('OK', colors.green, 'scripts/check.mjs matches the canonical CLI version');
-          } else {
-            line('WARN', colors.yellow, 'scripts/check.mjs differs from the canonical CLI version');
+        if (filesystem.exists(bundledCheck)) {
+          const missing: string[] = [];
+          const drifted: string[] = [];
+          for (const { rel, source } of resolveCopySet(bundledCheck)) {
+            const target = j(layout.root, rel);
+            if (!filesystem.exists(target)) {
+              missing.push(rel);
+            } else if (read(target, 'utf8') !== read(source, 'utf8')) {
+              drifted.push(rel);
+            }
+          }
+          if (missing.length > 0) {
+            line('ERROR', colors.red, `check wrapper incomplete — missing ${missing.join(', ')}`);
+            line('ERROR', colors.red, '  `pnpm run check` cannot start; run `lt fullstack update` to install it');
+          } else if (drifted.length > 0) {
+            line('WARN', colors.yellow, `${drifted.join(', ')} differs from the canonical CLI version`);
             line('WARN', colors.yellow, '  run `lt fullstack update` to sync it (skips uncommitted local edits)');
+          } else if (filesystem.exists(j(layout.root, 'scripts', 'check.mjs'))) {
+            line('OK', colors.green, 'check wrapper matches the canonical CLI version');
           }
         }
       } catch {

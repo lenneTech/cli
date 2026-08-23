@@ -107,6 +107,21 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   inline `check:vendor-freshness` one-liner in the generated `package.json`,
   and the sync / contribute flows are handled by the
   `nest-server-core-updater` / `nest-server-core-contributor` agents.
+- `src/templates/check/` ships the report-driven check runner
+  (`check.mjs` + the modules it imports, currently `build-test-gate.mjs`).
+  `lt fullstack init` delivers it via the `lt-monorepo` clone;
+  `lt fullstack update` installs/refreshes it through
+  `healCheckWrapper` (`src/lib/heal-check-wrapper.ts`), and
+  `lt dev doctor` reports drift over the same set. Byte-identical to
+  `lt-monorepo/scripts/` — **fix both repos or they silently diverge**.
+  Like the rest of `src/templates/**` it is ESLint-exempt, so its `.mjs`
+  files get no lint/tsc coverage at all; the guards that do cover them
+  are `__tests__/check-template.test.ts` and
+  `__tests__/build-test-gate.test.ts`, which load them in a real Node
+  ESM child (`__tests__/check-template-esm.ts`) because Jest's transform
+  turns `import()` into `require()` and cannot load an `.mjs` at all.
+  Mode-agnostic — it neither reads nor generates framework source, so it
+  needs no row in the vendor/npm tables below.
 
 ### Vendor vs npm mode — key touchpoints
 
@@ -789,6 +804,37 @@ against the live database.
   where nothing can be recovered. Use `git ls-files --error-unmatch`, write a `.bak`
   when git has no copy, skip a tracked-but-dirty file, and write via temp+rename.
 - Never write through a symlink.
+
+### An asset installed into a project must ship its whole import closure — and move atomically <!-- Added: 2026-08-23 -->
+`healCheckWrapper` copied exactly one file, `scripts/check.mjs`. When the wrapper grew
+a relative import (`./build-test-gate.mjs`), every project migrated by
+`lt fullstack update` got a `check` whose FIRST import resolves to nothing:
+`ERR_MODULE_NOT_FOUND` before step one — and the CLI reported success, because it had
+copied the file it was asked to copy.
+**Rule 1 — derive the set from the asset's own imports** (`resolveCopySet`, transitive,
+matching BOTH quote styles: these templates are formatted by the *consuming* project,
+so their quote style is not ours to assume). Deriving from "every `.mjs` in the
+directory" is the tempting shortcut and is wrong in the other direction — it turns the
+template dir into a live namespace over the project's `scripts/`, so any file a future
+contributor drops there lands in every user project.
+**Rule 2 — the set moves ALL-OR-NOTHING.** This is the subtle one, and it bit here:
+the per-file guard *created* the very drift the change existed to prevent. The guard
+skips a file with uncommitted changes, and `git status --porcelain` reports an
+untracked file as `??` — but the FIRST heal's own output is an untracked sibling. On
+the next update `check.mjs` (tracked, clean) moved forward while its sibling was
+"protected", leaving the two on different versions. Reproduce: heal, commit nothing,
+heal again with a newer bundle.
+**Rule 3 — untracked ≠ precious.** Establish recoverability positively
+(`git ls-files --error-unmatch`): a tracked-and-dirty file is real work and must be
+refused; anything git does not track is unrecoverable, so it gets a `.bak` and is then
+replaced. Refusing there instead permanently blocks the update, because the CLI's own
+prior output is untracked. And never write through a symlink (`lstatSync` before
+`copyFileSync` — the link blob reads as clean, so the git guard cannot see it), and
+write via temp+rename.
+**Rule 4 — every diagnostic that knows the old asset must learn the new set.**
+`lt dev doctor` compared only `check.mjs` and printed a green "matches the canonical
+CLI version" for a project whose `check` could not start at all — and doctor is exactly
+what people run at that moment.
 
 ### Hoisting a settings-only `pnpm-workspace.yaml` DELETES it — so every field must be hoisted <!-- Added: 2026-07-31 -->
 `hoistFromSubWorkspaceYaml` removes a sub-project's settings-only

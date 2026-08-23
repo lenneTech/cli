@@ -209,7 +209,20 @@ const NewCommand: GluegunCommand = {
     const changedCheck = healCheckWrapper(cwd, checkAsset);
     if (changedCheck.length > 0) {
       info('');
-      success(`  Installed/updated the check wrapper: ${changedCheck.join(', ')}`);
+      // A skip entry is NOT a success — it means the wrapper stayed on its old
+      // version. Reporting the whole list through `success()` painted a refusal
+      // green.
+      const skipped = changedCheck.filter((entry) => entry.includes('skipped'));
+      const applied = changedCheck.filter((entry) => !entry.includes('skipped'));
+      if (applied.length > 0) {
+        success(`  Installed/updated the check wrapper: ${applied.join(', ')}`);
+        info('    `check` now serialises build/typecheck against the test suites,');
+        info('    so it takes longer in wall-clock but no longer destabilises API e2e runs.');
+        info('    The wrapper imports its siblings — keep them together, or `check` will not start.');
+      }
+      for (const entry of skipped) {
+        warning(`  Check wrapper NOT updated: ${entry}`);
+      }
     }
 
     // ── Self-heal: keep `.lt-dev/` out of git ──────────────────────────────
@@ -220,6 +233,17 @@ const NewCommand: GluegunCommand = {
     if (addToGitignore(cwd, '.lt-dev/')) {
       info('');
       success('  Added `.lt-dev/` to .gitignore');
+    }
+
+    // ── Self-heal: keep the check's isolated Nuxt build dir out of git ──────
+    //
+    // The check wrapper pins `NUXT_BUILD_DIR=.nuxt-check` so it never writes the
+    // `.nuxt/` a parked `nuxt dev` reads. Current starters already ignore it
+    // (via their `.nuxt-*` glob); projects scaffolded before that glob do not,
+    // and a build dir is a plausible place for a resolved runtimeConfig to be
+    // committed by accident. Idempotent.
+    if (addToGitignore(cwd, '.nuxt-check')) {
+      success('  Added `.nuxt-check` to .gitignore');
     }
 
     // ── Self-heal: repair the vendor-mode migration store ──────────────────

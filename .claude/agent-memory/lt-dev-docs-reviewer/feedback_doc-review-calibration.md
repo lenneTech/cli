@@ -44,3 +44,16 @@ gets ignored with it.
   vA..vB`), and a quoted upstream error string / API call.
 - Published artifacts (commit messages, release notes, CHANGELOG entries) are **English**.
   See [[english-for-published-artifacts]].
+
+- **A comment that claims TEST COVERAGE is a factual claim too — execute it, don't read it.** A
+  new test in `__tests__/heal-check-wrapper.test.ts` carried "Derived from the file rather than
+  hard-coded, so the next sibling is covered without touching this test", but its regex matched
+  `from '...'` (single quotes) while `src/templates/check/check.mjs` uses double quotes — the
+  `matchAll` loop ran **zero** iterations and asserted nothing. Reproduce such loops with a
+  throwaway `node -e` against the real fixture before crediting the comment.
+- **For `src/templates/**` assets, "does this file exist?" has TWO answers.** A freshly
+  `lt fullstack init`-ed project gets the whole `lt-monorepo` clone (e.g.
+  `scripts/nuxt-builddir-isolation.test.mjs`, `test:scripts`); a project migrated via
+  `lt fullstack update` → `healCheckWrapper` gets only what the CLI bundles in
+  `src/templates/check/`. A template comment naming a sibling file must be checked against BOTH
+  populations, and the CLI's template dir is usually the smaller one.

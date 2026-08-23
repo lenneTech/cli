@@ -26,9 +26,11 @@
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
 import { execSync, spawn } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { createBuildTestGate } from "./build-test-gate.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const VERBOSE = process.argv.includes("--verbose") || process.argv.includes("-v");
@@ -59,30 +61,138 @@ function fmtDuration(ms) {
   return `${m}m ${Math.round(s - m * 60)}s`;
 }
 
+// ── Nuxt build-dir isolation for the check's OWN package-manager calls ───────
+// The app's `build:check` / `typecheck:*` scripts pin `NUXT_BUILD_DIR` so a
+// check never writes the `.nuxt/` a parked `nuxt dev` reads. One writer has no
+// script to pin it in: `postinstall: nuxt prepare`. It inherits the env of
+// whatever triggered the install — and this script triggers one on every run
+// (the hoisted install below). Unpinned, that install rewrites
+// `.nuxt/tsconfig.json` under a running dev server, which then type-checks
+// without the `~`/`#` aliases and dies on code that is fine.
+//
+// Applied on TWO levels: as a textual prefix, so `buildGroups` stays a pure
+// function a guard can assert against, AND as a real environment variable at
+// spawn time. The prefix alone is not enough — a `VAR=value cmd` assignment
+// binds only to the first simple command, so a step written with `;` or a
+// leading `cd` would be reported as pinned and run unpinned. Both carry the
+// same value, so they cannot disagree.
+const CHECK_BUILD_DIR = ".nuxt-check";
+
+// Deliberately narrow: a blanket prefix would override the dirs the package.json
+// scripts pin themselves. These are the commands that run lifecycle hooks (or,
+// for `audit`, may resolve after fixing) and so have no pin of their own.
+//
+// SINGLE SOURCE: `classify()` derives its install/audit branches from these very
+// patterns, so "the pin predicate is at least as wide as the hoist predicate" is
+// true BY CONSTRUCTION rather than by assertion. It used to be two hand-written
+// regexes that were supposed to agree, and they did not: `classify()` matched a
+// bare `\baudit\b`, which also catches `npx audit-ci`, `bash scripts/audit.sh`
+// and `pnpm --filter api audit`. Those were hoisted (so no longer ordinary
+// steps) but not pinned — and worse, `runAudit` appends ` --json` to whatever
+// was labelled "audit", so the check failed on a flag it invented itself.
+const PM = String.raw`(?:pnpm|npm|yarn|bun)`;
+/** `<pm> install|ci|i` — including the `i` shorthand. */
+export const PM_INSTALL = new RegExp(String.raw`\b${PM}\s+(?:install|ci|i)\b`);
+/**
+ * A REAL package-manager audit (`pnpm audit`, `npm audit`, `yarn npm audit`).
+ *
+ * Only these are hoisted, because only these produce the JSON that `runAudit`
+ * parses — and it appends ` --json` to whatever it is handed. A project script
+ * that merely has "audit" in its name (`pnpm run audit:ci`) is a normal step:
+ * hoisting it fed it a flag it does not accept, so the check failed on an
+ * argument the wrapper invented.
+ */
+export const PM_AUDIT = new RegExp(String.raw`\b${PM}\s+audit\b`);
+/** A project script whose name mentions audit or install — an ordinary step that still needs the pin. */
+const PM_RUN_SCRIPT = new RegExp(String.raw`\b${PM}\s+run\s+\S*(?:audit|install)\S*`);
+/** Any package-manager call that runs lifecycle hooks and carries no pin of its own. */
+export const PM_INVOCATION = new RegExp(
+  `${PM_INSTALL.source}|${PM_AUDIT.source}|${PM_RUN_SCRIPT.source}`,
+);
+
+/**
+ * Prefix a package-manager command with the check's isolated Nuxt build dir.
+ *
+ * Idempotent, and never overrides a pin the command already carries — the
+ * existing-pin test is NOT anchored to the start of the string, because the
+ * shape the nuxt starter actually ships is `cross-env NUXT_BUILD_DIR=… pnpm …`,
+ * which a `^` anchor does not see.
+ */
+export function pinCheckBuildDir(cmd) {
+  if (!PM_INVOCATION.test(cmd) || /(^|\s)NUXT_BUILD_DIR=/.test(cmd)) return cmd;
+  return `NUXT_BUILD_DIR=${CHECK_BUILD_DIR} ${cmd}`;
+}
+
+/**
+ * The environment a step needs beyond the inherited one.
+ *
+ * Mirrors the textual pin so a shell construct the prefix cannot reach (a `;`
+ * separator, a leading `cd`) still gets the isolated build dir. Only for
+ * commands the pin applies to — a step that pins itself keeps its own value,
+ * because the prefix check already declined to touch it.
+ */
+function stepEnv(step) {
+  return /(^|\s)NUXT_BUILD_DIR=/.test(step.cmd) ? { NUXT_BUILD_DIR: CHECK_BUILD_DIR } : null;
+}
+
 // ── step classification ────────────────────────────────────────────────────
 // Map a raw command from a `check` chain onto a stable kind + label so the
 // report stays readable regardless of the underlying tool (oxfmt/oxlint/tsc/…).
 function classify(cmd) {
   const c = cmd.toLowerCase();
-  if (c.includes("vendor-freshness"))
-    return { fatal: false, kind: "vendor", label: "vendor-freshness" };
   // Dependency install — hoisted to ONE workspace-level run (see buildGroups):
   // api and app chains both start with `pnpm install --frozen-lockfile`, and
   // running those CONCURRENTLY (parallel groups) mutates the same workspace
   // node_modules from two processes at once.
-  if (/\b(pnpm|npm|yarn|bun)\s+(install|ci)\b/.test(c))
-    return { fatal: true, kind: "install", label: "install" };
-  if (c.includes("audit")) return { fatal: true, kind: "audit", label: "audit" };
+  //
+  // Checked BEFORE `vendor-freshness`: that branch is a plain substring test, so
+  // a command that mentions it anywhere (`pnpm install --filter vendor-freshness`)
+  // used to short-circuit past this one and land in the ordinary step list, where
+  // nothing pins NUXT_BUILD_DIR for it.
+  //
+  // Both predicates come from the pin patterns above, so a command can never be
+  // hoisted-but-unpinned. See the SINGLE SOURCE note there.
+  if (PM_INSTALL.test(c)) return { fatal: true, kind: "install", label: "install" };
+  if (PM_AUDIT.test(c)) return { fatal: true, kind: "audit", label: "audit" };
+  if (c.includes("vendor-freshness"))
+    return { fatal: false, kind: "vendor", label: "vendor-freshness" };
   if (c.includes("format:check") || c.includes("oxfmt"))
     return { fatal: true, kind: "format", label: "format" };
   if (c.includes("lint")) return { fatal: true, kind: "lint", label: "lint" };
-  if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:unit|test:ci/.test(c))
+  // A unit-only run is named explicitly, is short, and is not contention
+  // sensitive — it carries `light` so the build⊥test gate lets it through (see
+  // GATE_CLASS). A bare `pnpm test` is NOT assumed to be light: in the starters
+  // it resolves to the API e2e suite, which is exactly what the gate protects.
+  if (/(^|&|\s)(pnpm\s+)?test:unit(:|\s|$)/.test(c))
+    return { fatal: true, kind: "test", label: "test", light: true };
+  if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:ci/.test(c))
     return { fatal: true, kind: "test", label: "test" };
+  // `typecheck` runs vue-tsc / tsc, which saturates the machine just like a
+  // build — and it does NOT contain the substrings "build" or "tsc", so it used
+  // to fall through to `other` and run ungated, fully concurrent with the API
+  // e2e suite. The gate then paid its serialisation cost while the second
+  // heaviest CPU load in the chain still ran alongside the suite it protects.
+  if (/\btypecheck\b/.test(c)) return { fatal: true, kind: "build", label: "typecheck" };
   if (c.includes("build") || c.includes("nuxt build") || c.includes("tsc"))
     return { fatal: true, kind: "build", label: "build" };
   if (c.includes("check-server-start") || c.includes("server-start"))
     return { fatal: true, kind: "server", label: "server-start" };
   return { fatal: true, kind: "other", label: cmd.length > 32 ? `${cmd.slice(0, 29)}…` : cmd };
+}
+
+/**
+ * Which mutual-exclusion class a step belongs to, or null when it is ungated.
+ *
+ * The gate keeps CPU-heavy work off the contention-sensitive API e2e suite. It
+ * is deliberately CONSERVATIVE: a bare `test` step is treated as sensitive even
+ * though a project's may be light, because the two failure directions are not
+ * symmetric — too wide costs wall-clock, too narrow costs the flaky-suite bug
+ * this gate exists to fix (DEV-2524).
+ */
+export function gateClass(step) {
+  if (step.kind === "build") return "build";
+  if (step.kind === "test") return step.light ? null : "test";
+  return null;
 }
 
 // Rewrite a check-only format/lint command into its auto-fixing variant, so a
@@ -120,9 +230,22 @@ function sumMatches(clean, re) {
 // showed "16 passed" (unit only) while its 69 e2e tests ran unseen.
 function parseVitest(out) {
   const clean = stripAnsi(out);
-  const passed = sumMatches(clean, /Tests\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
+  let passed = sumMatches(clean, /Tests\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
   const files = sumMatches(clean, /Test Files\s+(?:\d+\s+failed[^\n]*?)?(\d+)\s+passed/gi);
-  const failed = sumMatches(clean, /Tests\s+(\d+)\s+failed/gi);
+  let failed = sumMatches(clean, /Tests\s+(\d+)\s+failed/gi);
+  // `node --test` (a chain may run one, e.g. over scripts/) reports in node:test format
+  // ("ℹ pass N" / "ℹ fail N", or "# pass N" under the TAP reporter), not Vitest's
+  // "Tests N passed". Without this fallback parseVitest returned null for it, so
+  // the gate tests went uncounted and a green run could show "Total 0 passed".
+  if (passed == null) {
+    passed = sumMatches(clean, /(?:^|\n)[^\S\n]*[#ℹ][^\S\n]+pass[^\S\n]+(\d+)\b/gi);
+  }
+  // Checked independently of `passed`: a node:test run that reports only
+  // failures has no `pass` line at all, and nesting this inside the branch above
+  // made those runs parse as "no tests" instead of as failures.
+  if (failed == null) {
+    failed = sumMatches(clean, /(?:^|\n)[^\S\n]*[#ℹ][^\S\n]+fail[^\S\n]+(\d+)\b/gi);
+  }
   if (passed == null && files == null) return null;
   return {
     failed: failed ?? 0,
@@ -148,17 +271,48 @@ const SEVERITIES = ["critical", "high", "moderate", "low", "info"];
 // the command's own exit code, so `check` blocks precisely when a bare
 // `<auditCmd>` would — never with a narrower scope than the chain. (The old
 // hardcoded `--prod` hid devDependency vulns for library packages.)
+/**
+ * How many findings are counted in `metadata.vulnerabilities` but absent from
+ * `advisories` — advisories suppressed via auditConfig.ignoreGhsas, plus (under
+ * pnpm) findings below `--audit-level`.
+ *
+ * `metadata.vulnerabilities` still counts suppressed advisories while
+ * `advisories` drops them, and that difference is the only signal separating an
+ * assessed advisory from a new one — without it the summary shows a permanent
+ * red "high 1" next to a green gate.
+ *
+ * Returns 0 when `advisories` is ABSENT rather than deriving from it. npm 7+
+ * emits `auditReportVersion: 2` with a `vulnerabilities` map and no `advisories`
+ * key at all, so deriving there made every finding — including a real,
+ * unassessed critical — look suppressed. That is exactly the confusion this
+ * accounting exists to prevent, produced in reverse.
+ *
+ * Named "unlisted", not "ignored": under pnpm the number also contains
+ * below-threshold findings nobody assessed. It is "counted but not listed" — an
+ * observation, not a claim about anyone's judgement.
+ */
+export function countUnlisted(parsed) {
+  const counts = parsed?.metadata?.vulnerabilities ?? null;
+  if (!parsed?.advisories) return 0;
+  const listed = Object.keys(parsed.advisories).length;
+  const counted = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
+  return Math.max(0, counted - listed);
+}
+
 async function runAudit(auditCmd) {
   const cmd = /(^|\s)--json(\s|$)/.test(auditCmd) ? auditCmd : `${auditCmd} --json`;
-  const { code, out } = await capture(cmd, ROOT);
+  const { code, out } = await capture(cmd, ROOT, 0, { NUXT_BUILD_DIR: CHECK_BUILD_DIR });
   let counts = null;
+  let unlisted = 0;
   try {
-    counts = JSON.parse(out.slice(out.indexOf("{")))?.metadata?.vulnerabilities ?? null;
+    const parsed = JSON.parse(out.slice(out.indexOf("{")));
+    counts = parsed?.metadata?.vulnerabilities ?? null;
+    unlisted = countUnlisted(parsed);
   } catch {
     /* fall through to raw reason */
   }
   const total = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
-  return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total };
+  return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total, unlisted };
 }
 
 // Watchdog: kill a TEST step whose child produces NO output for this long. A
@@ -220,9 +374,14 @@ function killTree(child, signal = "SIGTERM") {
 // idleTimeoutMs > 0 arms the no-output watchdog for this child; 0 (the default)
 // runs it unwatched. Only callers that KNOW the child streams progress (test
 // steps) should pass a timeout — see runGroup.
-function capture(cmd, cwd, idleTimeoutMs = 0) {
+function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
   return new Promise((resolve) => {
-    const child = spawn(cmd, { cwd, shell: true });
+    // `extraEnv` carries the build-dir pin as a real environment variable IN
+    // ADDITION to the textual prefix. A `VAR=value cmd` prefix binds only to the
+    // first simple command, so a step written with `;` or a leading `cd` would be
+    // reported as pinned and run unpinned. The env reaches every command in the
+    // string, and the prefix still wins where both apply (same value).
+    const child = spawn(cmd, { cwd, env: extraEnv ? { ...process.env, ...extraEnv } : process.env, shell: true });
     RUNNING.add(child);
     let out = "";
     let idleTimer = null;
@@ -325,6 +484,42 @@ function statusLines(order, states) {
 // ── project discovery + step grouping ────────────────────────────────────────
 const IS_ORCHESTRATOR = (script) => !script || script.includes("check.mjs");
 
+/**
+ * True when a command re-enters `check` across workspace members.
+ *
+ * Such a command must be stripped from the root chain: this wrapper ALREADY
+ * runs every member as its own group, so letting the fan-out through runs them
+ * a second time — and, because the root group runs under the same
+ * `Promise.all`, CONCURRENTLY with the wrapper's own member groups. That means
+ * two `pnpm install` against one node_modules (exactly what the install hoist
+ * exists to prevent), two builds writing the same build dir, and two API e2e
+ * suites sharing one database.
+ *
+ * A positive test for "re-enters check", not a match on one spelling: `run` is
+ * optional in pnpm (`pnpm -r check`), the scope may be given as `--filter`
+ * rather than `-r`, and npm/yarn/turbo/lerna/nx each spell it differently. The
+ * previous version required a literal `pnpm … run check` and let every other
+ * form survive.
+ */
+export function isRecursiveCheck(cmd) {
+  const c = cmd.toLowerCase();
+  if (!/\bcheck\b/.test(c)) return false;
+  // Fans out over workspace members. NOTE the `(?:^|\s)` rather than `\b`: there
+  // is no word boundary between a space and a `-`, so `\b-r` never matches
+  // anything — the flag forms have to be anchored on whitespace.
+  if (/(?:^|\s)(?:-r|--recursive|--filter\S*|--workspaces?|foreach)(?:\s|=|$)/.test(c)) {
+    return true;
+  }
+  // … or delegates to a monorepo task runner, which does the same.
+  return /(?:^|\s)(?:turbo|lerna|nx)(?:\s|$)/.test(c);
+}
+
+/** True when this command is hoisted to a single workspace-level run. */
+function isHoisted(cmd) {
+  const kind = classify(cmd).kind;
+  return kind === "install" || kind === "audit";
+}
+
 // Read the `packages:` globs from pnpm-workspace.yaml (monorepos). A simple
 // value-list parse — enough for the globs lt projects use (e.g. `projects/*`).
 function workspaceGlobs() {
@@ -412,12 +607,30 @@ function discoverProjects() {
       if (chain) projects.push(asProject(rel, chain));
     }
   }
+  const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  const rootChain =
+    root.scripts?.["check:raw"] ??
+    (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
   if (projects.length === 0) {
-    const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-    const chain =
-      root.scripts?.["check:raw"] ??
-      (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
-    if (chain) projects.push(asProject(".", chain));
+    if (rootChain) projects.push(asProject(".", rootChain));
+  } else if (rootChain) {
+    // With members present, the root's own chain must not be dropped: beyond
+    // install/audit (hoisted later) and the member fan-out (replaced by the
+    // member expansion above) it may carry root-ONLY steps — in the assembled
+    // monorepo that is `check:workspace` / `check:pin`, which exist precisely
+    // for the case where members are present. Strip the fan-out command and
+    // keep whatever remains as a root project.
+    const ownSteps = rootChain
+      .split("&&")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((c) => !isRecursiveCheck(c));
+    // Only when something is actually LEFT: a chain that reduces to nothing but
+    // hoisted steps would otherwise add an empty group that occupies a live-view
+    // row and reports a phantom success it never earned.
+    if (ownSteps.some((c) => !isHoisted(c))) {
+      projects.unshift(asProject(".", ownSteps.join(" && ")));
+    }
   }
   if (PROJECT_FILTERS.length)
     return projects.filter((p) =>
@@ -429,7 +642,7 @@ function discoverProjects() {
 // One group per project: its ordered, fix-mapped steps. The audit step is
 // hoisted to a single workspace-level run; its EXACT command (scope + level +
 // package manager) is captured so the run mirrors the chain's own audit.
-function buildGroups(projects) {
+export function buildGroups(projects) {
   let auditCmd = null;
   let installCmd = null;
   const groups = projects.map((project) => {
@@ -439,19 +652,36 @@ function buildGroups(projects) {
       .map((s) => s.trim())
       .filter(Boolean)) {
       const meta = classify(raw);
+      const pinned = pinCheckBuildDir(raw);
+      // Both kinds are hoisted to ONE workspace-level run and every further
+      // occurrence is dropped — deliberately, and regardless of how it is
+      // spelled: in a pnpm workspace each member's install resolves the whole
+      // workspace anyway, so a second one is redundant, and running two
+      // concurrently races on the same node_modules. The same holds for the
+      // audit, which is a workspace-wide question.
+      //
+      // This is safe to drop silently ONLY because `classify` now hoists just
+      // the real `<pm> install` / `<pm> audit` forms. A project script that
+      // merely mentions audit in its name stays an ordinary step, so a chain can
+      // no longer lose a gate here without a trace.
       if (meta.kind === "audit") {
-        if (!auditCmd) auditCmd = raw;
+        if (!auditCmd) auditCmd = pinned;
         continue;
       }
       if (meta.kind === "install") {
-        // Hoisted like the audit: one workspace-level install BEFORE the
-        // fan-out. In a pnpm workspace every member's install resolves the
-        // whole workspace anyway, and two parallel installs race on the same
-        // node_modules.
-        if (!installCmd) installCmd = raw;
+        if (!installCmd) installCmd = pinned;
         continue;
       }
-      steps.push({ ...meta, cmd: toFixCommand(meta.kind, raw), cwd: project.dir });
+      // Pinned here TOO, not only on the two hoists. classify() routes every
+      // install and audit into a hoist, so for those this is redundant — but the
+      // step list also carries the non-hoisted remainder above, and both layers
+      // are idempotent (pinCheckBuildDir never double-prefixes and never
+      // overrides an existing pin), so defending it costs nothing.
+      steps.push({
+        ...meta,
+        cmd: pinCheckBuildDir(toFixCommand(meta.kind, raw)),
+        cwd: project.dir,
+      });
     }
     return { project, steps };
   });
@@ -460,22 +690,70 @@ function buildGroups(projects) {
 
 // ── per-project runner ───────────────────────────────────────────────────────
 // Runs a group's steps in order, recording results + live state. Stops early
-// when another project already failed (abort.hit).
-async function runGroup(group, states, results, abort) {
+// when another project already failed (abort.hit). The `gate` keeps CPU-heavy
+// steps (build, typecheck) from overlapping a contention-sensitive test suite
+// across groups (DEV-2524, cause 2) — see build-test-gate.mjs.
+async function runGroup(group, states, results, abort, gate) {
   const rel = group.project.rel;
   const st = states.get(rel);
   const startedAt = Date.now();
   for (const step of group.steps) {
     if (abort.hit) return;
+    // A parallel `nuxt build` saturating the machine tips the API e2e suite's
+    // Better-Auth session validation into intermittent 401/500 (DEV-2524). Hold
+    // the two-class gate so heavy CPU work and a sensitive test suite never
+    // overlap across groups; same-class steps still run concurrently and every
+    // other step kind ignores the gate entirely.
+    const klass = gateClass(step);
+    let waited = 0;
+    if (klass) {
+      const queuedAt = Date.now();
+      st.current = `${step.label} (queued)`;
+      st.stepStart = queuedAt;
+      // Surface the wait in CI too: the step line below is only printed AFTER
+      // the acquire, so a gate-blocked group would otherwise emit nothing at all
+      // for the length of a full build and read like a hang.
+      if (!TTY) process.stdout.write(`  ${C.dim("⋯")} ${shortRel(rel)} · ${step.label} ${C.dim("(queued)")}\n`);
+      await gate.acquire(klass);
+      waited = Date.now() - queuedAt;
+      // Another group may have failed while we waited — abort before starting.
+      //
+      // Not raced against an abort signal on purpose: the fatal path calls
+      // killAll(), which terminates the holder's process tree, so its capture()
+      // resolves, its finally releases, and this waiter is admitted within
+      // milliseconds. Racing would hand the queue a waiter that never releases
+      // its slot, which is the one way to actually deadlock the opposite class.
+      if (abort.hit) {
+        gate.release();
+        return;
+      }
+    }
     st.current = step.label;
     st.stepStart = Date.now();
     if (!TTY) process.stdout.write(`  ${C.dim("→")} ${shortRel(rel)} · ${step.label}\n`);
-    // Watchdog only on test steps (see IDLE_TIMEOUT_MS): a test runner streams
-    // output continuously, so prolonged silence == deadlocked workers. Other
-    // steps buffer their output and must run unwatched.
-    const { code, out } = await capture(step.cmd, step.cwd, step.kind === "test" ? IDLE_TIMEOUT_MS : 0);
+    // Watchdog on every GATED step, not just tests. A test runner streams output
+    // continuously, so prolonged silence == deadlocked workers; a build is
+    // normally left unwatched because it buffers. But a gated build holds a slot
+    // that blocks every test step in every other group, so a wedged one now
+    // hangs the whole run rather than just its own chain — it needs the same
+    // watchdog. Ungated steps still run unwatched.
+    const watch = step.kind === "test" || klass ? IDLE_TIMEOUT_MS : 0;
+    let code;
+    let out;
+    try {
+      ({ code, out } = await capture(step.cmd, step.cwd, watch, stepEnv(step)));
+    } finally {
+      // Release on every exit path — normal completion or the fatal-failure
+      // return below. A leaked slot would deadlock the opposite class under
+      // Promise.all.
+      if (klass) gate.release();
+    }
     const dur = Date.now() - st.stepStart;
     const r = { dur, kind: step.kind, label: step.label, project: rel };
+    // Recorded separately from `dur`: the report must not hide where the
+    // wall-clock went. A step that waited 8 minutes behind another group's build
+    // and then ran for 2 is not a 2-minute step.
+    if (waited > 0) r.waited = waited;
     if (step.kind === "test") r.tests = parseVitest(out);
     if (step.kind === "lint") r.lint = parseLint(out);
     results.push(r);
@@ -534,7 +812,7 @@ async function main() {
     const t = Date.now();
     if (!TTY) process.stdout.write(`  ${C.dim("→")} install\n`);
     else drawLive([`${C.cyan(FRAMES[0])} install`]);
-    const { code, out } = await capture(installCmd, ROOT);
+    const { code, out } = await capture(installCmd, ROOT, 0, { NUXT_BUILD_DIR: CHECK_BUILD_DIR });
     const dur = Date.now() - t;
     if (code !== 0) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
@@ -558,18 +836,18 @@ async function main() {
     if (audit.blocking) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
       const summary = audit.counts
-        ? `${audit.total} vuln (${renderVulnLine(audit.counts)})`
+        ? `${audit.total} vuln (${renderVulnLine(audit.counts, audit.unlisted, true)})`
         : "failed";
       console.log(`${C.red("✗")} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
       return fail(
         `audit (${auditCmd})`,
-        audit.counts ? renderVulnLine(audit.counts) : audit.reason,
+        audit.counts ? renderVulnLine(audit.counts, audit.unlisted, true) : audit.reason,
         started,
       );
     }
     if (!TTY) {
       process.stdout.write(
-        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts, audit.unlisted) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
     }
     // TTY success: NO permanent line — the live status view overwrites the audit
@@ -583,16 +861,20 @@ async function main() {
   const order = groups.map((g) => g.project.rel);
   const states = new Map(order.map((rel) => [rel, { current: "queued" }]));
   const abort = { failure: null, hit: false };
+  // Serializes CPU-heavy `build` steps against the contention-sensitive `test`
+  // suites across groups so a parallel `nuxt build` can never destabilize the
+  // API-e2e run (DEV-2524). Inert in --sequential mode (steps never overlap).
+  const gate = createBuildTestGate();
   const ticker = TTY ? setInterval(() => drawLive(statusLines(order, states)), 80) : null;
   if (TTY) drawLive(statusLines(order, states));
 
   if (SEQUENTIAL) {
     for (const g of groups) {
-      await runGroup(g, states, results, abort);
+      await runGroup(g, states, results, abort, gate);
       if (abort.hit) break;
     }
   } else {
-    await Promise.all(groups.map((g) => runGroup(g, states, results, abort)));
+    await Promise.all(groups.map((g) => runGroup(g, states, results, abort, gate)));
   }
 
   if (ticker) clearInterval(ticker);
@@ -605,19 +887,38 @@ async function main() {
 }
 
 // ── rendering helpers ─────────────────────────────────────────────────────────
-function renderVulnLine(counts) {
-  return SEVERITIES.map((s) => {
+// `unlisted` = counted in `metadata.vulnerabilities` but absent from `advisories`
+// — advisories suppressed via auditConfig.ignoreGhsas, and (under pnpm) findings
+// below `--audit-level`. Without accounting for them the line reads as an
+// unresolved finding forever.
+//
+// `blocking` is what decides whether dimming is allowed at all. Dimming says "you
+// already looked at this"; on a run the gate is FAILING, that is exactly the wrong
+// thing to say, and it used to be said — a real critical rendered grey and
+// labelled. When the gate fails, the numbers stay loud whatever the derivation
+// suggests.
+function renderVulnLine(counts, unlisted = 0, blocking = false) {
+  const total = SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0);
+  const allUnlisted = !blocking && unlisted > 0 && unlisted >= total;
+  const line = SEVERITIES.map((s) => {
     const n = counts[s] || 0;
     const txt = `${s} ${n}`;
-    if (n > 0 && (s === "critical" || s === "high")) return C.red(txt);
-    return n > 0 ? C.yellow(txt) : C.dim(txt);
+    if (n === 0 || allUnlisted) return C.dim(txt);
+    if (s === "critical" || s === "high") return C.red(txt);
+    return C.yellow(txt);
   }).join(C.dim(" · "));
+  return unlisted > 0 ? `${line}${C.dim(` (${unlisted} not listed)`)}` : line;
 }
 
 function metricSuffix(r) {
   if (r.kind === "test" && r.tests?.passed != null) {
     const failed = r.tests.failed ? C.red(` / ${r.tests.failed} failed`) : "";
     return `  ${C.dim(`${r.tests.passed} passed${r.tests.files != null ? ` / ${r.tests.files} files` : ""}`)}${failed}`;
+  }
+  if (r.waited != null && r.waited >= 1000) {
+    // The gate wait is NOT part of `dur`, so without this the report would show
+    // a two-minute step that actually occupied ten minutes of wall-clock.
+    return `  ${C.dim(`queued ${fmtDuration(r.waited)}`)}`;
   }
   if (r.kind === "lint" && r.lint) {
     return r.lint.warnings > 0
@@ -655,17 +956,36 @@ function report(started, results) {
   console.log(C.green(bar));
 
   console.log(`\n${C.bold("Steps")}`);
-  for (const r of results.filter((x) => x.kind !== "audit")) {
-    console.log(
-      `  ${C.green("✓")} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
-    );
+  const steps = results.filter((x) => x.kind !== "audit");
+  // Group by project when more than one is involved: workspace-level steps
+  // (hoisted install/audit, root-only checks) under "monorepo", then one block
+  // per member. Steps within a project run sequentially, so per-group order is
+  // chain order. A single-project run keeps the flat list — a header is noise.
+  const stepGroups = [...new Set(steps.map((r) => r.project))].sort((a, b) =>
+    a === "." ? -1 : b === "." ? 1 : shortRel(a).localeCompare(shortRel(b)),
+  );
+  if (stepGroups.length > 1) {
+    for (const project of stepGroups) {
+      console.log(`  ${C.bold(project === "." ? "monorepo" : shortRel(project))}`);
+      for (const r of steps.filter((x) => x.project === project)) {
+        console.log(
+          `    ${C.green("✓")} ${r.label.padEnd(24)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+        );
+      }
+    }
+  } else {
+    for (const r of steps) {
+      console.log(
+        `  ${C.green("✓")} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+      );
+    }
   }
 
   console.log(
     `\n${C.bold("Vulnerabilities")} ${C.dim(audit ? `(${audit.auditCmd})` : "(no audit step)")}`,
   );
   console.log(
-    `  ${audit?.counts ? renderVulnLine(audit.counts) : C.dim(audit ? "counts unavailable" : "—")}`,
+    `  ${audit?.counts ? renderVulnLine(audit.counts, audit.unlisted, audit.blocking) : C.dim(audit ? "counts unavailable" : "—")}`,
   );
 
   console.log(`\n${C.bold("Tests")}`);
@@ -691,7 +1011,57 @@ function report(started, results) {
   console.log(`\n${C.green("All checks passed.")}\n`);
 }
 
-main().catch((err) => {
-  console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
-  process.exit(1);
-});
+// Run only when invoked as the CLI (`node scripts/check.mjs`). Importing this
+// module must never kick off a full check run — a sibling test does exactly
+// that to assert the pure helpers, where the project has one. (Do not name a
+// specific test file here: a project scaffolded by `lt fullstack init` ships
+// one, a project migrated by `lt fullstack update` does not, and naming it
+// tells half the readers to look for something that was never installed.)
+//
+// Split into a pure DECISION and its side effect on purpose. With the
+// `process.exit(1)` inlined, the fail-closed branch was unreachable from a test
+// (it would take the test process down with it), so nothing caught a regression
+// that turned it into a silent `return false` — which is exactly the "green gate
+// that never ran" this guard exists to prevent.
+export function resolveCliEntry(entry = process.argv[1], self = fileURLToPath(import.meta.url)) {
+  if (!entry) return { isEntry: false };
+  try {
+    return { isEntry: realpathSync(entry) === realpathSync(self) };
+  } catch (err) {
+    // "Cannot tell" is NOT "not the entry" — the caller must fail closed.
+    return { isEntry: false, unresolvable: err };
+  }
+}
+
+function isCliEntry() {
+  const { isEntry, unresolvable } = resolveCliEntry();
+  if (unresolvable) {
+    // Fail CLOSED. Treating this as "not the CLI" would make `node
+    // scripts/check.mjs` print nothing and exit 0 — a green gate that never ran.
+    process.stderr.write(
+      `[check] cannot resolve the CLI entry (${unresolvable?.code || unresolvable}) — refusing to report success\n`,
+    );
+    process.exit(1);
+  }
+  return isEntry;
+}
+
+if (isCliEntry()) {
+  // Never leave the child tree behind. Without this, Ctrl-C or a crash detaches
+  // every running `pnpm test` / build / e2e fork pool: they keep the test
+  // database and ports held, and the next run fails for a reason that has
+  // nothing to do with the code.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.on(signal, () => {
+      killAll();
+      // Conventional 128+n, and it makes the interruption distinguishable from
+      // an ordinary failure.
+      process.exit(signal === "SIGINT" ? 130 : 143);
+    });
+  }
+  main().catch((err) => {
+    killAll();
+    console.error(C.red(`\ncheck.mjs crashed: ${err?.stack || err}`));
+    process.exit(1);
+  });
+}
