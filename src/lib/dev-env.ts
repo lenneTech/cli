@@ -18,6 +18,8 @@
  *   subdomains succeed. Without this Nuxt SSR fails with "unable to
  *   get local issuer certificate" when the app calls its own API.
  */
+import { createHash } from 'node:crypto';
+
 import { detectCaddyRootCa } from './dev-env-bridge';
 import { DevIdentity } from './dev-identity';
 
@@ -108,6 +110,17 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         // same-origin trickery is no longer required.
         NUXT_PUBLIC_API_PROXY: 'false',
         NUXT_PUBLIC_STORAGE_PREFIX: identity.slug,
+        // Nuxt/h3 sessions refuse to start without a password (>= 32 chars): every login
+        // answers 500 "H3Error: Empty password". `nuxt dev` papers over this by reading the
+        // project's .env, but `lt dev test` serves the *built* Nitro server, which never does —
+        // so a project with a perfectly good .env still saw half its E2E suite fail on an error
+        // that has nothing to do with its tests.
+        //
+        // Derived from the slug rather than random so sessions survive a restart and every
+        // shard of `lt dev test --shard N` agrees. Local-only by construction: it never reaches
+        // a deployed environment, and a project that sets its own value keeps it (baseEnv wins
+        // because this key is only added when the inherited env has none).
+        ...(baseEnv.NUXT_SESSION_PASSWORD ? {} : { NUXT_SESSION_PASSWORD: deriveSessionPassword(identity.slug) }),
         PORT: String(appInternalPort),
         // macOS: the default $TMPDIR (/var/folders/…/T/, ~49 chars) pushes Nuxt's
         // vite-node IPC socket path past the 104-char UNIX sun_path limit, so the
@@ -124,4 +137,16 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
 /** Postgres convenience URL — used by Postgres-based projects (e.g. nest-base). */
 function buildPostgresUrl(dbName: string): string {
   return `postgresql://${dbName}:${dbName}@localhost:5432/${dbName}`;
+}
+
+/**
+ * Stable local session password for a project's app process.
+ *
+ * 32 hex chars — h3 rejects anything shorter. Deterministic per slug: the same project always
+ * gets the same value, so restarting the stack does not invalidate open sessions and parallel
+ * shards stay consistent. Not a secret in any meaningful sense and not meant to be one; it exists
+ * so a local stack boots without hand-set environment variables.
+ */
+function deriveSessionPassword(slug: string): string {
+  return createHash('sha256').update(`lt-dev:session:${slug}`).digest('hex').slice(0, 32);
 }

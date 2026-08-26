@@ -28,6 +28,46 @@ describe('dev-env / buildDevEnv', () => {
     expect(env.app.env.NUXT_PUBLIC_STORAGE_PREFIX).toBe('crm');
   });
 
+  test('gives the App a session password so logins work on the built server', () => {
+    // Regression: `lt dev test` serves the *built* Nitro server, which never reads the project's
+    // .env. Without a password every login answered 500 ("H3Error: Empty password") and roughly
+    // half of a project's Playwright suite failed on a cause unrelated to its tests.
+    const env = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity });
+
+    // h3 rejects anything shorter than 32 characters
+    expect(env.app.env.NUXT_SESSION_PASSWORD).toHaveLength(32);
+  });
+
+  test('derives the session password deterministically per project', () => {
+    const first = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity });
+    const second = buildDevEnv({ apiInternalPort: 4020, appInternalPort: 4021, identity: fullIdentity });
+
+    // Same slug → same value, so a restart does not invalidate open sessions and every shard
+    // of `lt dev test --shard N` agrees
+    expect(second.app.env.NUXT_SESSION_PASSWORD).toBe(first.app.env.NUXT_SESSION_PASSWORD);
+
+    const other = buildDevEnv({
+      apiInternalPort: 4010,
+      appInternalPort: 4011,
+      identity: { ...fullIdentity, slug: 'shop' },
+    });
+
+    // Different project → different value, so one stack's cookies never validate against another
+    expect(other.app.env.NUXT_SESSION_PASSWORD).not.toBe(first.app.env.NUXT_SESSION_PASSWORD);
+  });
+
+  test('never overrides a session password the project already set', () => {
+    // A project with real session data must keep its own value — lt dev only fills the gap
+    const env = buildDevEnv({
+      apiInternalPort: 4010,
+      appInternalPort: 4011,
+      baseEnv: { NUXT_SESSION_PASSWORD: 'project-owned-value-with-32-chars' },
+      identity: fullIdentity,
+    });
+
+    expect(env.app.env.NUXT_SESSION_PASSWORD).toBe('project-owned-value-with-32-chars');
+  });
+
   test('pins HOST to 127.0.0.1 for both API and App so Caddy upstream stays unambiguous', () => {
     // Regression: without HOST=127.0.0.1 Nuxt / Nest may bind to
     // `[::1]` only on macOS, and Caddy's IPv4 upstream gets a
