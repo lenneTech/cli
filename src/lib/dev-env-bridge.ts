@@ -83,6 +83,9 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
     'NUXT_PUBLIC_SITE_URL',
     'NUXT_PUBLIC_STORAGE_PREFIX',
     'NUXT_PUBLIC_API_PROXY',
+    // Not needed by the runner itself, but external suites check it to tell a stack that
+    // can log in from one that will 500 on every login (see dev-env.ts).
+    'NUXT_SESSION_PASSWORD',
     'NSC__MONGOOSE__URI',
     'DATABASE_URL',
     // Legacy aliases — see dev-env.ts for the rationale.
