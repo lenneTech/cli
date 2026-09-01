@@ -113,7 +113,21 @@ describe('fullstack init pnpm/identity fixups (integration)', () => {
     setPackageName({ filesystem, name: 'crm', packageJsonPath: `${projectDir}/package.json` });
 
     // ── Step 2: hoist workspace-scoped pnpm config (init.ts).
-    hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects: ['projects/api', 'projects/app'] });
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    // The fixture models the real template shapes, and they genuinely disagree:
+    // api pins `fast-xml-parser@<5.7.0` to 5.7.4, app to 5.7.5. Asserting it
+    // here pins the detector against realistic input rather than only against
+    // purpose-built two-key cases, and documents that the merge below resolves
+    // it to the app's value WITHOUT the detector changing that outcome.
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('fast-xml-parser');
+    expect(conflicts[0]).toContain('5.7.4');
+    expect(conflicts[0]).toContain('5.7.5');
 
     const ws = readYaml(`${projectDir}/pnpm-workspace.yaml`);
 

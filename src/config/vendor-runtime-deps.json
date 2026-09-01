@@ -1,5 +1,4 @@
 {
-  "$schema": "./vendor-runtime-deps.schema.json",
-  "description": "Upstream @lenne.tech/nest-server devDependencies that are actually needed at runtime in a consumer project. When vendoring, these entries are promoted from upstream devDependencies into the project's dependencies so production runtime has them available.",
-  "runtimeHelpers": ["find-file-up"]
+  "$comment": "Upstream @lenne.tech/nest-server DEVDEPENDENCIES that must land in a vendored project's `dependencies`. Vendoring copies upstream `dependencies` verbatim and does not read `peerDependencies` at all, so a package the framework imports at runtime while keeping it in devDependencies would never reach the production runtime. Entries here are matched against upstream `devDependencies` only — see `isVendorRuntimeDep`, consulted in the `upstreamDevDeps` loop in `extensions/server.ts` — and promoted into `dependencies`, preferring the upstream peer RANGE over the exact devDep pin where one exists, so a generated project still receives patch-level security fixes. A package that appears ONLY in upstream `peerDependencies` cannot be promoted by this list: listing it here is a silent no-op. Two live cases: `find-file-up` (imported by the config loader, devDependency only), and the better-auth trio (declared as peerDependencies AND mirrored into devDependencies upstream; the mirror is what makes the promotion fire, so this list is the fallback if the starter ever stops declaring them itself).",
+  "runtimeHelpers": ["@better-auth/core", "@better-auth/passkey", "better-auth", "find-file-up"]
 }

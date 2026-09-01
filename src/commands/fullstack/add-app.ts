@@ -2,7 +2,12 @@ import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { failRun } from '../../lib/fail-run';
-import { detectWorkspaceLayout, finalizeWorkspaceRoot, findWorkspaceRoot } from '../../lib/workspace-integration';
+import {
+  detectWorkspaceLayout,
+  finalizeWorkspaceRoot,
+  findWorkspaceRoot,
+  reportWorkspaceConflicts,
+} from '../../lib/workspace-integration';
 
 /**
  * Add a frontend app (`projects/app/`) to a fullstack workspace that
@@ -280,7 +285,11 @@ const NewCommand: GluegunCommand = {
     // carry pnpm.overrides too), drop the frontend starter's standalone
     // pnpm-lock.yaml the root supersedes, and guarantee a root `.dockerignore`
     // (else the image inherits the host's node_modules, .output and .env).
-    finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
+    // A disagreement between the two repos is not something the merge may decide
+    // silently. Reported here, and repeated in the closing block — this call site
+    // sits directly above the install output that would otherwise bury it.
+    const { conflicts } = finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
+    reportWorkspaceConflicts(conflicts, toolbox.print.warning);
 
     if (!skipInstall) {
       const installSpinner = spin('Install workspace packages');
@@ -301,6 +310,7 @@ const NewCommand: GluegunCommand = {
     info('');
     success(`App integrated into ${workspaceDir} in ${toolbox.helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+    reportWorkspaceConflicts(conflicts, toolbox.print.warning);
     info('Next:');
     info(`  $ cd ${workspaceDir}`);
     info(`  $ ${toolbox.pm.run('start')}`);

@@ -65,6 +65,461 @@ describe('hoistWorkspacePnpmConfig', () => {
     expect(readJson(`${tempDir}/projects/api/package.json`).pnpm).toBeUndefined();
   });
 
+  // -------------------------------------------------------------------------
+  // Sub-vs-sub conflicts.
+  //
+  // The merge is last-writer-wins, which is RIGHT for root-vs-sub (a sub-project
+  // owns the authoritative list for its own transitive deps) and a trap for
+  // sub-vs-sub: two projects pinning one package to different versions produce a
+  // single silent winner, picked by iteration order. Nothing downstream can tell
+  // that apart from a deliberate decision — the generated workspace just carries
+  // one of the two values with no record that the other existed.
+  //
+  // This matters most for the packages api and app SHARE. better-auth is the
+  // worked example: it is one protocol with two ends, so a version split there is
+  // a client and a server disagreeing about their own wire format.
+  // -------------------------------------------------------------------------
+
+  it('reports two sub-projects pinning the same package to different versions', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { overrides: { 'better-auth': '1.7.2' } },
+    });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    // The message must name both values and both sources — a bare "conflict"
+    // sends the reader hunting through two repos.
+    expect(conflicts[0]).toContain('better-auth');
+    expect(conflicts[0]).toContain('1.7.1');
+    expect(conflicts[0]).toContain('1.7.2');
+    expect(conflicts[0]).toContain('projects/api');
+    expect(conflicts[0]).toContain('projects/app');
+  });
+
+  it('stays silent when two sub-projects agree on the same value', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toEqual([]);
+    expect(rootWs().overrides).toEqual({ 'better-auth': '1.7.1' });
+  });
+
+  it('does not treat root-vs-sub precedence as a conflict', () => {
+    // The root only seeds; a sub-project overriding it is the documented,
+    // intended behaviour and must not produce noise.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ overrides: { lodash: '4.17.0' } });
+    filesystem.dir(`${tempDir}/projects/api`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { lodash: '4.18.1' } },
+    });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api'],
+    });
+
+    expect(conflicts).toEqual([]);
+    expect(rootWs().overrides.lodash).toBe('4.18.1');
+  });
+
+  it('detects a conflict across the two config sources of different sub-projects', () => {
+    // api declares it in package.json#pnpm, app in its own pnpm-workspace.yaml.
+    // Both are legal, and the disagreement must be caught either way.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app' });
+    filesystem.write(
+      `${tempDir}/projects/app/pnpm-workspace.yaml`,
+      dump({ overrides: { 'better-auth': '1.6.26' } }),
+    );
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('1.6.26');
+    // Both ends must be named. A message that identifies only one of them
+    // leaves the reader to guess which repo carries the other value.
+    expect(conflicts[0]).toContain('projects/api');
+    expect(conflicts[0]).toContain('projects/app');
+  });
+
+  it('keeps the merge report-only — the last writer still wins', () => {
+    // Detection deliberately does not change the outcome. Pinned so a later
+    // "fix" that aborts or reorders the merge cannot pass silently.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { overrides: { 'better-auth': '1.7.2' } },
+    });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(rootWs().overrides['better-auth']).toBe('1.7.2');
+  });
+
+  it('catches a sub-project contradicting ITSELF across its two config sources', () => {
+    // `sourceLabel` names the FILE, not the sub-project. Sharing one label
+    // across both of a project's sources hid this: the yaml value won and the
+    // root ended up on the OLDER pin with no output at all.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, dump({ overrides: { 'better-auth': '1.0.0' } }));
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('projects/api/package.json#pnpm');
+    expect(conflicts[0]).toContain('projects/api/pnpm-workspace.yaml');
+  });
+
+  it('reports a disagreement in `allowBuilds`, the other object-valued field', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { allowBuilds: { 'msgpackr-extract': false } },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { allowBuilds: { 'msgpackr-extract': true } },
+    });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    // …and the DENY wins. `allowBuilds` decides which packages may run a
+    // postinstall script, so last-writer-wins would resolve the disagreement in
+    // favour of executing code one sub-project explicitly refused.
+    expect(rootWs().allowBuilds).toEqual({ 'msgpackr-extract': false });
+    expect(rootWs().onlyBuiltDependencies).toEqual([]);
+    // The message must say what actually happened. An earlier version announced
+    // the incoming value as the winner for every field, so for `allowBuilds` it
+    // stated the opposite of the file it had just written.
+    expect(conflicts[0]).toContain('keeps false');
+    expect(conflicts[0]).not.toContain('would silently win');
+  });
+
+  it('does not mistake YAML 1.2 `no` for a disagreement with JSON `false`', () => {
+    // js-yaml 4 parses `esbuild: no` as the STRING 'no'; the same intent in
+    // package.json#pnpm is the BOOLEAN false. `syncBuildAllowlists` narrows both
+    // to false, so reporting them sends someone through two repos over two
+    // spellings of "deny".
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', pnpm: { allowBuilds: { esbuild: false } } });
+    filesystem.write(`${tempDir}/projects/app/pnpm-workspace.yaml`, 'allowBuilds:\n  esbuild: no\n');
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toEqual([]);
+  });
+
+  it('reports the incremental add-api → add-app case, where the api is already hoisted', () => {
+    // Hoisting is destructive: the api's `pnpm` block is gone from its
+    // package.json once it reaches the root. A later `add-app` therefore sees
+    // only root-vs-sub and used to stay silent while the app overwrote the api's
+    // pin. The signal is a sub-project that is present but contributed nothing.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { 'better-auth': '1.7.1' } },
+    });
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
+
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { overrides: { 'better-auth': '1.7.2' } },
+    });
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('better-auth');
+    expect(conflicts[0]).toContain('1.7.1');
+    expect(conflicts[0]).toContain('1.7.2');
+    // Names the sibling whose earlier contribution the root value came from.
+    expect(conflicts[0]).toContain('projects/api');
+    // For `overrides` the incoming value really does win, and the message says so.
+    expect(conflicts[0]).toContain('which now wins');
+    expect(rootWs().overrides['better-auth']).toBe('1.7.2');
+  });
+
+  it('reports the incremental case for allowBuilds without misnaming the winner', () => {
+    // Same shape as above, but `applyDenyWins` means the incoming value does NOT
+    // win. A generic "which now wins" would state the opposite of the file the
+    // command just wrote — the reader would go hunting for an allowed build
+    // script that was in fact denied.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { allowBuilds: { 'msgpackr-extract': false } },
+    });
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
+
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { allowBuilds: { 'msgpackr-extract': true } },
+    });
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('keeps false');
+    expect(conflicts[0]).not.toContain('which now wins');
+    expect(rootWs().allowBuilds).toEqual({ 'msgpackr-extract': false });
+    expect(rootWs().onlyBuiltDependencies).toEqual([]);
+  });
+
+  it('stays silent when every sub-project contributes — the root only seeds', () => {
+    // The `lt fullstack init` path. Both halves are unhoisted, so overriding the
+    // template's own seed is the documented precedence, not a disagreement.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    seedRootWs({ overrides: { lodash: '4.17.0' } });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', pnpm: { overrides: { lodash: '4.18.1' } } });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', pnpm: { overrides: { vite: '7.0.0' } } });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toEqual([]);
+  });
+
+  it('escapes a control character smuggled through an overrides KEY', () => {
+    // An ESC in the key would otherwise reach the terminal raw and could erase
+    // and repaint the line — i.e. hide the very warning being printed.
+    const evil = `lodash${String.fromCharCode(27)}[2K${String.fromCharCode(27)}[32m all good`;
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', pnpm: { overrides: { [evil]: '1' } } });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', pnpm: { overrides: { [evil]: '2' } } });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(/[\u0000-\u0008\u000B-\u001F\u007F]/.test(conflicts[0])).toBe(false);
+  });
+
+  it('redacts credentials embedded in a conflicting overrides value', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { overrides: { pkg: 'git+https://user:s3cr3t@host/org/repo' } },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', pnpm: { overrides: { pkg: '2.0.0' } } });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts[0]).not.toContain('s3cr3t');
+    expect(conflicts[0]).toContain('***');
+  });
+
+  it('reports that hoisting widened the audit suppressions workspace-wide', () => {
+    // A union cannot produce a two-valued conflict, but an advisory assessed
+    // against ONE package's tree now covers every package in the workspace —
+    // and the audit job is the generated project's only automated vuln gate.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      dump({ auditConfig: { ignoreGhsas: ['GHSA-aaaa-bbbb-cccc'] } }),
+    );
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('auditConfig');
+    expect(conflicts[0]).toContain('projects/api');
+  });
+
+  it('stays silent for an empty auditConfig — nothing was actually suppressed', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, dump({ auditConfig: { ignoreGhsas: [] } }));
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api'],
+    });
+
+    expect(conflicts).toEqual([]);
+  });
+
+  it('does not report array-valued fields, which union instead of overwriting', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, {
+      name: 'api',
+      pnpm: { ignoredOptionalDependencies: ['@img/a'] },
+    });
+    writeJson(`${tempDir}/projects/app/package.json`, {
+      name: 'app',
+      pnpm: { ignoredOptionalDependencies: ['@img/b'] },
+    });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toEqual([]);
+    expect(rootWs().ignoredOptionalDependencies).toEqual(['@img/a', '@img/b']);
+  });
+
+  it('chains the comparison across three sub-projects', () => {
+    // Provenance keeps only the last writer, so A≠B and B≠C are reported while
+    // A and C are never compared directly. Pinned so the count is a decision,
+    // not an accident.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    for (const [dir, version] of [
+      ['api', '1.0.0'],
+      ['app', '2.0.0'],
+      ['admin', '1.0.0'],
+    ]) {
+      filesystem.dir(`${tempDir}/projects/${dir}`);
+      writeJson(`${tempDir}/projects/${dir}/package.json`, { name: dir, pnpm: { overrides: { pkg: version } } });
+    }
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app', 'projects/admin'],
+    });
+
+    expect(conflicts).toHaveLength(2);
+  });
+
+  it('survives a recursive YAML anchor instead of aborting the whole hoist', () => {
+    // `js-yaml` resolves `&o … *o` into a circular object; `JSON.stringify`
+    // throws on it, which would take `lt fullstack init` down with it.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    filesystem.write(`${tempDir}/projects/api/pnpm-workspace.yaml`, 'overrides: &o\n  self: *o\n');
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', pnpm: { overrides: { self: 'x' } } });
+
+    expect(() =>
+      hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] }),
+    ).not.toThrow();
+  });
+
+  it('ignores a non-object value where a map is expected', () => {
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.dir(`${tempDir}/projects/app`);
+    writeJson(`${tempDir}/projects/api/package.json`, { name: 'api', pnpm: { overrides: 'oops' } });
+    writeJson(`${tempDir}/projects/app/package.json`, { name: 'app', pnpm: { overrides: { pkg: '1' } } });
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toEqual([]);
+  });
+
   it('dedupes and sorts `ignoredOptionalDependencies` arrays', () => {
     writeJson(`${tempDir}/package.json`, { name: 'root' });
     filesystem.dir(`${tempDir}/projects/app`);
@@ -470,8 +925,9 @@ describe('hoistWorkspacePnpmConfig — comment preservation', () => {
     if (filesystem.exists(tempDir)) filesystem.remove(tempDir);
   });
 
-  const hoist = (): void =>
+  const hoist = (): void => {
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+  };
   const rootText = (): string => filesystem.read(`${tempDir}/pnpm-workspace.yaml`) || '';
 
   const SUB_WS = [

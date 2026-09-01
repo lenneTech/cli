@@ -175,18 +175,33 @@ export function detectWorkspaceLayout(workspaceDir: string, filesystem: GluegunF
  *      sub-project's own `.dockerignore` when building from the root context).
  *
  * Each step is a no-op when there is nothing to do, so re-runs are safe.
+ *
+ * Returns what step 1 found and could not resolve on its own: keys set to
+ * different values by two different sources, audit suppressions that hoisting
+ * has just widened to the whole workspace, and — in the incremental flow — a
+ * value this run changes that an earlier run had hoisted from the other
+ * sub-project. Callers should surface all of them; a contradiction here reaches
+ * every project generated from the templates.
+ *
+ * Detection is per invocation and hoisting is destructive: a field is deleted
+ * from its source once it reaches the root. So `lt fullstack init` on a fresh
+ * directory, where both halves are still unhoisted, is the only path that sees
+ * two competing values directly. `add-api` → `add-app` is covered by the weaker
+ * "the root already pinned this, and a sibling contributed nothing" signal,
+ * which names the sibling and asks rather than asserts.
  */
 export function finalizeWorkspaceRoot(options: {
   filesystem: GluegunFilesystem;
   projectDir: string;
   subProjects?: string[];
-}): void {
+}): { conflicts: string[] } {
   const { filesystem, projectDir } = options;
   const subProjects = options.subProjects ?? ['projects/api', 'projects/app'];
-  hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects });
+  const { conflicts } = hoistWorkspacePnpmConfig({ filesystem, projectDir, subProjects });
   hoistPackageManager({ filesystem, projectDir, subProjects });
   removeNestedLockfiles({ filesystem, projectDir, subProjects });
   ensureRootDockerignore({ filesystem, projectDir });
+  return { conflicts };
 }
 
 /**
@@ -306,6 +321,26 @@ export function reconfigureUpstreamForDownstream(options: {
 
   filesystem.write(upstreamPath, next, { jsonIndent: 2 });
   return { updated: true };
+}
+
+/**
+ * Surface what `finalizeWorkspaceRoot` could not decide.
+ *
+ * Shared by all three fullstack scaffolders so the wording — and the fact that
+ * it is printed at all — cannot drift between them. Called TWICE per command:
+ * once where the conflict arises, and once in the closing block, because the
+ * first call lands immediately before `pnpm install` and several hundred lines
+ * of install output bury it. Nothing here changes the exit code: the workspace
+ * is still assembled, and the disagreement needs a human decision in two
+ * repositories rather than a failed scaffold.
+ *
+ * A no-op for the overwhelmingly common empty case, so callers can call it
+ * unconditionally.
+ */
+export function reportWorkspaceConflicts(conflicts: string[], warn: (message: string) => void): void {
+  for (const conflict of conflicts) {
+    warn(`[workspace] ${conflict}`);
+  }
 }
 
 /**

@@ -1167,7 +1167,7 @@ lt fullstack add-api [options]
 - `projects/api/` already exists → suggests `lt fullstack init` in a fresh directory
 - no workspace detected at the target path → asks the user to run `lt fullstack init` first
 
-**Side effects:** writes `projects/api/lt.config.json` with the resolved `apiMode` + `frameworkMode`, hoists workspace-scoped `pnpm.overrides` from sub-projects to the root, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set).
+**Side effects:** writes `projects/api/lt.config.json` with the resolved `apiMode` + `frameworkMode`, hoists workspace-scoped `pnpm.overrides` from sub-projects to the root, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set). It warns (`[workspace] …`) when two sources set the same pnpm key to different values, when hoisting widens the audit suppressions workspace-wide, or when it overwrites a value an earlier run hoisted from the other sub-project; the warnings do not change the exit code and are repeated at the end of the run.
 
 **Configuration:** Reads `commands.fullstack.*` (same keys as `lt fullstack init`).
 
@@ -1200,7 +1200,7 @@ lt fullstack add-app [options]
 - `projects/app/` already exists → suggests `lt fullstack init` in a fresh directory
 - no workspace detected at the target path → asks the user to run `lt fullstack init` first
 
-**Side effects:** patches `projects/app/.env` with a project-specific `NUXT_PUBLIC_STORAGE_PREFIX`, optionally vendorizes `nuxt-extensions` into `app/core/`, hoists workspace-scoped `pnpm.overrides`, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set).
+**Side effects:** patches `projects/app/.env` with a project-specific `NUXT_PUBLIC_STORAGE_PREFIX`, optionally vendorizes `nuxt-extensions` into `app/core/`, hoists workspace-scoped `pnpm.overrides`, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set). It warns (`[workspace] …`) when two sources set the same pnpm key to different values, when hoisting widens the audit suppressions workspace-wide, or when it overwrites a value an earlier run hoisted from the other sub-project; the warnings do not change the exit code and are repeated at the end of the run.
 
 **Configuration:** Reads `commands.fullstack.*` (same keys as `lt fullstack init`).
 

@@ -1157,12 +1157,18 @@ export class Server {
     // transitive deps into the project's package.json (step 5 below).
     let upstreamDeps: Record<string, string> = {};
     let upstreamDevDeps: Record<string, string> = {};
+    let upstreamPeerDeps: Record<string, string> = {};
     let upstreamVersion = '';
     try {
       const upstreamPkg = filesystem.read(`${tmpClone}/package.json`, 'json') as Record<string, any>;
       if (upstreamPkg && typeof upstreamPkg === 'object') {
         upstreamDeps = (upstreamPkg.dependencies as Record<string, string>) || {};
         upstreamDevDeps = (upstreamPkg.devDependencies as Record<string, string>) || {};
+        // Read for the version RANGE only, never as a source of packages: the
+        // promotion below still keys off devDependencies. A peer range is the
+        // spec upstream actually supports, whereas the devDep entry beside it is
+        // an exact pin that exists for the framework's own CI.
+        upstreamPeerDeps = (upstreamPkg.peerDependencies as Record<string, string>) || {};
         upstreamVersion = (upstreamPkg.version as string) || '';
       }
     } catch {
@@ -1675,9 +1681,13 @@ export class Server {
         if (!pkg.devDependencies) pkg.devDependencies = {};
         const devDeps = pkg.devDependencies as Record<string, string>;
         for (const [depName, depVersion] of Object.entries(upstreamDevDeps)) {
-          // Runtime-needed devDeps → promote to dependencies
+          // Runtime-needed devDeps → promote to dependencies. Prefer the peer
+          // RANGE when upstream declares one: the devDep entry beside it is an
+          // exact pin for the framework's own CI, and baking that into a
+          // generated project means `pnpm update` never delivers a patch-level
+          // fix — the wrong default for an auth library like better-auth.
           if (this.isVendorRuntimeDep(depName) && !(depName in deps)) {
-            deps[depName] = depVersion;
+            deps[depName] = upstreamPeerDeps[depName] ?? depVersion;
             continue;
           }
           // @types/<pkg> where <pkg> is a runtime dep → accept as devDep

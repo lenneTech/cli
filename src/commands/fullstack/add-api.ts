@@ -7,6 +7,7 @@ import {
   finalizeWorkspaceRoot,
   findWorkspaceRoot,
   reconfigureUpstreamForDownstream,
+  reportWorkspaceConflicts,
   runExperimentalNestBaseRename,
   writeApiConfig,
 } from '../../lib/workspace-integration';
@@ -357,7 +358,11 @@ const NewCommand: GluegunCommand = {
     // non-root level pnpm ignores), drop nested lockfiles the root supersedes,
     // and guarantee a root `.dockerignore` (Docker never reads a sub-project's
     // own when building from the root context).
-    finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
+    // A disagreement between the two repos is not something the merge may decide
+    // silently. Reported here, and repeated in the closing block — this call site
+    // sits directly above the install output that would otherwise bury it.
+    const { conflicts } = finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
+    reportWorkspaceConflicts(conflicts, toolbox.print.warning);
 
     // Run install + format unless explicitly skipped (CI/agents may
     // want to chain multiple add-* calls before installing once).
@@ -385,6 +390,7 @@ const NewCommand: GluegunCommand = {
     info('');
     success(`API integrated into ${workspaceDir} in ${toolbox.helper.msToMinutesAndSeconds(timer())}m.`);
     info('');
+    reportWorkspaceConflicts(conflicts, toolbox.print.warning);
     info('Next:');
     if (experimental) {
       info(`  $ cd ${workspaceDir}/projects/api && bun install`);

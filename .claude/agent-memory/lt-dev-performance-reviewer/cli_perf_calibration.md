@@ -31,3 +31,13 @@ Measured on Kai's machine (macOS/APFS, Node in-repo) while reviewing `dev-patche
 **The repo's own convention is to lazy-require heavyweight third-party deps inside the function body** — `open`, `js-yaml`, `playwright-core`, `ts-morph` are all `await import(...)`/`require(...)`d at call time. Across all 110 command files the only third-party top-level imports are `gluegun` (78), `js-sha256` (2), `ejs` (1), `@aws-sdk/client-s3` (1). A new top-level third-party import is a convention deviation worth flagging even when the absolute cost is ~0.3% of startup, because the fix is one line.
 
 **How to apply:** before flagging "extra regex allocation" or recommending hoisting a constant out of a patcher, check the call-site multiplicity first. The `lt dev` patchers (`autoPatch` → `patchApiConfig`/`patchNuxtConfig`/`patchPlaywrightConfig`) run **once per command**, over at most 3 config files; the only multiplier is `lt dev test --shard N` (N stacks, `autoShardCount()` caps auto-sizing at 8), which still means single-digit invocations against a run that boots N full stacks. Micro-optimising there is premature — say so plainly instead of inventing a finding.
+
+## Scaffold-time key walks (measured 2026-08-24, reviewing `hoist-workspace-pnpm-config.ts`)
+
+| Thing | Cost |
+|---|---|
+| `Object.entries()` walk + per-key `JSON.stringify(a)===JSON.stringify(b)` over 20 keys | ~6 us |
+| same over 50 keys | ~11 us |
+| same over 200 keys | ~41 us |
+
+Realistic input for the workspace hoist is 2 sub-projects x a few dozen `overrides` entries, i.e. **~10 us total** inside a command that clones two git repos and runs `pnpm install`. **How to apply:** do not raise a complexity/allocation finding for per-key `JSON.stringify` at scaffold scale — grade it noise and spend the review on the *semantics* of the comparison instead (key order, `false` vs YAML-1.2 `no`, circular anchors).

@@ -11,6 +11,7 @@ import {
   detectWorkspaceLayout,
   finalizeWorkspaceRoot,
   reconfigureUpstreamForDownstream,
+  reportWorkspaceConflicts,
 } from '../../lib/workspace-integration';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
@@ -717,7 +718,12 @@ const NewCommand: GluegunCommand = {
       // guarantees a root `.dockerignore` (else the images carry the host's
       // node_modules, a stale .output, and a local .env that `nuxt build`
       // bakes in).
-      finalizeWorkspaceRoot({ filesystem, projectDir });
+      // Two sources setting the same pnpm key to different values is not a merge
+      // to resolve — it is a disagreement between two repos, and the merge would
+      // pick one silently. Say so here, where both halves are still visible, and
+      // again at the end (the install output below buries this one).
+      const { conflicts } = finalizeWorkspaceRoot({ filesystem, projectDir });
+      reportWorkspaceConflicts(conflicts, toolbox.print.warning);
 
       // Install all packages
       if (!experimental) {
@@ -806,6 +812,7 @@ const NewCommand: GluegunCommand = {
         )}m.`,
       );
       info('');
+      reportWorkspaceConflicts(conflicts, toolbox.print.warning);
       info('Next:');
       if (experimental) {
         info(`  $ cd ${projectDir}`);

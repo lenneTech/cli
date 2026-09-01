@@ -33,3 +33,10 @@ that is how the masked-upgrade class of bug gets found.
 
 The scratchpad is shared with the other parallel reviewers — only delete directories you
 created yourself.
+
+**Probing the CURRENT implementation only** (no A/B needed — e.g. "does this reachable
+branch fire at all?") is cheaper: put a `probe.ts` in the scratchpad that imports the
+source by ABSOLUTE path and requires `js-yaml` / `gluegun` by absolute
+`node_modules/...` path (bare specifiers do not resolve from the scratchpad), then
+`npx ts-node --compiler-options '{"module":"commonjs","target":"ES2020","esModuleInterop":true,"skipLibCheck":true,"strict":false}' "$SP/probe.ts"`.
+Nothing under `src/` or `__tests__/` is touched, so a concurrent `npm run check` is safe.

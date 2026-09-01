@@ -234,6 +234,52 @@ const isArrayField = (field: PnpmConfigField): boolean => (ARRAY_FIELDS as reado
 const isNestedArrayField = (field: PnpmConfigField): boolean =>
   (NESTED_ARRAY_FIELDS as readonly string[]).includes(field);
 
+/**
+ * Records which source file last set each object-field key, so a second source
+ * setting the SAME key to a DIFFERENT value can be reported instead of silently
+ * winning. Keyed `<field>.<key>`.
+ */
+export type HoistProvenance = Map<string, { source: string; value: unknown }>;
+
+/**
+ * State threaded through one `hoistWorkspacePnpmConfig` run so the four hoist
+ * helpers can compare what they see against what an earlier source already set.
+ *
+ * `sourceLabel` names the FILE currently being hoisted, not its sub-project —
+ * see `recordObjectFieldProvenance` for why that distinction carries a real bug.
+ */
+interface HoistContext {
+  /**
+   * Sources that contributed `auditConfig` entries. Those are explicit "do not
+   * fail the build on this advisory" statements, assessed against ONE package's
+   * dependency tree, that hoisting makes workspace-wide. The union cannot
+   * produce a two-valued conflict, so the run reports the widening instead.
+   */
+  auditWidenedBy: Set<string>;
+  /** Human-readable disagreements found so far; the caller surfaces them. */
+  conflicts: string[];
+  /** Who set which key, across every source of this run. */
+  provenance: HoistProvenance;
+  /**
+   * Keys whose value the current source changes relative to the value the ROOT
+   * already carried when the run started. Evaluated after the loop: on its own
+   * this is the documented root-vs-sub precedence, but combined with a
+   * sub-project that contributed nothing it is the incremental-flow conflict
+   * (see `reportRootOverridesFromDormantSiblings`).
+   */
+  rootOverrides: {
+    field: string;
+    incoming: unknown;
+    /** What the merge will actually keep — NOT always `incoming`, see `resolveKeptValue`. */
+    keptValue: unknown;
+    key: string;
+    rootValue: unknown;
+    source: string;
+  }[];
+  /** The file being hoisted, e.g. `projects/api/package.json#pnpm`. */
+  sourceLabel: string;
+}
+
 interface PackageJson {
   [k: string]: unknown;
   packageManager?: string;
@@ -365,7 +411,7 @@ export function hoistWorkspacePnpmConfig(options: {
   filesystem: GluegunFilesystem;
   projectDir: string;
   subProjects: string[];
-}): void {
+}): { conflicts: string[] } {
   const { filesystem, projectDir, subProjects } = options;
   const rootWsPath = `${projectDir}/pnpm-workspace.yaml`;
 
@@ -382,6 +428,17 @@ export function hoistWorkspacePnpmConfig(options: {
 
   let rootChanged = false;
 
+  // Shared across all sources: who set which key, and where two disagree.
+  const provenance: HoistProvenance = new Map();
+  const conflicts: string[] = [];
+  const rootOverrides: HoistContext['rootOverrides'] = [];
+  const auditWidenedBy = new Set<string>();
+
+  // Sub-projects that are present and eligible but hand over nothing, because an
+  // earlier run already hoisted their settings and deleted the source. They are
+  // what turns a root-vs-sub override into a sub-vs-sub disagreement.
+  const dormant: string[] = [];
+
   for (const subDir of subProjects) {
     const subPath = `${projectDir}/${subDir}`;
     if (!filesystem.exists(subPath)) continue;
@@ -389,13 +446,32 @@ export function hoistWorkspacePnpmConfig(options: {
     // checkout in link mode.
     if (isSymlink(subPath)) continue;
 
-    if (hoistFromSubPackageJson({ filesystem, rootWs, subPath })) {
+    // Labelled per FILE, not per sub-project: a repo that contradicts itself
+    // across its own two config sources is the same silent-winner bug one scope
+    // down, and a shared label hides it.
+    const fromPkg = hoistFromSubPackageJson({
+      context: { auditWidenedBy, conflicts, provenance, rootOverrides, sourceLabel: `${subDir}/package.json#pnpm` },
+      filesystem,
+      rootWs,
+      subPath,
+    });
+    const fromYaml = hoistFromSubWorkspaceYaml({
+      comments,
+      context: { auditWidenedBy, conflicts, provenance, rootOverrides, sourceLabel: `${subDir}/pnpm-workspace.yaml` },
+      filesystem,
+      rootWs,
+      subPath,
+    });
+
+    if (fromPkg || fromYaml) {
       rootChanged = true;
-    }
-    if (hoistFromSubWorkspaceYaml({ comments, filesystem, rootWs, subPath })) {
-      rootChanged = true;
+    } else {
+      dormant.push(subDir);
     }
   }
+
+  reportRootOverridesFromDormantSiblings(rootOverrides, dormant, conflicts);
+  reportAuditConfigWidening(auditWidenedBy, conflicts);
 
   if (rootChanged) {
     // Keep allowBuilds (pnpm 11) and onlyBuiltDependencies (pnpm 10) in sync so
@@ -404,6 +480,8 @@ export function hoistWorkspacePnpmConfig(options: {
     const dumped = dump(rootWs, { lineWidth: -1, sortKeys: false });
     filesystem.write(rootWsPath, annotateAuditConfig(reattachKeyComments(dumped, comments)));
   }
+
+  return { conflicts };
 }
 
 /**
@@ -429,6 +507,30 @@ function annotateAuditConfig(yaml: string): string {
   return yaml.replace(/^auditConfig:/m, `${AUDIT_CONFIG_NOTE}\nauditConfig:`);
 }
 
+/** `false` from either side wins — an install script nobody vouched for must not run. */
+function applyDenyWins(rootValue: unknown, subValue: unknown): unknown {
+  const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  if (!isMap(rootValue) || !isMap(subValue)) return subValue;
+  const out: Record<string, unknown> = { ...subValue };
+  for (const [pkg, enabled] of Object.entries(rootValue)) {
+    if (enabled === false) out[pkg] = false;
+  }
+  return out;
+}
+
+/**
+ * Compare the value each field's own downstream normalisation will actually use.
+ *
+ * `allowBuilds` is the case that matters: js-yaml 4 follows the YAML 1.2 core
+ * schema, so `esbuild: no` parses as the STRING `'no'` while the same intent in a
+ * `package.json#pnpm` block is the BOOLEAN `false`. `syncBuildAllowlists` narrows
+ * both to `false` (`enabled === true`), so reporting them as a disagreement sends
+ * someone hunting through two repositories over two spellings of "deny".
+ */
+function canonicaliseForCompare(field: PnpmConfigField, value: unknown): unknown {
+  return field === 'allowBuilds' ? value === true : value;
+}
+
 /**
  * Compare the versions of two `packageManager` pins (`pnpm@11.13.1+sha512.…`).
  * Returns >0 if `a` is newer, <0 if older, 0 if equal. Numeric segment-wise
@@ -450,13 +552,105 @@ function comparePmVersions(a: string, b: string): number {
 }
 
 /**
+ * Structural equality, enough for the scalar/array/object shapes these fields hold.
+ *
+ * The scalar fast path is not just a shortcut: `overrides` values are version
+ * strings and `allowBuilds` values are booleans, so it answers nearly every real
+ * comparison without allocating. The `try` guards the rest — `js-yaml` resolves
+ * recursive anchors into genuinely circular objects, on which `JSON.stringify`
+ * throws, and an exception here would abort the whole hoist (and with it
+ * `lt fullstack init`). Two values we cannot compare are reported as differing:
+ * a spurious warning is recoverable, a silent merge is the thing this exists to
+ * prevent.
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Render a value for a warning that lands in a terminal and in CI logs.
+ *
+ * `JSON.stringify` supplies the quoting and escapes every control character, so
+ * an ESC smuggled through a version spec cannot repaint the line. The redaction
+ * covers the one shape a version spec may legitimately carry a secret in: a git
+ * or tarball URL with embedded credentials (`git+https://user:token@host/…`).
+ * It only ever leaks something already committed to a sub-project manifest, but
+ * a conflict warning should not be a new place it surfaces.
+ */
+function describeValue(value: unknown): string {
+  if (typeof value !== 'string') {
+    // A recursive YAML anchor resolves to a circular object, which `stringify`
+    // refuses. Naming its shape is enough for a warning, and beats aborting the
+    // scaffold over an unprintable value.
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return Array.isArray(value) ? '<circular list>' : '<circular value>';
+    }
+  }
+  return JSON.stringify(
+    value
+      .replace(/\/\/[^/@\s]+:[^/@\s]+@/, '//***:***@')
+      .replace(/([?&](?:token|access_token|auth|password)=)[^&\s]+/gi, '$1***'),
+  );
+}
+
+/** True when an `auditConfig` block actually suppresses something (empty lists do not). */
+function hasAuditSuppressions(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return Object.values(value as Record<string, unknown>).some((v) => Array.isArray(v) && v.length > 0);
+}
+
+/**
  * Move the workspace-scoped pnpm fields from `source` into `rootWs`,
  * deleting each moved field from `source`. Returns true if anything moved.
+ *
+ * `context` drives conflict DETECTION for the object-valued fields. The merge
+ * itself is last-writer-wins (`{...root, ...sub}`), which is correct for
+ * root-vs-sub — a sub-project owns the authoritative list for its own transitive
+ * deps — but is a trap for sub-vs-sub: two projects pinning the same package to
+ * different versions produce one silent winner, decided by iteration order.
+ * Nothing downstream can tell that apart from a deliberate choice, so it is
+ * caught here, where both values are still visible.
+ *
+ * `allowBuilds` is the one field where detection is not enough and the merge
+ * itself is corrected — see the deny-wins block below.
  */
-function hoistFields(rootWs: Record<string, unknown>, source: Record<string, unknown>): boolean {
+function hoistFields(
+  rootWs: Record<string, unknown>,
+  source: Record<string, unknown>,
+  context?: HoistContext,
+): boolean {
   let changed = false;
   for (const field of WORKSPACE_SCOPED_PNPM_FIELDS) {
     if (source[field] === undefined) continue;
+
+    if (context && isObjectField(field)) {
+      recordObjectFieldProvenance(field, source[field], context);
+      recordRootOverrides(field, rootWs[field], source[field], context);
+    }
+    if (context && field === 'auditConfig' && hasAuditSuppressions(source[field])) {
+      context.auditWidenedBy.add(context.sourceLabel);
+    }
+
+    // A build-script allowance is the one field with a safe direction: a deny
+    // declared anywhere outranks an allow from elsewhere. Without this the
+    // last-writer-wins merge resolves the disagreement in favour of RUNNING an
+    // install script that another sub-project explicitly refused — and the
+    // warning above does not stop it. `syncBuildAllowlists` is already
+    // fail-closed across the two allowlist forms; this makes the sub-vs-sub
+    // path agree with it. No such direction exists for `overrides` (a higher
+    // version is not a safer one), so there the warning is the whole answer.
+    if (field === 'allowBuilds') {
+      source[field] = applyDenyWins(rootWs[field], source[field]);
+    }
+
     rootWs[field] = mergePnpmFieldValue(field, rootWs[field], source[field]);
     delete source[field];
     changed = true;
@@ -466,6 +660,7 @@ function hoistFields(rootWs: Record<string, unknown>, source: Record<string, unk
 
 /** Source 1: the sub-project's package.json `pnpm` block. */
 function hoistFromSubPackageJson(options: {
+  context?: HoistContext;
   filesystem: GluegunFilesystem;
   rootWs: Record<string, unknown>;
   subPath: string;
@@ -476,7 +671,7 @@ function hoistFromSubPackageJson(options: {
   const subPkg = filesystem.read(subPkgPath, 'json') as null | PackageJson;
   if (!subPkg?.pnpm) return false;
 
-  if (!hoistFields(rootWs, subPkg.pnpm)) return false;
+  if (!hoistFields(rootWs, subPkg.pnpm, options.context)) return false;
 
   // If the sub-project's pnpm section is now empty, drop it entirely.
   if (Object.keys(subPkg.pnpm).length === 0) {
@@ -489,6 +684,7 @@ function hoistFromSubPackageJson(options: {
 /** Source 2: the sub-project's pnpm-workspace.yaml. */
 function hoistFromSubWorkspaceYaml(options: {
   comments: KeyComments;
+  context?: HoistContext;
   filesystem: GluegunFilesystem;
   rootWs: Record<string, unknown>;
   subPath: string;
@@ -508,7 +704,7 @@ function hoistFromSubWorkspaceYaml(options: {
     if (!comments.has(key)) comments.set(key, block);
   }
 
-  if (!hoistFields(rootWs, ws)) return false;
+  if (!hoistFields(rootWs, ws, options.context)) return false;
 
   // A settings-only file (no `packages:`) exists solely to carry these
   // hoisted keys — once emptied it would only declare a nested workspace
@@ -520,6 +716,11 @@ function hoistFromSubWorkspaceYaml(options: {
     filesystem.remove(subWsPath);
   }
   return true;
+}
+
+/** True for the fields merged key-by-key, where two sub-projects can contradict each other. */
+function isObjectField(field: PnpmConfigField): boolean {
+  return (OBJECT_FIELDS as readonly string[]).includes(field);
 }
 
 /**
@@ -594,6 +795,162 @@ function readYaml(filesystem: GluegunFilesystem, path: string): null | Record<st
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   return parsed as Record<string, unknown>;
+}
+
+/**
+ * Note who set each key of an object-valued field, and flag a second source
+ * setting the same key to a different value.
+ *
+ * `sourceLabel` identifies the FILE, not the sub-project, so a sub-project that
+ * contradicts itself across its own `package.json#pnpm` and its own
+ * `pnpm-workspace.yaml` is caught too. That is not a hypothetical shape — both
+ * starters ship a settings-only `pnpm-workspace.yaml`, and a stale leftover in
+ * either file otherwise downgrades a pin with no output at all.
+ */
+function recordObjectFieldProvenance(field: PnpmConfigField, value: unknown, context: HoistContext): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+
+  for (const [key, incoming] of Object.entries(value as Record<string, unknown>)) {
+    const id = `${field}.${key}`;
+    const previous = context.provenance.get(id);
+
+    if (
+      previous &&
+      previous.source !== context.sourceLabel &&
+      !deepEqual(canonicaliseForCompare(field, previous.value), canonicaliseForCompare(field, incoming))
+    ) {
+      // `allowBuilds` is resolved deterministically (deny outranks allow), so
+      // saying "one of them would silently win" there would understate what
+      // already happened and leave the reader unsure which value shipped.
+      const kept = resolveKeptValue(field, previous.value, incoming);
+      const outcome = deepEqual(kept, incoming)
+        ? 'One of them would silently win.'
+        : `The workspace keeps ${describeValue(kept)}, because a denied build script outranks an allowed one.`;
+      context.conflicts.push(
+        `${field}: ${JSON.stringify(key)} is set to ${describeValue(previous.value)} by ${previous.source} ` +
+          `and to ${describeValue(incoming)} by ${context.sourceLabel}. ` +
+          `${outcome} Agree on a single value in BOTH repos before assembling.`,
+      );
+    }
+
+    context.provenance.set(id, { source: context.sourceLabel, value: incoming });
+  }
+}
+
+/**
+ * Remember where this source changes a value the ROOT already carried.
+ *
+ * On its own that is the documented and intended precedence — the root seeds,
+ * a sub-project owns the authoritative list for its own transitive deps — so
+ * nothing is reported here. It only becomes a disagreement once the run ends
+ * with a sub-project that contributed nothing, which is what tells us the root
+ * value was itself hoisted from that sibling on an earlier run.
+ *
+ * The `kept` value is resolved here rather than described later, because for
+ * `allowBuilds` the incoming value does NOT necessarily win: `applyDenyWins`
+ * runs a few lines further down and a deny from either side outranks an allow.
+ * A message that announced the incoming value as the winner would state the
+ * opposite of what the file ends up containing.
+ */
+function recordRootOverrides(
+  field: PnpmConfigField,
+  rootValue: unknown,
+  subValue: unknown,
+  context: HoistContext,
+): void {
+  if (!rootValue || typeof rootValue !== 'object' || Array.isArray(rootValue)) return;
+  if (!subValue || typeof subValue !== 'object' || Array.isArray(subValue)) return;
+
+  const rootMap = rootValue as Record<string, unknown>;
+  for (const [key, incoming] of Object.entries(subValue as Record<string, unknown>)) {
+    if (!(key in rootMap)) continue;
+    if (deepEqual(canonicaliseForCompare(field, rootMap[key]), canonicaliseForCompare(field, incoming))) continue;
+    context.rootOverrides.push({
+      field,
+      incoming,
+      keptValue: resolveKeptValue(field, rootMap[key], incoming),
+      key,
+      rootValue: rootMap[key],
+      source: context.sourceLabel,
+    });
+  }
+}
+
+/**
+ * One line, not one per advisory: say that hoisting widened the audit
+ * suppressions to the whole workspace, and name who brought them.
+ *
+ * `annotateAuditConfig` already writes this into the emitted YAML, but that note
+ * reaches whoever opens `pnpm-workspace.yaml` later — not the person running
+ * `lt fullstack init` now. In a generated project the deploy-blocking audit job
+ * is the only automated vulnerability control there is, so a suppression
+ * assessed against one package's dependency tree quietly covering the other's is
+ * worth a line on screen.
+ */
+function reportAuditConfigWidening(auditWidenedBy: Set<string>, conflicts: string[]): void {
+  if (auditWidenedBy.size === 0) return;
+  conflicts.push(
+    `auditConfig: advisory suppressions from ${[...auditWidenedBy].join(', ')} now apply to EVERY package in ` +
+      `this workspace, not just the one they were assessed against. Review them, and drop each entry once its ` +
+      `advisory is fixed.`,
+  );
+}
+
+/**
+ * Turn root-vs-sub overrides into conflicts when a sibling sub-project sat out
+ * the run — the incremental `add-api` → `add-app` case.
+ *
+ * Hoisting is destructive: `hoistFields` deletes each field from the source once
+ * it reaches the root. So by the time `lt fullstack add-app` runs, the api's
+ * settings are already IN the root and gone from `projects/api/package.json`.
+ * The app's differing value then looks exactly like the documented root-vs-sub
+ * precedence, and the sub-vs-sub check never sees two values. Confirmed: api
+ * pinning `better-auth` to 1.7.1 followed later by app pinning 1.7.2 yielded no
+ * conflict and a root silently on 1.7.2.
+ *
+ * A sub-project that is present but contributed nothing is the signal that this
+ * happened. It is not proof — the root value could equally be a hand-edit or the
+ * lt-monorepo template's own seed — so the message says "if", names the sibling,
+ * and asks rather than asserts. Being present and contributing everything (the
+ * `lt fullstack init` path) leaves `dormant` empty, which is why the intended
+ * root-seed precedence stays silent there.
+ */
+function reportRootOverridesFromDormantSiblings(
+  rootOverrides: HoistContext['rootOverrides'],
+  dormant: string[],
+  conflicts: string[],
+): void {
+  if (rootOverrides.length === 0 || dormant.length === 0) return;
+
+  const siblings = dormant.join(', ');
+  for (const { field, incoming, keptValue, key, rootValue, source } of rootOverrides) {
+    // Name the value the workspace actually ends up with. For `allowBuilds` that
+    // is not the incoming one — a deny outranks an allow — and announcing the
+    // wrong winner would send the reader looking for a problem that is already
+    // resolved, while hiding the one that is not.
+    const outcome = deepEqual(keptValue, incoming)
+      ? `${describeValue(incoming)}, which now wins`
+      : `${describeValue(incoming)}; the workspace keeps ${describeValue(keptValue)}, because a denied build ` +
+        `script outranks an allowed one`;
+    conflicts.push(
+      `${field}: ${JSON.stringify(key)} was already pinned to ${describeValue(rootValue)} in this workspace, ` +
+        `and ${source} changes it to ${outcome}. ` +
+        `If the existing value came from ${siblings} — whose settings an earlier run already hoisted — ` +
+        `the two repos disagree. Agree on a single value in BOTH before assembling.`,
+    );
+  }
+}
+
+/**
+ * What the workspace will actually carry once this key is merged.
+ *
+ * Mirrors `applyDenyWins` for `allowBuilds` — a deny on either side is kept —
+ * and last-writer-wins for everything else. Kept next to the merge it predicts
+ * so the two cannot drift apart silently.
+ */
+function resolveKeptValue(field: PnpmConfigField, rootValue: unknown, incoming: unknown): unknown {
+  if (field === 'allowBuilds' && (rootValue === false || incoming === false)) return false;
+  return incoming;
 }
 
 /**

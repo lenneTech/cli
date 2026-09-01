@@ -202,6 +202,7 @@ default — fail loud) and steer them at the matching `add-*` command.
 | Gate runner | `src/lib/workspace-integration.ts#runStandaloneWorkspaceGate` | Side-effecting wrapper: prints, prompts, errors, calls `process.exit(1)` on refusal. Used identically by all three standalone commands |
 | `lt status` | `src/commands/status.ts` | Reports the workspace layout (`Workspace: yes`, `projects/api`, `projects/app`) so users can quickly see what's missing |
 | API/app bridges | `src/lib/workspace-integration.ts#writeApiConfig`, `runExperimentalNestBaseRename` | Glue between `extensions/server.ts` primitives and `lt.config.json` / `bun run rename` post-processing in `add-api` |
+| Workspace-root normalisation | `src/lib/workspace-integration.ts#finalizeWorkspaceRoot` | Called by all three scaffolders. Hoists pnpm config + the `packageManager` pin, drops nested lockfiles, guarantees a root `.dockerignore`. Returns `{ conflicts }` — disagreements it refuses to resolve silently — which callers MUST surface via `reportWorkspaceConflicts` (twice: the first printout is buried by the install output) |
 
 **Override mechanism for power users:** every standalone command
 accepts `--force` to bypass the workspace gate. Combine with
@@ -848,10 +849,73 @@ merge than the flat object fields (`NESTED_ARRAY_FIELDS`): a plain key-by-key me
 lets the sub-project's object replace the root's and drops every advisory the root
 justified; the inner arrays must be unioned. **When adding a pnpm workspace setting
 anywhere in the stack, add it here too and pick the right merge class** — flat object,
-array-union, or nested-array-union. Note `auditConfig` SUPPRESSES vulnerability
+array-union, or nested-array-union — **and decide whether it joins `OBJECT_FIELDS`,
+which is what makes it eligible for conflict detection.** Those are two separate
+decisions: only the flat-object class can produce a silent loser (the union classes
+keep both sides), so a new object-valued field that skips `OBJECT_FIELDS` merges
+last-writer-wins with no warning. Note `auditConfig` SUPPRESSES vulnerability
 findings, so hoisting widens its blast radius from one package to the whole
 workspace; `annotateAuditConfig` writes that fact into the YAML as a comment so a
 reviewer sees it in the diff.
+
+### Hoisting is destructive, so conflict detection only sees ONE run <!-- Added: 2026-08-24 -->
+`hoistWorkspacePnpmConfig` returns `{ conflicts }` when two sources set the same key
+of an object-valued field (`overrides`, `allowBuilds`) to different values — the merge
+is last-writer-wins by iteration order, so without this the generated workspace carries
+one value with no record that the other existed. `better-auth` is the worked example:
+one protocol with two ends, so a version split there is a client and a server
+disagreeing about their own wire format.
+
+**The catch is that `hoistFields` DELETES each field from its source once it reaches the
+root, and the provenance map lives only inside one call.** So in the incremental flow the
+`add-*` commands exist for — `lt fullstack add-api`, later `lt fullstack add-app` — the
+api's `pnpm.overrides` is already at the root and gone from `projects/api/package.json`
+by the time app arrives. The app's differing value then reads as ordinary root-vs-sub
+precedence (which is *intended* and must stay silent), and the sub-vs-sub check never
+sees two values. Measured before the fix: api `better-auth@1.7.1` then app `1.7.2` →
+`conflicts: []`, root silently on `1.7.2`.
+
+The signal that distinguishes the two cases needs no persisted state: **a sub-project
+that is present but contributed nothing** was hoisted by an earlier run. `init` on a
+fresh directory has both halves contributing, so its root-seed overrides stay silent;
+`add-app` has a dormant `projects/api`, so its overrides are reported —
+`reportRootOverridesFromDormantSiblings`. The message says "if", names the sibling and
+asks, because a hand-edited root or the lt-monorepo template's own seed produce the same
+shape.
+
+Three related rules in the same file, each with a test:
+- **`sourceLabel` names the FILE, not the sub-project** (`projects/api/package.json#pnpm`
+  vs `projects/api/pnpm-workspace.yaml`). A shared label made the guard
+  `previous.source !== sourceLabel` swallow a repo contradicting *itself* across its own
+  two config sources — the yaml won, and a stale leftover silently downgraded a pin.
+- **`allowBuilds` corrects the merge, not just the report** (`applyDenyWins`): it decides
+  which packages may run a postinstall script, so last-writer-wins would resolve a
+  disagreement in favour of EXECUTING code another sub-project refused. `overrides` has no
+  safe direction (a higher version is not a safer one), so there the warning is the whole
+  answer. **Correcting the merge means the message has to be corrected with it**
+  (`resolveKeptValue`): the first version announced the incoming value as the winner for
+  every field, so on `allowBuilds` it stated the opposite of the file it had just written
+  and sent the reader hunting for an allowed build script that was in fact denied. Only the
+  end-to-end run against the compiled `build/` surfaced that — the unit tests asserted the
+  merge result and the message separately, and each was right on its own.
+- **Compare what the field's own normalisation will use** (`canonicaliseForCompare`):
+  js-yaml 4 parses `esbuild: no` as the STRING `'no'` while `package.json#pnpm` carries
+  the BOOLEAN `false`, and `syncBuildAllowlists` narrows both to `false` — reporting them
+  sends someone through two repositories over two spellings of "deny".
+
+Guards on the other side of the stack are complementary, not duplicates: lt-monorepo
+3.10.0 checks the ASSEMBLED workspace (do api and app resolve the same version, do the
+frameworks promise the same range, does anyone pin at all). This one runs earlier, at
+the moment the two manifests are merged.
+
+### `perfectionist/sort-modules --fix` moves a function WITHOUT its JSDoc <!-- Added: 2026-08-24 -->
+`npx eslint --fix` reordering a module can detach a leading JSDoc block from the function
+it documents and leave it stacked above whichever function lands in that slot. Observed in
+`src/lib/workspace-integration.ts`: adding `reportWorkspaceConflicts` made the fixer move
+`finalizeWorkspaceRoot` up the file, its 16-line JSDoc stayed behind, and the result was
+one undocumented function plus two JSDoc blocks over the new one — both tsc and eslint
+clean, so nothing failed. **After any `--fix` that reorders declarations, read the diff
+rather than only the exit code**, and reattach by hand.
 
 ### A bare Docker service name is a Swarm alias — never use it as a DB host <!-- Added: 2026-07-31 -->
 `lt deployment create`'s checklist spells the Mongo host out per stage
