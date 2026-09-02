@@ -380,6 +380,9 @@ const UpCommand: GluegunCommand = {
     // Build env per process.
     const devEnv = buildDevEnv({
       apiInternalPort: apiPort ?? 0,
+      // Lets `buildDevEnv` consult the app's own `.env` for keys a project may have set
+      // itself, so `lt dev` never replaces one of its values with a derived fallback.
+      appDir: layout.appDir,
       appInternalPort: appPort ?? 0,
       baseEnv: process.env,
       dbName,

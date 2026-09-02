@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -20,6 +20,7 @@ const fakeDevEnv: DevEnv = {
       NUXT_PUBLIC_API_URL: 'https://api.crm.localhost',
       NUXT_PUBLIC_SITE_URL: 'https://crm.localhost',
       NUXT_PUBLIC_STORAGE_PREFIX: 'crm',
+      NUXT_SESSION_PASSWORD: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
       PORT: '4011',
       SITE_URL: 'https://crm.localhost',
     },
@@ -48,6 +49,26 @@ describe('dev-env-bridge', () => {
       expect(content).toContain('NSC__MONGOOSE__URI=mongodb://127.0.0.1/crm-local');
       expect(content).toContain('LT_DEV_ACTIVE=true');
       expect(content).toContain('LT_DEV_DB_NAME=crm-local');
+    });
+
+    test('exports NUXT_SESSION_PASSWORD and keeps the file readable by its owner only', () => {
+      // Regression: the key was added to `writeEnvBridge`'s export list while the fixture here
+      // carried no such key, so deleting the line again left every bridge test green. A suite
+      // that seals its own session cookie needs the value — and because it IS a sealing key,
+      // the bridge file must not be world-readable.
+      const file = writeEnvBridge(project, fakeDevEnv, 'crm-local');
+      expect(readFileSync(file, 'utf8')).toContain('NUXT_SESSION_PASSWORD=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6');
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    });
+
+    test('heals the mode of a bridge written by an older lt version', () => {
+      // `writeFileSync`'s `mode` only applies on CREATE, so an existing 0644 file from before
+      // this change would silently keep its permissions.
+      const file = writeEnvBridge(project, fakeDevEnv, 'crm-local');
+      chmodSync(file, 0o644);
+      // Content-compare short-circuits an identical rewrite, so change the db name to force one
+      writeEnvBridge(project, fakeDevEnv, 'crm-other');
+      expect(statSync(file).mode & 0o777).toBe(0o600);
     });
 
     test('exports legacy aliases API_URL + SITE_URL', () => {

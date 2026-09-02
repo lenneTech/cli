@@ -11,6 +11,8 @@
  * - `NUXT_PUBLIC_*` lock the App to its own API
  * - `NUXT_PUBLIC_STORAGE_PREFIX` namespaces localStorage/sessionStorage
  * - `NSC__MONGOOSE__URI` / `DATABASE_URL` namespace the database per project
+ * - `NUXT_SESSION_PASSWORD` is keyed per slug, so a session cookie sealed by one
+ *   stack cannot be unsealed by another (dev vs. `-test` vs. `-test-N` shard)
  *
  * CA trust for SSR fetches:
  * - Both API and App receive `NODE_EXTRA_CA_CERTS` pointing at the
@@ -18,7 +20,10 @@
  *   subdomains succeed. Without this Nuxt SSR fails with "unable to
  *   get local issuer certificate" when the app calls its own API.
  */
-import { createHash } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 import { detectCaddyRootCa } from './dev-env-bridge';
 import { DevIdentity } from './dev-identity';
@@ -26,6 +31,11 @@ import { DevIdentity } from './dev-identity';
 export interface BuildDevEnvInput {
   /** Internal API port (assigned by `dev-state.allocateInternalPort`). */
   apiInternalPort: number;
+  /**
+   * App project directory (e.g. `<root>/projects/app`). Optional — when given, the app's
+   * own `.env` is consulted for keys the built Nitro server would otherwise never see.
+   */
+  appDir?: string;
   /** Internal App port. */
   appInternalPort: number;
   /** Inherited shell env (defaults to {}, callers usually pass `process.env`). */
@@ -51,7 +61,7 @@ export interface DevEnv {
  * vars survive. `lt dev`-managed keys win on top.
  */
 export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
-  const { apiInternalPort, appInternalPort, baseEnv = {}, dbName, identity } = input;
+  const { apiInternalPort, appDir, appInternalPort, baseEnv = {}, dbName, identity } = input;
   const apiSub = identity.subdomains.api;
   const appSub = identity.subdomains.app;
 
@@ -110,17 +120,36 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         // same-origin trickery is no longer required.
         NUXT_PUBLIC_API_PROXY: 'false',
         NUXT_PUBLIC_STORAGE_PREFIX: identity.slug,
-        // Nuxt/h3 sessions refuse to start without a password (>= 32 chars): every login
-        // answers 500 "H3Error: Empty password". `nuxt dev` papers over this by reading the
-        // project's .env, but `lt dev test` serves the *built* Nitro server, which never does —
-        // so a project with a perfectly good .env still saw half its E2E suite fail on an error
-        // that has nothing to do with its tests.
+        // Nuxt/h3 sessions need a password of at least 32 characters. An ABSENT one makes
+        // every login answer 500 `H3Error: Empty password`; a SHORT one answers `Password
+        // string too short (min 32 characters required)` — two distinct errors from
+        // iron-webcrypto (`minPasswordlength: 32`), reached via h3's seal/unseal. `nuxt dev`
+        // gets a password for free because it reads the project's `.env`; `lt dev test`
+        // serves the *built* Nitro server, which reads only `process.env`. So a project with
+        // a perfectly good `.env` watched half its E2E suite fail on a cause unrelated to it.
         //
-        // Derived from the slug rather than random so sessions survive a restart and every
-        // shard of `lt dev test --shard N` agrees. Local-only by construction: it never reaches
-        // a deployed environment, and a project that sets its own value keeps it (baseEnv wins
-        // because this key is only added when the inherited env has none).
-        ...(baseEnv.NUXT_SESSION_PASSWORD ? {} : { NUXT_SESSION_PASSWORD: deriveSessionPassword(identity.slug) }),
+        // Precedence, highest first: a value exported in the SHELL, then the app's own
+        // `.env` file, then the derived fallback. `lt dev` fills a gap; it never replaces a
+        // value the project chose. Forwarding the `.env` value explicitly is the point — the
+        // built server would not read that file itself.
+        //
+        // Derived rather than random so a restarted stack does not invalidate open sessions.
+        // Keyed on the SLUG, so the dev stack, the `-test` stack and every `-test-N` shard
+        // stack get DIFFERENT values (see `testStackNames`) — that is what stops one stack's
+        // cookies from validating against another's. Salted per machine, because the slug is
+        // public: it is the app's own `NUXT_PUBLIC_STORAGE_PREFIX` and ships in every SSR
+        // payload, and `lt dev tunnel` can put that app on a public URL. An unsalted
+        // derivation would hand any visitor the key that seals its sessions.
+        //
+        // Inert for the standard lt stack — nuxt-base-starter and nuxt-extensions
+        // authenticate via Better Auth, not h3 sessions. This exists for projects that added
+        // h3 `useSession` / nuxt-auth-utils on top; for everyone else it is an unused key.
+        ...(baseEnv.NUXT_SESSION_PASSWORD
+          ? {}
+          : {
+              NUXT_SESSION_PASSWORD:
+                readEnvFileValue(appDir, 'NUXT_SESSION_PASSWORD') ?? deriveSessionPassword(identity.slug),
+            }),
         PORT: String(appInternalPort),
         // macOS: the default $TMPDIR (/var/folders/…/T/, ~49 chars) pushes Nuxt's
         // vite-node IPC socket path past the 104-char UNIX sun_path limit, so the
@@ -142,11 +171,110 @@ function buildPostgresUrl(dbName: string): string {
 /**
  * Stable local session password for a project's app process.
  *
- * 32 hex chars — h3 rejects anything shorter. Deterministic per slug: the same project always
- * gets the same value, so restarting the stack does not invalidate open sessions and parallel
- * shards stay consistent. Not a secret in any meaningful sense and not meant to be one; it exists
- * so a local stack boots without hand-set environment variables.
+ * 32 hex chars — h3's floor. Deterministic per slug AND per machine: the same stack on the
+ * same machine always gets the same value, so a restart does not invalidate open sessions,
+ * while a different slug (or a different developer's machine) gets a different one.
+ *
+ * The machine salt is what makes it unguessable. Without it the only input is the slug, which
+ * the app publishes itself via `NUXT_PUBLIC_STORAGE_PREFIX`, so anyone who loaded a page —
+ * including any visitor of a `lt dev tunnel` URL — could recompute the key and forge a sealed
+ * session cookie. With it, an attacker would have to read the developer's home directory.
  */
 function deriveSessionPassword(slug: string): string {
-  return createHash('sha256').update(`lt-dev:session:${slug}`).digest('hex').slice(0, 32);
+  // No salt means the home directory is unwritable. Fall back to a constant key rather than a
+  // random one: determinism is the property every caller depends on, and a fresh value per run
+  // would log everybody out on every restart. The fallback is guessable — hence last resort.
+  return createHmac('sha256', machineSessionSalt() ?? 'lt-dev')
+    .update(`lt-dev:session:${slug}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+
+/**
+ * Read (or create) the machine-local salt at `~/.lenneTech/dev-session-salt`, mode 0600.
+ *
+ * Returns `null` when it can be neither read nor created — see {@link deriveSessionPassword}
+ * for what happens then.
+ */
+function machineSessionSalt(): null | string {
+  const file = sessionSaltPath();
+  try {
+    const existing = readFileSync(file, 'utf8').trim();
+    if (existing) {
+      return existing;
+    }
+  } catch {
+    // Not created yet — fall through and create it.
+  }
+
+  try {
+    mkdirSync(dirname(file), { recursive: true });
+    // `wx` fails when the file already exists, so two shards racing on a cold machine can
+    // never end up with two different salts: the loser falls into the catch and re-reads.
+    const salt = randomBytes(32).toString('hex');
+    writeFileSync(file, `${salt}\n`, { flag: 'wx', mode: 0o600 });
+    return salt;
+  } catch {
+    try {
+      return readFileSync(file, 'utf8').trim() || null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Read one key out of `<dir>/.env` without pulling in a dotenv dependency.
+ *
+ * Deliberately minimal: no interpolation, no multi-line values, no `.env.local` cascade. It
+ * exists to answer one question — did the project set this key itself? — for a value the built
+ * Nitro server would otherwise never see.
+ */
+function readEnvFileValue(dir: string | undefined, key: string): string | undefined {
+  if (!dir) {
+    return undefined;
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(join(dir, '.env'), 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) {
+      continue;
+    }
+    if (
+      trimmed
+        .slice(0, eq)
+        .replace(/^export\s+/, '')
+        .trim() !== key
+    ) {
+      continue;
+    }
+
+    const raw = trimmed.slice(eq + 1).trim();
+    const quoted =
+      raw.length >= 2 && ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")));
+    return (quoted ? raw.slice(1, -1) : raw) || undefined;
+  }
+
+  return undefined;
+}
+
+/**
+ * Path of the machine-local salt. `LT_DEV_SESSION_SALT_PATH` overrides it, and `HOME` is read
+ * before `os.homedir()` — both so tests can redirect the write to a tmpdir, the same reason
+ * `dev-service.ts#userHome` does it.
+ */
+function sessionSaltPath(): string {
+  return process.env.LT_DEV_SESSION_SALT_PATH || join(process.env.HOME || homedir(), '.lenneTech', 'dev-session-salt');
 }

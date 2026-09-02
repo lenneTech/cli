@@ -15,8 +15,15 @@ import type { GluegunFilesystem } from 'gluegun';
 // bundle itself changes.
 const REQUIRED_PATTERNS = [
   '**/node_modules',
+  // `**/.output` matches a path component EXACTLY, so the isolated build dirs of
+  // `lt dev test` (`.output-test`, `.nuxt-test`, `.nuxt-test-2`, …) need their own
+  // globs. They are built with the app's full dev env, so Nitro freezes values like
+  // `NUXT_SESSION_PASSWORD` into them as runtime-config defaults — and a `--keep`
+  // run or a crashed teardown leaves the tree on disk for the next `docker build`.
   '**/.output',
+  '**/.output-*',
   '**/.nuxt',
+  '**/.nuxt-*',
   '**/dist',
   // `**/.env` matches a path component EXACTLY, so it does NOT cover
   // `.env.production` / `.env.staging` / `.env.test` — all of which routinely

@@ -77,7 +77,13 @@
     "turndown-plugin-gfm": "1.0.2",
     "typescript": "6.0.3"
   },
+  "//devDependencies": {
+    "@emnapi/core": "Not imported by this CLI. @napi-rs/wasm-runtime 1.x moved @emnapi/core and @emnapi/runtime from dependencies to peerDependencies (napi-rs#3174), and the only path to them here is dev-only AND optional: eslint-plugin-import-x / jest-resolve > unrs-resolver > @unrs/resolver-binding-wasm32-wasi (cpu: wasm32) > @napi-rs/wasm-runtime. npm >= 11.5.0 (arborist 9.1.3) prunes nodes that are both peer and optional from the ideal tree, so it never writes them to the lockfile — while npm <= 11.4 still demands them and fails npm ci with \"Missing: @emnapi/core@1.11.3 from lock file\". Declaring them here is the remedy arborist's own source comment names: an optional peer stops being optional once a root dependency requires it, so both npm generations then agree. Verified: npm ci passes on npm 10 and 11.6, and npm install no longer strips the entries. Remove once @napi-rs/wasm-runtime declares them in peerDependenciesMeta as optional, or once npm >= 11.5 is the floor everywhere (GitHub Actions still runs Node 20 = npm 10).",
+    "@emnapi/runtime": "Same as @emnapi/core."
+  },
   "devDependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@lenne.tech/eslint-config-ts": "2.3.0",
     "@lenne.tech/npm-package-helper": "0.0.12",
     "@types/ejs": "3.1.5",
