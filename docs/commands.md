@@ -451,8 +451,23 @@ lt dev up
 | `NUXT_PUBLIC_SITE_URL` | Nuxt `useRuntimeConfig().public.siteUrl` + Playwright | `https://crm.localhost` |
 | `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage | `crm` |
 | `NUXT_PUBLIC_API_PROXY` | always `false` — Caddy + cookie-domain make it obsolete | `false` |
+| `NUXT_SESSION_PASSWORD` | Nuxt/h3 `useSession` — only projects that added h3 sessions or `nuxt-auth-utils` read it; the Better-Auth default stack ignores it | `a1b2…` (32 hex chars) |
 | `NSC__MONGOOSE__URI` | nest-server Mongoose URI | `mongodb://127.0.0.1/crm-local` |
 | `DATABASE_URL` | Postgres convenience URL (for nest-base-style projects) | `postgresql://crm-local:crm-local@localhost:5432/crm-local` |
+
+`NUXT_SESSION_PASSWORD` exists because `lt dev test` serves the **built** Nitro server, which
+reads no `.env` — so a project that keeps its password there watched every login answer 500
+(`H3Error: Empty password`). Resolution order: a value exported in the shell, then the app's own
+`.env`, then a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')` truncated
+to 32 hex chars. `lt dev` only fills the gap — it never replaces a value the project chose.
+
+The salt lives at `~/.lenneTech/dev-session-salt` (created once, mode 0600; override the path with
+`LT_DEV_SESSION_SALT_PATH`). It is what makes the value unguessable: the slug itself is public —
+the app ships it to every browser as `NUXT_PUBLIC_STORAGE_PREFIX`, and `lt dev tunnel` can put
+that app on a public URL — so an unsalted derivation would hand any visitor the key that seals
+the stack's session cookies. Keying on the slug also means the dev stack, the `lt dev test` stack
+and each `--shard` stack get **different** passwords, so one stack's cookies never validate
+against another's.
 
 **Override the binary** for both spawns via `LT_PNPM_BIN` (e.g. `LT_PNPM_BIN=/usr/local/bin/pnpm lt dev up`).
 
@@ -685,9 +700,15 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 | `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL` | Same URLs for Nuxt |
 | `NUXT_PUBLIC_STORAGE_PREFIX` | Project slug |
 | `NUXT_PUBLIC_API_PROXY` | Always `false` under `lt dev` |
+| `NUXT_SESSION_PASSWORD` | The app process's h3 session password — lets a suite tell a stack that can log in from one that 500s on every login, and seal its own cookie to skip the login form |
 | `NSC__MONGOOSE__URI`, `DATABASE_URL` | Project-namespaced DB URI (when `dbName` known) |
 | `LT_DEV_ACTIVE`, `LT_DEV_DB_NAME` | Marker keys for consumers |
 | `NODE_EXTRA_CA_CERTS` | Path to Caddy's root CA cert (auto-detected) |
+
+Because `NUXT_SESSION_PASSWORD` is a session-sealing key, the bridge file is written with mode
+`0600` (and chmod'ed on every rewrite, since a file created by an older `lt` would otherwise keep
+its `0644`). It is gitignored via `.lt-dev/`. Treat it as credential-bearing when deciding what
+else may be written there.
 
 Additionally, `lt dev test` exports two build-directory keys into the app process it
 spawns. They are **not** written to the bridge file — they scope one run, not the

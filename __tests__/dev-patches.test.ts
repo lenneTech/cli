@@ -472,6 +472,28 @@ describe('dev-patches', () => {
       expect(out).toContain('<!-- lt-dev:url-block:start -->');
       expect(out).toContain('<!-- lt-dev:url-block:end -->');
     });
+    test('names every env var `lt dev up` injects, so a Claude session can rely on the list', () => {
+      // No test pinned this sentence, so a key could be added to `buildDevEnv` and forgotten
+      // here (or removed here and not noticed) — and this block is what a consumer project's
+      // Claude session reads instead of guessing `localhost:3000`.
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(f, '# Project notes\n');
+      patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      const out = readFileSync(f, 'utf8');
+      for (const key of [
+        'BASE_URL',
+        'APP_URL',
+        'NUXT_API_URL',
+        'NUXT_PUBLIC_API_URL',
+        'NUXT_PUBLIC_SITE_URL',
+        'NUXT_PUBLIC_STORAGE_PREFIX',
+        'NUXT_SESSION_PASSWORD',
+        'NSC__MONGOOSE__URI',
+        'DATABASE_URL',
+      ]) {
+        expect(out).toContain(`\`${key}\``);
+      }
+    });
     test('idempotent: re-applies replace block in-place', () => {
       const f = join(tmp, 'CLAUDE.md');
       writeFileSync(f, '# X\n');

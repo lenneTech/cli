@@ -316,6 +316,9 @@ export async function bringUpTestSession(
 
   const devEnv = buildDevEnv({
     apiInternalPort: apiPort ?? 0,
+    // The built server this stack runs reads no `.env` at all, so a key the project set
+    // there has to be forwarded explicitly — that is the whole reason this argument exists.
+    appDir: layout.appDir,
     appInternalPort: appPort ?? 0,
     baseEnv: process.env,
     dbName,

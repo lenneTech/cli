@@ -10,10 +10,13 @@
  * Shell B does not inherit shell A's exports. Reading a file solves
  * this without polluting global state.
  *
- * The file is gitignored via `.lt-dev/`. It contains only public URLs +
- * the local CA path — no secrets. Format: standard dotenv KEY=VALUE.
+ * The file is gitignored via `.lt-dev/` and written 0600, because it is no longer
+ * URLs only: `NUXT_SESSION_PASSWORD` is a session-sealing key. Usually that is the
+ * value `lt dev` derived itself, but when the project exported its own it is THAT
+ * one being copied here — so treat the file as credential-bearing, and think twice
+ * before adding a key to it. Format: standard dotenv KEY=VALUE.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { homedir, platform } from 'os';
 import { dirname, join } from 'path';
 
@@ -84,7 +87,9 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
     'NUXT_PUBLIC_STORAGE_PREFIX',
     'NUXT_PUBLIC_API_PROXY',
     // Not needed by the runner itself, but external suites check it to tell a stack that
-    // can log in from one that will 500 on every login (see dev-env.ts).
+    // can log in from one that will 500 on every login, and a suite that seals its own
+    // session cookie to skip the login form needs the value (see dev-env.ts). This is the
+    // one credential-shaped key in the bridge — it is why the file is written 0600.
     'NUXT_SESSION_PASSWORD',
     'NSC__MONGOOSE__URI',
     'DATABASE_URL',
@@ -108,6 +113,9 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
   const content = `${HEADER}${lines.join('\n')}\n`;
   if (existsSync(file) && readFileSync(file, 'utf8') === content) return file;
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, content, 'utf8');
+  writeFileSync(file, content, { encoding: 'utf8', mode: 0o600 });
+  // `mode` only applies when the file is CREATED, so an existing bridge from an older
+  // lt version would keep its 0644. chmod unconditionally to heal those.
+  chmodSync(file, 0o600);
   return file;
 }

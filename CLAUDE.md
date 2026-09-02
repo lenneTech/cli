@@ -221,7 +221,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Concern | File | Notes |
 |---|---|---|
 | Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
-| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. |
+| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
 | Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
 | VS Code memory profile | `src/commands/dev/vscode.ts` + `src/lib/vscode-settings.ts` | `lt dev vscode` (alias `vsc`) tunes the USER `settings.json` of VS Code / Insiders / Cursor / VSCodium. Machine-level, not project-level — no registry or Caddy involvement. JSONC-aware via `jsonc-parser` (lazy-required, since gluegun loads every command on every `lt` run) so comments survive; refuses an unparseable file or a symlink; keeps the FIRST `settings.json.bak`. Object-valued exclude maps are MERGED on apply (user entries win) and SUBTRACTED on `--revert`, so an undo never removes a hand-maintained exclusion. `MEMORY_PROFILE` targets the per-root SEMANTIC TS servers and excludes `**/.nuxt*/**` / `**/.output*/**` (segment globs — the bare names miss `.nuxt-test`); `EXCLUDED_FROM_PROFILE` records three commonly recommended keys that were ruled out, surfaced by `--explain`. `--dry-run` uses presence-as-intent (`isPreventingFlagSet`), not `=== true`, because it PREVENTS a write; `--noConfirm` must be an explicit CLI flag — a repo-local `lt.config.json` must not silence a prompt guarding a machine-global write. |
@@ -250,7 +250,7 @@ ports. Developers and Claude Code never see the internal ports.
 8. **`lt dev test [--api] [--keep] [--debug] [-- args]`** / **`lt dev test down`** — App mode (default) brings up an ISOLATED parallel stack (`<slug>-test.localhost` / `api.<slug>-test.localhost`, DB `<…>-test`), runs Playwright against it, then tears it down. The dev `lt dev up` session is never touched. `--keep` leaves the test stack up for debugging; `lt dev test down` tears a leftover stack down. `--api` runs the API E2E suite in the api project instead (already DB-isolated, no stack needed). Forwards args after `--` to the test runner.
 9. **`lt dev tunnel [--api]`** — Cloudflare Quick Tunnel: foreground `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`, prints the public `*.trycloudflare.com` URL. The host-header rewrite is mandatory — without it Caddy's vhost match fails for the random tunnel URL. Tunnels only expose ONE subdomain at a time; start a second `lt dev tunnel --api` in another shell for full external usage.
 
-**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`. The isolated `lt dev test` stack reuses the same protections under a `-test` suffix (slug `<…>-test`, DB `<…>-test`, prefix `<…>-test`, port band 4500+) so it can run literally side-by-side with the dev session.
+**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`; h3 session cookies are namespaced via `NUXT_SESSION_PASSWORD`, keyed per slug so a cookie sealed by one stack cannot be unsealed by another (dev, `-test` and every `-test-N` shard stack differ). The isolated `lt dev test` stack reuses the same protections under a `-test` suffix (slug `<…>-test`, DB `<…>-test`, prefix `<…>-test`, port band 4500+) so it can run literally side-by-side with the dev session.
 
 ### Vendor Modification Policy (for CLI-generated content)
 
@@ -773,6 +773,90 @@ projects predating the starter's globs), and `vscode-settings.ts#MEMORY_PROFILE`
 (`**/.nuxt*/**`, else the memory profile watches and indexes the very trees it exists
 to exclude). `tearDownTestSession` removes the suffixed dirs — never the bare ones,
 which belong to the developer's own build.
+
+### An out-of-sync lockfile is invisible to `npm install` — and only an npm you no longer run can write it <!-- Added: 2026-09-02 -->
+
+`npm ci` on this repo failed with `Missing: @emnapi/core@1.11.3 from lock file` while every
+pipeline stayed green, because nothing here ran `npm ci` — `scripts/check.sh` and both GitHub
+workflows used `npm install`, which happily installs around a lockfile that disagrees with
+`package.json`. The drift entered at 1.42.0 and survived two more releases.
+
+**The trap is that the naive fix is a silent no-op.** `@napi-rs/wasm-runtime` 1.x moved
+`@emnapi/core` / `@emnapi/runtime` from `dependencies` to `peerDependencies`, and the only path
+to them here is both dev-only and optional (`eslint-plugin-import-x` / `jest-resolve` →
+`unrs-resolver` → `@unrs/resolver-binding-wasm32-wasi`, `cpu: wasm32` → `@napi-rs/wasm-runtime`).
+npm **>= 11.5.0** (arborist 9.1.3) deliberately prunes nodes that are both peer and optional from
+the ideal tree, so it never writes them; npm **<= 11.4** still demands them and fails. So
+`npm install`, `npm install --package-lock-only`, `--force` and `--cpu=wasm32` all changed
+nothing on npm 11.6 — the modern npm cannot repair the file, and regenerating it with an old npm
+makes it oscillate by ten lines on every `check`.
+
+**Rules:**
+
+- **Declare the peer explicitly** (here: both `@emnapi/*` as devDependencies). That is the remedy
+  arborist's own source comment names — an optional peer stops being optional once a root
+  dependency requires it — and it is the only one both npm generations agree on. Verified across
+  npm 10 → 11.6, and `npm install` no longer strips it.
+- **Document it next to the entry.** `//devDependencies` in `package.json` mirrors the existing
+  `//overrides` convention and carries the removal condition, so an unused-looking dependency is
+  not deleted by the next maintenance pass.
+- **A fix nothing enforces comes back.** `.github/workflows/build.yml` now runs `npm ci`, so a
+  lockfile that drifts again fails CI instead of shipping. Node 20 there means npm 10 — the strict
+  generation, which is what makes the guard meaningful.
+- **When a lockfile claim disagrees with your machine, check the npm version before the file.**
+  This one reproduced on npm <= 11.4 and passed on 11.5+; "works for me" was a version, not a
+  mistake by the reporter.
+
+### The built Nitro server reads no `.env` — what `nuxt dev` got for free is missing under `lt dev test` <!-- Added: 2026-09-02 -->
+
+`lt dev up` runs the App via `nuxt dev`, which loads the project's `.env`. `lt dev test` serves
+the **built** Nitro server (`node .output*/server/index.mjs`), which reads only `process.env`. So
+every key a project keeps in `.env` and never exports silently vanishes in the test stack. Nitro
+*does* apply `NUXT_*` runtime-config overrides from `process.env` at runtime, which is why the fix
+is always "inject it into the spawn", never "bake it into the build".
+
+Worked example: Nuxt/h3 sessions need a password of at least 32 characters — an **absent** one
+throws `H3Error: Empty password`, a **short** one `Password string too short (min 32 characters
+required)`. Two distinct errors from `iron-webcrypto` (`minPasswordlength: 32`), reached via h3's
+`seal`/`unseal`; quoting the first while describing the second sends a debugger hunting for a
+string that is never printed. Without a password every login answered 500 and **42 of 92 Playwright
+specs failed on assertions unrelated to their subject** — the same expensive mis-signal as the
+`.nuxt` build-dir lock above: it reads as a broken suite while being pure infrastructure.
+
+**Rules for adding such a key to `buildDevEnv`:**
+
+- **Let the project win, and mean it.** Precedence is shell export → the app's own `.env` (read via
+  the optional `appDir` input) → the derived fallback. Consulting only `baseEnv` is not enough: a
+  project keeps this kind of value in `.env`, and dotenv-style loaders do not override an
+  already-set `process.env` key — so an injected value silently beats the project's own file, in
+  `nuxt dev` too. Forwarding the `.env` value explicitly is also what fixes the built server for
+  exactly those projects.
+- **Derive it, never randomise it.** A fresh value per run logs everybody out on every restart.
+- **Key it on the slug, and do not claim shards agree — they deliberately do not.** `testStackNames`
+  suffixes `-test-N`, so the dev stack, the test stack and each shard stack get DIFFERENT values.
+  That is the point: it makes the key a cross-wiring guard, so one stack's cookies can never
+  validate against another's.
+- **Salt anything that seals or signs.** The slug is public — the app publishes it as
+  `NUXT_PUBLIC_STORAGE_PREFIX` in every SSR payload, and `lt dev tunnel` can put that app on a
+  public URL. `sha256('lt-dev:session:<slug>')` therefore handed any visitor the key sealing its
+  sessions. The salt (`~/.lenneTech/dev-session-salt`, 0600, created with `wx` so parallel shards
+  cannot race to two different salts) keeps determinism and removes the guessability. Deriving a
+  credential from a public identifier is zero entropy however good the hash is.
+- **A new key is a new name SIX enumerations must learn:** the `dev-env.ts` file-header
+  "Cross-wiring protection" list, the `ENV builder` row of the touchpoint table above, the
+  "Cross-wiring protection" paragraph below it, `dev-env-bridge.ts#writeEnvBridge` (external
+  runners), `dev-patches.ts#patchClaudeMd` (consumer projects' Claude sessions), and both env-var
+  tables in `docs/commands.md`.
+- **Say who consumes it.** `NUXT_SESSION_PASSWORD` is inert for the standard lt stack —
+  nuxt-base-starter and nuxt-extensions authenticate via Better Auth, not h3 sessions. It helps
+  only projects that added h3 `useSession` / `nuxt-auth-utils` on top. A key listed in the
+  injected-CLAUDE.md block next to `BASE_URL` reads as load-bearing everywhere unless you say so.
+- **The bridge file is now credential-bearing.** `.lt-dev/.env` carries the sealing key, so it is
+  written 0600 (and chmod'ed on rewrite, since `mode` only applies on create). Its header used to
+  promise "no secrets" — a promise a later reviewer would have relied on.
+- **A build dir built with that env carries it too.** `.output-test/` freezes the value as a Nitro
+  runtime-config default, so the root `.dockerignore` needs `**/.output-*` and `**/.nuxt-*` —
+  `**/.output` matches a path component exactly and covers neither.
 
 ### A destructive self-heal must prove the hazard, not fail to recognise a guard <!-- Added: 2026-07-31 -->
 Anything the CLI writes ONCE into a generated project has no update path — the core
