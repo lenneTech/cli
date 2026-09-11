@@ -32,3 +32,33 @@ jobs:
         with:
           name: build
           path: ./build
+
+  build-windows:
+    name: Build (Windows, non-blocking)
+    runs-on: windows-latest
+    # Visibility only until native Windows support is complete: this job is
+    # expected to fail on the lt dev suites (/bin/sh, lsof, process groups).
+    # Flip to blocking once it is green.
+    continue-on-error: true
+    steps:
+      - name: Reproduce the Git for Windows default (CRLF checkout)
+        # Proves .gitattributes keeps the tree LF on a stock Windows machine.
+        run: git config --global core.autocrlf true
+      - name: Git checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Compile
+        run: npm run compile
+      - name: Copy templates
+        run: npm run copy-templates
+      - name: CLI smoke test
+        run: node bin/lt --version
+      - name: Test
+        run: npm test

@@ -1029,6 +1029,19 @@ has nothing to do with the code. Diagnose before believing it: `time git ls-remo
 origin HEAD` — ~60s wall-clock at ~0% CPU means network, not regression. The rest of
 the suite is hermetic (`npx jest --testPathIgnorePatterns "git-commands"` → all green).
 
+### npm runs package.json scripts through cmd.exe on Windows <!-- Added: 2026-09-11 -->
+The `postinstall` guard `node bin/postinstall.js 2>/dev/null || true` was meant to make
+completion setup unable to fail the install. Under cmd.exe (npm's default script shell
+on Windows) the redirect has no `/dev/null` and `true` is not a command, so the guard
+itself made `npm i -g @lenne.tech/cli` fail there. **Rules:** a script that must never
+fail guards itself in code (`bin/postinstall.js` wraps `main()` in try/catch) instead of
+in shell syntax; no `2>/dev/null`, `|| true`, POSIX env prefixes or single quotes in
+`package.json#scripts` — `__tests__/package-scripts-portable.test.ts` enforces it
+(`bash scripts/*.sh` entries are a separate, known gap). Child processes for our own
+entry point run as `process.execPath` + `bin/lt`, never `lt` from PATH: during a global
+install the bin link may not exist yet, and on Windows it is a `.cmd` shim that cannot
+be spawned without a shell.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

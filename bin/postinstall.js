@@ -3,9 +3,13 @@
 /**
  * Postinstall script for lt CLI
  * Generates static completion files on install/update (no runtime overhead)
+ *
+ * Must never fail the install: npm runs this through cmd.exe on Windows, so the
+ * former `2>/dev/null || true` guard in package.json broke `npm i -g` there
+ * instead of protecting it. The guard now lives in this file (see bottom).
  */
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } = require('fs');
 const { homedir } = require('os');
 const { join } = require('path');
@@ -26,11 +30,17 @@ function addSourceLine(configFile, sourceLine) {
 
 /**
  * Detect user's shell
+ *
+ * Returns null when no supported shell can be identified. On Windows an unset
+ * SHELL means PowerShell or cmd.exe, which read none of the rc files below —
+ * appending to a ~/.bashrc nothing sources would only leave clutter behind.
+ * Git Bash sets SHELL, so it still gets bash completions.
  */
 function detectShell() {
   const shell = process.env.SHELL || '';
   if (shell.includes('zsh')) return 'zsh';
   if (shell.includes('fish')) return 'fish';
+  if (!shell && process.platform === 'win32') return null;
   return 'bash';
 }
 
@@ -45,8 +55,13 @@ function generateCompletionFile(shell, completionFile) {
       mkdirSync(dir, { recursive: true });
     }
 
-    // Generate completion script
-    const script = execSync(`lt completion ${shell}`, { encoding: 'utf-8' });
+    // Run this package's own entry point with the current Node binary instead of
+    // resolving `lt` from PATH: during a global install the bin link may not exist
+    // yet, and on Windows `lt` is a .cmd shim that cannot be spawned without a shell.
+    const script = execFileSync(process.execPath, [join(__dirname, 'lt'), 'completion', shell], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     writeFileSync(completionFile, script);
     return true;
   } catch {
@@ -109,6 +124,10 @@ function main() {
   }
 
   const shell = detectShell();
+  if (!shell) {
+    return; // No supported shell (e.g. PowerShell) - nothing to install
+  }
+
   const paths = getCompletionPaths(shell);
   const isTTY = process.stdout.isTTY;
 
@@ -152,5 +171,9 @@ function main() {
   }
 }
 
-// Run
-main();
+// Run - completions are a convenience, so no failure may abort the install
+try {
+  main();
+} catch {
+  // Silent fail
+}

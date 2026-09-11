@@ -6,8 +6,12 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-export const DEFAULT_CODEX_MARKETPLACE_ROOT =
-  process.env.LT_CODEX_MARKETPLACE_ROOT || '/Users/kaihaase/code/lenneTech/codex';
+/**
+ * Codex marketplace checkout used when `lt codex plugins` gets no `--path`.
+ * Defaults to the current directory, matching the command's own guidance to run it
+ * from a checkout that contains the generated marketplace.
+ */
+export const DEFAULT_CODEX_MARKETPLACE_ROOT = process.env.LT_CODEX_MARKETPLACE_ROOT || process.cwd();
 
 export interface CodexCommandResult {
   output: string;
