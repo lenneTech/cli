@@ -895,10 +895,16 @@ in the app's package.json. `lt dev doctor` warns while only `oxlint.json` exists
 suggestion for it is "Delete this console statement". Any auto-fix that still passes
 `--fix-suggestions` would apply it. Checking only the root `scripts/check.mjs` is not enough: the
 root wrapper runs each project's `lint:fix` script, and apps from the old template carry
-`oxlint --fix --fix-suggestions` there and in their own `scripts/check.mjs`. So the heal refuses
-while ANY of the root/app `scripts/check.mjs`, `package.json` (scripts and inline lint-staged) or
-`.lintstagedrc*` contains the flag, names those files, and runs after `healCheckWrapper` so the
-root wrapper's own fix lands first in the same update.
+`oxlint --fix --fix-suggestions` there and in their own `scripts/check.mjs`. So `lt fullstack
+update` runs three steps in order: `healCheckWrapper` (root wrapper) →
+`healDangerousOxlintFixFlags` (removes `--fix-suggestions` and `--fix-dangerously` as plain
+arguments from root/app `package.json` incl. inline lint-staged, lint-staged configs and the app's
+`scripts/check.mjs`; tracked-and-clean files only, never through a symlink, textual so formatting
+survives) → `healOxlintrcFilename`, whose gate re-checks all of those files plus the root wrapper
+and refuses while any still USES a flag. `lt dev doctor` warns on the same finding.
+**Match a use, not a mention:** the current templates carry the comment "Never
+`--fix-suggestions`". A plain `includes` check counted that and blocked the rename in apps that
+were already fixed; `DANGEROUS_FIX_FLAG_USE` requires whitespace or a quote before the flag.
 
 ### A destructive self-heal must prove the hazard, not fail to recognise a guard <!-- Added: 2026-07-31 -->
 Anything the CLI writes ONCE into a generated project has no update path — the core

@@ -2,6 +2,14 @@ import { execFileSync } from 'child_process';
 import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { join, relative } from 'path';
 
+/** Outcome of `healDangerousOxlintFixFlags`. */
+export interface FixFlagHealResult {
+  /** Files the flags were removed from, relative to the workspace root (or `appDir`). */
+  changed: string[];
+  /** Files that still use a flag and were left alone, each with the reason. */
+  skipped: string[];
+}
+
 /** Outcome of `healOxlintrcFilename`. */
 export interface OxlintrcHealResult {
   /**
@@ -22,6 +30,80 @@ const TARGET = '.oxlintrc.json';
 
 /** A `-c`/`--config` flag pointing at the legacy file, e.g. `-c oxlint.json`, `--config=./oxlint.json`. */
 const CONFIG_FLAG = /(-c|--config)(\s+|=)(\.\/)?oxlint\.json(?![\w.-])/g;
+
+/**
+ * oxlint flags that apply behaviour-changing fixes: `--fix-suggestions` (e.g. deletes
+ * console calls for no-console) and `--fix-dangerously`. Matches a USE of the flag —
+ * preceded by whitespace or a quote — not a mention in backticks such as the comment
+ * "Never `--fix-suggestions`" the current templates carry.
+ */
+const DANGEROUS_FIX_FLAG_USE = /(?:^|[\s'"])--fix-(?:suggestions|dangerously)(?![\w-])/m;
+/** The removable form: the flag as a further argument after whitespace. `--fix` itself stays. */
+const DANGEROUS_FIX_FLAG_ARG = /[ \t]+--fix-(?:suggestions|dangerously)(?![\w-])/g;
+
+const LINT_STAGED_FILES = [
+  '.lintstagedrc',
+  '.lintstagedrc.json',
+  '.lintstagedrc.yaml',
+  '.lintstagedrc.yml',
+  '.lintstagedrc.js',
+  '.lintstagedrc.cjs',
+  '.lintstagedrc.mjs',
+  'lint-staged.config.js',
+  'lint-staged.config.cjs',
+  'lint-staged.config.mjs',
+];
+
+/**
+ * Files in which a dangerous fix flag is still USED. The root `scripts/check.mjs` counts
+ * for the gate but is not stripped here — `healCheckWrapper` owns that file.
+ * Paths are relative to `workspaceRoot` (or `appDir` for a standalone app).
+ */
+export function findDangerousFixFlagUsage(appDir: string, workspaceRoot?: string): string[] {
+  const base = workspaceRoot ?? appDir;
+  const files = [...(workspaceRoot ? [join(workspaceRoot, 'scripts', 'check.mjs')] : []), ...fixFlagFiles(appDir, workspaceRoot)];
+  return [...new Set(files)].filter((file) => usesDangerousFixFlag(file)).map((file) => relative(base, file) || file);
+}
+
+/**
+ * Remove `--fix-suggestions` and `--fix-dangerously` from the project's lint commands
+ * — root and app `package.json` (scripts and inline lint-staged), lint-staged configs
+ * and the app's own `scripts/check.mjs` — so the oxlint config can be loaded safely.
+ *
+ * Textual, so formatting stays exactly as it was. Only tracked files without
+ * uncommitted changes are edited (git can restore them); an untracked, dirty or
+ * symlinked file is reported in `skipped` and keeps blocking the rename.
+ */
+export function healDangerousOxlintFixFlags(appDir: string, workspaceRoot?: string): FixFlagHealResult {
+  const base = workspaceRoot ?? appDir;
+  const result: FixFlagHealResult = { changed: [], skipped: [] };
+  for (const file of fixFlagFiles(appDir, workspaceRoot)) {
+    if (!usesDangerousFixFlag(file)) {
+      continue;
+    }
+    const rel = relative(base, file) || file;
+    const dir = join(file, '..');
+    const name = relative(dir, file);
+    if (isSymlink(file)) {
+      result.skipped.push(`${rel} (symlink)`);
+    } else if (!isTracked(dir, name)) {
+      result.skipped.push(`${rel} (not tracked by git — remove the flag by hand)`);
+    } else if (hasUncommittedChanges(dir, name)) {
+      result.skipped.push(`${rel} (uncommitted changes — commit or discard them, then re-run)`);
+    } else {
+      const content = readFileSync(file, 'utf8');
+      const stripped = content.replace(DANGEROUS_FIX_FLAG_ARG, '');
+      if (stripped !== content) {
+        writeFileSync(file, stripped);
+        result.changed.push(rel);
+      }
+      if (DANGEROUS_FIX_FLAG_USE.test(stripped)) {
+        result.skipped.push(`${rel} (a flag use that is not a plain argument remains — remove it by hand)`);
+      }
+    }
+  }
+  return result;
+}
 
 /**
  * Heal the oxlint config filename of an app project: `oxlint.json` → `.oxlintrc.json`.
@@ -64,13 +146,12 @@ export function healOxlintrcFilename(appDir: string, workspaceRoot?: string): Ox
     return { action: 'skipped', changed: [], detail: `${LEGACY} is a symlink — rename it by hand` };
   }
 
-  const withFlag = fixSuggestionCandidates(appDir, workspaceRoot).filter((file) => fileContains(file, '--fix-suggestions'));
+  const withFlag = findDangerousFixFlagUsage(appDir, workspaceRoot);
   if (withFlag.length > 0) {
-    const names = withFlag.map((file) => relative(workspaceRoot ?? appDir, file) || file).join(', ');
     return {
       action: 'skipped',
       changed: [],
-      detail: `--fix-suggestions is still used in ${names}; loading the config would let it delete console calls — remove the flag, then re-run`,
+      detail: `--fix-suggestions/--fix-dangerously is still used in ${withFlag.join(', ')}; loading the config would let it delete console calls — remove the flag, then re-run`,
     };
   }
 
@@ -106,24 +187,17 @@ export function healOxlintrcFilename(appDir: string, workspaceRoot?: string): Ox
   return { action: 'renamed', changed };
 }
 
-function fileContains(file: string, needle: string): boolean {
-  try {
-    return !isSymlink(file) && readFileSync(file, 'utf8').includes(needle);
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Files that may still pass `--fix-suggestions` in a fullstack project: the root
- * check wrapper, the app's own wrapper, and both package.json files (scripts and
- * inline lint-staged config), plus a standalone lint-staged config.
+ * Files that may pass a dangerous fix flag and are ours to strip: both package.json
+ * files (scripts and inline lint-staged), lint-staged configs, and the app's own
+ * check wrapper.
  */
-function fixSuggestionCandidates(appDir: string, workspaceRoot?: string): string[] {
+function fixFlagFiles(appDir: string, workspaceRoot?: string): string[] {
   const roots = [...new Set([workspaceRoot, appDir].filter((dir): dir is string => Boolean(dir)))];
-  return roots.flatMap((dir) =>
-    ['scripts/check.mjs', 'package.json', '.lintstagedrc', '.lintstagedrc.json'].map((name) => join(dir, name)),
-  );
+  return [
+    ...roots.flatMap((dir) => ['package.json', ...LINT_STAGED_FILES].map((name) => join(dir, name))),
+    join(appDir, 'scripts', 'check.mjs'),
+  ];
 }
 
 /** True when the TRACKED `relPath` has uncommitted modifications. */
@@ -153,6 +227,16 @@ function isTracked(dir: string, relPath: string): boolean {
   try {
     execFileSync('git', ['-C', dir, 'ls-files', '--error-unmatch', '--', relPath], { stdio: 'ignore' });
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function usesDangerousFixFlag(file: string): boolean {
+  try {
+    // Follows a symlink on purpose: a linked config still feeds the lint run, so it
+    // must block the rename, even though the strip refuses to write through it.
+    return DANGEROUS_FIX_FLAG_USE.test(readFileSync(file, 'utf8'));
   } catch {
     return false;
   }

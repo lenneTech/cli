@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { healOxlintrcFilename } from '../src/lib/heal-oxlintrc';
+import { findDangerousFixFlagUsage, healDangerousOxlintFixFlags, healOxlintrcFilename } from '../src/lib/heal-oxlintrc';
 
 describe('healOxlintrcFilename', () => {
   let root: string;
@@ -100,6 +100,110 @@ describe('healOxlintrcFilename', () => {
     );
   });
 
+  describe('healDangerousOxlintFixFlags', () => {
+    const OLD_APP_PKG = `{
+  "name": "app",
+  "scripts": {
+    "lint:fix": "oxlint --fix --fix-suggestions app/ scripts/ server/",
+    "lint:danger": "oxlint --fix --fix-dangerously app/"
+  },
+  "lint-staged": {
+    "app/**/*.{ts,vue}": [
+      "oxlint --fix --fix-suggestions",
+      "oxfmt"
+    ]
+  }
+}
+`;
+    const OLD_APP_CHECK = "// Never `--fix-suggestions` in prose stays untouched\nreturn cmd.replace(/oxlint/, 'oxlint --fix --fix-suggestions');\n";
+
+    beforeEach(() => {
+      writeFileSync(join(app, 'package.json'), OLD_APP_PKG);
+      mkdirSync(join(app, 'scripts'));
+      writeFileSync(join(app, 'scripts', 'check.mjs'), OLD_APP_CHECK);
+      writeFileSync(join(root, '.lintstagedrc.json'), '{ "*.ts": "oxlint --fix --fix-suggestions" }\n');
+    });
+
+    it('removes both flags from every tracked, clean file and keeps --fix and the formatting', () => {
+      gitInit();
+
+      const result = healDangerousOxlintFixFlags(app, root);
+
+      expect(result).toEqual({
+        changed: ['.lintstagedrc.json', 'projects/app/package.json', 'projects/app/scripts/check.mjs'],
+        skipped: [],
+      });
+      expect(readFileSync(join(app, 'package.json'), 'utf8')).toBe(
+        OLD_APP_PKG.replace(/ --fix-suggestions/g, '').replace(' --fix-dangerously', ''),
+      );
+      expect(readFileSync(join(app, 'scripts', 'check.mjs'), 'utf8')).toBe(
+        "// Never `--fix-suggestions` in prose stays untouched\nreturn cmd.replace(/oxlint/, 'oxlint --fix');\n",
+      );
+      expect(readFileSync(join(root, '.lintstagedrc.json'), 'utf8')).toBe('{ "*.ts": "oxlint --fix" }\n');
+      expect(findDangerousFixFlagUsage(app, root)).toEqual([]);
+    });
+
+    it('strips and renames in one pass, the order lt fullstack update runs them in', () => {
+      gitInit();
+      healDangerousOxlintFixFlags(app, root);
+      expect(healOxlintrcFilename(app, root).action).toBe('renamed');
+    });
+
+    it('leaves the root check wrapper to healCheckWrapper, but lets it block the rename', () => {
+      mkdirSync(join(root, 'scripts'));
+      writeFileSync(join(root, 'scripts', 'check.mjs'), "'oxlint --fix --fix-suggestions'\n");
+      gitInit();
+
+      expect(healDangerousOxlintFixFlags(app, root).changed).not.toContain('scripts/check.mjs');
+      expect(readFileSync(join(root, 'scripts', 'check.mjs'), 'utf8')).toContain('--fix-suggestions');
+      expect(healOxlintrcFilename(app, root).detail).toMatch(/still used in scripts\/check\.mjs/);
+    });
+
+    it('skips untracked and dirty files with a reason, and those keep blocking the rename', () => {
+      gitInit();
+      writeFileSync(join(app, 'scripts', 'check.mjs'), `${OLD_APP_CHECK}// local edit\n`);
+      writeFileSync(join(app, '.lintstagedrc'), '"oxlint --fix --fix-suggestions"\n');
+
+      const result = healDangerousOxlintFixFlags(app, root);
+
+      expect(result.changed).toEqual(['.lintstagedrc.json', 'projects/app/package.json']);
+      expect(result.skipped).toEqual([
+        'projects/app/.lintstagedrc (not tracked by git — remove the flag by hand)',
+        'projects/app/scripts/check.mjs (uncommitted changes — commit or discard them, then re-run)',
+      ]);
+      expect(readFileSync(join(app, 'scripts', 'check.mjs'), 'utf8')).toContain("'oxlint --fix --fix-suggestions'");
+      expect(healOxlintrcFilename(app, root).action).toBe('skipped');
+    });
+
+    it('never writes through a symlink, but the linked file still blocks the rename', () => {
+      rmSync(join(root, '.lintstagedrc.json'));
+      writeFileSync(join(root, 'shared-lintstaged.json'), '{ "*.ts": "oxlint --fix --fix-dangerously" }\n');
+      symlinkSync(join(root, 'shared-lintstaged.json'), join(root, '.lintstagedrc.json'));
+      gitInit();
+
+      const result = healDangerousOxlintFixFlags(app, root);
+
+      expect(result.skipped).toContain('.lintstagedrc.json (symlink)');
+      expect(readFileSync(join(root, 'shared-lintstaged.json'), 'utf8')).toContain('--fix-dangerously');
+      expect(findDangerousFixFlagUsage(app, root)).toEqual(['.lintstagedrc.json']);
+    });
+
+    it('reports a flag it cannot remove as a plain argument', () => {
+      writeFileSync(join(root, '.lintstagedrc.json'), '{ "*.ts": ["oxlint", "--fix-suggestions"] }\n');
+      gitInit();
+      expect(healDangerousOxlintFixFlags(app, root).skipped).toContain(
+        '.lintstagedrc.json (a flag use that is not a plain argument remains — remove it by hand)',
+      );
+    });
+
+    it('counts a use, never a backtick mention', () => {
+      writeFileSync(join(app, 'package.json'), APP_PKG);
+      writeFileSync(join(app, 'scripts', 'check.mjs'), '// Never `--fix-suggestions`: it deletes console calls\n');
+      rmSync(join(root, '.lintstagedrc.json'));
+      expect(findDangerousFixFlagUsage(app, root)).toEqual([]);
+    });
+  });
+
   describe('--fix-suggestions gate', () => {
     // Loading the config enables no-console; an auto-fix with --fix-suggestions
     // then deletes console calls. The rename must wait until the flag is gone.
@@ -108,7 +212,7 @@ describe('healOxlintrcFilename', () => {
       writeFileSync(join(root, 'scripts', 'check.mjs'), "cmd.replace(/oxlint/, 'oxlint --fix --fix-suggestions');\n");
       const result = healOxlintrcFilename(app, root);
       expect(result.action).toBe('skipped');
-      expect(result.detail).toMatch(/--fix-suggestions is still used in scripts\/check\.mjs/);
+      expect(result.detail).toMatch(/--fix-suggestions\/--fix-dangerously is still used in scripts\/check\.mjs/);
       expect(existsSync(join(app, 'oxlint.json'))).toBe(true);
     });
 
@@ -118,7 +222,7 @@ describe('healOxlintrcFilename', () => {
       writeFileSync(join(app, 'scripts', 'check.mjs'), "'oxlint --fix --fix-suggestions'\n");
       const result = healOxlintrcFilename(app, root);
       expect(result.action).toBe('skipped');
-      expect(result.detail).toContain('projects/app/scripts/check.mjs, projects/app/package.json');
+      expect(result.detail).toContain('projects/app/package.json, projects/app/scripts/check.mjs');
     });
 
     it('renames once the flag is gone everywhere', () => {

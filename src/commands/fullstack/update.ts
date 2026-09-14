@@ -6,7 +6,7 @@ import { addToGitignore } from '../../lib/dev-patches';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
 import { healCheckWrapper } from '../../lib/heal-check-wrapper';
-import { healOxlintrcFilename } from '../../lib/heal-oxlintrc';
+import { healDangerousOxlintFixFlags, healOxlintrcFilename } from '../../lib/heal-oxlintrc';
 import { healVendorMigrateStore } from '../../lib/heal-vendor-migrate-store';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
@@ -233,7 +233,19 @@ const NewCommand: GluegunCommand = {
     // heal on purpose: the rename is refused while anything still passes
     // `--fix-suggestions`, which would delete console calls once the config loads.
     if (appDir) {
-      const oxlintrc = healOxlintrcFilename(appDir, isWorkspace ? cwd : undefined);
+      const workspaceRoot = isWorkspace ? cwd : undefined;
+      // 1. Strip the behaviour-changing fix flags first (the root wrapper was
+      // handled above). A file it has to skip keeps blocking the rename below.
+      const flags = healDangerousOxlintFixFlags(appDir, workspaceRoot);
+      if (flags.changed.length > 0) {
+        info('');
+        success(`  Removed --fix-suggestions/--fix-dangerously from: ${flags.changed.join(', ')}`);
+      }
+      for (const entry of flags.skipped) {
+        warning(`  Fix flag NOT removed: ${entry}`);
+      }
+      // 2. Rename — the gate inside re-checks every file.
+      const oxlintrc = healOxlintrcFilename(appDir, workspaceRoot);
       if (oxlintrc.action === 'renamed') {
         info('');
         success(`  Renamed the oxlint config so oxlint loads it: ${oxlintrc.changed.join(', ')}`);
