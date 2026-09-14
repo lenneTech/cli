@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @lt-check-wrapper 3.12.0
 /**
  * Quiet, report-driven wrapper around the project `check` pipeline.
  *
@@ -24,6 +25,13 @@
  *
  * Exit code: 0 when every step passed, 1 otherwise (preserves the contract the
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
+ *
+ * Version marker: the `@lt-check-wrapper` line above names the lt-monorepo
+ * release this wrapper ships with. The lt CLI reads it so `lt fullstack update`
+ * never replaces a project's wrapper with an older one. `pnpm run release`
+ * bumps it (bumpFiles in .versionrc.json), and
+ * scripts/check-wrapper-version.test.mjs fails when it drifts from
+ * package.json. In a generated project it keeps the release it came from.
  */
 import { execSync, spawn } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
