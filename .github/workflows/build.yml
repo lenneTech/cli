@@ -40,25 +40,47 @@ jobs:
     # expected to fail on the lt dev suites (/bin/sh, lsof, process groups).
     # Flip to blocking once it is green.
     continue-on-error: true
+    timeout-minutes: 45
+    # Every step after checkout runs with `!cancelled()`, so one run shows
+    # everything that is red on Windows instead of stopping at the first failure.
     steps:
       - name: Reproduce the Git for Windows default (CRLF checkout)
         # Proves .gitattributes keeps the tree LF on a stock Windows machine.
         run: git config --global core.autocrlf true
       - name: Git checkout
         uses: actions/checkout@v4
+      - name: Assert LF checkout
+        # Checks the working tree itself rather than trusting autocrlf: a script,
+        # hook or shebang file checked out with CRLF breaks under Git Bash.
+        # Only files .gitattributes pins to CRLF (*.cmd, *.bat) may carry it.
+        shell: bash
+        run: |
+          crlf=$(git ls-files --eol | grep 'w/crlf' | grep -v 'eol=crlf' || true)
+          if [ -n "$crlf" ]; then
+            echo "::error::CRLF in the working tree despite .gitattributes"
+            echo "$crlf"
+            exit 1
+          fi
       - name: Use Node.js 20
+        if: ${{ !cancelled() }}
         uses: actions/setup-node@v4
         with:
           node-version: 20
       - name: Install dependencies
+        if: ${{ !cancelled() }}
         run: npm ci
       - name: Lint
+        if: ${{ !cancelled() }}
         run: npm run lint
       - name: Compile
+        if: ${{ !cancelled() }}
         run: npm run compile
       - name: Copy templates
+        if: ${{ !cancelled() }}
         run: npm run copy-templates
       - name: CLI smoke test
+        if: ${{ !cancelled() }}
         run: node bin/lt --version
       - name: Test
+        if: ${{ !cancelled() }}
         run: npm test

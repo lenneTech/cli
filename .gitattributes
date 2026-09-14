@@ -26,3 +26,4 @@ Dockerfile  text eol=lf
 *.mp4 binary
 *.webm binary
 pnpm-lock.yaml text eol=lf linguist-generated=true
+package-lock.json text eol=lf
