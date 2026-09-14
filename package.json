@@ -24,6 +24,7 @@
     "check:audit": "bash scripts/check.sh --audit-only",
     "check:fix": "npm install && npm audit fix && npm run format && npm run lint:fix && npm run build && npm run check:start",
     "check:start": "bash scripts/check-cli-start.sh",
+    "sync:check-template": "ts-node --transpile-only extras/sync-check-template.ts",
     "postinstall": "node bin/postinstall.js 2>/dev/null || true",
     "build": "npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
     "clean-build": "npx rimraf ./build",

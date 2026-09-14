@@ -8,7 +8,14 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, sy
 import { tmpdir } from 'os';
 import { basename, join } from 'path';
 
-import { healCheckWrapper, resolveCopySet } from '../src/lib/heal-check-wrapper';
+import {
+  compareVersions,
+  compareWrapperVersions,
+  healCheckWrapper,
+  keptWrapperReason,
+  readWrapperVersion,
+  resolveCopySet,
+} from '../src/lib/heal-check-wrapper';
 import { evalInNodeEsm } from './check-template-esm';
 
 describe('healCheckWrapper', () => {
@@ -186,6 +193,94 @@ describe('healCheckWrapper', () => {
         'scripts/double.mjs',
         'scripts/single.mjs',
       ]);
+    });
+  });
+
+  describe('version guard', () => {
+    const marked = (version: string, body = 'console.log("wrapper");'): string =>
+      `#!/usr/bin/env node\n// @lt-check-wrapper ${version}\n${body}\n`;
+    const installProjectWrapper = (content: string): void => {
+      mkdirSync(join(root, 'scripts'), { recursive: true });
+      writeFileSync(join(root, 'scripts', 'check.mjs'), content);
+    };
+
+    it('never downgrades a project wrapper from a newer release', () => {
+      writeFileSync(asset, marked('3.12.0'));
+      installProjectWrapper(marked('3.13.0', 'console.log("newer");'));
+      writePkg({ check: 'node scripts/check.mjs' });
+
+      expect(healCheckWrapper(root, asset)).toEqual([
+        "scripts/check.mjs (skipped: project wrapper 3.13.0 is newer than this CLI's 3.12.0 — update lt)",
+      ]);
+      expect(readScript()).toContain('newer');
+      expect(existsSync(join(root, 'scripts', 'check.mjs.bak'))).toBe(false);
+    });
+
+    it('keeps a differing wrapper of the SAME release — the marker cannot tell which is newer', () => {
+      // lt-monorepo main between releases carries the release it came from: v3.12.0
+      // and main with a later fix both read 3.12.0. Overwriting on a tie would turn
+      // that fix back in every project created from main.
+      writeFileSync(asset, marked('3.12.0', 'console.log("cli copy");'));
+      installProjectWrapper(marked('3.12.0', 'console.log("main after the release");'));
+      writePkg({ check: 'node scripts/check.mjs' });
+
+      const changed = healCheckWrapper(root, asset);
+
+      expect(changed).toHaveLength(1);
+      expect(changed[0]).toMatch(/skipped: project wrapper differs from this CLI's copy of the same release 3\.12\.0/);
+      expect(readScript()).toContain('main after the release');
+    });
+
+    it('still completes an identical same-release wrapper whose sibling is missing', () => {
+      writeFileSync(join(assetDir, 'gate.mjs'), 'export const g = 1;\n');
+      writeFileSync(asset, marked('3.12.0', "import { g } from './gate.mjs';"));
+      installProjectWrapper(readFileSync(asset, 'utf8'));
+      writePkg({ check: 'node scripts/check.mjs' });
+
+      expect(keptWrapperReason(root, asset)).toBeNull();
+      expect(healCheckWrapper(root, asset)).toEqual(['scripts/gate.mjs']);
+    });
+
+    it('updates a wrapper from an older release', () => {
+      writeFileSync(asset, marked('3.13.0'));
+      installProjectWrapper(marked('3.12.0'));
+      writePkg({ check: 'node scripts/check.mjs' });
+      expect(healCheckWrapper(root, asset)).toEqual(['scripts/check.mjs']);
+      expect(readWrapperVersion(join(root, 'scripts', 'check.mjs'))).toBe('3.13.0');
+    });
+
+    it('updates an unmarked (legacy) wrapper as before', () => {
+      writeFileSync(asset, marked('3.12.0'));
+      installProjectWrapper('#!/usr/bin/env node\nconsole.log("legacy");\n');
+      writePkg({ check: 'node scripts/check.mjs' });
+      expect(healCheckWrapper(root, asset)).toEqual(['scripts/check.mjs']);
+      expect(readScript()).toBe(marked('3.12.0'));
+    });
+
+    it('keeps a wrapper with an unrecognised marker, and one marked against an unmarked bundle', () => {
+      installProjectWrapper(marked('next'));
+      expect(compareWrapperVersions(root, asset).relation).toBe('unrecognised');
+      expect(keptWrapperReason(root, asset)).toMatch(/unrecognised @lt-check-wrapper marker "next"/);
+
+      installProjectWrapper(marked('3.12.0'));
+      expect(compareWrapperVersions(root, asset)).toEqual({ bundled: null, project: '3.12.0', relation: 'project-newer' });
+    });
+
+    it('reads the marker in lt-monorepo\'s exact line format, CRLF included', () => {
+      const file = join(assetDir, 'probe.mjs');
+      writeFileSync(file, '#!/usr/bin/env node\r\n// @lt-check-wrapper 3.12.0\r\n/**\r\n');
+      expect(readWrapperVersion(file)).toBe('3.12.0');
+      // Prose that mentions the tag is not a marker.
+      writeFileSync(file, '#!/usr/bin/env node\n/**\n * the `@lt-check-wrapper` line names the release\n * @lt-check-wrapper 9.9.9\n */\n');
+      expect(readWrapperVersion(file)).toBeNull();
+      expect(readWrapperVersion(join(assetDir, 'missing.mjs'))).toBeNull();
+    });
+
+    it('orders versions numerically, prereleases before their release', () => {
+      expect(compareVersions('3.10.0', '3.9.9')).toBeGreaterThan(0);
+      expect(compareVersions('3.12.0', '3.12.0')).toBe(0);
+      expect(compareVersions('3.13.0-rc.1', '3.13.0')).toBeLessThan(0);
+      expect(compareVersions('3.13.0', '3.12.9-rc.1')).toBeGreaterThan(0);
     });
   });
 

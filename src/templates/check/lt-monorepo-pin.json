@@ -1,0 +1,13 @@
+{
+  "commit": "1f24c955bc6a1db0693872a5e32be39fbc6fd8b5",
+  "files": {
+    "build-test-gate.mjs": "865bf1b9dd28151f53b9f2dfe4c3c46d29b9303fb1c2f497ce0e3136bcd37d71",
+    "check.mjs": "59c096bb5b587f7a3d7bc8b7bf2f5e073b03072496f4964187f9a011208a243c",
+    "lib/ansi.mjs": "f997ee6e9bf1c7ee54ab612d4040fcc778064ec160eae19bf5c3960a75a6e2ff",
+    "lib/audit-report.mjs": "503825c3342dec1ee5d8d70e5af21b73e798faee320426b2492190cde0801df2",
+    "lib/workspace-packages.mjs": "ccdd133622a88186c924bc8271d35cf1f8357dc26d4a607998ca5e91fce5bf88"
+  },
+  "ref": "1f24c95",
+  "repository": "lenneTech/lt-monorepo",
+  "version": "3.12.0"
+}
