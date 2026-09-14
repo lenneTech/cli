@@ -177,6 +177,23 @@ describe('check.mjs template', () => {
     });
   });
 
+  describe('lint auto-fix', () => {
+    it('applies only safe oxlint fixes, never suggestions', () => {
+      // `--fix-suggestions` applies fixes oxlint itself marks as behaviour-changing:
+      // the no-console suggestion deletes every console.log in the linted tree.
+      // A `check` run in auto-fix mode must not rewrite program behaviour.
+      const result = inCheck<string[]>(`
+        const r = m.buildGroups([{ check: 'oxlint src && npx oxlint --type-aware tests', dir: '.', name: 'x', rel: '.' }]);
+        report(r.groups[0].steps.map((s) => s.cmd));
+      `);
+      expect(result).toEqual([
+        expect.stringContaining('oxlint --fix src'),
+        expect.stringContaining('npx oxlint --fix --type-aware tests'),
+      ]);
+      expect(result.join('\n')).not.toContain('--fix-suggestions');
+    });
+  });
+
   describe('audit accounting', () => {
     it('claims nothing is suppressed when the report has no advisories list', () => {
       // npm 7+ emits `auditReportVersion: 2` with a `vulnerabilities` map and no
