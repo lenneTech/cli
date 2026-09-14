@@ -6,6 +6,7 @@ import { addToGitignore } from '../../lib/dev-patches';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
 import { healCheckWrapper } from '../../lib/heal-check-wrapper';
+import { healOxlintrcFilename } from '../../lib/heal-oxlintrc';
 import { healVendorMigrateStore } from '../../lib/heal-vendor-migrate-store';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
@@ -222,6 +223,24 @@ const NewCommand: GluegunCommand = {
       }
       for (const entry of skipped) {
         warning(`  Check wrapper NOT updated: ${entry}`);
+      }
+    }
+
+    // ── Self-heal: let oxlint actually load the app's config ───────────────
+    //
+    // oxlint only auto-discovers `.oxlintrc.json`; the app template shipped
+    // `oxlint.json`, so its rules never applied. Runs AFTER the check wrapper
+    // heal on purpose: the rename is refused while anything still passes
+    // `--fix-suggestions`, which would delete console calls once the config loads.
+    if (appDir) {
+      const oxlintrc = healOxlintrcFilename(appDir, isWorkspace ? cwd : undefined);
+      if (oxlintrc.action === 'renamed') {
+        info('');
+        success(`  Renamed the oxlint config so oxlint loads it: ${oxlintrc.changed.join(', ')}`);
+        info('    Its rules apply from now on — expect new lint findings on the next check.');
+      } else if (oxlintrc.detail) {
+        info('');
+        warning(`  oxlint config NOT renamed: ${oxlintrc.detail}`);
       }
     }
 

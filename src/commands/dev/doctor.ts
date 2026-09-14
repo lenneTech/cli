@@ -179,6 +179,21 @@ const DoctorCommand: GluegunCommand = {
         /* best-effort diagnostics */
       }
 
+      // 7.6 oxlint config filename: oxlint only auto-discovers `.oxlintrc.json`.
+      //     Apps from the template before the rename carry `oxlint.json`, whose
+      //     rules then silently never apply — lint passes on code the project's
+      //     own rules forbid.
+      if (layout.appDir) {
+        const hasLegacy = filesystem.exists(filesystem.path(layout.appDir, 'oxlint.json'));
+        const hasCurrent = filesystem.exists(filesystem.path(layout.appDir, '.oxlintrc.json'));
+        if (hasLegacy && !hasCurrent) {
+          line('WARN', colors.yellow, 'oxlint config not loaded — oxlint only reads .oxlintrc.json, the app has oxlint.json');
+          line('WARN', colors.yellow, '  run `lt fullstack update` to rename it');
+        } else if (hasLegacy) {
+          line('WARN', colors.yellow, 'oxlint.json is ignored next to .oxlintrc.json — merge its rules and delete it');
+        }
+      }
+
       // 8. Slug ↔ path: is this project's slug registered to a DIFFERENT checkout?
       //    Two clones of the same project (same package.json "name") share the
       //    slug → Caddy block / ports / DB and collide. Surface it proactively.
