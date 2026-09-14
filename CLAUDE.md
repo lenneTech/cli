@@ -649,11 +649,16 @@ reaches it reliably — args appended to an `&&` chain only hit the LAST command
 human-readable reason into the sibling `//overrides` doc object), e.g. `form-data`
 4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core` 7.29.7 (GHSA-4x5r-pxfx-6jf8).
 
-`js-yaml` is at **4.3.1** (GHSA-5p4m-2wfm-xmqj, quadratic CPU in `!!omap`; the fix
-was NOT backported to 3.x, so 3.15.0 is the end of its line). The 3.x copy under
-`@istanbuljs/load-nyc-config` is raised by a **consumer-scoped** override —
-`"@istanbuljs/load-nyc-config": { "js-yaml": "4.3.1" }` — not a global force. Two
-things to know before touching it: a top-level `js-yaml@<4.3.1` selector was tried
+`js-yaml` is at **4.3.2** (GHSA-5p4m-2wfm-xmqj, quadratic CPU in `!!omap`, fixed 4.3.1;
+GHSA-2883-xcg3-v3hh, `maxTotalMergeKeys` does not limit CPU for empty merge sources,
+fixed 4.3.2). The 3.x copy under `@istanbuljs/load-nyc-config` is raised by a
+**consumer-scoped** override — `"@istanbuljs/load-nyc-config": { "js-yaml": "4.3.2" }` —
+not a global force; **raise its target together with the direct pin**, or the nested
+copy stays on the old patch and the audit keeps both findings. The original premise
+"no 3.x backport" is outdated: js-yaml later published 3.15.1/3.15.2, and a fresh
+resolve without the override puts 3.15.2 there and audits clean. The override stays
+for one deduped copy on a verified call site; dropping it is a legitimate follow-up.
+Two things to know before touching it: a top-level `js-yaml@<4.3.1` selector was tried
 first and npm did **not** apply it to that nested path at all, and the raise is
 cross-major, so it needed the export-shape check this repo requires — the loader
 calls `require('js-yaml').load(...)` (index.js:80), which 4.x provides, and 4.x
