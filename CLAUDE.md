@@ -1042,6 +1042,23 @@ entry point run as `process.execPath` + `bin/lt`, never `lt` from PATH: during a
 install the bin link may not exist yet, and on Windows it is a `.cmd` shim that cannot
 be spawned without a shell.
 
+### Find binaries with `findExecutable`, spawn third-party tools with `spawnCmdSync` <!-- Added: 2026-09-14 -->
+Two habits that work on macOS/Linux fail on native Windows. `spawnSync('which', [x])`
+finds nothing, because PowerShell and cmd.exe have no `which`. `spawnSync('npm', …)` or
+`spawnSync('…\claude.cmd', …)` fails because npm-installed tools are `.cmd` shims, and
+Node refuses to spawn those without a shell (CVE-2024-27980, `EINVAL`). Adding
+`shell: true` would bring back shell interpretation of arguments. **Rules:** resolve a
+binary with `src/lib/platform.ts#findExecutable` (PATH + PATHEXT in Node, well-known
+install locations as `candidates`). Run a tool that may be a shim with `spawnCmdSync`
+(cross-spawn: plain `spawnSync` on POSIX, escaped cmd.exe call on Windows). The escaping
+is not airtight for global npm shims (`%APPDATA%\npm\*.cmd` re-parse `%*`), so pass plain
+arguments only, never untrusted free text. Platform,
+env and file probe are injectable, so write the Windows branch as a test on any host
+(`__tests__/platform.test.ts`). Migrated so far: Claude/Codex lookup, plugin
+requirements. The `lt dev` spawn sites (`dev-process.ts`, `dev/up.ts`, …) and
+`dev-service.ts#resolveCaddyBin` are not migrated yet. They follow once the Windows
+laptop test settles process lifecycle and the Caddy mode.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

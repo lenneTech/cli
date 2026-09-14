@@ -2,10 +2,11 @@
  * Claude CLI utilities
  * Handles detection and execution of Claude CLI commands
  */
-import { spawnSync } from 'child_process';
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, posix, win32 } from 'path';
+
+import { CliLookupOptions, findExecutable, isWindows, spawnCmdSync, windowsAppData } from './platform';
 
 /**
  * Path to Claude plugins marketplaces directory
@@ -44,7 +45,7 @@ export interface KnownMarketplaceEntry {
 export function checkCommandExists(command: string): boolean {
   try {
     const [cmd, ...args] = command.trim().split(/\s+/);
-    const result = spawnSync(cmd, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const result = spawnCmdSync(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     return result.status === 0;
   } catch {
     return false;
@@ -62,29 +63,20 @@ export function checkMarketplaceExists(marketplaceName: string): boolean {
 
 /**
  * Find the Claude CLI executable path
- * Checks common installation locations and falls back to 'which'
+ * Checks common installation locations first, then PATH
+ *
+ * On Windows the native installer puts `claude.exe` into `%USERPROFILE%\.local\bin`
+ * and `npm i -g` a `claude.cmd` shim into `%APPDATA%\npm`. Both are checked
+ * directly, because a shell opened before the install does not have them on PATH yet.
  * @returns Path to Claude CLI or null if not found
  */
-export function findClaudeCli(): null | string {
-  const possiblePaths = [join(homedir(), '.claude', 'local', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude'];
+export function findClaudeCli(options: CliLookupOptions = {}): null | string {
+  const { env = process.env, home = homedir(), platform = process.platform } = options;
+  const candidates = isWindows(platform)
+    ? [win32.join(home, '.local', 'bin', 'claude.exe'), win32.join(windowsAppData(env, home), 'npm', 'claude.cmd')]
+    : [posix.join(home, '.claude', 'local', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude'];
 
-  for (const p of possiblePaths) {
-    if (existsSync(p)) {
-      return p;
-    }
-  }
-
-  try {
-    const result = spawnSync('which', ['claude'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    const path = (result.stdout || '').trim();
-    if (result.status === 0 && path && existsSync(path)) {
-      return path;
-    }
-  } catch {
-    // Claude CLI not found in PATH
-  }
-
-  return null;
+  return findExecutable('claude', { ...options, candidates, env, platform });
 }
 
 /**
@@ -117,10 +109,7 @@ export function readKnownMarketplaces(): Record<string, KnownMarketplaceEntry> {
  */
 export function runClaudeCommand(cli: string, args: string): ClaudeCommandResult {
   try {
-    const result = spawnSync(cli, args.split(' '), {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = spawnCmdSync(cli, args.split(' '), { stdio: ['pipe', 'pipe', 'pipe'] });
     return {
       output: result.stdout + result.stderr,
       success: result.status === 0,

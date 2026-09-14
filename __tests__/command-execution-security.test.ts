@@ -209,6 +209,48 @@ describe('processPostInstall', () => {
     delete PLUGIN_POST_INSTALL['__test_fail_plugin__'];
   });
 
+  test('detects an already-installed requirement via executable, without `which`', () => {
+    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    PLUGIN_POST_INSTALL['__test_executable__'] = {
+      requirements: [
+        {
+          description: 'Node.js',
+          executable: 'node',
+          installCommand: '__must_not_run__',
+        },
+      ],
+    };
+
+    const toolbox = mockToolbox();
+    const result = processPostInstall('__test_executable__', toolbox);
+
+    expect(result.success).toBe(true);
+    expect(toolbox.logs.some((l) => l.includes('already installed'))).toBe(true);
+
+    delete PLUGIN_POST_INSTALL['__test_executable__'];
+  });
+
+  test('reports a missing executable requirement when install fails', () => {
+    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    PLUGIN_POST_INSTALL['__test_executable_fail__'] = {
+      requirements: [
+        {
+          description: 'Fake tool',
+          executable: '__nonexistent_xyz__',
+          installCommand: '__nonexistent_installer__',
+        },
+      ],
+    };
+
+    const toolbox = mockToolbox();
+    const result = processPostInstall('__test_executable_fail__', toolbox);
+
+    expect(result.success).toBe(false);
+    expect(result.requirementsMissing).toContain('Fake tool');
+
+    delete PLUGIN_POST_INSTALL['__test_executable_fail__'];
+  });
+
   test('runs installCommand without checkCommand', () => {
     const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
     PLUGIN_POST_INSTALL['__test_nocheck__'] = {
