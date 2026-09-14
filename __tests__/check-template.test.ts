@@ -195,11 +195,16 @@ describe('check.mjs template', () => {
   });
 
   describe('audit accounting', () => {
+    // Lives in lib/audit-report.mjs since the template was synced with lt-monorepo.
+    const AUDIT = templateUrl('lib/audit-report.mjs');
+    const inAudit = <T>(body: string): T =>
+      evalInNodeEsm<T>(`import * as m from ${JSON.stringify(AUDIT)};\n${body}`);
+
     it('claims nothing is suppressed when the report has no advisories list', () => {
       // npm 7+ emits `auditReportVersion: 2` with a `vulnerabilities` map and no
       // `advisories` key. Deriving there made `unlisted === total`, so a real,
       // unassessed critical rendered dimmed and labelled as suppressed.
-      const result = inCheck<number>(`
+      const result = inAudit<number>(`
         report(m.countUnlisted({
           auditReportVersion: 2,
           vulnerabilities: { pkg: { severity: 'critical' } },
@@ -210,7 +215,7 @@ describe('check.mjs template', () => {
     });
 
     it('counts what metadata has but advisories does not', () => {
-      const result = inCheck<number>(`
+      const result = inAudit<number>(`
         report(m.countUnlisted({
           advisories: {},
           metadata: { vulnerabilities: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 } },
@@ -220,7 +225,7 @@ describe('check.mjs template', () => {
     });
 
     it('counts nothing when every finding is listed', () => {
-      const result = inCheck<number>(`
+      const result = inAudit<number>(`
         report(m.countUnlisted({
           advisories: { '1': { severity: 'high' } },
           metadata: { vulnerabilities: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 } },

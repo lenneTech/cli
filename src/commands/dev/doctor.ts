@@ -152,11 +152,18 @@ const DoctorCommand: GluegunCommand = {
               drifted.push(rel);
             }
           }
-          if (missing.length > 0) {
+          // A missing module only breaks `check` when the project's wrapper is the
+          // canonical one that imports it (or the wrapper itself is missing). An
+          // older wrapper does not import the newer modules (e.g. `lib/*.mjs`) and
+          // still runs — calling that "cannot start" would be a false alarm.
+          const wrapperDrifted = drifted.includes('scripts/check.mjs');
+          if (missing.length > 0 && !wrapperDrifted) {
             line('ERROR', colors.red, `check wrapper incomplete — missing ${missing.join(', ')}`);
             line('ERROR', colors.red, '  `pnpm run check` cannot start; run `lt fullstack update` to install it');
           } else if (drifted.length > 0) {
-            line('WARN', colors.yellow, `${drifted.join(', ')} differs from the canonical CLI version`);
+            const outdated = [...drifted, ...missing.map((rel) => `${rel} (missing)`)];
+            const verb = outdated.length === 1 ? 'differs' : 'differ';
+            line('WARN', colors.yellow, `${outdated.join(', ')} ${verb} from the canonical CLI version`);
             line('WARN', colors.yellow, '  run `lt fullstack update` to sync it (skips uncommitted local edits)');
           } else if (filesystem.exists(j(layout.root, 'scripts', 'check.mjs'))) {
             line('OK', colors.green, 'check wrapper matches the canonical CLI version');

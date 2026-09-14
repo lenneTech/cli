@@ -4,13 +4,12 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 /** Marker value for the report-driven check wrapper. */
 const WRAPPER = 'node scripts/check.mjs';
@@ -131,13 +130,6 @@ export function healCheckWrapper(projectRoot: string, assetPath: string): string
  */
 export function resolveCopySet(assetPath: string): Copy[] {
   const assetDir = dirname(assetPath);
-  // Regular files only — a directory named `*.mjs` would otherwise reach
-  // copyFileSync and abort the whole migration with EISDIR.
-  const available = new Set(
-    readdirSync(assetDir, { withFileTypes: true })
-      .filter((entry) => entry.isFile())
-      .map((entry) => entry.name),
-  );
 
   const copies: Copy[] = [{ rel: `${SCRIPTS_DIR}/check.mjs`, source: assetPath }];
   // Keyed by target rel, NOT by source basename: the asset lands as
@@ -160,14 +152,23 @@ export function resolveCopySet(assetPath: string): Copy[] {
     } catch {
       continue;
     }
-    for (const match of source.matchAll(/\bfrom\s+['"]\.\/([^'"/]+)['"]/g)) {
-      const name = match[1];
-      const rel = `${SCRIPTS_DIR}/${name}`;
-      if (claimed.has(rel) || !available.has(name)) {
+    // Resolved against the IMPORTING file, so `./lib/audit-report.mjs` in the
+    // wrapper and `./ansi.mjs` inside `lib/` both land where Node looks for them.
+    // Subdirectories count: copying only the wrapper's direct siblings installed
+    // a `check.mjs` whose `./lib/*` imports resolved to nothing.
+    for (const match of source.matchAll(/\bfrom\s+['"](\.\/[^'"]+)['"]/g)) {
+      const resolved = resolve(dirname(file), match[1]);
+      const inAsset = relative(assetDir, resolved);
+      // Never out of the asset dir: an import that climbs out (`./../x.mjs`)
+      // must not claim a path in the project's scripts/.
+      if (!inAsset || inAsset === '..' || inAsset.startsWith(`..${sep}`) || isAbsolute(inAsset)) {
+        continue;
+      }
+      const rel = `${SCRIPTS_DIR}/${inAsset.split(sep).join('/')}`;
+      if (claimed.has(rel) || !isRegularFile(resolved)) {
         continue;
       }
       claimed.add(rel);
-      const resolved = join(assetDir, name);
       copies.push({ rel, source: resolved });
       queue.push(resolved);
     }
@@ -187,6 +188,19 @@ function hasUncommittedChanges(projectRoot: string, relPath: string): boolean {
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True for a regular file, checked without following a symlink. A directory
+ * named `*.mjs` would otherwise reach copyFileSync and abort the whole migration
+ * with EISDIR.
+ */
+function isRegularFile(target: string): boolean {
+  try {
+    return lstatSync(target).isFile();
   } catch {
     return false;
   }
