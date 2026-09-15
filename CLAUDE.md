@@ -1034,6 +1034,51 @@ has nothing to do with the code. Diagnose before believing it: `time git ls-remo
 origin HEAD` — ~60s wall-clock at ~0% CPU means network, not regression. The rest of
 the suite is hermetic (`npx jest --testPathIgnorePatterns "git-commands"` → all green).
 
+### npm runs package.json scripts through cmd.exe on Windows <!-- Added: 2026-09-11 -->
+The `postinstall` guard `node bin/postinstall.js 2>/dev/null || true` was meant to make
+completion setup unable to fail the install. Under cmd.exe (npm's default script shell
+on Windows) the redirect has no `/dev/null` and `true` is not a command, so the guard
+itself made `npm i -g @lenne.tech/cli` fail there. **Rules:** a script that must never
+fail guards itself in code (`bin/postinstall.js` wraps `main()` in try/catch) instead of
+in shell syntax; no `2>/dev/null`, `|| true`, POSIX env prefixes or single quotes in
+`package.json#scripts` — `__tests__/package-scripts-portable.test.ts` enforces it
+(`bash scripts/*.sh` entries are a separate, known gap). Child processes for our own
+entry point run as `process.execPath` + `bin/lt`, never `lt` from PATH: during a global
+install the bin link may not exist yet, and on Windows it is a `.cmd` shim that cannot
+be spawned without a shell.
+
+### A hook in a linked worktree inherits GIT_DIR — and hands it to the test suite <!-- Added: 2026-09-14 -->
+In a linked worktree (`git worktree add`) git exports `GIT_DIR=<repo>/.git/worktrees/<name>`
+to hooks; in the main checkout it does not. `.husky/pre-push` runs `npm run test`, and many
+tests spawn git in temporary repos (`git init`, `git config`, `git branch -m`, `git commit`).
+With `GIT_DIR` inherited, every one of those calls hit the real repository instead. One push
+renamed the branch being pushed to `dev`, committed 14 fixture commits onto it, created
+`feat/DEV-2381`/`feat/slot-2`/`release/1.0`, and wrote `core.bare=true` plus a `Test` user into
+the shared `.git/config` — which every worktree reads. The push itself failed on the resulting
+test errors, so nothing left the machine. It surfaced only once the hook was repaired: before,
+it died on the missing `husky.sh` before running anything in a worktree. **Rules:** a hook
+that runs tests first `unset`s `GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE`
+(`__tests__/husky-hooks.test.ts` guards it). A test that spawns git must not rely on the ambient
+environment being clean. After an unexpected hook failure, check `git config --local --list`
+and `git for-each-ref --sort=-committerdate` before anything else.
+
+### Find binaries with `findExecutable`, spawn third-party tools with `spawnCmdSync` <!-- Added: 2026-09-14 -->
+Two habits that work on macOS/Linux fail on native Windows. `spawnSync('which', [x])`
+finds nothing, because PowerShell and cmd.exe have no `which`. `spawnSync('npm', …)` or
+`spawnSync('…\claude.cmd', …)` fails because npm-installed tools are `.cmd` shims, and
+Node refuses to spawn those without a shell (CVE-2024-27980, `EINVAL`). Adding
+`shell: true` would bring back shell interpretation of arguments. **Rules:** resolve a
+binary with `src/lib/platform.ts#findExecutable` (PATH + PATHEXT in Node, well-known
+install locations as `candidates`). Run a tool that may be a shim with `spawnCmdSync`
+(cross-spawn: plain `spawnSync` on POSIX, escaped cmd.exe call on Windows). The escaping
+is not airtight for global npm shims (`%APPDATA%\npm\*.cmd` re-parse `%*`), so pass plain
+arguments only, never untrusted free text. Platform,
+env and file probe are injectable, so write the Windows branch as a test on any host
+(`__tests__/platform.test.ts`). Migrated so far: Claude/Codex lookup, plugin
+requirements. The `lt dev` spawn sites (`dev-process.ts`, `dev/up.ts`, …) and
+`dev-service.ts#resolveCaddyBin` are not migrated yet. They follow once the Windows
+laptop test settles process lifecycle and the Caddy mode.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

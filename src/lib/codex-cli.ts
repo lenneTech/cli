@@ -1,13 +1,17 @@
 /**
  * Codex CLI utilities.
  */
-import { spawnSync } from 'child_process';
-import { existsSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { posix, win32 } from 'path';
 
-export const DEFAULT_CODEX_MARKETPLACE_ROOT =
-  process.env.LT_CODEX_MARKETPLACE_ROOT || '/Users/kaihaase/code/lenneTech/codex';
+import { CliLookupOptions, findExecutable, isWindows, spawnCmdSync, windowsAppData } from './platform';
+
+/**
+ * Codex marketplace checkout used when `lt codex plugins` gets no `--path`.
+ * Defaults to the current directory, matching the command's own guidance to run it
+ * from a checkout that contains the generated marketplace.
+ */
+export const DEFAULT_CODEX_MARKETPLACE_ROOT = process.env.LT_CODEX_MARKETPLACE_ROOT || process.cwd();
 
 export interface CodexCommandResult {
   output: string;
@@ -25,40 +29,28 @@ export interface CodexMarketplaceList {
   }>;
 }
 
-export function findCodexCli(): null | string {
-  const possiblePaths = [
-    join(homedir(), '.local', 'bin', 'codex'),
-    join(homedir(), '.codex', 'bin', 'codex'),
-    '/usr/local/bin/codex',
-    '/opt/homebrew/bin/codex',
-    '/usr/bin/codex',
-  ];
+/**
+ * Find the Codex CLI executable path: common installation locations first, then PATH.
+ * On Windows `npm i -g @openai/codex` leaves a `codex.cmd` shim in `%APPDATA%\npm`.
+ */
+export function findCodexCli(options: CliLookupOptions = {}): null | string {
+  const { env = process.env, home = homedir(), platform = process.platform } = options;
+  const candidates = isWindows(platform)
+    ? [win32.join(windowsAppData(env, home), 'npm', 'codex.cmd')]
+    : [
+        posix.join(home, '.local', 'bin', 'codex'),
+        posix.join(home, '.codex', 'bin', 'codex'),
+        '/usr/local/bin/codex',
+        '/opt/homebrew/bin/codex',
+        '/usr/bin/codex',
+      ];
 
-  for (const path of possiblePaths) {
-    if (existsSync(path)) {
-      return path;
-    }
-  }
-
-  try {
-    const result = spawnSync('which', ['codex'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-    const path = (result.stdout || '').trim();
-    if (result.status === 0 && path && existsSync(path)) {
-      return path;
-    }
-  } catch {
-    // Codex CLI not found in PATH.
-  }
-
-  return null;
+  return findExecutable('codex', { ...options, candidates, env, platform });
 }
 
 export function runCodexCommand(cli: string, args: string[]): CodexCommandResult {
   try {
-    const result = spawnSync(cli, args, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const result = spawnCmdSync(cli, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     return {
       output: result.stdout + result.stderr,
       success: result.status === 0,

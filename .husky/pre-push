@@ -1,4 +1,9 @@
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
 
-npm run lint --fix && npm run test
+# In a linked worktree git exports GIT_DIR to hooks. The test suite spawns git in
+# temporary repos, and with GIT_DIR inherited those calls hit THIS repository
+# instead: they renamed the pushed branch, committed fixtures onto it and set
+# core.bare=true in the shared config. Drop the hook-only git environment first.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+
+npm run lint && npm run test

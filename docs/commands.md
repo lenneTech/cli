@@ -1980,11 +1980,7 @@ lt claude plugins [plugin-name] [options]
 |-----------|-------------|
 | `plugin-name` | Optional. Name of a specific plugin to install |
 
-**Options:**
-| Option | Description |
-|--------|-------------|
-| `--list` | List available plugins from all marketplaces |
-| `--uninstall` | Uninstall a plugin |
+To list or uninstall installed plugins, use Claude Code's own `/plugin` menu.
 
 **Plugin Sources:**
 - [lenne-tech marketplace](https://github.com/lenneTech/claude-code) - lenne.Tech plugins for NestJS development
@@ -2001,12 +1997,6 @@ lt claude plugins
 
 # Install a specific plugin
 lt claude plugins typescript-lsp
-
-# List available plugins
-lt claude plugins --list
-
-# Uninstall a plugin
-lt claude plugins lt-dev --uninstall
 ```
 
 ---

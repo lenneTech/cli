@@ -2,13 +2,13 @@
  * Plugin utilities for Claude Code plugin management
  * Handles reading plugin contents, permissions, and post-installation setup
  */
-import { spawnSync } from 'child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
 import { checkCommandExists } from './claude-cli';
 import { safeJsonParse } from './json-utils';
+import { findExecutable, spawnCmdSync } from './platform';
 import { addEnvVarToShellConfig, checkEnvVarInFile, getPreferredShellConfig } from './shell-config';
 
 /**
@@ -59,10 +59,12 @@ export interface PluginPostInstall {
  * Post-installation requirement for a plugin
  */
 export interface PluginRequirement {
-  /** Command to check if requirement is already met (exit 0 = met). If not provided, installCommand always runs. */
+  /** Command to check if requirement is already met (exit 0 = met). Without it and without `executable`, installCommand always runs. */
   checkCommand?: string;
   /** Description shown when checking/installing */
   description: string;
+  /** Binary that must be on PATH for the requirement to be met. Resolved in Node, so it works without `which` (Windows). Takes precedence over checkCommand. */
+  executable?: string;
   /** Command to install the requirement */
   installCommand: string;
 }
@@ -125,8 +127,8 @@ export const PLUGIN_POST_INSTALL: Record<string, PluginPostInstall> = {
     ],
     requirements: [
       {
-        checkCommand: 'which typescript-language-server',
         description: 'TypeScript language server',
+        executable: 'typescript-language-server',
         installCommand: 'npm install -g typescript-language-server typescript',
       },
     ],
@@ -351,11 +353,13 @@ export function processPostInstall(
   // Check and install requirements
   if (postInstall.requirements) {
     for (const req of postInstall.requirements) {
-      // If checkCommand is provided, verify if requirement is already met
-      if (req.checkCommand) {
+      // If executable or checkCommand is provided, verify if requirement is already met
+      if (req.executable || req.checkCommand) {
+        const isMet = () =>
+          req.executable ? findExecutable(req.executable) !== null : checkCommandExists(req.checkCommand);
         const checkSpinner = spin(`Checking ${req.description}`);
 
-        if (checkCommandExists(req.checkCommand)) {
+        if (isMet()) {
           checkSpinner.succeed(`${req.description} already installed`);
           continue;
         }
@@ -366,7 +370,7 @@ export function processPostInstall(
           safeExecCommand(req.installCommand);
 
           // Verify installation
-          if (checkCommandExists(req.checkCommand)) {
+          if (isMet()) {
             checkSpinner.succeed(`${req.description} installed`);
             result.requirementsInstalled.push(req.description);
           } else {
@@ -492,14 +496,14 @@ export function readPluginContents(marketplaceName: string, pluginName: string):
 }
 
 /**
- * Execute a shell command safely using spawnSync (no shell interpretation)
+ * Execute a shell command safely using spawnCmdSync (no shell interpretation, `.cmd` shims such as npm work on Windows)
  * Splits the command string into executable and arguments to prevent command injection
  * @param command - Command string to execute (e.g., 'npm install -g typescript')
  * @throws Error if command fails (non-zero exit code or signal)
  */
 export function safeExecCommand(command: string): void {
   const [cmd, ...args] = command.trim().split(/\s+/);
-  const result = spawnSync(cmd, args, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+  const result = spawnCmdSync(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
   if (result.status !== 0 || result.error) {
     throw new Error(result.stderr || result.error?.message || `Command failed: ${command}`);
   }
