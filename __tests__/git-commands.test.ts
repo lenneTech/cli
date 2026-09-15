@@ -1,4 +1,8 @@
+import { execFileSync } from 'child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { filesystem, system } from 'gluegun';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 const src = filesystem.path(__dirname, '..');
 
@@ -6,79 +10,87 @@ const src = filesystem.path(__dirname, '..');
  * Environment that keeps git NON-INTERACTIVE, so these tests measure the command
  * rather than the machine's credential state.
  *
- * Every `lt git …` command here reaches a `git fetch`. On a 1Password-backed
- * machine the SSH agent is present but each signature needs an interactive
- * approval; non-interactively it waits and then reports
- * `communication with agent failed`. Measured: **61 s** per fetch, so
- * `lt git update --dry-run` took 62 s — just past jest's 60 s cap. Four tests
- * failed as timeouts with nothing in the output pointing at authentication, and
- * they failed identically on an untouched checkout.
+ * The suite used to run against THIS working copy and its GitHub remote. Every
+ * `lt git …` command reaches a `git fetch`; on a 1Password-backed machine each SSH
+ * signature needs an interactive approval, so a fetch stalled for 61 s — past
+ * jest's 60 s cap. `IdentityAgent=none` took the agent out of that path.
  *
- * **`IdentityAgent=none` is the load-bearing option**, not `BatchMode`. BatchMode
- * only suppresses password PROMPTS; here nothing is prompted — the agent is
- * contacted and stalls. Taking the agent out of the path drops the same fetch to
- * **1 s** with a clean `Permission denied (publickey)`.
- *
- * This narrows what the tests measure rather than weakening them: a failed fetch
- * is a path these commands are asserted to handle, and it is now reached
- * deterministically instead of depending on whether someone approved a key
- * prompt in the last few minutes.
+ * The commands now run in a throwaway clone whose `origin` is a local bare repo
+ * (see `createFixture`), so no fetch leaves the machine. The environment stays as
+ * a guard for any path that still reaches ssh.
  */
 const NON_INTERACTIVE_GIT = {
   GIT_SSH_COMMAND: 'ssh -o BatchMode=yes -o IdentityAgent=none -o IdentitiesOnly=yes -o ConnectTimeout=5',
   GIT_TERMINAL_PROMPT: '0',
 };
 
-const cli = async (cmd: string) =>
-  system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`, {
-    env: { ...process.env, ...NON_INTERACTIVE_GIT },
-  });
+/**
+ * Git variables a hook exports (pre-push in a linked worktree sets GIT_DIR). Inherited
+ * by the fixture's git calls, they would operate on the enclosing repository instead
+ * of the fixture — see CLAUDE.md "A hook in a linked worktree inherits GIT_DIR".
+ */
+const HOOK_GIT_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR'];
 
-// Check if we're on a branch (not detached HEAD) - required for git commands
-const isOnBranch = async (): Promise<boolean> => {
-  try {
-    const branch = await system.run('git symbolic-ref --short HEAD 2>/dev/null');
-    return !!branch?.trim();
-  } catch {
-    return false;
+const isolatedEnv = (): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...NON_INTERACTIVE_GIT,
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test',
+  };
+  for (const name of HOOK_GIT_ENV) {
+    delete env[name];
   }
+  return env;
 };
 
-// Check if a branch exists
-const branchExists = async (branch: string): Promise<boolean> => {
-  try {
-    await system.run(`git rev-parse --verify ${branch} 2>/dev/null`);
-    return true;
-  } catch {
-    return false;
-  }
-};
+/** Run `lt <cmd>` inside `cwd` — always a fixture clone, never this repository. */
+const cli = async (cmd: string, cwd: string) =>
+  system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`, { cwd, env: isolatedEnv() });
 
-// Check if working directory is clean — only modifications to tracked
-// files count, since untracked files do not block `git pull --rebase`
-// and parallel jest tests in this suite scatter `temp-*` directories
-// across the working tree (see __tests__/temp-api-mode-*).
-const isWorkingDirectoryClean = async (): Promise<boolean> => {
-  try {
-    const status = await system.run('git status --porcelain --untracked-files=no');
-    return !status?.trim();
-  } catch {
-    return false;
-  }
-};
+const git = (cwd: string, ...args: string[]): string =>
+  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: isolatedEnv(), stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-// Check if the current branch has an upstream tracking branch (so
-// `git pull --rebase` has somewhere to pull from). Local-only branches
-// — e.g. a freshly created feature branch before its first push — fail
-// `lt git update` with "no tracking information" through no fault of
-// the command, so the test must skip rather than treat it as a bug.
-const hasUpstreamBranch = async (): Promise<boolean> => {
-  try {
-    const upstream = await system.run('git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null');
-    return !!upstream?.trim();
-  } catch {
-    return false;
-  }
+interface Fixture {
+  /** Bare repository acting as `origin`. */
+  origin: string;
+  root: string;
+  /** Second clone, used to push commits the work clone has not seen yet. */
+  upstream: string;
+  /** Clone the commands run in: branch `feature/demo`, tracking origin, clean. */
+  work: string;
+}
+
+/**
+ * A self-contained remote setup in the OS tmpdir: `origin.git` (bare) with `main`
+ * and `feature/demo`, plus two clones. Nothing here touches the CLI's own checkout
+ * or the network, whatever branch or state that checkout is in.
+ */
+const createFixture = (): Fixture => {
+  const root = mkdtempSync(join(tmpdir(), 'lt-git-commands-'));
+  const origin = join(root, 'origin.git');
+  const upstream = join(root, 'upstream');
+  const work = join(root, 'work');
+
+  execFileSync('git', ['init', '--quiet', '--bare', '--initial-branch=main', origin], { env: isolatedEnv() });
+  execFileSync('git', ['clone', '--quiet', origin, upstream], { env: isolatedEnv(), stdio: 'ignore' });
+  git(upstream, 'checkout', '--quiet', '-B', 'main');
+  writeFileSync(join(upstream, 'README.md'), '# fixture\n');
+  git(upstream, 'add', 'README.md');
+  git(upstream, 'commit', '--quiet', '--no-verify', '-m', 'init');
+  git(upstream, 'push', '--quiet', '--no-verify', 'origin', 'main');
+  git(upstream, 'checkout', '--quiet', '-b', 'feature/demo');
+  writeFileSync(join(upstream, 'feature.txt'), 'one\n');
+  git(upstream, 'add', 'feature.txt');
+  git(upstream, 'commit', '--quiet', '--no-verify', '-m', 'feature: one');
+  git(upstream, 'push', '--quiet', '--no-verify', '-u', 'origin', 'feature/demo');
+
+  execFileSync('git', ['clone', '--quiet', '--branch', 'feature/demo', origin, work], { env: isolatedEnv(), stdio: 'ignore' });
+  // A local base branch, as in a real checkout (`lt git create` checks local branches).
+  git(work, 'branch', '--quiet', '--track', 'main', 'origin/main');
+  return { origin, root, upstream, work };
 };
 
 export {};
@@ -117,141 +129,112 @@ describe('git ssh environment contract', () => {
 });
 
 describe('Git Commands', () => {
-  let onBranch: boolean;
-  let hasMainBranch: boolean;
-  let cleanWorkingDir: boolean;
-  let hasUpstream: boolean;
+  let fx: Fixture;
 
-  beforeAll(async () => {
-    onBranch = await isOnBranch();
-    hasMainBranch = await branchExists('main');
-    cleanWorkingDir = await isWorkingDirectoryClean();
-    hasUpstream = await hasUpstreamBranch();
+  beforeEach(() => {
+    fx = createFixture();
+  });
+
+  afterEach(() => {
+    rmSync(fx.root, { force: true, recursive: true });
   });
 
   describe('lt git update', () => {
-    test('updates current branch or handles various states', async () => {
-      if (!onBranch) {
-        // In CI with detached HEAD, command will fail gracefully
-        await expect(cli('git update')).rejects.toThrow();
-        return;
-      }
-      if (!cleanWorkingDir) {
-        // With uncommitted changes, git pull --rebase will fail
-        // This is expected behavior - verify the command fails appropriately
-        await expect(cli('git update')).rejects.toThrow(/unstaged changes|uncommitted/i);
-        return;
-      }
-      if (!hasUpstream) {
-        // Fresh feature branch without `git push -u` yet: `git pull --rebase`
-        // exits 1 with "no tracking information". That is a configuration
-        // gap in the local checkout, not a regression in `lt git update`.
-        await expect(cli('git update')).rejects.toThrow();
-        return;
-      }
-      const output = await cli('git update');
-      expect(output).toBeDefined();
+    test('rebases the current branch onto its upstream', async () => {
+      writeFileSync(join(fx.upstream, 'feature.txt'), 'one\ntwo\n');
+      git(fx.upstream, 'commit', '--quiet', '--no-verify', '-am', 'feature: two');
+      git(fx.upstream, 'push', '--quiet', '--no-verify', 'origin', 'feature/demo');
+
+      await cli('git update --skip-install', fx.work);
+
+      expect(git(fx.work, 'rev-parse', 'HEAD')).toBe(git(fx.upstream, 'rev-parse', 'HEAD'));
+    });
+
+    test('refuses a working copy with uncommitted changes', async () => {
+      writeFileSync(join(fx.work, 'feature.txt'), 'local edit\n');
+      await expect(cli('git update --skip-install', fx.work)).rejects.toThrow(/unstaged changes|uncommitted/i);
+    });
+
+    test('fails on a branch without upstream', async () => {
+      git(fx.work, 'checkout', '--quiet', '-b', 'local-only');
+      await expect(cli('git update --skip-install', fx.work)).rejects.toThrow();
+    });
+
+    test('fails on a detached HEAD', async () => {
+      git(fx.work, 'checkout', '--quiet', '--detach');
+      await expect(cli('git update --skip-install', fx.work)).rejects.toThrow();
     });
   });
 
   describe('lt git update --dry-run', () => {
-    test('shows dry-run message', async () => {
-      if (!onBranch) {
-        // Skip in detached HEAD state
-        return;
-      }
-      const output = await cli('git update --dry-run');
+    test('shows dry-run message and changes nothing', async () => {
+      const head = git(fx.work, 'rev-parse', 'HEAD');
+      const output = await cli('git update --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
       expect(output).toContain('Current branch:');
+      expect(git(fx.work, 'rev-parse', 'HEAD')).toBe(head);
     });
   });
 
   describe('lt git create --dry-run', () => {
-    test('shows dry-run message or handles missing base', async () => {
-      if (!hasMainBranch) {
-        // Base branch doesn't exist, command will report error
-        const output = await cli('git create test-branch-dry-run --base main --dry-run');
-        expect(output).toContain('does not exist');
-        return;
-      }
-      const output = await cli('git create test-branch-dry-run --base main --dry-run');
+    test('shows what it would create from an existing base', async () => {
+      const output = await cli('git create test-branch-dry-run --base main --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
       expect(output).toContain('Would create branch');
+    });
+
+    test('reports a missing base', async () => {
+      const output = await cli('git create test-branch-dry-run --base does-not-exist --dry-run', fx.work);
+      expect(output).toContain('does not exist');
     });
   });
 
   describe('lt git force-pull --dry-run', () => {
     test('shows dry-run message', async () => {
-      if (!onBranch) {
-        return;
-      }
-      const output = await cli('git force-pull --dry-run');
+      const output = await cli('git force-pull --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
     });
   });
 
   describe('lt git reset --dry-run', () => {
-    test('shows dry-run message or handles no remote', async () => {
-      if (!onBranch) {
-        return;
-      }
-      try {
-        const output = await cli('git reset --dry-run');
-        expect(output).toContain('DRY-RUN MODE');
-      } catch {
-        // No remote branch - acceptable in some environments
-      }
+    test('shows dry-run message', async () => {
+      const output = await cli('git reset --dry-run', fx.work);
+      expect(output).toContain('DRY-RUN MODE');
     });
   });
 
   describe('lt git undo --dry-run', () => {
     test('shows dry-run message', async () => {
-      if (!onBranch) {
-        return;
-      }
-      const output = await cli('git undo --dry-run');
+      const output = await cli('git undo --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
     });
   });
 
   describe('lt git rename --dry-run', () => {
-    test('shows dry-run message or protected branch error', async () => {
-      if (!onBranch) {
-        return;
-      }
-      const output = await cli('git rename newname --dry-run');
-      expect(
-        output.includes('DRY-RUN MODE') || output.includes('not allowed')
-      ).toBe(true);
+    test('shows dry-run message', async () => {
+      const output = await cli('git rename newname --dry-run', fx.work);
+      expect(output).toContain('DRY-RUN MODE');
     });
   });
 
   describe('lt git squash --dry-run', () => {
-    test('shows dry-run message or handles missing base', async () => {
-      if (!onBranch) {
-        return;
-      }
-      try {
-        const output = await cli('git squash --dry-run');
-        expect(
-          output.includes('DRY-RUN MODE') || output.includes('not allowed')
-        ).toBe(true);
-      } catch {
-        // Base branch might not exist
-      }
+    test('previews the squash onto the base', async () => {
+      const output = await cli('git squash main --dry-run', fx.work);
+      expect(output).toContain('DRY-RUN MODE');
+      expect(output).toContain('Would squash 1 commit(s) on branch "feature/demo" into base "main"');
     });
   });
 
   describe('lt git clear --dry-run', () => {
     test('shows dry-run message', async () => {
-      const output = await cli('git clear --dry-run');
+      const output = await cli('git clear --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
     });
   });
 
   describe('lt git clean --dry-run', () => {
     test('shows dry-run message', async () => {
-      const output = await cli('git clean --dry-run');
+      const output = await cli('git clean --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
     });
   });

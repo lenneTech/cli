@@ -1069,14 +1069,26 @@ network stays shared, so DB credentials are the actual boundary. Generalise: any
 in generated instructions that resolves through a shared container network must be
 spelled out fully, with auth. A short name is not a name, it is a race.
 
-### `git-commands.test.ts` makes REAL network calls with a 60s timeout <!-- Added: 2026-07-31 -->
-`__tests__/git-commands.test.ts` shells out to `lt git update` / `git create` /
-`git reset`, which run a real `git fetch` against `origin`. SSH's connect timeout and
-the Jest `--testTimeout` are BOTH 60s, so whenever the remote is unreachable (offline,
-VPN, sandboxed session) those four tests time out and the suite reports a failure that
-has nothing to do with the code. Diagnose before believing it: `time git ls-remote
-origin HEAD` — ~60s wall-clock at ~0% CPU means network, not regression. The rest of
-the suite is hermetic (`npx jest --testPathIgnorePatterns "git-commands"` → all green).
+### `git-commands.test.ts` runs in a throwaway clone — never against this checkout <!-- Added: 2026-07-31, rewritten: 2026-09-15 -->
+The suite used to shell out to `lt git update` / `git create` / `git reset` inside THIS
+working copy, against its GitHub remote. Two consequences:
+- **Network:** a real `git fetch` per test; SSH connect timeout and Jest's
+  `--testTimeout` are both 60 s, so offline, VPN or an SSH agent waiting for approval
+  showed up as unrelated test timeouts.
+- **Destruction:** `lt git update` without `--dry-run` is a real `git pull --rebase`.
+  On a branch that diverged from its upstream — exactly the state after a local rebase,
+  before the force-push — a plain `npm test` started an actual interactive rebase onto
+  the old remote head and left it stuck in a conflict; the rest of the suite then ran
+  against the half-rebased tree (29 suites red, 2026-09-15). Run from a `pre-push`
+  hook, it would rebase the branch in the middle of the push.
+
+**Now:** `createFixture()` builds a bare `origin.git` plus two clones in the OS tmpdir
+(`main` and a tracked `feature/demo`), and every `lt git …` call runs with `cwd` set to
+that clone and the hook git variables (`GIT_DIR`, `GIT_INDEX_FILE`, …) stripped. No
+network, and the assertions are deterministic instead of branching on whatever state
+the developer's checkout happens to be in (detached HEAD, dirty tree, no upstream are
+now explicit test cases). **Rule:** a test that runs a mutating git command gets its own
+repository. Never let it inherit the checkout it was started from.
 
 ### npm runs package.json scripts through cmd.exe on Windows <!-- Added: 2026-09-11 -->
 The `postinstall` guard `node bin/postinstall.js 2>/dev/null || true` was meant to make
