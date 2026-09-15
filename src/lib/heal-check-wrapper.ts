@@ -17,6 +17,27 @@ const WRAPPER = 'node scripts/check.mjs';
 /** Where the wrapper and its imports live inside a project. */
 const SCRIPTS_DIR = 'scripts';
 
+/**
+ * How the project's wrapper relates to the bundled one, by `@lt-check-wrapper` marker.
+ *
+ * - `bundled-newer`: the project runs an older release — heal replaces it.
+ * - `legacy`: the project wrapper has no marker, i.e. predates markers — heal replaces it.
+ * - `project-newer`: the project runs a newer release — replacing it would be a downgrade.
+ * - `same-release`: same release number. The marker only moves on an lt-monorepo release, so
+ *   two copies with the same number can still differ, and nothing says which one is newer.
+ * - `unrecognised`: the project marker is not a version this CLI can compare.
+ */
+export type WrapperRelation = 'bundled-newer' | 'legacy' | 'project-newer' | 'same-release' | 'unrecognised';
+
+/** Versions of the bundled and the installed wrapper, read from their markers. */
+export interface WrapperVersions {
+  /** Marker of the wrapper bundled with this CLI; null when it carries none. */
+  bundled: null | string;
+  /** Marker of `<project>/scripts/check.mjs`; null when absent or unmarked. */
+  project: null | string;
+  relation: WrapperRelation;
+}
+
 interface Copy {
   /** Path relative to the project root, e.g. `scripts/check.mjs`. */
   rel: string;
@@ -28,6 +49,63 @@ interface CopyPlan extends Copy {
   action: 'skip' | 'up-to-date' | 'write';
   /** True when git holds no recoverable copy, so a `.bak` is written first. */
   backup: boolean;
+}
+
+/**
+ * `// @lt-check-wrapper 3.12.0` on line 2 of the wrapper: the lt-monorepo RELEASE it belongs
+ * to (never a project's own package version). Same expression as lt-monorepo's
+ * `scripts/check-wrapper-version.cjs#MARKER_RE`, so both sides agree on the format: a whole
+ * line, so prose mentioning the tag never matches, and `\r?` for a CRLF checkout.
+ */
+const VERSION_MARKER = /^\/\/ @lt-check-wrapper (\S+)\r?$/m;
+const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Compare two `x.y.z[-pre]` versions: negative when `a < b`, 0 when equal,
+ * positive when `a > b`. A prerelease sorts before its release.
+ */
+export function compareVersions(a: string, b: string): number {
+  const parse = (v: string): { core: number[]; pre: string } => {
+    const [core, pre = ''] = v.split('-', 2);
+    return { core: core.split('.').map(Number), pre };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa.core[i] || 0) - (pb.core[i] || 0);
+    if (diff !== 0) {
+      return diff;
+    }
+  }
+  if (pa.pre === pb.pre) {
+    return 0;
+  }
+  if (!pa.pre) {
+    return 1;
+  }
+  if (!pb.pre) {
+    return -1;
+  }
+  return pa.pre < pb.pre ? -1 : 1;
+}
+
+/** Read both wrapper markers and classify how the project relates to the bundle. */
+export function compareWrapperVersions(projectRoot: string, assetPath: string): WrapperVersions {
+  const bundled = readWrapperVersion(assetPath);
+  const project = readWrapperVersion(join(projectRoot, SCRIPTS_DIR, 'check.mjs'));
+  let relation: WrapperRelation;
+  if (project === null) {
+    relation = 'legacy';
+  } else if (!SEMVER.test(project)) {
+    relation = 'unrecognised';
+  } else if (bundled === null || !SEMVER.test(bundled)) {
+    // A marked project against an unmarked bundle: the bundle predates markers.
+    relation = 'project-newer';
+  } else {
+    const order = compareVersions(bundled, project);
+    relation = order > 0 ? 'bundled-newer' : order < 0 ? 'project-newer' : 'same-release';
+  }
+  return { bundled, project, relation };
 }
 
 /**
@@ -91,7 +169,12 @@ export function healCheckWrapper(projectRoot: string, assetPath: string): string
   // the doc block above.
   const plans = copies.map((copy) => planCopy(projectRoot, copy));
   const blocked = plans.filter((p) => p.action === 'skip');
-  if (blocked.length > 0) {
+  // Never downgrade: a project created from a newer lt-monorepo than this CLI
+  // bundles keeps its wrapper. Replacing it silently dropped fixes before.
+  const kept = keptWrapperReason(projectRoot, assetPath);
+  if (kept) {
+    changed.push(`${copies.map((c) => c.rel).join(' + ')} (skipped: ${kept})`);
+  } else if (blocked.length > 0) {
     // One entry for the whole set: the set is what could not be updated, and
     // naming only the blocking member would suggest the others did land.
     const names = blocked.map((p) => p.rel).join(', ');
@@ -119,6 +202,39 @@ export function healCheckWrapper(projectRoot: string, assetPath: string): string
   }
 
   return changed;
+}
+
+/**
+ * Why the project's wrapper must be kept as it is, or null when heal may replace it.
+ * Shared by heal (skip reason) and doctor (INFO line), so both say the same thing.
+ */
+export function keptWrapperReason(projectRoot: string, assetPath: string): null | string {
+  const { bundled, project, relation } = compareWrapperVersions(projectRoot, assetPath);
+  switch (relation) {
+    case 'project-newer':
+      return `project wrapper ${project} is newer than this CLI's ${bundled ?? '(unversioned)'} — update lt`;
+    case 'same-release': {
+      // Identical content is simply up to date; a missing sibling may still be installed.
+      const projectCheck = join(projectRoot, SCRIPTS_DIR, 'check.mjs');
+      if (readFileSync(projectCheck, 'utf8') === readFileSync(assetPath, 'utf8')) {
+        return null;
+      }
+      return `project wrapper differs from this CLI's copy of the same release ${project} — kept, because the release number cannot tell which one is newer; update lt after the next lt-monorepo release`;
+    }
+    case 'unrecognised':
+      return `project wrapper carries an unrecognised @lt-check-wrapper marker "${project}" — kept`;
+    default:
+      return null;
+  }
+}
+
+/** The `@lt-check-wrapper` version of a wrapper, or null when the file is missing or unmarked. */
+export function readWrapperVersion(file: string): null | string {
+  try {
+    return VERSION_MARKER.exec(readFileSync(file, 'utf8'))?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

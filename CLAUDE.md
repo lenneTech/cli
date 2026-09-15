@@ -118,7 +118,22 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   They did: until 2026-09-14 the copy here lagged two lt-monorepo releases
   behind, and because heal treats the CLI copy as canonical, every
   `lt fullstack update` put the OLDER wrapper into a freshly created project.
-  `lt-monorepo` is the upstream; sync from there byte-for-byte.
+  `lt-monorepo` is the upstream. **Never edit the copy here**: change
+  lt-monorepo, then `npm run sync:check-template -- --ref <tag|sha>`
+  (`--from <local clone>` for an unpushed commit). It copies `check.mjs` plus
+  its import closure and writes `lt-monorepo-pin.json` (commit, marker
+  version, sha256 per file); `__tests__/check-template-sync.test.ts` fails on
+  any byte that differs from that pin, without network. Two guards, two jobs:
+  the pin stops drift here, the `// @lt-check-wrapper <version>` marker (line 2,
+  same regex as lt-monorepo's `check-wrapper-version.cjs#MARKER_RE`) stops damage
+  in projects. It names the lt-monorepo RELEASE, never a project's version. Heal
+  replaces a project wrapper only when the bundled release is NEWER or the
+  project wrapper is unmarked (markers start at the pinned commit, so every
+  unmarked wrapper predates the pin). A newer release, an unrecognised marker,
+  or the SAME release with different content is kept — the marker only moves on
+  a release, so lt-monorepo main after v3.12.0 still reads 3.12.0, and
+  overwriting on a tie would turn later fixes back. Doctor reports those cases
+  as INFO via the same `keptWrapperReason`, never as "run lt fullstack update".
   Like the rest of `src/templates/**` it is ESLint-exempt, so its `.mjs`
   files get no lint/tsc coverage at all; the guards that do cover them
   are `__tests__/check-template.test.ts` and
