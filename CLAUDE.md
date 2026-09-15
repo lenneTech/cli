@@ -649,17 +649,22 @@ reaches it reliably — args appended to an `&&` chain only hit the LAST command
 human-readable reason into the sibling `//overrides` doc object), e.g. `form-data`
 4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core` 7.29.7 (GHSA-4x5r-pxfx-6jf8).
 
-`js-yaml` is at **4.3.1** (GHSA-5p4m-2wfm-xmqj, quadratic CPU in `!!omap`; the fix
-was NOT backported to 3.x, so 3.15.0 is the end of its line). The 3.x copy under
-`@istanbuljs/load-nyc-config` is raised by a **consumer-scoped** override —
-`"@istanbuljs/load-nyc-config": { "js-yaml": "4.3.1" }` — not a global force. Two
-things to know before touching it: a top-level `js-yaml@<4.3.1` selector was tried
-first and npm did **not** apply it to that nested path at all, and the raise is
-cross-major, so it needed the export-shape check this repo requires — the loader
-calls `require('js-yaml').load(...)` (index.js:80), which 4.x provides, and 4.x
-`load` behaves like 3.x `safeLoad`, i.e. strictly safer for a config file. Also
-note the override is NOT inert: `js-yaml` is a direct production dependency of this
-CLI (`src/extensions/config.ts`, `src/lib/hoist-workspace-pnpm-config.ts`).
+`js-yaml` is at **4.3.2** (GHSA-5p4m-2wfm-xmqj, quadratic CPU in `!!omap`, fixed 4.3.1 /
+3.15.1; GHSA-2883-xcg3-v3hh, `maxTotalMergeKeys` does not limit CPU for empty merge
+sources, fixed 4.3.2 / 3.15.2). It is a direct production dependency of this CLI
+(`src/extensions/config.ts`, `src/lib/hoist-workspace-pnpm-config.ts`).
+
+The dev-only 3.x path (ts-jest > @jest/transform > babel-plugin-istanbul >
+@istanbuljs/load-nyc-config, which requests `^3.13.1`) now resolves to **3.15.2 on its
+own** — no override. Until 2026-09-14 a consumer-scoped override forced it onto 4.x,
+because the `!!omap` advisory originally said the fix was not backported to 3.x. js-yaml
+later published 3.15.1 and 3.15.2, so the forced cross-major jump was removed: fewer
+forced majors, and the consumer gets the line it asked for. The price is a second
+js-yaml copy in the dev tree. If a future js-yaml advisory is again fixed only in 4.x,
+the old remedy still applies: a top-level `js-yaml@<x` selector does **not** reach that
+nested path in npm, only a consumer-scoped `"@istanbuljs/load-nyc-config": { "js-yaml": … }`
+does, and it needs the export-shape check (`index.js:80` calls `.load`, which 4.x has;
+4.x `load` behaves like 3.x `safeLoad`).
 
 ### `lt fullstack init` used to exit 0 on EVERY error path <!-- Added: 2026-08-23 -->
 A gluegun command that `return`s leaves the process at exit code 0. Until 1.43.0 every
