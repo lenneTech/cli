@@ -4,11 +4,12 @@ export {};
 const { filesystem } = require('gluegun');
 
 import { execFileSync } from 'child_process';
-import { existsSync, lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { basename, join } from 'path';
 
 import { healCheckWrapper, resolveCopySet } from '../src/lib/heal-check-wrapper';
+import { evalInNodeEsm } from './check-template-esm';
 
 describe('healCheckWrapper', () => {
   let root: string;
@@ -124,6 +125,41 @@ describe('healCheckWrapper', () => {
         'scripts/first.mjs',
         'scripts/second.mjs',
       ]);
+    });
+
+    it('follows imports into subdirectories, resolved against the importing file', () => {
+      // The lt-monorepo wrapper imports `./lib/audit-report.mjs`, which in turn
+      // imports `./ansi.mjs` — i.e. `lib/ansi.mjs`, not `scripts/ansi.mjs`.
+      mkdirSync(join(assetDir, 'lib'));
+      writeFileSync(join(assetDir, 'lib', 'ansi.mjs'), 'export const C = {};\n');
+      writeFileSync(join(assetDir, 'lib', 'report.mjs'), "import { C } from './ansi.mjs';\nexport const r = C;\n");
+      writeFileSync(asset, `import {\n  r,\n} from './lib/report.mjs';\n${BUNDLED}`);
+      writePkg({ check: 'pnpm test' });
+
+      expect(resolveCopySet(asset).map((c) => c.rel).sort()).toEqual([
+        'scripts/check.mjs',
+        'scripts/lib/ansi.mjs',
+        'scripts/lib/report.mjs',
+      ]);
+      expect(healCheckWrapper(root, asset)).toEqual(expect.arrayContaining(['scripts/lib/ansi.mjs']));
+      expect(existsSync(join(root, 'scripts', 'lib', 'report.mjs'))).toBe(true);
+    });
+
+    it('never follows an import out of the asset dir', () => {
+      const outside = join(assetDir, '..', `lt-heal-outside-${process.pid}.mjs`);
+      writeFileSync(outside, 'export const x = 1;\n');
+      try {
+        writeFileSync(asset, `import { x } from './../${basename(outside)}';\n`);
+        expect(resolveCopySet(asset).map((c) => c.rel)).toEqual(['scripts/check.mjs']);
+      } finally {
+        rmSync(outside, { force: true });
+      }
+    });
+
+    it('ignores a directory whose name looks like a module', () => {
+      mkdirSync(join(assetDir, 'dir.mjs'));
+      writeFileSync(asset, "import { x } from './dir.mjs';\n");
+      expect(resolveCopySet(asset).map((c) => c.rel)).toEqual(['scripts/check.mjs']);
     });
 
     it('ignores files in the asset dir that the wrapper does not import', () => {
@@ -260,12 +296,23 @@ describe('healCheckWrapper', () => {
     // Both quote styles: these templates are formatted by the CONSUMING
     // project's formatter, so their quote style is not ours to assume. Matching
     // only one is how this assertion silently became vacuous once before.
-    const specs = [...written.matchAll(/^import .* from ['"](\.\/[^'"]+)['"];$/gm)].map(([, spec]) => spec);
+    //
+    // Matched on `from '…'` rather than on a whole `import … from …;` line: a
+    // multi-line import block has no such line, and a subdirectory import
+    // (`./lib/…`) was exactly what a basename-only match let slip through.
+    const specs = [...written.matchAll(/\bfrom\s+['"](\.\/[^'"]+)['"]/g)].map(([, spec]) => spec);
     expect(specs.length).toBeGreaterThan(0); // the loop below must never be vacuous
     for (const spec of specs) {
-      const sibling = spec.replace('./', '');
-      expect(changed).toContain(`scripts/${sibling}`);
-      expect(filesystem.exists(filesystem.path(root, 'scripts', sibling))).toBe('file');
+      const target = spec.replace('./', '');
+      expect(changed).toContain(`scripts/${target}`);
+      expect(filesystem.exists(filesystem.path(root, 'scripts', target))).toBe('file');
     }
+
+    // The decisive check: the INSTALLED wrapper loads in real Node, i.e. its
+    // whole transitive import graph resolved inside the project. Importing it
+    // does not start a check run (asserted in check-template.test.ts).
+    const url = `file://${filesystem.path(root, 'scripts', 'check.mjs')}`;
+    const loaded = evalInNodeEsm<boolean>(`const m = await import(${JSON.stringify(url)});\nreport(typeof m.buildGroups === 'function');`);
+    expect(loaded).toBe(true);
   });
 });

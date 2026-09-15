@@ -25,34 +25,34 @@
  * Exit code: 0 when every step passed, 1 otherwise (preserves the contract the
  * lt-dev `running-check-script` skill relies on: non-zero === failed).
  */
-import { execSync, spawn } from "node:child_process";
-import { readdirSync, readFileSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { execSync, spawn } from 'node:child_process';
+import { readFileSync, realpathSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { createBuildTestGate } from "./build-test-gate.mjs";
+import { C, stripAnsi } from './lib/ansi.mjs';
+import {
+  advisoryBulkUrl,
+  configuredRegistry,
+  countSuppressions,
+  countUnlistedBySeverity,
+  isAuditEndpointUnavailable,
+  isAuditResultAmbiguous,
+  renderVulnLine,
+  sumSeverities,
+} from './lib/audit-report.mjs';
+import { createBuildTestGate } from './build-test-gate.mjs';
+import { expandGlob as expandWorkspaceGlob, workspaceGlobs as readWorkspaceGlobs } from './lib/workspace-packages.mjs';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const VERBOSE = process.argv.includes("--verbose") || process.argv.includes("-v");
-const SEQUENTIAL = process.argv.includes("--sequential") || process.argv.includes("--seq");
-const NO_FIX = process.argv.includes("--no-fix");
-const PROJECT_FILTERS = process.argv
-  .filter((a) => a.startsWith("--project="))
-  .map((a) => a.slice("--project=".length));
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const VERBOSE = process.argv.includes('--verbose') || process.argv.includes('-v');
+const SEQUENTIAL = process.argv.includes('--sequential') || process.argv.includes('--seq');
+const NO_FIX = process.argv.includes('--no-fix');
+const PROJECT_FILTERS = process.argv.filter((a) => a.startsWith('--project=')).map((a) => a.slice('--project='.length));
 // Verbose streams raw output, so the in-place live view is disabled there.
 const TTY = Boolean(process.stdout.isTTY) && !VERBOSE;
 
-// ── tiny ANSI helpers ──────────────────────────────────────────────────────
-const C = {
-  bold: (s) => `\x1b[1m${s}\x1b[0m`,
-  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
-  dim: (s) => `\x1b[2m${s}\x1b[0m`,
-  green: (s) => `\x1b[32m${s}\x1b[0m`,
-  red: (s) => `\x1b[31m${s}\x1b[0m`,
-  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-};
-const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*m/g, "");
-const shortRel = (rel) => rel.replace(/^projects\//, "");
+const shortRel = (rel) => rel.replace(/^projects\//, '');
 
 function fmtDuration(ms) {
   const s = ms / 1000;
@@ -76,7 +76,7 @@ function fmtDuration(ms) {
 // binds only to the first simple command, so a step written with `;` or a
 // leading `cd` would be reported as pinned and run unpinned. Both carry the
 // same value, so they cannot disagree.
-const CHECK_BUILD_DIR = ".nuxt-check";
+const CHECK_BUILD_DIR = '.nuxt-check';
 
 // Deliberately narrow: a blanket prefix would override the dirs the package.json
 // scripts pin themselves. These are the commands that run lifecycle hooks (or,
@@ -106,9 +106,7 @@ export const PM_AUDIT = new RegExp(String.raw`\b${PM}\s+audit\b`);
 /** A project script whose name mentions audit or install — an ordinary step that still needs the pin. */
 const PM_RUN_SCRIPT = new RegExp(String.raw`\b${PM}\s+run\s+\S*(?:audit|install)\S*`);
 /** Any package-manager call that runs lifecycle hooks and carries no pin of its own. */
-export const PM_INVOCATION = new RegExp(
-  `${PM_INSTALL.source}|${PM_AUDIT.source}|${PM_RUN_SCRIPT.source}`,
-);
+export const PM_INVOCATION = new RegExp(`${PM_INSTALL.source}|${PM_AUDIT.source}|${PM_RUN_SCRIPT.source}`);
 
 /**
  * Prefix a package-manager command with the check's isolated Nuxt build dir.
@@ -152,32 +150,28 @@ function classify(cmd) {
   //
   // Both predicates come from the pin patterns above, so a command can never be
   // hoisted-but-unpinned. See the SINGLE SOURCE note there.
-  if (PM_INSTALL.test(c)) return { fatal: true, kind: "install", label: "install" };
-  if (PM_AUDIT.test(c)) return { fatal: true, kind: "audit", label: "audit" };
-  if (c.includes("vendor-freshness"))
-    return { fatal: false, kind: "vendor", label: "vendor-freshness" };
-  if (c.includes("format:check") || c.includes("oxfmt"))
-    return { fatal: true, kind: "format", label: "format" };
-  if (c.includes("lint")) return { fatal: true, kind: "lint", label: "lint" };
+  if (PM_INSTALL.test(c)) return { fatal: true, kind: 'install', label: 'install' };
+  if (PM_AUDIT.test(c)) return { fatal: true, kind: 'audit', label: 'audit' };
+  if (c.includes('vendor-freshness')) return { fatal: false, kind: 'vendor', label: 'vendor-freshness' };
+  if (c.includes('format:check') || c.includes('oxfmt')) return { fatal: true, kind: 'format', label: 'format' };
+  if (c.includes('lint')) return { fatal: true, kind: 'lint', label: 'lint' };
   // A unit-only run is named explicitly, is short, and is not contention
   // sensitive — it carries `light` so the build⊥test gate lets it through (see
   // GATE_CLASS). A bare `pnpm test` is NOT assumed to be light: in the starters
   // it resolves to the API e2e suite, which is exactly what the gate protects.
-  if (/(^|&|\s)(pnpm\s+)?test:unit(:|\s|$)/.test(c))
-    return { fatal: true, kind: "test", label: "test", light: true };
-  if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:ci/.test(c))
-    return { fatal: true, kind: "test", label: "test" };
+  if (/(^|&|\s)(pnpm\s+)?test:unit(:|\s|$)/.test(c)) return { fatal: true, kind: 'test', label: 'test', light: true };
+  if (/(^|&|\s)(pnpm\s+)?test(:|\s|$)|vitest|jest|test:ci/.test(c)) return { fatal: true, kind: 'test', label: 'test' };
   // `typecheck` runs vue-tsc / tsc, which saturates the machine just like a
   // build — and it does NOT contain the substrings "build" or "tsc", so it used
   // to fall through to `other` and run ungated, fully concurrent with the API
   // e2e suite. The gate then paid its serialisation cost while the second
   // heaviest CPU load in the chain still ran alongside the suite it protects.
-  if (/\btypecheck\b/.test(c)) return { fatal: true, kind: "build", label: "typecheck" };
-  if (c.includes("build") || c.includes("nuxt build") || c.includes("tsc"))
-    return { fatal: true, kind: "build", label: "build" };
-  if (c.includes("check-server-start") || c.includes("server-start"))
-    return { fatal: true, kind: "server", label: "server-start" };
-  return { fatal: true, kind: "other", label: cmd.length > 32 ? `${cmd.slice(0, 29)}…` : cmd };
+  if (/\btypecheck\b/.test(c)) return { fatal: true, kind: 'build', label: 'typecheck' };
+  if (c.includes('build') || c.includes('nuxt build') || c.includes('tsc'))
+    return { fatal: true, kind: 'build', label: 'build' };
+  if (c.includes('check-server-start') || c.includes('server-start'))
+    return { fatal: true, kind: 'server', label: 'server-start' };
+  return { fatal: true, kind: 'other', label: cmd.length > 32 ? `${cmd.slice(0, 29)}…` : cmd };
 }
 
 /**
@@ -190,8 +184,8 @@ function classify(cmd) {
  * this gate exists to fix (DEV-2524).
  */
 export function gateClass(step) {
-  if (step.kind === "build") return "build";
-  if (step.kind === "test") return step.light ? null : "test";
+  if (step.kind === 'build') return 'build';
+  if (step.kind === 'test') return step.light ? null : 'test';
   return null;
 }
 
@@ -199,15 +193,15 @@ export function gateClass(step) {
 // `check` run repairs every fixable finding instead of only reporting it.
 function toFixCommand(kind, cmd) {
   if (NO_FIX) return cmd;
-  if (kind === "format") {
-    if (/\bformat:check\b/.test(cmd)) return cmd.replace(/\bformat:check\b/, "format");
-    if (/\boxfmt\b/.test(cmd)) return cmd.replace(/\s--check\b/, "");
+  if (kind === 'format') {
+    if (/\bformat:check\b/.test(cmd)) return cmd.replace(/\bformat:check\b/, 'format');
+    if (/\boxfmt\b/.test(cmd)) return cmd.replace(/\s--check\b/, '');
     return cmd;
   }
-  if (kind === "lint") {
+  if (kind === 'lint') {
     if (/\blint:fix\b/.test(cmd) || /--fix\b/.test(cmd)) return cmd;
-    if (/\brun\s+lint\b/.test(cmd)) return cmd.replace(/\brun\s+lint\b/, "run lint:fix");
-    if (/\boxlint\b/.test(cmd)) return cmd.replace(/\boxlint\b/, "oxlint --fix --fix-suggestions");
+    if (/\brun\s+lint\b/.test(cmd)) return cmd.replace(/\brun\s+lint\b/, 'run lint:fix');
+    if (/\boxlint\b/.test(cmd)) return cmd.replace(/\boxlint\b/, 'oxlint --fix');
     return cmd;
   }
   return cmd;
@@ -264,55 +258,117 @@ function parseLint(out) {
 }
 
 // ── audit (faithful: runs the project's OWN audit command) ──────────────────
-const SEVERITIES = ["critical", "high", "moderate", "low", "info"];
-
 // Run the audit command exactly as the check chain defines it (same scope /
 // --prod / --audit-level), only appending --json for the counts. The gate is
 // the command's own exit code, so `check` blocks precisely when a bare
 // `<auditCmd>` would — never with a narrower scope than the chain. (The old
 // hardcoded `--prod` hid devDependency vulns for library packages.)
 /**
- * How many findings are counted in `metadata.vulnerabilities` but absent from
- * `advisories` — advisories suppressed via auditConfig.ignoreGhsas, plus (under
- * pnpm) findings below `--audit-level`.
+ * Was the advisory service actually reachable?
  *
- * `metadata.vulnerabilities` still counts suppressed advisories while
- * `advisories` drops them, and that difference is the only signal separating an
- * assessed advisory from a new one — without it the summary shows a permanent
- * red "high 1" next to a green gate.
+ * Asked ONLY when the audit reported nothing (see `isAuditResultAmbiguous`), because that report
+ * is identical whether the tree is clean or the service was down — pnpm fails open and says
+ * "0 vulnerabilities" either way, with exit 0 and no error. A clean run then costs one HEAD-ish
+ * request; a run with findings costs nothing, because findings already prove it answered.
  *
- * Returns 0 when `advisories` is ABSENT rather than deriving from it. npm 7+
- * emits `auditReportVersion: 2` with a `vulnerabilities` map and no `advisories`
- * key at all, so deriving there made every finding — including a real,
- * unassessed critical — look suppressed. That is exactly the confusion this
- * accounting exists to prevent, produced in reverse.
+ * Unreachable is NOT treated as an error here. Offline, behind a proxy, or during an npm outage,
+ * "we could not check" is the honest answer — the caller degrades, which warns without blocking.
  *
- * Named "unlisted", not "ignored": under pnpm the number also contains
- * below-threshold findings nobody assessed. It is "counted but not listed" — an
- * observation, not a claim about anyone's judgement.
+ * Measured cost, so nobody has to guess at it. A clean repository IS the ambiguous shape, so every
+ * healthy run pays one request: 0.67s against a reachable registry. Offline it is 0.07s, not the
+ * 8s ceiling — DNS and connection refusals fail immediately, and the timeout only bites on a
+ * connection that hangs. The visible cost is therefore the warning, not the wait: from here on an
+ * offline check reports "vulnerabilities NOT checked" where it used to show a green audit. That is
+ * the point of the change and its main annoyance in the same sentence.
  */
-export function countUnlisted(parsed) {
-  const counts = parsed?.metadata?.vulnerabilities ?? null;
-  if (!parsed?.advisories) return 0;
-  const listed = Object.keys(parsed.advisories).length;
-  const counted = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
-  return Math.max(0, counted - listed);
+async function advisoryServiceReachable() {
+  // The registry pnpm uses, not npmjs.org — see advisoryBulkUrl for why that distinction is
+  // the difference between a safeguard and a second false all-clear.
+  const url = advisoryBulkUrl(configuredRegistry());
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+      signal: controller.signal,
+    });
+    // Any HTTP answer proves the service is up. A 4xx to an empty body is still an answer.
+    return res.status > 0;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Why the audit established nothing — named, because the two causes need different actions.
+ *
+ * "unreachable" means wait: a foreign service is down and nothing here fixes it. "unreadable" means
+ * look here: the command returned success while saying nothing a report could be built from, which
+ * is usually local (a version mismatch, a wrapper eating the output). Collapsing both into one
+ * message buries the actionable case under the one nobody can act on.
+ */
+function auditDegradedText(audit) {
+  return audit.degradedCause === 'unreadable'
+    ? 'exited 0 but emitted no readable result — vulnerabilities NOT checked (look at the audit command itself)'
+    : 'could not run — the advisory service was unreachable; vulnerabilities NOT checked';
 }
 
 async function runAudit(auditCmd) {
   const cmd = /(^|\s)--json(\s|$)/.test(auditCmd) ? auditCmd : `${auditCmd} --json`;
   const { code, out } = await capture(cmd, ROOT, 0, { NUXT_BUILD_DIR: CHECK_BUILD_DIR });
   let counts = null;
-  let unlisted = 0;
+  let unlisted = {};
+  let ambiguous = false;
   try {
-    const parsed = JSON.parse(out.slice(out.indexOf("{")));
+    const parsed = JSON.parse(out.slice(out.indexOf('{')));
     counts = parsed?.metadata?.vulnerabilities ?? null;
-    unlisted = countUnlisted(parsed);
+    unlisted = countUnlistedBySeverity(parsed);
+    ambiguous = isAuditResultAmbiguous(parsed);
   } catch {
     /* fall through to raw reason */
   }
-  const total = counts ? SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0) : 0;
-  return { auditCmd, blocking: code !== 0, counts, reason: counts ? null : out, total, unlisted };
+  // Two different ways an audit fails to establish anything, and they look nothing alike.
+  //
+  // 1. It errored out. Non-zero exit, no parseable counts, and a known infrastructure signature.
+  //    All three required — a non-zero exit on its own stays fatal.
+  // 2. It reported a clean tree WITHOUT having reached the advisory service. Exit 0, zero counts,
+  //    empty `advisories`, no error — byte-identical to a genuinely clean run, so the report cannot
+  //    be asked about itself. The service is probed instead, and only when the result is ambiguous:
+  //    a run with findings has proven the service answered.
+  // 3. It exited 0 and emitted nothing readable. Not a finding — findings parse. Not a failure —
+  //    the exit code says so. It established NOTHING, and it used to render as `✓ audit  0`: the
+  //    green tick plus a literal zero, which is the false all-clear in its purest form. Observed:
+  //    pnpm answering a version mismatch on stderr with exit 0 and no JSON at all.
+  //
+  //    Degraded WITHOUT probing, unlike case 2. A reachable service says nothing about a tally
+  //    that was never parsed — the probe would answer a question this failure did not ask.
+  //
+  // The `code !== 0` branch stays FIRST and stays narrow on purpose. Folding these into one
+  // `!counts` test is the obvious simplification and it is wrong: it would turn every genuine
+  // audit failure into a warning, which is a worse bug than the one being fixed.
+  let degradedCause;
+  if (code !== 0 && !counts && isAuditEndpointUnavailable(out)) degradedCause = 'unreachable';
+  else if (code === 0 && !counts) degradedCause = 'unreadable';
+  else if (code === 0 && ambiguous && !(await advisoryServiceReachable())) degradedCause = 'unreachable';
+  const degraded = Boolean(degradedCause);
+  return {
+    auditCmd,
+    blocking: code !== 0 && !degraded,
+    counts,
+    degraded,
+    degradedCause,
+    reason: counts ? null : out,
+    // Read from the workspace, not from the report: a suppressed advisory leaves NOTHING in the
+    // JSON that says it was suppressed, so `ignoreGhsas` is the only evidence that a human ever
+    // assessed an unlisted finding. Without it, dimming would claim a judgement nobody made.
+    suppressions: countSuppressions(ROOT),
+    total: sumSeverities(counts),
+    unlisted,
+  };
 }
 
 // Watchdog: kill a TEST step whose child produces NO output for this long. A
@@ -325,10 +381,10 @@ async function runAudit(auditCmd) {
 // Override with --idle-timeout=<seconds> or CHECK_IDLE_TIMEOUT (seconds); 0
 // disables it.
 const IDLE_TIMEOUT_MS = (() => {
-  const flag = process.argv.find((a) => a.startsWith("--idle-timeout="));
-  const raw = flag ? flag.slice("--idle-timeout=".length) : process.env.CHECK_IDLE_TIMEOUT;
+  const flag = process.argv.find((a) => a.startsWith('--idle-timeout='));
+  const raw = flag ? flag.slice('--idle-timeout='.length) : process.env.CHECK_IDLE_TIMEOUT;
   const DEFAULT_MS = 300 * 1000;
-  if (raw === undefined || raw === "") return DEFAULT_MS;
+  if (raw === undefined || raw === '') return DEFAULT_MS;
   const seconds = Number(raw);
   if (seconds === 0) return 0; // explicit opt-out
   // Invalid value (typo, unit suffix, negative) → keep the protection at its
@@ -347,19 +403,19 @@ const RUNNING = new Set();
 // fork workers). Killing only the direct child orphans the tree — exactly the
 // zombie workers a deadlock leaves behind. Children are collected via pgrep
 // and killed leaves-first.
-function killTree(child, signal = "SIGTERM") {
+function killTree(child, signal = 'SIGTERM') {
   const pids = [];
   const collect = (pid) => {
     pids.push(pid);
-    let out = "";
+    let out = '';
     try {
-      out = execSync(`pgrep -P ${pid}`, { stdio: ["ignore", "pipe", "ignore"] })
+      out = execSync(`pgrep -P ${pid}`, { stdio: ['ignore', 'pipe', 'ignore'] })
         .toString()
         .trim();
     } catch {
       /* no children */
     }
-    if (out) for (const p of out.split("\n")) collect(Number(p));
+    if (out) for (const p of out.split('\n')) collect(Number(p));
   };
   collect(child.pid);
   for (const pid of pids.reverse()) {
@@ -381,9 +437,13 @@ function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
     // first simple command, so a step written with `;` or a leading `cd` would be
     // reported as pinned and run unpinned. The env reaches every command in the
     // string, and the prefix still wins where both apply (same value).
-    const child = spawn(cmd, { cwd, env: extraEnv ? { ...process.env, ...extraEnv } : process.env, shell: true });
+    const child = spawn(cmd, {
+      cwd,
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+      shell: true,
+    });
     RUNNING.add(child);
-    let out = "";
+    let out = '';
     let idleTimer = null;
     let killTimer = null;
     let watchdogHit = false;
@@ -396,7 +456,7 @@ function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
       idleTimer = setTimeout(() => {
         watchdogHit = true;
         killTree(child);
-        killTimer = setTimeout(() => killTree(child, "SIGKILL"), 5000);
+        killTimer = setTimeout(() => killTree(child, 'SIGKILL'), 5000);
         killTimer.unref();
       }, idleTimeoutMs);
     };
@@ -406,8 +466,8 @@ function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
       if (VERBOSE) process.stdout.write(d);
     };
     armWatchdog();
-    child.stdout.on("data", onData);
-    child.stderr.on("data", onData);
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
     const done = (code, extra) => {
       clearTimeout(idleTimer);
       clearTimeout(killTimer);
@@ -415,14 +475,14 @@ function capture(cmd, cwd, idleTimeoutMs = 0, extraEnv = null) {
       if (watchdogHit) {
         const note =
           `[watchdog] step produced no output for ${Math.round(idleTimeoutMs / 1000)}s — ` +
-          "process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), " +
+          'process tree killed as deadlocked. This is a hang (workers idle at 0% CPU), ' +
           `not a slow run. Re-run the step directly to debug: \`${cmd}\``;
         return resolve({ code: 1, out: `${out}\n${note}` });
       }
       resolve({ code, out: extra ? `${out}\n${extra}` : out });
     };
-    child.on("close", (code) => done(code ?? 1));
-    child.on("error", (err) => done(1, err.message));
+    child.on('close', (code) => done(code ?? 1));
+    child.on('error', (err) => done(1, err.message));
   });
 }
 function killAll() {
@@ -450,16 +510,16 @@ function signalExitHint(out) {
   if (/\[watchdog\]/.test(clean)) return null;
   const m = clean.match(/Command failed with exit code (137|143)\b/);
   if (!m) return null;
-  const sig = m[1] === "143" ? "SIGTERM" : "SIGKILL";
+  const sig = m[1] === '143' ? 'SIGTERM' : 'SIGKILL';
   return (
     `[check] step ended via ${sig} (exit ${m[1]}) — the process was killed, not an assertion failure. ` +
-    "Usual cause: resource pressure (parallel checks/builds swapping) or an external kill. " +
+    'Usual cause: resource pressure (parallel checks/builds swapping) or an external kill. ' +
     "Re-run this project's check alone to confirm."
   );
 }
 
 // ── live multi-line status (one line per running project) ────────────────────
-const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 let liveCount = 0;
 let frame = 0;
 function drawLive(lines) {
@@ -472,17 +532,16 @@ function statusLines(order, states) {
   frame += 1;
   return order.map((rel) => {
     const s = states.get(rel);
-    if (s.failed) return `${C.red("✗")} ${shortRel(rel).padEnd(5)} ${C.red(`${s.failed} FAILED`)}`;
-    if (s.done)
-      return `${C.green("✓")} ${shortRel(rel).padEnd(5)} ${C.dim(`done (${fmtDuration(s.total)})`)}`;
+    if (s.failed) return `${C.red('✗')} ${shortRel(rel).padEnd(5)} ${C.red(`${s.failed} FAILED`)}`;
+    if (s.done) return `${C.green('✓')} ${shortRel(rel).padEnd(5)} ${C.dim(`done (${fmtDuration(s.total)})`)}`;
     const spin = C.cyan(FRAMES[frame % FRAMES.length]);
-    const el = s.stepStart ? C.dim(` (${fmtDuration(Date.now() - s.stepStart)})`) : "";
-    return `${spin} ${shortRel(rel).padEnd(5)} ${s.current || "queued"}${el}`;
+    const el = s.stepStart ? C.dim(` (${fmtDuration(Date.now() - s.stepStart)})`) : '';
+    return `${spin} ${shortRel(rel).padEnd(5)} ${s.current || 'queued'}${el}`;
   });
 }
 
 // ── project discovery + step grouping ────────────────────────────────────────
-const IS_ORCHESTRATOR = (script) => !script || script.includes("check.mjs");
+const IS_ORCHESTRATOR = (script) => !script || script.includes('check.mjs');
 
 /**
  * True when a command re-enters `check` across workspace members.
@@ -517,63 +576,25 @@ export function isRecursiveCheck(cmd) {
 /** True when this command is hoisted to a single workspace-level run. */
 function isHoisted(cmd) {
   const kind = classify(cmd).kind;
-  return kind === "install" || kind === "audit";
+  return kind === 'install' || kind === 'audit';
 }
 
-// Read the `packages:` globs from pnpm-workspace.yaml (monorepos). A simple
-// value-list parse — enough for the globs lt projects use (e.g. `projects/*`).
-function workspaceGlobs() {
-  let text;
-  try {
-    text = readFileSync(join(ROOT, "pnpm-workspace.yaml"), "utf8");
-  } catch {
-    return [];
-  }
-  const globs = [];
-  let inPackages = false;
-  for (const raw of text.split("\n")) {
-    const line = raw.replace(/#.*$/, "");
-    if (/^packages:\s*$/.test(line)) {
-      inPackages = true;
-      continue;
-    }
-    if (inPackages) {
-      const m = line.match(/^\s*-\s*['"]?([^'"]+?)['"]?\s*$/);
-      if (m) globs.push(m[1]);
-      else if (line.trim() && !/^\s/.test(line)) break; // next top-level key
-    }
-  }
-  return globs;
-}
-
-// Expand a workspace glob to concrete directories (handles `dir/*` and literals).
-function expandGlob(glob) {
-  if (glob.endsWith("/*")) {
-    const base = glob.slice(0, -2);
-    try {
-      return readdirSync(join(ROOT, base), { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => join(base, d.name));
-    } catch {
-      return [];
-    }
-  }
-  return [glob];
-}
+// Workspace discovery lives in ./lib/workspace-packages.mjs — one reader shared with
+// check-workspace-consistency.mjs and check-ci-consistency.mjs. It had been copied into
+// all three and the copies had already drifted; the shared one also counts SYMLINKED
+// members, which `lt fullstack init --api-link/--frontend-link` creates and which a
+// plain `isDirectory()` filter reported as absent, making a linked workspace look empty.
+const workspaceGlobs = () => readWorkspaceGlobs(ROOT);
+const expandGlob = (glob) => expandWorkspaceGlob(ROOT, glob);
 
 function asProject(rel, check) {
   let pkg = {};
   try {
-    pkg = JSON.parse(
-      readFileSync(
-        rel === "." ? join(ROOT, "package.json") : join(ROOT, rel, "package.json"),
-        "utf8",
-      ),
-    );
+    pkg = JSON.parse(readFileSync(rel === '.' ? join(ROOT, 'package.json') : join(ROOT, rel, 'package.json'), 'utf8'));
   } catch {
     /* keep defaults */
   }
-  return { check, dir: rel === "." ? ROOT : join(ROOT, rel), name: pkg.name || rel, rel };
+  return { check, dir: rel === '.' ? ROOT : join(ROOT, rel), name: pkg.name || rel, rel };
 }
 
 // Workspace sub-projects and their real check chain; if there are none (a
@@ -590,7 +611,7 @@ function asProject(rel, check) {
 // wrapper `check` means the real chain lives in `check:raw`.
 function realChain(pkg) {
   if (!IS_ORCHESTRATOR(pkg.scripts?.check)) return pkg.scripts?.check ?? null;
-  return pkg.scripts?.["check:raw"] ?? null;
+  return pkg.scripts?.['check:raw'] ?? null;
 }
 
 function discoverProjects() {
@@ -599,7 +620,7 @@ function discoverProjects() {
     for (const rel of expandGlob(glob)) {
       let pkg;
       try {
-        pkg = JSON.parse(readFileSync(join(ROOT, rel, "package.json"), "utf8"));
+        pkg = JSON.parse(readFileSync(join(ROOT, rel, 'package.json'), 'utf8'));
       } catch {
         continue;
       }
@@ -607,12 +628,10 @@ function discoverProjects() {
       if (chain) projects.push(asProject(rel, chain));
     }
   }
-  const root = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-  const rootChain =
-    root.scripts?.["check:raw"] ??
-    (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
+  const root = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+  const rootChain = root.scripts?.['check:raw'] ?? (IS_ORCHESTRATOR(root.scripts?.check) ? null : root.scripts?.check);
   if (projects.length === 0) {
-    if (rootChain) projects.push(asProject(".", rootChain));
+    if (rootChain) projects.push(asProject('.', rootChain));
   } else if (rootChain) {
     // With members present, the root's own chain must not be dropped: beyond
     // install/audit (hoisted later) and the member fan-out (replaced by the
@@ -621,7 +640,7 @@ function discoverProjects() {
     // for the case where members are present. Strip the fan-out command and
     // keep whatever remains as a root project.
     const ownSteps = rootChain
-      .split("&&")
+      .split('&&')
       .map((s) => s.trim())
       .filter(Boolean)
       .filter((c) => !isRecursiveCheck(c));
@@ -629,13 +648,11 @@ function discoverProjects() {
     // hoisted steps would otherwise add an empty group that occupies a live-view
     // row and reports a phantom success it never earned.
     if (ownSteps.some((c) => !isHoisted(c))) {
-      projects.unshift(asProject(".", ownSteps.join(" && ")));
+      projects.unshift(asProject('.', ownSteps.join(' && ')));
     }
   }
   if (PROJECT_FILTERS.length)
-    return projects.filter((p) =>
-      PROJECT_FILTERS.some((f) => p.rel.includes(f) || p.name.includes(f)),
-    );
+    return projects.filter((p) => PROJECT_FILTERS.some((f) => p.rel.includes(f) || p.name.includes(f)));
   return projects;
 }
 
@@ -648,7 +665,7 @@ export function buildGroups(projects) {
   const groups = projects.map((project) => {
     const steps = [];
     for (const raw of project.check
-      .split("&&")
+      .split('&&')
       .map((s) => s.trim())
       .filter(Boolean)) {
       const meta = classify(raw);
@@ -664,11 +681,11 @@ export function buildGroups(projects) {
       // the real `<pm> install` / `<pm> audit` forms. A project script that
       // merely mentions audit in its name stays an ordinary step, so a chain can
       // no longer lose a gate here without a trace.
-      if (meta.kind === "audit") {
+      if (meta.kind === 'audit') {
         if (!auditCmd) auditCmd = pinned;
         continue;
       }
-      if (meta.kind === "install") {
+      if (meta.kind === 'install') {
         if (!installCmd) installCmd = pinned;
         continue;
       }
@@ -713,7 +730,7 @@ async function runGroup(group, states, results, abort, gate) {
       // Surface the wait in CI too: the step line below is only printed AFTER
       // the acquire, so a gate-blocked group would otherwise emit nothing at all
       // for the length of a full build and read like a hang.
-      if (!TTY) process.stdout.write(`  ${C.dim("⋯")} ${shortRel(rel)} · ${step.label} ${C.dim("(queued)")}\n`);
+      if (!TTY) process.stdout.write(`  ${C.dim('⋯')} ${shortRel(rel)} · ${step.label} ${C.dim('(queued)')}\n`);
       await gate.acquire(klass);
       waited = Date.now() - queuedAt;
       // Another group may have failed while we waited — abort before starting.
@@ -730,14 +747,14 @@ async function runGroup(group, states, results, abort, gate) {
     }
     st.current = step.label;
     st.stepStart = Date.now();
-    if (!TTY) process.stdout.write(`  ${C.dim("→")} ${shortRel(rel)} · ${step.label}\n`);
+    if (!TTY) process.stdout.write(`  ${C.dim('→')} ${shortRel(rel)} · ${step.label}\n`);
     // Watchdog on every GATED step, not just tests. A test runner streams output
     // continuously, so prolonged silence == deadlocked workers; a build is
     // normally left unwatched because it buffers. But a gated build holds a slot
     // that blocks every test step in every other group, so a wedged one now
     // hangs the whole run rather than just its own chain — it needs the same
     // watchdog. Ungated steps still run unwatched.
-    const watch = step.kind === "test" || klass ? IDLE_TIMEOUT_MS : 0;
+    const watch = step.kind === 'test' || klass ? IDLE_TIMEOUT_MS : 0;
     let code;
     let out;
     try {
@@ -754,8 +771,8 @@ async function runGroup(group, states, results, abort, gate) {
     // wall-clock went. A step that waited 8 minutes behind another group's build
     // and then ran for 2 is not a 2-minute step.
     if (waited > 0) r.waited = waited;
-    if (step.kind === "test") r.tests = parseVitest(out);
-    if (step.kind === "lint") r.lint = parseLint(out);
+    if (step.kind === 'test') r.tests = parseVitest(out);
+    if (step.kind === 'lint') r.lint = parseLint(out);
     results.push(r);
     if (code !== 0 && step.fatal) {
       st.failed = step.label;
@@ -773,7 +790,7 @@ async function runGroup(group, states, results, abort, gate) {
     }
     if (!TTY)
       process.stdout.write(
-        `  ${C.green("✓")} ${shortRel(rel)} · ${step.label}${metricSuffix(r)} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green('✓')} ${shortRel(rel)} · ${step.label}${metricSuffix(r)} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
   }
   st.done = true;
@@ -785,20 +802,19 @@ async function main() {
   const started = Date.now();
   const projects = discoverProjects();
   if (projects.length === 0) {
-    console.error(C.red("No workspace projects with a `check` script found."));
+    console.error(C.red('No workspace projects with a `check` script found.'));
     process.exit(1);
   }
   const { auditCmd, groups, installCmd } = buildGroups(projects);
-  const stepCount =
-    groups.reduce((n, g) => n + g.steps.length, 0) + (auditCmd ? 1 : 0) + (installCmd ? 1 : 0);
-  const mode = SEQUENTIAL ? "sequential" : "parallel";
-  const pkgName = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).name;
+  const stepCount = groups.reduce((n, g) => n + g.steps.length, 0) + (auditCmd ? 1 : 0) + (installCmd ? 1 : 0);
+  const mode = SEQUENTIAL ? 'sequential' : 'parallel';
+  const pkgName = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name;
 
   console.log(C.bold(`\nRunning checks for ${C.cyan(pkgName)}`));
   console.log(
     C.dim(
-      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? "none"}` +
-        `${NO_FIX ? "" : " · auto-fix format+lint"}${VERBOSE ? " · verbose" : ""}\n`,
+      `${projects.length} project(s) · ${stepCount} steps · ${mode} · audit: ${auditCmd ?? 'none'}` +
+        `${NO_FIX ? '' : ' · auto-fix format+lint'}${VERBOSE ? ' · verbose' : ''}\n`,
     ),
   );
 
@@ -810,18 +826,18 @@ async function main() {
   // two parallel installs mutating the same node_modules.
   if (installCmd) {
     const t = Date.now();
-    if (!TTY) process.stdout.write(`  ${C.dim("→")} install\n`);
+    if (!TTY) process.stdout.write(`  ${C.dim('→')} install\n`);
     else drawLive([`${C.cyan(FRAMES[0])} install`]);
     const { code, out } = await capture(installCmd, ROOT, 0, { NUXT_BUILD_DIR: CHECK_BUILD_DIR });
     const dur = Date.now() - t;
     if (code !== 0) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
-      console.log(`${C.red("✗")} install ${C.dim(`(${fmtDuration(dur)})`)}`);
+      console.log(`${C.red('✗')} install ${C.dim(`(${fmtDuration(dur)})`)}`);
       return fail(`install (${installCmd})`, out, started);
     }
-    if (!TTY) process.stdout.write(`  ${C.green("✓")} install ${C.dim(`(${fmtDuration(dur)})`)}\n`);
+    if (!TTY) process.stdout.write(`  ${C.green('✓')} install ${C.dim(`(${fmtDuration(dur)})`)}\n`);
     // TTY success: no permanent line — see the audit block below.
-    results.push({ dur, kind: "step", label: "install", project: "." });
+    results.push({ dur, kind: 'step', label: 'install', project: '.' });
   }
 
   // Step 0 — single workspace audit (blocking gate, runs before the fan-out).
@@ -829,37 +845,40 @@ async function main() {
   // the chain has no audit step.
   if (auditCmd) {
     const t = Date.now();
-    if (!TTY) process.stdout.write(`  ${C.dim("→")} audit\n`);
+    if (!TTY) process.stdout.write(`  ${C.dim('→')} audit\n`);
     else drawLive([`${C.cyan(FRAMES[0])} audit`]);
     const audit = await runAudit(auditCmd);
     const dur = Date.now() - t;
     if (audit.blocking) {
       liveCount = 0; // the failure line must survive — nothing may overwrite it
-      const summary = audit.counts
-        ? `${audit.total} vuln (${renderVulnLine(audit.counts, audit.unlisted, true)})`
-        : "failed";
-      console.log(`${C.red("✗")} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
-      return fail(
-        `audit (${auditCmd})`,
-        audit.counts ? renderVulnLine(audit.counts, audit.unlisted, true) : audit.reason,
-        started,
-      );
+      const summary = audit.counts ? `${audit.total} vuln (${renderVulnLine(audit)})` : 'failed';
+      console.log(`${C.red('✗')} audit  ${C.red(summary)} ${C.dim(`(${fmtDuration(dur)})`)}`);
+      return fail(`audit (${auditCmd})`, audit.counts ? renderVulnLine(audit) : audit.reason, started);
     }
-    if (!TTY) {
+    if (audit.degraded) {
+      // Loud, and never rendered as a tick. A green ✓ here would claim "no vulnerabilities",
+      // which is exactly what was NOT established — the service could not be reached. The run
+      // continues because an outage is not a finding and nothing in this repo fixes it.
+      liveCount = 0;
+      console.log(`${C.yellow('⚠')} audit  ${C.yellow(auditDegradedText(audit))} ${C.dim(`(${fmtDuration(dur)})`)}`);
+    }
+    // `!audit.degraded`: the warning above already printed, and a ✓ underneath it would say
+    // "no vulnerabilities" about a run that established nothing.
+    if (!TTY && !audit.degraded) {
       process.stdout.write(
-        `  ${C.green("✓")} audit  ${audit.counts ? renderVulnLine(audit.counts, audit.unlisted) : C.dim("0")} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
+        `  ${C.green('✓')} audit  ${audit.counts ? renderVulnLine(audit) : C.dim('0')} ${C.dim(`(${fmtDuration(dur)})`)}\n`,
       );
     }
     // TTY success: NO permanent line — the live status view overwrites the audit
     // row (like every other step); the result lands in the report twice: the
     // Steps list (entry below) and the Vulnerabilities section.
-    results.push({ audit, kind: "audit" });
-    results.push({ dur, kind: "step", label: "audit", project: "." });
+    results.push({ audit, kind: 'audit' });
+    results.push({ dur, kind: 'step', label: 'audit', project: '.' });
   }
 
   // Per-project steps — parallel by default, serial with --sequential.
   const order = groups.map((g) => g.project.rel);
-  const states = new Map(order.map((rel) => [rel, { current: "queued" }]));
+  const states = new Map(order.map((rel) => [rel, { current: 'queued' }]));
   const abort = { failure: null, hit: false };
   // Serializes CPU-heavy `build` steps against the contention-sensitive `test`
   // suites across groups so a parallel `nuxt build` can never destabilize the
@@ -887,128 +906,103 @@ async function main() {
 }
 
 // ── rendering helpers ─────────────────────────────────────────────────────────
-// `unlisted` = counted in `metadata.vulnerabilities` but absent from `advisories`
-// — advisories suppressed via auditConfig.ignoreGhsas, and (under pnpm) findings
-// below `--audit-level`. Without accounting for them the line reads as an
-// unresolved finding forever.
-//
-// `blocking` is what decides whether dimming is allowed at all. Dimming says "you
-// already looked at this"; on a run the gate is FAILING, that is exactly the wrong
-// thing to say, and it used to be said — a real critical rendered grey and
-// labelled. When the gate fails, the numbers stay loud whatever the derivation
-// suggests.
-function renderVulnLine(counts, unlisted = 0, blocking = false) {
-  const total = SEVERITIES.reduce((n, s) => n + (counts[s] || 0), 0);
-  const allUnlisted = !blocking && unlisted > 0 && unlisted >= total;
-  const line = SEVERITIES.map((s) => {
-    const n = counts[s] || 0;
-    const txt = `${s} ${n}`;
-    if (n === 0 || allUnlisted) return C.dim(txt);
-    if (s === "critical" || s === "high") return C.red(txt);
-    return C.yellow(txt);
-  }).join(C.dim(" · "));
-  return unlisted > 0 ? `${line}${C.dim(` (${unlisted} not listed)`)}` : line;
-}
 
 function metricSuffix(r) {
-  if (r.kind === "test" && r.tests?.passed != null) {
-    const failed = r.tests.failed ? C.red(` / ${r.tests.failed} failed`) : "";
-    return `  ${C.dim(`${r.tests.passed} passed${r.tests.files != null ? ` / ${r.tests.files} files` : ""}`)}${failed}`;
+  if (r.kind === 'test' && r.tests?.passed != null) {
+    const failed = r.tests.failed ? C.red(` / ${r.tests.failed} failed`) : '';
+    return `  ${C.dim(`${r.tests.passed} passed${r.tests.files != null ? ` / ${r.tests.files} files` : ''}`)}${failed}`;
   }
   if (r.waited != null && r.waited >= 1000) {
     // The gate wait is NOT part of `dur`, so without this the report would show
     // a two-minute step that actually occupied ten minutes of wall-clock.
     return `  ${C.dim(`queued ${fmtDuration(r.waited)}`)}`;
   }
-  if (r.kind === "lint" && r.lint) {
+  if (r.kind === 'lint' && r.lint) {
     return r.lint.warnings > 0
-      ? `  ${C.yellow(`${r.lint.warnings} warning${r.lint.warnings === 1 ? "" : "s"}`)}`
-      : `  ${C.dim("clean")}`;
+      ? `  ${C.yellow(`${r.lint.warnings} warning${r.lint.warnings === 1 ? '' : 's'}`)}`
+      : `  ${C.dim('clean')}`;
   }
-  return "";
+  return '';
 }
 
 function fail(stepLabel, reason, started) {
   console.log(`\n${C.red(`──── reason · ${stepLabel} ────`)}`);
-  console.log(stripAnsi(String(reason)).trimEnd().split("\n").slice(-40).join("\n"));
-  console.log(C.red("────────────────────────────────────────\n"));
-  console.log(
-    C.bold(
-      C.red(`✗ Check FAILED at step "${stepLabel}" after ${fmtDuration(Date.now() - started)}.`),
-    ),
-  );
-  console.log(C.dim("Re-run with --verbose for the full output of every step."));
+  console.log(stripAnsi(String(reason)).trimEnd().split('\n').slice(-40).join('\n'));
+  console.log(C.red('────────────────────────────────────────\n'));
+  console.log(C.bold(C.red(`✗ Check FAILED at step "${stepLabel}" after ${fmtDuration(Date.now() - started)}.`)));
+  console.log(C.dim('Re-run with --verbose for the full output of every step.'));
   process.exit(1);
 }
 
 function report(started, results) {
-  const audit = results.find((r) => r.kind === "audit")?.audit;
-  const tests = results.filter((r) => r.kind === "test");
-  const unit = tests.find((r) => r.project?.includes("app"))?.tests;
-  const api = tests.find((r) => r.project?.includes("api"))?.tests;
+  const audit = results.find((r) => r.kind === 'audit')?.audit;
+  const tests = results.filter((r) => r.kind === 'test');
+  const unit = tests.find((r) => r.project?.includes('app'))?.tests;
+  const api = tests.find((r) => r.project?.includes('api'))?.tests;
   const totalPassed = tests.reduce((n, r) => n + (r.tests?.passed || 0), 0);
 
-  const bar = "═".repeat(52);
+  const bar = '═'.repeat(52);
   console.log(`\n${C.green(bar)}`);
-  console.log(
-    C.bold(`  ${C.green("✓ Check PASSED")}  ${C.dim(`(${fmtDuration(Date.now() - started)})`)}`),
-  );
+  console.log(C.bold(`  ${C.green('✓ Check PASSED')}  ${C.dim(`(${fmtDuration(Date.now() - started)})`)}`));
   console.log(C.green(bar));
 
-  console.log(`\n${C.bold("Steps")}`);
-  const steps = results.filter((x) => x.kind !== "audit");
+  console.log(`\n${C.bold('Steps')}`);
+  const steps = results.filter((x) => x.kind !== 'audit');
   // Group by project when more than one is involved: workspace-level steps
   // (hoisted install/audit, root-only checks) under "monorepo", then one block
   // per member. Steps within a project run sequentially, so per-group order is
   // chain order. A single-project run keeps the flat list — a header is noise.
   const stepGroups = [...new Set(steps.map((r) => r.project))].sort((a, b) =>
-    a === "." ? -1 : b === "." ? 1 : shortRel(a).localeCompare(shortRel(b)),
+    a === '.' ? -1 : b === '.' ? 1 : shortRel(a).localeCompare(shortRel(b)),
   );
   if (stepGroups.length > 1) {
     for (const project of stepGroups) {
-      console.log(`  ${C.bold(project === "." ? "monorepo" : shortRel(project))}`);
+      console.log(`  ${C.bold(project === '.' ? 'monorepo' : shortRel(project))}`);
       for (const r of steps.filter((x) => x.project === project)) {
         console.log(
-          `    ${C.green("✓")} ${r.label.padEnd(24)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+          `    ${C.green('✓')} ${r.label.padEnd(24)}${metricSuffix(r) || '  '} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
         );
       }
     }
   } else {
     for (const r of steps) {
       console.log(
-        `  ${C.green("✓")} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || "  "} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
+        `  ${C.green('✓')} ${`${shortRel(r.project)} · ${r.label}`.padEnd(26)}${metricSuffix(r) || '  '} ${C.dim(`(${fmtDuration(r.dur)})`)}`,
       );
     }
   }
 
+  console.log(`\n${C.bold('Vulnerabilities')} ${C.dim(audit ? `(${audit.auditCmd})` : '(no audit step)')}`);
   console.log(
-    `\n${C.bold("Vulnerabilities")} ${C.dim(audit ? `(${audit.auditCmd})` : "(no audit step)")}`,
-  );
-  console.log(
-    `  ${audit?.counts ? renderVulnLine(audit.counts, audit.unlisted, audit.blocking) : C.dim(audit ? "counts unavailable" : "—")}`,
+    `  ${
+      audit?.counts
+        ? renderVulnLine(audit)
+        : audit?.degraded
+          ? // Named, not blank. "counts unavailable" reads like a formatting hiccup; the reader
+            // has to know the tree was never checked, or a green summary above means more than
+            // it should.
+            C.yellow(auditDegradedText(audit))
+          : C.dim(audit ? 'counts unavailable' : '—')
+    }`,
   );
 
-  console.log(`\n${C.bold("Tests")}`);
+  console.log(`\n${C.bold('Tests')}`);
   if (unit || api) {
     // Monorepo with app and/or api projects → the canonical area breakdown.
-    console.log(
-      `  ${"Unit (app)".padEnd(18)}${unit?.passed != null ? `${unit.passed} passed` : C.dim("—")}`,
-    );
-    console.log(
-      `  ${"API (api)".padEnd(18)}${api?.passed != null ? `${api.passed} passed` : C.dim("—")}`,
-    );
-    console.log(`  ${"Playwright".padEnd(18)}${C.dim("— (run via `lt dev test` / CI)")}`);
+    console.log(`  ${'Unit (app)'.padEnd(18)}${unit?.passed != null ? `${unit.passed} passed` : C.dim('—')}`);
+    console.log(`  ${'API (api)'.padEnd(18)}${api?.passed != null ? `${api.passed} passed` : C.dim('—')}`);
+    console.log(`  ${'Playwright'.padEnd(18)}${C.dim('— (run via `lt dev test` / CI)')}`);
   } else {
     // Single-package repo → one line per test-bearing project.
     for (const r of tests)
       console.log(
-        `  ${shortRel(r.project).padEnd(18)}${r.tests?.passed != null ? `${r.tests.passed} passed` : C.dim("—")}`,
+        `  ${shortRel(r.project).padEnd(18)}${r.tests?.passed != null ? `${r.tests.passed} passed` : C.dim('—')}`,
       );
-    if (tests.length === 0) console.log(`  ${C.dim("no test step")}`);
+    if (tests.length === 0) console.log(`  ${C.dim('no test step')}`);
   }
-  console.log(`  ${C.bold("Total".padEnd(18))}${C.bold(`${totalPassed} passed`)}`);
+  console.log(`  ${C.bold('Total'.padEnd(18))}${C.bold(`${totalPassed} passed`)}`);
 
-  console.log(`\n${C.green("All checks passed.")}\n`);
+  console.log(`\n${C.green('All checks passed.')}\n`);
 }
 
 // Run only when invoked as the CLI (`node scripts/check.mjs`). Importing this
@@ -1051,12 +1045,12 @@ if (isCliEntry()) {
   // every running `pnpm test` / build / e2e fork pool: they keep the test
   // database and ports held, and the next run fails for a reason that has
   // nothing to do with the code.
-  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(signal, () => {
       killAll();
       // Conventional 128+n, and it makes the interruption distinguishable from
       // an ordinary failure.
-      process.exit(signal === "SIGINT" ? 130 : 143);
+      process.exit(signal === 'SIGINT' ? 130 : 143);
     });
   }
   main().catch((err) => {

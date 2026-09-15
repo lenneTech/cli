@@ -108,12 +108,17 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   and the sync / contribute flows are handled by the
   `nest-server-core-updater` / `nest-server-core-contributor` agents.
 - `src/templates/check/` ships the report-driven check runner
-  (`check.mjs` + the modules it imports, currently `build-test-gate.mjs`).
+  (`check.mjs` + the modules it imports, currently `build-test-gate.mjs`
+  and `lib/{ansi,audit-report,workspace-packages}.mjs`).
   `lt fullstack init` delivers it via the `lt-monorepo` clone;
   `lt fullstack update` installs/refreshes it through
   `healCheckWrapper` (`src/lib/heal-check-wrapper.ts`), and
   `lt dev doctor` reports drift over the same set. Byte-identical to
   `lt-monorepo/scripts/` — **fix both repos or they silently diverge**.
+  They did: until 2026-09-14 the copy here lagged two lt-monorepo releases
+  behind, and because heal treats the CLI copy as canonical, every
+  `lt fullstack update` put the OLDER wrapper into a freshly created project.
+  `lt-monorepo` is the upstream; sync from there byte-for-byte.
   Like the rest of `src/templates/**` it is ESLint-exempt, so its `.mjs`
   files get no lint/tsc coverage at all; the guards that do cover them
   are `__tests__/check-template.test.ts` and
@@ -903,7 +908,8 @@ a relative import (`./build-test-gate.mjs`), every project migrated by
 copied the file it was asked to copy.
 **Rule 1 — derive the set from the asset's own imports** (`resolveCopySet`, transitive,
 matching BOTH quote styles: these templates are formatted by the *consuming* project,
-so their quote style is not ours to assume). Deriving from "every `.mjs` in the
+so their quote style is not ours to assume; resolved against the IMPORTING file and
+including subdirectories like `./lib/…`, but never outside the asset dir). Deriving from "every `.mjs` in the
 directory" is the tempting shortcut and is wrong in the other direction — it turns the
 template dir into a live namespace over the project's `scripts/`, so any file a future
 contributor drops there lands in every user project.
