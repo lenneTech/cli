@@ -9,6 +9,7 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
+import { ensureCrossEnvDependency, withCrossEnv } from '../lib/cross-env';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { stripComments } from '../lib/strip-comments';
 import {
@@ -17,6 +18,18 @@ import {
   insertVendorBlockIfMissing,
   removeVendorBlock,
 } from '../lib/vendor-claude-md';
+
+/**
+ * Environments the generated `migrate:<env>:up` scripts cover: script suffix → NODE_ENV.
+ * `prod` is spelled `production` because that is what NestJS config files key off.
+ */
+const MIGRATE_ENVIRONMENTS: [string, string][] = [
+  ['develop', 'develop'],
+  ['test', 'test'],
+  ['preview', 'preview'],
+  ['prod', 'production'],
+];
+
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(
   questions:
@@ -1750,10 +1763,16 @@ export class Server {
           scripts['migrate:up'] = `node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:down'] = `node ./bin/migrate.js down ${migrateArgs}`;
           scripts['migrate:list'] = `node ./bin/migrate.js list ${migrateArgs}`;
-          scripts['migrate:develop:up'] = `NODE_ENV=develop node ./bin/migrate.js up ${migrateArgs}`;
-          scripts['migrate:test:up'] = `NODE_ENV=test node ./bin/migrate.js up ${migrateArgs}`;
-          scripts['migrate:preview:up'] = `NODE_ENV=preview node ./bin/migrate.js up ${migrateArgs}`;
-          scripts['migrate:prod:up'] = `NODE_ENV=production node ./bin/migrate.js up ${migrateArgs}`;
+          // `cross-env`, not a bare `NODE_ENV=…` prefix: npm and pnpm run scripts
+          // through cmd.exe on Windows, which cannot parse that form (see
+          // src/lib/cross-env.ts).
+          for (const [scriptEnv, nodeEnv] of MIGRATE_ENVIRONMENTS) {
+            scripts[`migrate:${scriptEnv}:up`] = withCrossEnv(
+              { NODE_ENV: nodeEnv },
+              `node ./bin/migrate.js up ${migrateArgs}`,
+            );
+          }
+          ensureCrossEnvDependency(pkg as Record<string, any>);
 
           // Make the production build carry a runnable migration setup.
           //
@@ -1774,7 +1793,8 @@ export class Server {
           // deliberate customization survives a re-run (older starters simply
           // lack them → still repaired).
           if (typeof scripts['copy:bin'] !== 'string') {
-            scripts['copy:bin'] = 'cpy ./bin ./dist/ || true';
+            // `|| exit 0`, not `|| true`: cmd.exe has no `true` command.
+            scripts['copy:bin'] = 'cpy ./bin ./dist/ || exit 0';
           }
           if (typeof scripts['copy:migrations'] !== 'string') {
             scripts['copy:migrations'] =
@@ -2707,11 +2727,14 @@ export class Server {
       scripts['migrate:down'] = `migrate down ${migrateStore} --compiler ${migrateCompiler}`;
       scripts['migrate:list'] = `migrate list ${migrateStore} --compiler ${migrateCompiler}`;
 
-      // Env-prefixed migrate scripts
-      for (const env of ['develop', 'test', 'preview', 'prod']) {
-        const nodeEnv = env === 'prod' ? 'production' : env;
-        scripts[`migrate:${env}:up`] = `NODE_ENV=${nodeEnv} migrate up ${migrateStore} --compiler ${migrateCompiler}`;
+      // Env-prefixed migrate scripts, via cross-env so cmd.exe can run them too.
+      for (const [scriptEnv, nodeEnv] of MIGRATE_ENVIRONMENTS) {
+        scripts[`migrate:${scriptEnv}:up`] = withCrossEnv(
+          { NODE_ENV: nodeEnv },
+          `migrate up ${migrateStore} --compiler ${migrateCompiler}`,
+        );
       }
+      ensureCrossEnvDependency(pkg as Record<string, any>);
 
       filesystem.write(`${dest}/package.json`, pkg);
     }
