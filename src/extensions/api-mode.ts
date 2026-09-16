@@ -2,6 +2,11 @@ import { GluegunFilesystem } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import {
+  disableGraphQlInEveryEnvBlock,
+  envBlocksWithoutGraphQlDisabled,
+  isConfigEnvFile,
+} from '../lib/config-env-graphql';
 
 /**
  * API Mode processing for nest-server-starter template
@@ -40,6 +45,7 @@ export class ApiMode {
       // REST mode: remove graphql regions, keep rest regions
       await this.removeMode(projectPath, manifest, 'graphql', 'rest');
       await this.modifyConfigEnvForRest(projectPath);
+      this.assertGraphQlDisabled(projectPath);
     } else if (mode === 'GraphQL') {
       // GraphQL mode: remove rest regions, keep graphql regions
       await this.removeMode(projectPath, manifest, 'rest', 'graphql');
@@ -203,7 +209,12 @@ export class ApiMode {
         // graphql` block with an explicit `graphQl: false,` so GraphQL
         // is cleanly disabled.
         let processed: string;
-        if (removeMarker === 'graphql' && file.endsWith('/config.env.ts')) {
+        // basename, NOT `endsWith('/config.env.ts')`: `filesystem.find` returns
+        // `pathUtil.relative(cwd, path)`, which is backslash-separated on Windows.
+        // The check never matched there, so the `graphQl: { … }` region was deleted
+        // without its `graphQl: false` replacement and the generated project booted
+        // with GraphQL enabled (measured 2026-09-16).
+        if (removeMarker === 'graphql' && isConfigEnvFile(file)) {
           processed = this.replaceGraphqlRegionsWithDisabled(content, keepMarker);
         } else {
           processed = this.processFileRegions(content, removeMarker, keepMarker);
@@ -338,6 +349,41 @@ export class ApiMode {
           this.filesystem.write(file, processed);
         }
       }
+    }
+  }
+
+  /**
+   * Final check of the REST conversion: every environment block in `config.env.ts`
+   * must disable GraphQL.
+   *
+   * `CoreModule.forRoot` reads a missing `graphQl` as ENABLED, so a block without it
+   * produces a project that fails at START time with
+   * `Cannot determine a GraphQL output type for the "arguments"` — long after the
+   * generator reported success. Until now every step here merely assumed its
+   * replacement had happened; on Windows none of them had.
+   *
+   * Repairs what it can (insert the switch) and throws when a block still lacks it,
+   * rather than handing over a project that cannot boot.
+   */
+  private assertGraphQlDisabled(projectPath: string): void {
+    const configPath = join(projectPath, 'src', 'config.env.ts');
+    const content = this.filesystem.read(configPath);
+    if (!content) {
+      return;
+    }
+
+    const { added, content: repaired } = disableGraphQlInEveryEnvBlock(content);
+    if (added.length > 0) {
+      this.filesystem.write(configPath, repaired);
+    }
+
+    const offenders = envBlocksWithoutGraphQlDisabled(repaired);
+    if (offenders.length > 0) {
+      throw new Error(
+        `REST conversion incomplete: src/config.env.ts has no \`graphQl: false\` in ${offenders.join(', ')}. ` +
+          'The framework treats a missing switch as GraphQL ENABLED, and the server would fail to start. ' +
+          'Add it to those environment blocks and re-run.',
+      );
     }
   }
 

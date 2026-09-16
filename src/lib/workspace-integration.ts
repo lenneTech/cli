@@ -122,13 +122,13 @@ export function detectSubProjectContext(
   const apiDir = filesystem.path(root, 'projects', 'api');
   const appDir = filesystem.path(root, 'projects', 'app');
 
-  // Resolve absolute prefixes for a clean startsWith compare. We use
+  // Resolve absolute prefixes for a clean containment compare. We use
   // the gluegun-resolved paths because all callers go through it.
   const startAbs = filesystem.path(startDir);
-  if (startAbs === apiDir || startAbs.startsWith(`${apiDir}/`)) {
+  if (isWithinDir(apiDir, startAbs)) {
     return { kind: 'api', subProjectDir: apiDir, workspaceRoot: root };
   }
-  if (startAbs === appDir || startAbs.startsWith(`${appDir}/`)) {
+  if (isWithinDir(appDir, startAbs)) {
     return { kind: 'app', subProjectDir: appDir, workspaceRoot: root };
   }
   return null;
@@ -252,6 +252,21 @@ export function isNonInteractive(noConfirmFlag: boolean): boolean {
   // confirm prompt when run from a script. `!isTTY` treats undefined and false
   // alike; a missing stdin (some test runners) cannot prompt either.
   return !process.stdin || !process.stdin.isTTY;
+}
+
+/**
+ * True when `candidate` is `dir` itself or lies inside it, for either separator.
+ *
+ * `startsWith(`${dir}/`)` was wrong on Windows, where these paths are
+ * backslash-separated: a command run inside `projects\api` looked like it was outside
+ * the workspace, so the standalone gate never fired. Comparing normalised paths keeps
+ * the check honest on both hosts — and testable on either.
+ */
+export function isWithinDir(dir: string, candidate: string): boolean {
+  const normalise = (path: string): string => path.replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+  const base = normalise(dir);
+  const target = normalise(candidate);
+  return target === base || target.startsWith(`${base}/`);
 }
 
 /**

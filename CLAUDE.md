@@ -1090,6 +1090,34 @@ the developer's checkout happens to be in (detached HEAD, dirty tree, no upstrea
 now explicit test cases). **Rule:** a test that runs a mutating git command gets its own
 repository. Never let it inherit the checkout it was started from.
 
+### `filesystem.find` returns RELATIVE, separator-dependent paths <!-- Added: 2026-09-16 -->
+gluegun's `filesystem.find` is fs-jetpack's, which returns `pathUtil.relative(cwd, path)`
+(`lib/find.js:45`) — so `../../src/config.env.ts` on macOS and `..\..\src\config.env.ts`
+on Windows. `api-mode.ts` picked the config file out of that list with
+`file.endsWith('/config.env.ts')`. On Windows that matched nothing, so the
+`// #region graphql` block carrying `graphQl: { … }` was stripped like any other region
+and its `graphQl: false,` replacement was never written. `CoreModule.forRoot` reads a
+missing `graphQl` as ENABLED, so the generated REST project built a GraphQL schema on
+boot and died with `Cannot determine a GraphQL output type for the "arguments"` — at
+START time, with nothing pointing back at the generator (measured on a Windows laptop,
+2026-09-16, lt 1.47.0). **Rules:** never compare a `find` result with a `/`-prefixed
+suffix; match the basename separator-agnostically (`isConfigEnvFile`, split on
+`[\\/]`), which is also the only form a test on a POSIX host can prove. And do not let
+a conversion rely on "some earlier step must have replaced it": `processApiMode('Rest')`
+now ends in `assertGraphQlDisabled`, which inserts the switch into every environment
+block that lacks it (ts-morph, CRLF preserved) and throws a named error when one still
+does — a project that cannot boot must not leave the generator.
+The same assumption was checked everywhere else it appears. Two carried real damage and
+were fixed with it: `dev-package-manager.ts#inferNameFromBin` (an `LT_PM_BIN` pointing at
+`…\pnpm.cmd` resolved to `unknown`, so the CLI drove the wrong manager — it now reads the
+file name and strips `.cmd/.exe/.bat/.ps1`) and `workspace-integration.ts#isWithinDir`
+(`startsWith(`${dir}/`)` made a command run inside `projects\api` look like it was outside
+the workspace, so the standalone gate never fired). Three are harmless and were left
+alone: `doctor.ts` compares against `rel` strings this repo builds with `/` itself,
+`vendor-claude-md.ts` joins with `/`, which Node accepts on Windows, and
+`server.ts:1413`'s `startsWith('/')` only decides whether to call `resolve()`, which is a
+no-op on an already-absolute `C:\…` path.
+
 ### npm runs package.json scripts through cmd.exe on Windows <!-- Added: 2026-09-11 -->
 The `postinstall` guard `node bin/postinstall.js 2>/dev/null || true` was meant to make
 completion setup unable to fail the install. Under cmd.exe (npm's default script shell
