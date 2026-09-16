@@ -1098,7 +1098,10 @@ migrations from their TypeScript sources — dies there with `Error: ts-node is 
 to run migrations from TypeScript sources`. Measured in a generated project
 (2026-09-16); platform-independent, not a Windows thing.
 `deployedMigrateScripts` (`src/lib/migrate-scripts.ts`) therefore writes the COMPILED
-form for those four, the same invocation `docker-entrypoint.sh` already uses:
+form for those four, prefixed with the starter's build guard
+(`node scripts/require-built-migrations.mjs && …`, which fails the chain BEFORE migrate
+runs, so `dp:prod` never reaches the server start), and otherwise the same invocation
+`docker-entrypoint.sh` already uses:
 `<migrate> up --store ./dist/migrations-utils/migrate.js --migrations-dir ./dist/migrations`,
 with `migrate` in npm mode and `node ./dist/bin/migrate.js` in vendor mode (the shim
 `copy:bin` ships). `migrate:up` / `:down` / `:list` keep `--compiler ts:…`: those are the
@@ -1108,6 +1111,13 @@ no `dist/migrations` the run reports "no migrations" instead of falling back to 
 sources — silently doing nothing is the failure mode to watch for here, which is why
 `scripts/test-vendor-init.sh` asserts both the build wiring (`copy:bin`,
 `copy:migrations`, `prune:migrations`) and the script shape.
+**The guard file is the starter's, and the CLI ships NO copy of it.** Both modes clone
+nest-server-starter as their base (`server.ts`: "Both npm and vendor mode clone
+nest-server-starter as the base"), and nothing in the conversion prunes `scripts/`
+wholesale — only `strip-api-mode-markers.mjs`, `scripts/vendor/` and, in REST mode,
+`run-spectaql.mjs`. A second, nearly identical copy here is exactly the drift this rule
+exists to prevent; `missingBuildGuardWarning` warns loudly if the assumption ever stops
+holding (same treatment as `migrations-utils/mongo-uri.js`).
 **Keep both sides in step:** nest-server-starter writes the same four scripts. A change
 here without the matching starter change means a generated project and a cloned starter
 disagree about how they migrate.

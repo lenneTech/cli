@@ -12,7 +12,7 @@ import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowli
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { ensureCrossEnvDependency } from '../lib/cross-env';
 import { formatMarkdownTable } from '../lib/markdown-table';
-import { deployedMigrateScripts } from '../lib/migrate-scripts';
+import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
 import { stripComments } from '../lib/strip-comments';
 import {
   BACKEND_VENDOR_MARKER,
@@ -1759,6 +1759,10 @@ export class Server {
           // `--compiler ts:…` form dies there. `copy:bin` ships the shim into
           // dist/bin. See src/lib/migrate-scripts.ts.
           Object.assign(scripts, deployedMigrateScripts('node ./dist/bin/migrate.js'));
+          const guardWarning = missingBuildGuardWarning(filesystem, dest);
+          if (guardWarning) {
+            this.toolbox.print.warning(guardWarning);
+          }
           ensureCrossEnvDependency(pkg as Record<string, any>);
 
           // Make the production build carry a runnable migration setup.
@@ -2716,8 +2720,13 @@ export class Server {
 
       // Deployed scripts: compiled migrations under dist/, no --compiler (no ts-node
       // in a production tree), via cross-env for cmd.exe. `migrate` is the binary of
-      // @lenne.tech/nest-server, a production dependency in npm mode.
+      // @lenne.tech/nest-server, a production dependency in npm mode — the same path
+      // docker-entrypoint.sh uses for this mode.
       Object.assign(scripts, deployedMigrateScripts('migrate'));
+      const guardWarning = missingBuildGuardWarning(filesystem, dest);
+      if (guardWarning) {
+        this.toolbox.print.warning(guardWarning);
+      }
       ensureCrossEnvDependency(pkg as Record<string, any>);
 
       filesystem.write(`${dest}/package.json`, pkg);

@@ -295,6 +295,18 @@ run_scenario() {
   else
     fail "migrate:<env>:up scripts still point at the TypeScript sources"
   fi
+  # The build guard ships with nest-server-starter (the clone base of BOTH modes); the
+  # deployed scripts call it first, so a missing file breaks every one of them.
+  if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(['develop','test','preview','prod'].every((e)=>(s['migrate:'+e+':up']||'').startsWith('node scripts/require-built-migrations.mjs && ')) ? 0 : 1)"; then
+    pass "migrate:<env>:up scripts run the build guard first"
+  else
+    fail "migrate:<env>:up scripts miss the build guard"
+  fi
+  if [ -f "${api_dir}/scripts/require-built-migrations.mjs" ]; then
+    pass "scripts/require-built-migrations.mjs survived the conversion"
+  else
+    fail "scripts/require-built-migrations.mjs missing — the deployed scripts would die at the first &&"
+  fi
   if [ -x "${api_dir}/node_modules/.bin/cross-env" ]; then
     pass "cross-env installed in the api project"
   else
