@@ -1090,6 +1090,28 @@ the developer's checkout happens to be in (detached HEAD, dirty tree, no upstrea
 now explicit test cases). **Rule:** a test that runs a mutating git command gets its own
 repository. Never let it inherit the checkout it was started from.
 
+### A deployed script runs in a tree without devDependencies <!-- Added: 2026-09-16 -->
+The generated `migrate:<env>:up` scripts are the ones a deployment runs (`dp:prod`,
+`start:prod`), and that tree is installed with `pnpm install --prod` / `pnpm deploy
+--prod`. `ts-node` is a devDependency, so the `--compiler ts:…` form — which runs the
+migrations from their TypeScript sources — dies there with `Error: ts-node is required
+to run migrations from TypeScript sources`. Measured in a generated project
+(2026-09-16); platform-independent, not a Windows thing.
+`deployedMigrateScripts` (`src/lib/migrate-scripts.ts`) therefore writes the COMPILED
+form for those four, the same invocation `docker-entrypoint.sh` already uses:
+`<migrate> up --store ./dist/migrations-utils/migrate.js --migrations-dir ./dist/migrations`,
+with `migrate` in npm mode and `node ./dist/bin/migrate.js` in vendor mode (the shim
+`copy:bin` ships). `migrate:up` / `:down` / `:list` keep `--compiler ts:…`: those are the
+developer path in a full install.
+**The trade-off to document wherever these scripts appear:** they REQUIRE a build. With
+no `dist/migrations` the run reports "no migrations" instead of falling back to the
+sources — silently doing nothing is the failure mode to watch for here, which is why
+`scripts/test-vendor-init.sh` asserts both the build wiring (`copy:bin`,
+`copy:migrations`, `prune:migrations`) and the script shape.
+**Keep both sides in step:** nest-server-starter writes the same four scripts. A change
+here without the matching starter change means a generated project and a cloned starter
+disagree about how they migrate.
+
 ### The scripts the CLI WRITES into projects need the same cmd.exe rules <!-- Added: 2026-09-16 -->
 The guard below covers this repo's own `package.json`. The scripts the generators write
 into user projects went unchecked, and that is where the failure actually reached people:

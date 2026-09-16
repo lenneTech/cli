@@ -288,6 +288,13 @@ run_scenario() {
   else
     fail "migrate:<env>:up scripts carry a bare NODE_ENV= prefix"
   fi
+  # Deployed scripts must run the COMPILED migrations: a production tree
+  # (`pnpm install --prod`) has no ts-node, so `--compiler ts:…` dies there.
+  if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(['develop','test','preview','prod'].every((e)=>{const v=s['migrate:'+e+':up']||''; return v.includes('--migrations-dir ./dist/migrations') && !v.includes('--compiler');}) ? 0 : 1)"; then
+    pass "migrate:<env>:up scripts use the compiled migrations"
+  else
+    fail "migrate:<env>:up scripts still point at the TypeScript sources"
+  fi
   if [ -x "${api_dir}/node_modules/.bin/cross-env" ]; then
     pass "cross-env installed in the api project"
   else
