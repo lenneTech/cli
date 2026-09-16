@@ -20,6 +20,7 @@ import {
   detectWorkspaceLayout,
   findWorkspaceRoot,
   isNonInteractive,
+  isWithinDir,
   reconfigureUpstreamForDownstream,
   runExperimentalNestBaseRename,
   runStandaloneWorkspaceGate,
@@ -401,6 +402,25 @@ describe('findWorkspaceRoot', () => {
 
   test('returns null when no marker is found within depth', () => {
     expect(findWorkspaceRoot(tempDir, filesystem)).toBeNull();
+  });
+});
+
+describe('isWithinDir', () => {
+  // `startsWith(`${dir}/`)` was wrong on Windows, where these paths are
+  // backslash-separated: a command run inside `projects\\api` looked like it was
+  // outside the workspace and the standalone gate never fired.
+  test('accepts the directory itself and anything inside it, either separator', () => {
+    expect(isWithinDir('/ws/projects/api', '/ws/projects/api')).toBe(true);
+    expect(isWithinDir('/ws/projects/api', '/ws/projects/api/src/server')).toBe(true);
+    expect(isWithinDir('C:\\ws\\projects\\api', 'C:\\ws\\projects\\api')).toBe(true);
+    expect(isWithinDir('C:\\ws\\projects\\api', 'C:\\ws\\projects\\api\\src\\server')).toBe(true);
+    expect(isWithinDir('C:\\ws\\projects\\api', 'C:/ws/projects/api/src')).toBe(true);
+  });
+
+  test('rejects a sibling whose name merely starts the same', () => {
+    expect(isWithinDir('/ws/projects/api', '/ws/projects/api-legacy')).toBe(false);
+    expect(isWithinDir('C:\\ws\\projects\\api', 'C:\\ws\\projects\\app')).toBe(false);
+    expect(isWithinDir('/ws/projects/api', '/ws/projects')).toBe(false);
   });
 });
 
