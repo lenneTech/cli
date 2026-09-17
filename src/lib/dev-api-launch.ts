@@ -37,6 +37,9 @@ export interface StartCompiledApiOptions {
 /** Candidate compiled entry points, in preference order. Single-sourced so `lt dev test` agrees. */
 const COMPILED_ENTRIES = ['dist/src/main.js', 'dist/main.js'] as const;
 
+/** Runtime that can execute an API's compiled bundle. */
+export type ApiRuntime = 'bun' | 'node';
+
 /** Resolve the compiled API entry point in `apiDir`, or `undefined` if none was built. */
 export function findCompiledEntry(apiDir: string): string | undefined {
   return COMPILED_ENTRIES.map((rel) => join(apiDir, rel)).find((candidate) => existsSync(candidate));
@@ -57,6 +60,49 @@ export function isApiCompiledRequested(options: Record<string, unknown> = {}): b
   const affirmative = (value: unknown): boolean =>
     value === true || ['1', 'true', 'yes'].includes(String(value).toLowerCase());
   return affirmative(options.apiCompiled) || affirmative(options['api-compiled']);
+}
+
+/**
+ * Which runtime to start the API's COMPILED bundle with.
+ *
+ * A bundle is only portable across runtimes by accident. `nest-base` builds with
+ * `Bun.build({ target: 'bun' })`, whose output calls `__require` — a Bun-only
+ * shim. Started under node it dies in milliseconds with "__require is not a
+ * function" (DEV-3208), and because the caller used to only WARN when the API
+ * never answered, the whole Playwright suite then ran against a dead API: every
+ * data-dependent spec passed trivially or skipped, so a run that checked nothing
+ * looked exactly like one that checked everything.
+ *
+ * Detected from the project rather than configured, because the project already
+ * states it three times over. Any one signal is enough:
+ *   - a `bun.lock` / `bun.lockb` IN THIS DIRECTORY (not a nested package's),
+ *   - `engines.bun` in its package.json,
+ *   - a `build` / `start` script that invokes `bun` as the COMMAND.
+ *
+ * The script check matches `bun` as a whole word at a command position, never as
+ * a substring: `rollup --bundle` and `node -r bunyan …` are Node projects, and a
+ * loose `includes('bun')` would switch them to a runtime they never installed.
+ *
+ * Defaults to `node` whenever nothing says otherwise, including an unreadable or
+ * missing package.json — the historical behaviour, and the safe one: guessing
+ * `bun` for a project that does not have it installed turns a working start into
+ * an exit-127.
+ *
+ * This deliberately does NOT live in `dev-package-manager`: that module resolves
+ * which PACKAGE MANAGER drives a directory (`pnpm run build`), a separate axis
+ * from which runtime executes an already-built bundle. A Bun project whose
+ * scripts pnpm happens to run still needs `bun dist/main.js`.
+ */
+export function resolveApiRuntime(apiDir: string): ApiRuntime {
+  if (existsSync(join(apiDir, 'bun.lock')) || existsSync(join(apiDir, 'bun.lockb'))) return 'bun';
+
+  const pkg = readPackageJson(apiDir);
+  if (!pkg) return 'node';
+  if (pkg.engines?.bun) return 'bun';
+
+  // `bun` as the command itself, or after a shell separator (`&&`, `;`, `|`).
+  const invokesBun = /(?:^|[&|;]\s*)bun\b/;
+  return [pkg.scripts?.build, pkg.scripts?.start].some((script) => script && invokesBun.test(script)) ? 'bun' : 'node';
 }
 
 /**
@@ -83,7 +129,11 @@ export async function startCompiledApi(options: StartCompiledApiOptions): Promis
         return undefined;
       }
     }
-    return spawnDetached('node', [entry], { cwd: apiDir, env: { ...env, NODE_ENV: 'local' }, logFile });
+    return spawnDetached(resolveApiRuntime(apiDir), [entry], {
+      cwd: apiDir,
+      env: { ...env, NODE_ENV: 'local' },
+      logFile,
+    });
   }
 
   log.warn(`compiled API unavailable (build exit ${String(build)}) — falling back to \`${pm.bin} start\` (ts-node).`);
@@ -92,12 +142,19 @@ export async function startCompiledApi(options: StartCompiledApiOptions): Promis
 
 /** True when `package.json` in `apiDir` defines a script named `name`. */
 function hasScript(apiDir: string, name: string): boolean {
+  return typeof readPackageJson(apiDir)?.scripts?.[name] === 'string';
+}
+
+/** The parsed `package.json` in `apiDir`, or `undefined` when it is missing or unparsable. */
+function readPackageJson(
+  apiDir: string,
+): undefined | { engines?: Record<string, string>; scripts?: Record<string, string> } {
   try {
-    const pkg = JSON.parse(readFileSync(join(apiDir, 'package.json'), 'utf8')) as {
+    return JSON.parse(readFileSync(join(apiDir, 'package.json'), 'utf8')) as {
+      engines?: Record<string, string>;
       scripts?: Record<string, string>;
     };
-    return typeof pkg.scripts?.[name] === 'string';
   } catch {
-    return false;
+    return undefined;
   }
 }

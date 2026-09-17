@@ -350,6 +350,14 @@ export function waitForHttp(
   url: string,
   timeoutMs: number,
   ready: (status: number) => boolean = (status) => status >= 100 && status < 600,
+  /**
+   * Optional early exit: return `true` once there is nothing left to wait FOR —
+   * typically "the process I am waiting on has exited". Without it a server that
+   * crashes on boot is indistinguishable from one that is still starting, and the
+   * caller burns the entire timeout (120s for the `lt dev test` API) before
+   * learning something that was decided in the first 300ms.
+   */
+  abort: () => boolean = () => false,
 ): Promise<boolean> {
   const start = Date.now();
   return new Promise((resolve) => {
@@ -359,17 +367,19 @@ export function waitForHttp(
       });
       let status = '';
       child.stdout?.on('data', (b) => (status += String(b)));
+      const retry = () => {
+        // Order matters: a LAST probe already ran above, so a server that came up
+        // just before dying is still reported ready. Only then does `abort` end it.
+        if (Date.now() - start > timeoutMs || abort()) return resolve(false);
+        setTimeout(tick, 500);
+      };
       child.on('close', () => {
         const code = Number(status.trim());
         // `000` (curl could not connect) parses to 0 → never "ready".
         if (Number.isFinite(code) && code > 0 && ready(code)) return resolve(true);
-        if (Date.now() - start > timeoutMs) return resolve(false);
-        setTimeout(tick, 500);
+        retry();
       });
-      child.on('error', () => {
-        if (Date.now() - start > timeoutMs) return resolve(false);
-        setTimeout(tick, 500);
-      });
+      child.on('error', retry);
     };
     tick();
   });
