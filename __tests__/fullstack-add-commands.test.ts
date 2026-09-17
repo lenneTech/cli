@@ -24,8 +24,23 @@ const src: string = filesystem.path(__dirname, '..');
 // cleanly inside the temp dir, regardless of repo state.
 const TMP_ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'lt-cli-tests-')));
 
+/** Create a unique scratch directory OUTSIDE the cli repo (see TMP_ROOT). */
+function makeTempDir(prefix: string): string {
+  const tempDir = filesystem.path(TMP_ROOT, `temp-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  filesystem.dir(tempDir);
+  return tempDir;
+}
+
 /**
  * Run the lt CLI inside `cwd` and return stdout.
+ *
+ * The working directory is handed to the child process instead of being
+ * prefixed as `cd "<cwd>" && …`. `system.run` shells out through `cmd.exe` on
+ * Windows, where `cd` does NOT switch the active drive: the scratch dirs live
+ * on `C:` (os.tmpdir()) while the checkout lives on `D:`, so the prefix left
+ * the CLI running in the repo root. Every workspace assertion then measured
+ * the repo instead of the fixture — and `fullstack init` even started cloning
+ * into it until jest's 60 s cap cut the test off.
  *
  * We do not throw on non-zero exit codes here because some of the
  * paths under test exit with 1 (refusal because the workspace is in
@@ -35,32 +50,25 @@ const TMP_ROOT = realpathSync(mkdtempSync(join(tmpdir(), 'lt-cli-tests-')));
  */
 async function runCli(cmd: string, cwd: string): Promise<string> {
   try {
-    return await system.run(`cd "${cwd}" && node "${filesystem.path(src, 'bin', 'lt')}" ${cmd}`);
+    return await system.run(`node "${filesystem.path(src, 'bin', 'lt')}" ${cmd}`, { cwd });
   } catch (err) {
     const e = err as { stderr?: string; stdout?: string };
     return `${e.stdout ?? ''}\n${e.stderr ?? ''}`;
   }
 }
 
-/** Create a unique scratch directory OUTSIDE the cli repo (see TMP_ROOT). */
-function makeTempDir(prefix: string): string {
-  const tempDir = filesystem.path(TMP_ROOT, `temp-${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  filesystem.dir(tempDir);
-  return tempDir;
-}
-
-/** Bare workspace skeleton with a pnpm-workspace.yaml + projects/ dir. */
-function seedWorkspace(workspaceDir: string): void {
-  filesystem.write(filesystem.path(workspaceDir, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
-  filesystem.dir(filesystem.path(workspaceDir, 'projects'));
+function seedApi(workspaceDir: string, name = 'my-api'): void {
+  filesystem.write(filesystem.path(workspaceDir, 'projects', 'api', 'package.json'), { name, version: '0.0.0' });
 }
 
 function seedApp(workspaceDir: string, name = 'my-app'): void {
   filesystem.write(filesystem.path(workspaceDir, 'projects', 'app', 'package.json'), { name, version: '0.0.0' });
 }
 
-function seedApi(workspaceDir: string, name = 'my-api'): void {
-  filesystem.write(filesystem.path(workspaceDir, 'projects', 'api', 'package.json'), { name, version: '0.0.0' });
+/** Bare workspace skeleton with a pnpm-workspace.yaml + projects/ dir. */
+function seedWorkspace(workspaceDir: string): void {
+  filesystem.write(filesystem.path(workspaceDir, 'pnpm-workspace.yaml'), "packages:\n  - 'projects/*'\n");
+  filesystem.dir(filesystem.path(workspaceDir, 'projects'));
 }
 
 describe('lt fullstack add-api', () => {

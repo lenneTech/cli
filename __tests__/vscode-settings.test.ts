@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { minimatch } from 'minimatch';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -232,7 +232,7 @@ describe('diffProfile', () => {
   });
 
   it('reverting an object key subtracts only our own entries', () => {
-    const before = { '**/node_modules/**': true, '**/my-tree/**': true };
+    const before = { '**/my-tree/**': true, '**/node_modules/**': true };
     const changes = diffProfile({ 'search.exclude': before }, true);
     const target = changes.find((c) => c.key === 'search.exclude');
     expect(target?.after).toEqual({ '**/my-tree/**': true });
@@ -344,17 +344,20 @@ describe('tuneSettingsFile', () => {
   // abort the whole run with a raw Node stack on the first unwritable file.
   it('returns an error instead of throwing when the file cannot be written', () => {
     writeFileSync(file, '{}\n', 'utf8');
-    const readOnlyDir = mkdtempSync(join(tmpdir(), 'lt-vscode-ro-'));
-    const target = join(readOnlyDir, 'settings.json');
-    writeFileSync(target, '{}\n', 'utf8');
-    require('fs').chmodSync(readOnlyDir, 0o500);
+    // The FILE is made unwritable, not its directory. Directory permission bits
+    // are a POSIX concept: Windows ignores them when a file inside is opened for
+    // writing, so a read-only directory lets the write succeed and the error
+    // path under test is never reached. Clearing the write bit on a FILE maps to
+    // the Windows read-only attribute, which every platform enforces.
+    chmodSync(file, 0o444);
     try {
-      const result = tuneSettingsFile(target);
+      const result = tuneSettingsFile(file);
       expect(result.written).toBe(false);
       expect(result.error).toMatch(/cannot write/);
     } finally {
-      require('fs').chmodSync(readOnlyDir, 0o700);
-      rmSync(readOnlyDir, { force: true, recursive: true });
+      // Restore before afterEach removes the tree — a read-only file needs an
+      // extra unlink dance on Windows.
+      chmodSync(file, 0o644);
     }
   });
 

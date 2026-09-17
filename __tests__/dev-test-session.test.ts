@@ -423,7 +423,10 @@ describe('dev-test-session', () => {
       // The per-shard-distinctness (which buildShardPlaywrightInvocation only
       // echoes) lives here, so prove it directly: same root, different index →
       // different dir. This is what stops N shards racing on one report folder.
-      expect(shardReportDir('/root', 1)).toBe('/root/.lt-dev/shard.1.playwright-report');
+      // The expectation is built with `join` rather than spelled out: the helper
+      // hands a real filesystem path to Playwright, so `\` is the correct
+      // separator on Windows and a `/`-literal would only pin the POSIX spelling.
+      expect(shardReportDir('/root', 1)).toBe(join('/root', '.lt-dev', 'shard.1.playwright-report'));
       expect(shardReportDir('/root', 1)).not.toBe(shardReportDir('/root', 2));
     });
   });
