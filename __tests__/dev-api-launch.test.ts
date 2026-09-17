@@ -4,7 +4,7 @@ import { dirname, join } from 'path';
 
 import type { PackageManagerCommand } from '../src/lib/dev-package-manager';
 
-import { findCompiledEntry, isApiCompiledRequested, startCompiledApi } from '../src/lib/dev-api-launch';
+import { findCompiledEntry, isApiCompiledRequested, resolveApiRuntime, startCompiledApi } from '../src/lib/dev-api-launch';
 import { runChildInherit, spawnDetached } from '../src/lib/dev-process';
 
 // Real gluegun argv parser (yargs-parser) — exercises isApiCompiledRequested against
@@ -144,6 +144,24 @@ describe('startCompiledApi', () => {
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('falling back'));
   });
 
+  it('starts the compiled entry with `bun` when the API is a Bun project', async () => {
+    // A nest-base API bundles with `Bun.build({ target: 'bun' })`, whose output
+    // calls the Bun-only `__require` shim. Started under node it dies instantly
+    // with "__require is not a function" (DEV-3208), so the runtime has to follow
+    // the project, not a hardcoded default.
+    writePkg({ build: 'bun run scripts/build.ts', start: 'bun --watch src/main.ts' });
+    writeDistEntry();
+    runChildInheritMock.mockResolvedValue(0);
+
+    await call();
+
+    expect(spawnDetachedMock).toHaveBeenCalledWith('bun', [join(apiDir, 'dist/src/main.js')], {
+      cwd: apiDir,
+      env: { FOO: 'bar', NODE_ENV: 'local' },
+      logFile: join(apiDir, 'api.log'),
+    });
+  });
+
   it('does NOT start the compiled server when migrate:up is killed by a signal (null)', async () => {
     writePkg({ build: 'tsc', 'migrate:up': 'node migrate up', start: 'nodemon' });
     writeDistEntry();
@@ -193,6 +211,73 @@ describe('findCompiledEntry', () => {
     writeEntry('dist/main.js');
     writeEntry('dist/src/main.js');
     expect(findCompiledEntry(dir)).toBe(join(dir, 'dist/src/main.js'));
+  });
+});
+
+describe('resolveApiRuntime', () => {
+  let dir: string;
+
+  const writePkg = (pkg: Record<string, unknown>) =>
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'api', ...pkg }));
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'lt-dev-api-runtime-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { force: true, recursive: true });
+  });
+
+  it('defaults to node for a project with no Bun signal', () => {
+    writePkg({ scripts: { build: 'tsc', start: 'nodemon' } });
+    expect(resolveApiRuntime(dir)).toBe('node');
+  });
+
+  it('defaults to node when there is no package.json at all', () => {
+    // Fail SAFE: an unreadable project keeps the historical runtime rather than
+    // switching everyone to a Bun that may not even be installed.
+    expect(resolveApiRuntime(dir)).toBe('node');
+  });
+
+  it('picks bun from a bun.lock', () => {
+    writePkg({ scripts: { build: 'tsc' } });
+    writeFileSync(join(dir, 'bun.lock'), '');
+    expect(resolveApiRuntime(dir)).toBe('bun');
+  });
+
+  it('picks bun from a binary bun.lockb', () => {
+    writePkg({ scripts: { build: 'tsc' } });
+    writeFileSync(join(dir, 'bun.lockb'), '');
+    expect(resolveApiRuntime(dir)).toBe('bun');
+  });
+
+  it('picks bun from engines.bun', () => {
+    writePkg({ engines: { bun: '>=1.3.0', node: '>=22.0.0' }, scripts: { build: 'tsc' } });
+    expect(resolveApiRuntime(dir)).toBe('bun');
+  });
+
+  it('picks bun from a build script that invokes bun (the nest-base shape)', () => {
+    writePkg({ scripts: { build: 'bun run scripts/build.ts', start: 'bun --watch src/main.ts' } });
+    expect(resolveApiRuntime(dir)).toBe('bun');
+  });
+
+  it('picks bun from a start script that invokes bun even when build does not', () => {
+    writePkg({ scripts: { build: 'tsc', start: 'bun --watch src/main.ts' } });
+    expect(resolveApiRuntime(dir)).toBe('bun');
+  });
+
+  it('does not mistake a word merely containing "bun" for the runtime', () => {
+    // `bundle`, `bunyan`, `rollup --bundle` — a substring match would flip a
+    // plain Node project onto Bun and break the very projects this path serves.
+    writePkg({ scripts: { build: 'rollup --bundle', start: 'node -r bunyan dist/main.js' } });
+    expect(resolveApiRuntime(dir)).toBe('node');
+  });
+
+  it('ignores a bun.lock that belongs to a different directory', () => {
+    writePkg({ scripts: { build: 'tsc' } });
+    mkdirSync(join(dir, 'nested'), { recursive: true });
+    writeFileSync(join(dir, 'nested', 'bun.lock'), '');
+    expect(resolveApiRuntime(dir)).toBe('node');
   });
 });
 

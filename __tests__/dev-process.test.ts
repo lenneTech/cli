@@ -121,6 +121,30 @@ describe('waitForHttp', () => {
     const ok = await waitForHttp('https://192.0.2.1:1/', 1_500);
     expect(ok).toBe(false);
   });
+
+  it('gives up early when `abort` reports the process is gone', async () => {
+    // A server that crashes on boot never answers, so the full timeout is pure
+    // dead time — 120s of it for the `lt dev test` API. `abort` lets the caller
+    // stop as soon as the PID it is waiting on has exited.
+    const start = Date.now();
+    const ok = await waitForHttp('https://192.0.2.1:1/', 60_000, undefined, () => true);
+    expect(ok).toBe(false);
+    expect(Date.now() - start).toBeLessThan(10_000);
+  });
+
+  it('keeps polling while `abort` stays false', async () => {
+    // The guard must not short-circuit a server that is merely still booting.
+    // Budget generously: each curl probe against a black-holed address burns its
+    // full `--max-time 2`, so a 1.5s budget would expire inside the FIRST probe
+    // and `abort` would never be consulted at all — proving nothing.
+    let calls = 0;
+    const ok = await waitForHttp('https://192.0.2.1:1/', 5_000, undefined, () => {
+      calls++;
+      return false;
+    });
+    expect(ok).toBe(false);
+    expect(calls).toBeGreaterThan(1);
+  });
 });
 
 describe('terminateProcessGroup', () => {

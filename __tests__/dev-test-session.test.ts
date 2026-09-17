@@ -28,6 +28,7 @@ import {
   buildShardPlaywrightInvocation,
   buildTestAppEnv,
   hasTestSession,
+  isStackServing,
   resolveTestSession,
   shardReportDir,
   tearDownTestSession,
@@ -36,6 +37,7 @@ import {
   TEST_NUXT_BUILD_DIR,
   testAppEntryCandidates,
   TestSessionLogger,
+  unreachableStackError,
 } from '../src/lib/dev-test-session';
 
 const silentLog: TestSessionLogger = {
@@ -273,6 +275,113 @@ describe('dev-test-session', () => {
       // the path inside prose comments, so reflowing one turned the suite red
       // without any behaviour change (measured). The derivation is the invariant.
       expect(source).toMatch(/const\s+appEntry\s*=\s*testAppEntryCandidates\(\)/);
+    });
+  });
+
+  describe('compiled API runtime (DEV-3208)', () => {
+    test('the API spawn derives its runtime instead of hardcoding node', () => {
+      // `nest-base` bundles with `Bun.build({ target: 'bun' })`; under node that
+      // output dies instantly with "__require is not a function". Pinned
+      // statically because `bringUpTestSession` spawns real servers — the risk is
+      // a future edit re-inlining `'node'`, which is exactly what this catches.
+      expect(source).toMatch(/spawnDetached\(\s*resolveApiRuntime\(\s*layout\.apiDir\s*\)/);
+      expect(source).not.toMatch(/apiSpawn\s*=\s*spawnDetached\(\s*'node'/);
+    });
+  });
+
+  describe('isStackServing — readiness predicate (DEV-3208)', () => {
+    test('accepts a 2xx', () => {
+      // `@lenne.tech/nest-server` answers 200 on /meta.
+      expect(isStackServing(200)).toBe(true);
+      expect(isStackServing(204)).toBe(true);
+    });
+
+    test('accepts a 404 — the upstream ANSWERED, which is what readiness means', () => {
+      // This is the load-bearing case. `nest-base` has no /meta at all (it is a
+      // nest-server endpoint), so a healthy nest-base API returns 404 there —
+      // verified against a live one. Requiring 2xx would abort every nest-base
+      // project's `lt dev test` on a perfectly healthy API, which is strictly
+      // worse than the warn-only behaviour this ticket replaces.
+      expect(isStackServing(404)).toBe(true);
+    });
+
+    test('accepts a redirect', () => {
+      // A Nitro app root commonly 302s to a locale prefix.
+      expect(isStackServing(302)).toBe(true);
+    });
+
+    test('rejects the gateway errors Caddy returns while the upstream boots', () => {
+      // Caddy answers 502 the whole time its upstream is not yet listening, so
+      // accepting it would report "ready" for a server that never came up — the
+      // exact false-green this ticket exists to remove.
+      expect(isStackServing(502)).toBe(false);
+      expect(isStackServing(503)).toBe(false);
+      expect(isStackServing(504)).toBe(false);
+    });
+
+    test('rejects curl’s could-not-connect (0)', () => {
+      expect(isStackServing(0)).toBe(false);
+    });
+
+    test('accepts a 500 — the app answered, it is the suite’s job to judge it', () => {
+      // A 500 comes FROM the upstream, so the process is serving. Readiness is
+      // liveness, not health; failing here would hide the app's own error behind
+      // an infrastructure abort.
+      expect(isStackServing(500)).toBe(true);
+    });
+  });
+
+  describe('unreachableStackError (DEV-3208)', () => {
+    test('names the component, the URL, and the log that explains it', () => {
+      const err = unreachableStackError('API', 'https://api.svl-test.localhost/meta', '/p/.lt-dev/api.test.log');
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toContain('API');
+      expect(err.message).toContain('https://api.svl-test.localhost/meta');
+      // The log is the only place the real cause (a crash on boot) is written —
+      // an abort that withholds it just moves the guesswork one step later.
+      expect(err.message).toContain('/p/.lt-dev/api.test.log');
+    });
+
+    test('works for a component with no log file', () => {
+      const err = unreachableStackError('App', 'https://svl-test.localhost', undefined);
+      expect(err.message).toContain('App');
+      expect(err.message).not.toContain('undefined');
+    });
+  });
+
+  describe('bring-up aborts instead of testing against a dead stack (DEV-3208)', () => {
+    test('an unreachable API throws rather than warning', () => {
+      // The whole defect: the old code only `log.warn`-ed, so Playwright ran the
+      // full suite against a dead API — every data-dependent spec passing
+      // trivially or skipping. A run that checks nothing looked exactly like a
+      // run that checks everything, which is worse than a red run.
+      expect(source).toMatch(/if\s*\(\s*!apiReady\s*\)\s*throw\s+unreachableStackError\(/);
+      expect(source).not.toMatch(/log\.warn\([^)]*did not answer 2xx/);
+    });
+
+    test('an unreachable App throws too', () => {
+      // Same class of defect on the other half: the app wait used to discard its
+      // result entirely, so a never-booting app surfaced as N confusing selector
+      // failures instead of one clear cause.
+      expect(source).toMatch(/if\s*\(\s*!appReady\s*\)\s*throw\s+unreachableStackError\(/);
+    });
+
+    test('both waits give up early when the process is already gone', () => {
+      // Without the liveness guard, an API that crashes in 300ms still costs the
+      // full 120s timeout before the abort above can fire.
+      // Bounded lookahead, not `[^)]*`: the argument itself is an arrow function,
+      // so its own `()` ends a negated-paren class before the match can land.
+      expect(source).toMatch(/waitForHttp\([\s\S]{0,120}?gone\(pids\.api\)/);
+      expect(source).toMatch(/waitForHttp\([\s\S]{0,120}?gone\(pids\.app\)/);
+      expect(source).toMatch(/const\s+gone\s*=[^;]*isPidAlive/);
+    });
+
+    test('both waits use the shared readiness predicate, not the lenient default', () => {
+      // The app wait used to pass `undefined` and take waitForHttp's default,
+      // which accepts ANY status — Caddy's 502 included. That made the app half
+      // of the check meaningless, and now that it throws it has to be right.
+      expect(source).toMatch(/waitForHttp\(\s*appUrl,\s*90_000,\s*isStackServing/);
+      expect(source).toMatch(/waitForHttp\(\s*`\$\{apiUrl\}\/meta`,\s*120_000,\s*isStackServing/);
     });
   });
 

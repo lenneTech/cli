@@ -11,12 +11,16 @@
  *   - dev session  : svl.localhost / api.svl.localhost   → db `<…>-local`
  *   - test session : svl-test.localhost / api.svl-test.… → db `<…>-test`
  *
- * Both halves run BUILT for speed + prod-fidelity: the API COMPILED (`node dist`,
- * ts-node intermittently dies mid-run) and the App as the production Nitro output
- * (`nuxt build` → `node .output/server/index.mjs`, no Vite cold-compile). Each
- * falls back to its dev runner (`pnpm start` / `pnpm dev`) when no build output is
- * found. bringUp waits for a real 2xx on the API `/meta` before returning so the
- * suite never starts against a not-yet-serving API.
+ * Both halves run BUILT for speed + prod-fidelity: the API COMPILED (from `dist`,
+ * because ts-node intermittently dies mid-run) and the App as the production Nitro
+ * output (`nuxt build` → `node .output/server/index.mjs`, no Vite cold-compile).
+ * Each falls back to its dev runner (`pnpm start` / `pnpm dev`) when no build
+ * output is found. The API's runtime follows the project (`resolveApiRuntime`):
+ * a Bun-built bundle is started with `bun`, everything else with `node`.
+ *
+ * bringUp waits for BOTH halves to answer and THROWS when one never does, so the
+ * suite can never run against a dead stack (DEV-3208) — see `isStackServing` for
+ * what counts as answering.
  *
  * Lifecycle: `bringUpTestSession` → run Playwright → `tearDownTestSession`.
  * Teardown is idempotent and residue-free (processes, Caddy block, env bridge,
@@ -28,7 +32,7 @@ import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
 import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
-import { findCompiledEntry } from './dev-api-launch';
+import { findCompiledEntry, resolveApiRuntime } from './dev-api-launch';
 import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
@@ -353,7 +357,10 @@ export async function bringUpTestSession(
     const apiEnv = { ...TEST_INITIAL_ADMIN_ENV, ...devEnv.api.env, NODE_ENV: 'local' };
     let apiSpawn: ReturnType<typeof spawnDetached>;
     if (build === 0 && entry) {
-      apiSpawn = spawnDetached('node', [entry], {
+      // Runtime follows the PROJECT, never a hardcoded default: a `nest-base` API
+      // bundles with `Bun.build({ target: 'bun' })` and dies under node with
+      // "__require is not a function" (DEV-3208).
+      apiSpawn = spawnDetached(resolveApiRuntime(layout.apiDir), [entry], {
         cwd: layout.apiDir,
         env: apiEnv,
         logFile: join(layout.root, '.lt-dev', names.apiLog),
@@ -433,26 +440,43 @@ export async function bringUpTestSession(
   // ENV bridge for external tooling (kept separate from the dev `.env`).
   writeEnvBridge(layout.root, devEnv, dbName, names.bridgeFile);
 
-  // Wait for the test App to answer (best-effort).
+  // THIS stack's log paths. Resolved BEFORE the readiness waits below, because
+  // the abort messages point at them: the log is the only place a crash-on-boot
+  // is recorded, and an abort that withholds it just relocates the guesswork.
+  // `apiLogPath` is also handed to the caller so the auth E2E specs (via
+  // NEST_SERVER_LOG) read the exact isolated log — correct per shard.
+  const apiLogPath = layout.apiDir ? join(layout.root, '.lt-dev', names.apiLog) : undefined;
+  const appLogPath = layout.appDir ? join(layout.root, '.lt-dev', names.appLog) : undefined;
+
+  // Both waits below ABORT rather than warn (DEV-3208). A warning let Playwright
+  // run the whole suite against a dead stack: every data-dependent spec passed
+  // trivially or skipped, so a run that verified NOTHING was indistinguishable
+  // from one that verified everything — worse than a red run, because nobody
+  // goes looking. `isStackServing` decides what counts as up, and the liveness
+  // guard turns a crash-on-boot into an abort in the same 300ms it took to
+  // happen, instead of after the full timeout.
+  //
+  // `gone` is deliberately true for an ABSENT pid too: reaching here means the
+  // spawn was attempted, so no pid means it failed outright and there is nothing
+  // left to wait for. Being wrong here costs nothing — the timeout still bounds
+  // the wait, so this only ever makes the abort arrive sooner.
+  const gone = (pid?: number) => pid === undefined || !isPidAlive(pid);
+
+  // Wait for the test App to answer.
   if (appUrl) {
     log.info(log.dim(`Waiting for ${appUrl} …`));
-    await waitForHttp(appUrl, 90_000);
+    const appReady = await waitForHttp(appUrl, 90_000, isStackServing, () => gone(pids.app));
+    if (!appReady) throw unreachableStackError('App', appUrl, appLogPath);
   }
-  // Wait for the test API to actually SERVE (real 2xx on /meta) before handing
-  // off to Playwright. Previously bringUp only waited for the App, so a compiled
-  // API still connecting to Mongo made the first specs skip via the suite's
-  // `ensureApiReachableOrSkip` guard (the API-readiness race). A strict 2xx is
-  // required: Caddy answers 502 while its upstream is still booting, which the
-  // default (lenient) predicate would accept as "up".
+  // Wait for the test API to actually SERVE before handing off to Playwright.
+  // Previously bringUp only waited for the App, so a compiled API still
+  // connecting to its database made the first specs skip via the suite's
+  // `ensureApiReachableOrSkip` guard (the API-readiness race).
   if (apiUrl) {
     log.info(log.dim(`Waiting for ${apiUrl}/meta …`));
-    const apiReady = await waitForHttp(`${apiUrl}/meta`, 120_000, (status) => status >= 200 && status < 300);
-    if (!apiReady) log.warn(`Test API did not answer 2xx on ${apiUrl}/meta within 120s — the first specs may skip.`);
+    const apiReady = await waitForHttp(`${apiUrl}/meta`, 120_000, isStackServing, () => gone(pids.api));
+    if (!apiReady) throw unreachableStackError('API', `${apiUrl}/meta`, apiLogPath);
   }
-
-  // Expose THIS stack's API log path so the caller can point the auth E2E specs
-  // (via NEST_SERVER_LOG) at the exact isolated log — correct per shard.
-  const apiLogPath = layout.apiDir ? join(layout.root, '.lt-dev', names.apiLog) : undefined;
 
   return { apiLogPath, apiUrl, appEnv, appUrl, dbName, pids, testIdentity };
 }
@@ -521,6 +545,29 @@ export function buildTestAppEnv(appEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /** True when a test session file exists (used by status/down). */
 export function hasTestSession(root: string): boolean {
   return loadSession(root, TEST_SESSION_FILE) !== null;
+}
+
+/**
+ * Whether an HTTP status proves the component ITSELF answered.
+ *
+ * Readiness here means liveness, not health: the question is "did my process get
+ * far enough to serve HTTP", not "did it like this particular request". So a 404
+ * and a 500 both count as ready — they came FROM the upstream — while Caddy's
+ * gateway errors do not, because Caddy returns those for the entire window in
+ * which its upstream is not yet listening.
+ *
+ * The 404 case is the load-bearing one. The API probe targets `/meta`, an
+ * endpoint `@lenne.tech/nest-server` provides and `nest-base` does not: a healthy
+ * nest-base API answers 404 there (verified against a live one). The previous
+ * strict-2xx predicate was harmless while a failed wait only logged a warning,
+ * but this module now ABORTS on it — under strict 2xx that would block
+ * `lt dev test` for every nest-base project on a perfectly healthy API, which is
+ * worse than the false-green it replaces. Probing a list of per-framework paths
+ * would work too, but it needs updating for every new template; "something other
+ * than the proxy answered" needs no such list.
+ */
+export function isStackServing(status: number): boolean {
+  return status > 0 && ![502, 503, 504].includes(status);
 }
 
 /** Build the dedicated test identity + test DB name for a project. */
@@ -759,6 +806,26 @@ export async function tearDownTestSession(
  */
 export function testAppEntryCandidates(): string[] {
   return [`${TEST_NITRO_OUTPUT_DIR}/server/index.mjs`, '.output/server/index.mjs'];
+}
+
+/**
+ * The abort thrown when a test-stack component never becomes reachable.
+ *
+ * Phrased as an abort, not a diagnosis, because the cause lives in the component's
+ * own log and nowhere else — the process is detached, so its stderr never reaches
+ * this terminal. Naming the log file is therefore the whole value of the message:
+ * an abort that only says "did not come up" moves the guesswork one step later
+ * instead of ending it.
+ *
+ * `lt dev test` catches this, reports it, tears the stack down and exits non-zero,
+ * so Playwright never starts (DEV-3208).
+ */
+export function unreachableStackError(component: 'API' | 'App', url: string, logFile?: string): Error {
+  const where = logFile ? ` Why it never came up: ${logFile}` : '';
+  return new Error(
+    `Test ${component} never became reachable at ${url} — aborting before Playwright runs, ` +
+      `because a suite run against a dead ${component} passes trivially and proves nothing.${where}`,
+  );
 }
 
 /**
