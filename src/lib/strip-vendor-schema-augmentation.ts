@@ -1,5 +1,7 @@
 import type { GluegunFilesystem } from 'gluegun';
 
+import { globSync } from 'glob';
+
 import { isSymlink } from './fs-utils';
 
 /**
@@ -137,7 +139,18 @@ export function stripVendorSchemaAugmentation(options: {
 
   const touched: string[] = [];
   const warnings: string[] = [];
-  for (const file of filesystem.find(coreDir, { matching: '**/*.ts' }) ?? []) {
+  // `glob`, not `filesystem.find`: gluegun's find is fs-jetpack, which builds its
+  // matcher by concatenating the resolved absolute base path in front of the glob
+  // (`fs-jetpack/lib/utils/matcher.js` → `convertPatternToAbsolutePath`). On Windows
+  // that base is backslash-separated and minimatch reads a backslash inside a
+  // PATTERN as an escape, so `D:\…\core/**/*.ts` collapses to `D:coresrc/**/*.ts`
+  // and matches nothing — minimatch normalises separators on the file side only.
+  // The strip then reported success while the TS2310 augmentation stayed in every
+  // Windows-converted project. `glob` keeps pattern and base directory apart and
+  // normalises separators itself. Same fix as `api-mode.ts`'s `globFiles`. glob does
+  // not follow symlinked directories, unlike jetpack — which is the direction the
+  // guard above already wants: nothing inside a linked checkout gets rewritten.
+  for (const file of globSync('**/*.ts', { absolute: true, cwd: coreDir, dot: true, nodir: true })) {
     const content = filesystem.read(file);
     if (!content || !content.includes('PublicRuntimeConfig')) continue;
 

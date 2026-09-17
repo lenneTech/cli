@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { globSync } from 'glob';
 import { GluegunFilesystem } from 'gluegun';
 import { PromptOptions } from 'gluegun/build/types/toolbox/prompt-enquirer-types';
 import { GluegunAskResponse, GluegunEnquirer } from 'gluegun/build/types/toolbox/prompt-types';
@@ -1403,14 +1404,15 @@ export class Server {
     // only as type annotations — any runtime `new Request(...)` calls refer
     // to the global Fetch API Request, not the express one.
     const expressImportRegex = /^import\s+\{([^}]*)\}\s+from\s+['"]express['"]\s*;?\s*$/gm;
-    const vendoredTsFiles =
-      filesystem.find(coreDir, {
-        matching: '**/*.ts',
-        recursive: true,
-      }) || [];
-    for (const filePath of vendoredTsFiles) {
-      // filesystem.find returns paths relative to jetpack cwd — use absolute resolution
-      const absPath = filePath.startsWith('/') ? filePath : require('node:path').resolve(filePath);
+    // `glob`, not `filesystem.find`: jetpack builds its matcher by concatenating the
+    // RESOLVED base path in front of the pattern, and minimatch reads a backslash
+    // inside a PATTERN as an escape. On Windows `C:\…\core` + `**/*.ts` therefore
+    // collapses to a literal that matches nothing, so this loop silently patched
+    // no files at all. (minimatch 3 normalised the pattern's separators; the repo
+    // now resolves the hoisted minimatch 10, which does not — see package.json.)
+    // `glob` keeps base and pattern apart and returns absolute OS-native paths.
+    const vendoredTsFiles = globSync('**/*.ts', { absolute: true, cwd: coreDir, dot: true, nodir: true });
+    for (const absPath of vendoredTsFiles) {
       if (!filesystem.exists(absPath)) continue;
       const content = filesystem.read(absPath) || '';
       if (!content.includes("from 'express'") && !content.includes('from "express"')) continue;
@@ -2829,21 +2831,24 @@ export class Server {
    * @param pattern   Optional regex for more flexible matching
    */
   private findStaleImports(dest: string, needle: string, pattern?: RegExp): string[] {
+    // Patterns are relative to `dest` and passed to `glob` rather than
+    // `filesystem.find`: jetpack concatenates the resolved base path in front of
+    // the pattern, and minimatch treats a backslash inside a PATTERN as an escape,
+    // so on Windows every slash-bearing pattern below matched nothing. This
+    // function would then report "no stale imports" for a project that has them —
+    // a false clean bill of health on the one check meant to catch a broken
+    // conversion. See the same fix at the vendored-express patch above.
     const globs = [
-      `${dest}/src/server/**/*.ts`,
-      `${dest}/src/main.ts`,
-      `${dest}/src/config.env.ts`,
-      `${dest}/tests/**/*.ts`,
-      `${dest}/migrations/**/*.ts`,
-      `${dest}/scripts/**/*.ts`,
+      'src/server/**/*.ts',
+      'src/main.ts',
+      'src/config.env.ts',
+      'tests/**/*.ts',
+      'migrations/**/*.ts',
+      'scripts/**/*.ts',
     ];
     const stale: string[] = [];
     for (const glob of globs) {
-      const files =
-        this.filesystem.find(dest, {
-          matching: glob.replace(`${dest}/`, ''),
-          recursive: true,
-        }) || [];
+      const files = globSync(glob, { absolute: true, cwd: dest, dot: true, nodir: true });
       for (const file of files) {
         const raw = this.filesystem.read(file) || '';
         // Strip comments before matching. The keyword-anchored pattern is not enough on its own:
