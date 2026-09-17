@@ -203,13 +203,13 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
     dir = mkdtempSync(join(tmpdir(), 'lt-dev-spawn-'));
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     // Children exit on their own (write + exit); this is a belt-and-braces sweep.
     for (const pid of spawnedPids.splice(0)) {
       try {
         process.kill(-pid, 'SIGKILL');
       } catch {
-        /* already gone */
+        /* already gone (and a negative pid is not a process group on Windows) */
       }
       try {
         process.kill(pid, 'SIGKILL');
@@ -217,7 +217,14 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
         /* already gone */
       }
     }
-    rmSync(dir, { force: true, recursive: true });
+    // Wait for the log file's writer to actually let go before removing the dir.
+    // Windows refuses to unlink a file that is still open, so a child that has
+    // been signalled but not yet reaped makes rmSync throw ENOTEMPTY — which
+    // failed the two tests above in teardown while their assertions had passed.
+    // POSIX unlinks a still-open file happily, which is why this never showed up
+    // locally. `maxRetries` covers the same race for the kill itself.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    rmSync(dir, { force: true, maxRetries: 10, recursive: true, retryDelay: 50 });
   });
 
   /** Poll the detached child's log file until it has content or the budget elapses. */
@@ -266,7 +273,14 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
     expect(JSON.parse(out)).toEqual(args);
   });
 
-  it('raises the soft file-descriptor limit above the problematic default before exec', async () => {
+  // POSIX only, and that is the point rather than a gap: Windows has no
+  // RLIMIT_NOFILE, so `detachedSpawnCommand` deliberately spawns the command
+  // directly there and there is no wrapper to observe. What Windows guarantees
+  // instead — that the command is spawned with no shell in between — is asserted
+  // in the `detachedSpawnCommand` block above, on every platform.
+  const itPosix = process.platform === 'win32' ? it.skip : it;
+
+  itPosix('raises the soft file-descriptor limit above the problematic default before exec', async () => {
     const logFile = join(dir, 'ulimit.log');
     const result = spawnDetached('sh', ['-c', 'ulimit -n'], {
       cwd: process.cwd(),
