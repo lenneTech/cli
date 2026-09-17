@@ -28,6 +28,7 @@ import {
   buildShardPlaywrightInvocation,
   buildTestAppEnv,
   hasTestSession,
+  isStackServing,
   resolveTestSession,
   shardReportDir,
   tearDownTestSession,
@@ -288,6 +289,48 @@ describe('dev-test-session', () => {
     });
   });
 
+  describe('isStackServing — readiness predicate (DEV-3208)', () => {
+    test('accepts a 2xx', () => {
+      // `@lenne.tech/nest-server` answers 200 on /meta.
+      expect(isStackServing(200)).toBe(true);
+      expect(isStackServing(204)).toBe(true);
+    });
+
+    test('accepts a 404 — the upstream ANSWERED, which is what readiness means', () => {
+      // This is the load-bearing case. `nest-base` has no /meta at all (it is a
+      // nest-server endpoint), so a healthy nest-base API returns 404 there —
+      // verified against a live one. Requiring 2xx would abort every nest-base
+      // project's `lt dev test` on a perfectly healthy API, which is strictly
+      // worse than the warn-only behaviour this ticket replaces.
+      expect(isStackServing(404)).toBe(true);
+    });
+
+    test('accepts a redirect', () => {
+      // A Nitro app root commonly 302s to a locale prefix.
+      expect(isStackServing(302)).toBe(true);
+    });
+
+    test('rejects the gateway errors Caddy returns while the upstream boots', () => {
+      // Caddy answers 502 the whole time its upstream is not yet listening, so
+      // accepting it would report "ready" for a server that never came up — the
+      // exact false-green this ticket exists to remove.
+      expect(isStackServing(502)).toBe(false);
+      expect(isStackServing(503)).toBe(false);
+      expect(isStackServing(504)).toBe(false);
+    });
+
+    test('rejects curl’s could-not-connect (0)', () => {
+      expect(isStackServing(0)).toBe(false);
+    });
+
+    test('accepts a 500 — the app answered, it is the suite’s job to judge it', () => {
+      // A 500 comes FROM the upstream, so the process is serving. Readiness is
+      // liveness, not health; failing here would hide the app's own error behind
+      // an infrastructure abort.
+      expect(isStackServing(500)).toBe(true);
+    });
+  });
+
   describe('unreachableStackError (DEV-3208)', () => {
     test('names the component, the URL, and the log that explains it', () => {
       const err = unreachableStackError('API', 'https://api.svl-test.localhost/meta', '/p/.lt-dev/api.test.log');
@@ -323,10 +366,22 @@ describe('dev-test-session', () => {
       expect(source).toMatch(/if\s*\(\s*!appReady\s*\)\s*throw\s+unreachableStackError\(/);
     });
 
-    test('the API wait gives up early when the API process is already gone', () => {
+    test('both waits give up early when the process is already gone', () => {
       // Without the liveness guard, an API that crashes in 300ms still costs the
       // full 120s timeout before the abort above can fire.
-      expect(source).toMatch(/waitForHttp\([\s\S]*?isPidAlive/);
+      // Bounded lookahead, not `[^)]*`: the argument itself is an arrow function,
+      // so its own `()` ends a negated-paren class before the match can land.
+      expect(source).toMatch(/waitForHttp\([\s\S]{0,120}?gone\(pids\.api\)/);
+      expect(source).toMatch(/waitForHttp\([\s\S]{0,120}?gone\(pids\.app\)/);
+      expect(source).toMatch(/const\s+gone\s*=[^;]*isPidAlive/);
+    });
+
+    test('both waits use the shared readiness predicate, not the lenient default', () => {
+      // The app wait used to pass `undefined` and take waitForHttp's default,
+      // which accepts ANY status — Caddy's 502 included. That made the app half
+      // of the check meaningless, and now that it throws it has to be right.
+      expect(source).toMatch(/waitForHttp\(\s*appUrl,\s*90_000,\s*isStackServing/);
+      expect(source).toMatch(/waitForHttp\(\s*`\$\{apiUrl\}\/meta`,\s*120_000,\s*isStackServing/);
     });
   });
 
