@@ -61,7 +61,10 @@ const LINT_STAGED_FILES = [
  */
 export function findDangerousFixFlagUsage(appDir: string, workspaceRoot?: string): string[] {
   const base = workspaceRoot ?? appDir;
-  const files = [...(workspaceRoot ? [join(workspaceRoot, 'scripts', 'check.mjs')] : []), ...fixFlagFiles(appDir, workspaceRoot)];
+  const files = [
+    ...(workspaceRoot ? [join(workspaceRoot, 'scripts', 'check.mjs')] : []),
+    ...fixFlagFiles(appDir, workspaceRoot),
+  ];
   return [...new Set(files)].filter((file) => usesDangerousFixFlag(file)).map((file) => relative(base, file) || file);
 }
 
@@ -177,7 +180,10 @@ export function healOxlintrcFilename(appDir: string, workspaceRoot?: string): Ox
   if (existsSync(pkgPath) && !isSymlink(pkgPath)) {
     const pkg = readFileSync(pkgPath, 'utf8');
     // Textual, not JSON round-trip: only the flag value changes, the file keeps its formatting.
-    const updated = pkg.replace(CONFIG_FLAG, (_match, flag: string, sep: string, dot = '') => `${flag}${sep}${dot}${TARGET}`);
+    const updated = pkg.replace(
+      CONFIG_FLAG,
+      (_match, flag: string, sep: string, dot = '') => `${flag}${sep}${dot}${TARGET}`,
+    );
     if (updated !== pkg) {
       writeFileSync(pkgPath, updated);
       changed.push('package.json');

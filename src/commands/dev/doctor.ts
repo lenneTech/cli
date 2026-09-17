@@ -191,7 +191,11 @@ const DoctorCommand: GluegunCommand = {
           const flagged = findDangerousFixFlagUsage(layout.appDir, workspaceRoot);
           if (flagged.length > 0) {
             line('WARN', colors.yellow, `oxlint --fix-suggestions/--fix-dangerously in ${flagged.join(', ')}`);
-            line('WARN', colors.yellow, '  they apply behaviour-changing fixes (e.g. delete console calls); run `lt fullstack update`');
+            line(
+              'WARN',
+              colors.yellow,
+              '  they apply behaviour-changing fixes (e.g. delete console calls); run `lt fullstack update`',
+            );
           }
         } catch {
           /* best-effort diagnostics */
@@ -199,7 +203,11 @@ const DoctorCommand: GluegunCommand = {
         const hasLegacy = filesystem.exists(filesystem.path(layout.appDir, 'oxlint.json'));
         const hasCurrent = filesystem.exists(filesystem.path(layout.appDir, '.oxlintrc.json'));
         if (hasLegacy && !hasCurrent) {
-          line('WARN', colors.yellow, 'oxlint config not loaded — oxlint only reads .oxlintrc.json, the app has oxlint.json');
+          line(
+            'WARN',
+            colors.yellow,
+            'oxlint config not loaded — oxlint only reads .oxlintrc.json, the app has oxlint.json',
+          );
           line('WARN', colors.yellow, '  run `lt fullstack update` to rename it');
         } else if (hasLegacy) {
           line('WARN', colors.yellow, 'oxlint.json is ignored next to .oxlintrc.json — merge its rules and delete it');
