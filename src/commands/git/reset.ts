@@ -4,6 +4,29 @@ import { dirname } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
 /**
+ * Environment that keeps the `git ls-remote` below non-interactive.
+ *
+ * This used to be a POSIX prefix on the command string
+ * (`GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-…}" git …`).
+ * `system.run` shells out through `cmd.exe` on Windows, which reads
+ * `VAR=value cmd` as a command name, not as an assignment. Paired with the
+ * trailing `|| true` the call then "succeeded" with empty output, so every
+ * `lt git reset` on Windows aborted with "No remote branch … found!" — the
+ * ls-remote had never run. Handing the variables to the child as its
+ * environment works on every platform.
+ *
+ * The `||` keeps the semantics of the shell's `:-` default: a caller who
+ * configured ssh deliberately (a user with a custom agent, or a test harness
+ * pinning the behaviour) still wins. See `git.ts#gitInstalled` for why the
+ * assignment must never be unconditional.
+ */
+const nonInteractiveGitEnv = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND || 'ssh -o ConnectTimeout=5 -o BatchMode=yes',
+  GIT_TERMINAL_PROMPT: '0',
+});
+
+/**
  * Reset current branch
  */
 const NewCommand: GluegunCommand = {
@@ -54,9 +77,12 @@ const NewCommand: GluegunCommand = {
     }
 
     // Check remote (use short SSH timeout so ls-remote doesn't hang in offline environments)
-    const remoteBranch = await system.run(
-      `GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="\${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git ls-remote --heads origin ${branch} 2>/dev/null || true`,
-    );
+    let remoteBranch = '';
+    try {
+      remoteBranch = await system.run(`git ls-remote --heads origin ${branch}`, { env: nonInteractiveGitEnv() });
+    } catch {
+      // ignore - unreachable remote is reported as "no remote branch" below
+    }
     if (!remoteBranch) {
       error(`No remote branch ${branch} found!`);
       return;
@@ -80,8 +106,13 @@ const NewCommand: GluegunCommand = {
         info('No local changes to discard.');
       }
 
-      // Show commits that would be lost
-      const localCommits = await system.run(`git log origin/${branch}..HEAD --oneline 2>/dev/null || echo ""`);
+      // Show commits that would be lost (none listed when the upstream ref is unknown locally)
+      let localCommits = '';
+      try {
+        localCommits = await system.run(`git log origin/${branch}..HEAD --oneline`);
+      } catch {
+        // ignore - no upstream ref, so nothing ahead to report
+      }
       if (localCommits?.trim()) {
         info('');
         info('Local commits that would be lost:');
@@ -128,7 +159,9 @@ const NewCommand: GluegunCommand = {
       const projectDir = dirname(pkgPath);
       const detectedPm = toolbox.pm.detect(projectDir);
       const installSpin = spin(`Install packages using ${detectedPm}`);
-      await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+      // `cwd` instead of `cd <dir> &&`: cmd.exe's `cd` does not switch drives,
+      // and it needs no quoting for paths with spaces.
+      await system.run(toolbox.pm.install(detectedPm), { cwd: projectDir });
       installSpin.succeed();
     }
 
