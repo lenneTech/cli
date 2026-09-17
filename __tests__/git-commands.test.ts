@@ -95,38 +95,13 @@ const createFixture = (): Fixture => {
 
 export {};
 
-describe('git ssh environment contract', () => {
-  // Pins the `:-` default. Assigning GIT_SSH_COMMAND outright overrode any caller
-  // who had configured ssh deliberately — including this very test file — and cost
-  // 61 s per fetch on a machine whose agent needs interactive approval.
-  const nodeFs = require('fs');
-  const nodePath = require('path');
+// The `git ssh environment contract` block used to live here, scanning each call
+// site's source for a deferring `GIT_SSH_COMMAND` assignment. The default now has
+// exactly one definition point (`src/lib/git-env.ts`), so that scan moved to
+// `__tests__/git-env.test.ts` and got stronger on the way: deferral is proven by
+// CALLING the helper rather than by matching its source text, and a repo-wide
+// guard fails if any other file assigns GIT_SSH_COMMAND at all.
 
-  const SOURCES = ['src/extensions/git.ts', 'src/commands/git/reset.ts', 'src/commands/git/update.ts'];
-
-  test('every GIT_SSH_COMMAND assignment defers to an existing value', () => {
-    const offenders: string[] = [];
-    for (const rel of SOURCES) {
-      const body: string = nodeFs.readFileSync(nodePath.join(src, rel), 'utf8');
-      body.split('\n').forEach((line: string, i: number) => {
-        if (!line.includes('GIT_SSH_COMMAND=')) return;
-        if (line.trim().startsWith('*')) return; // the explanatory comment block
-        if (!/GIT_SSH_COMMAND="\\?\$\{GIT_SSH_COMMAND:-/.test(line)) {
-          offenders.push(`${rel}:${i + 1} assigns GIT_SSH_COMMAND unconditionally — use "\${GIT_SSH_COMMAND:-…}"`);
-        }
-      });
-    }
-    expect(offenders).toEqual([]);
-  });
-
-  test('the contract check is not vacuous — the assignments exist', () => {
-    const found = SOURCES.reduce(
-      (n, rel) => n + (nodeFs.readFileSync(nodePath.join(src, rel), 'utf8').match(/GIT_SSH_COMMAND="/g) ?? []).length,
-      0,
-    );
-    expect(found).toBeGreaterThanOrEqual(5);
-  });
-});
 
 describe('Git Commands', () => {
   let fx: Fixture;

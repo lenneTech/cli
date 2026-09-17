@@ -1,4 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { nonInteractiveGitEnv } from '../lib/git-env';
 
 /**
  * Git functions
@@ -141,10 +142,16 @@ export class Git {
     // Toolbox features
     const { system } = this.toolbox;
 
-    // Get branches (use short SSH timeout so fetch doesn't hang in offline environments)
-    const branches = await system.run(
-      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null; git show-branch --list',
-    );
+    // Refresh first, but never let a failed fetch cost us the branch list: the
+    // two commands used to be chained with `;`, which cmd.exe does not honour as
+    // a separator at all, so on Windows this ran neither reliably. They are two
+    // calls now — the fetch is best-effort, the listing is the actual result.
+    try {
+      await system.run('git fetch', { env: nonInteractiveGitEnv() });
+    } catch {
+      // Offline or no remote — `git show-branch` still lists what is local.
+    }
+    const branches = await system.run('git show-branch --list');
     branches.split('\n').forEach((item) => {
       const matches = item.match(/\[(.*?)]/);
       if (matches) {
@@ -239,27 +246,6 @@ export class Git {
   /**
    * Check if git is installed (cached for performance)
    */
-  /**
-   * Why the git calls in this repo spell `GIT_SSH_COMMAND="\${GIT_SSH_COMMAND:-…}"` (shell default)
-   * rather than assigning it outright.
-   *
-   * These commands do a best-effort `git fetch` to see whether the branch is
-   * behind. They set `BatchMode=yes` so ssh fails instead of PROMPTING — but an
-   * agent that stalls is not a prompt. On a 1Password-backed machine the agent is
-   * reachable and every signature needs an interactive approval; unattended it
-   * waits and then reports `communication with agent failed`. Measured: **61 s per
-   * fetch**, so `lt git update --dry-run` took 62 s and `lt git create --dry-run`
-   * 123 s (two fetches). `ConnectTimeout` does not bound it — that covers the TCP
-   * connect, not the agent.
-   *
-   * Waiting for a human to approve a key is legitimate for an interactive command,
-   * so the default is unchanged. What was wrong is that the assignment was
-   * UNCONDITIONAL: it overrode a caller who had deliberately configured ssh,
-   * including a test harness trying to make the behaviour deterministic. The
-   * `:-` default respects an existing value and keeps the old behaviour when there
-   * is none. `IdentityAgent=none` in the caller's env then drops the same fetch to
-   * ~1 s with a clean `Permission denied (publickey)`.
-   */
   public async gitInstalled() {
     // Return cached result if available
     if (this.gitInstalledCache !== null) {
@@ -343,10 +329,16 @@ export class Git {
       searchSpin = spin(opts.spinText);
     }
 
-    // Update infos (use short SSH timeout so fetch doesn't hang in offline environments)
-    const fetch = await system.run(
-      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null || true',
-    );
+    // Update infos. Best-effort, but expressed as try/catch rather than
+    // `2>/dev/null || true`: on Windows `true` resolves to Git-for-Windows'
+    // `true.exe`, so the pipeline succeeded with empty output and the fetch
+    // never ran — a silent no-op that read as a successful refresh.
+    let fetch = '';
+    try {
+      fetch = await system.run('git fetch', { env: nonInteractiveGitEnv() });
+    } catch {
+      // Offline or no remote — the branch search below still works on local refs.
+    }
     if (fetch.length && !fetch.startsWith('remote')) {
       info(`Could not update infos ${fetch.length}`);
     }

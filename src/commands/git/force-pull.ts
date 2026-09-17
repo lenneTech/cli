@@ -62,8 +62,16 @@ const NewCommand: GluegunCommand = {
         info('No local changes to discard.');
       }
 
-      // Show commits that would be lost
-      const localCommits = await run(`git log origin/${branch}..HEAD --oneline 2>/dev/null || echo ""`);
+      // Show commits that would be lost (none listed when the upstream ref is unknown locally).
+      // `2>/dev/null || echo ""` used to swallow the failure, but cmd.exe on Windows has no
+      // /dev/null: the redirect failed first and `echo ""` then reported success, so the preview
+      // silently claimed there was nothing ahead. try/catch behaves the same on every platform.
+      let localCommits = '';
+      try {
+        localCommits = await run(`git log origin/${branch}..HEAD --oneline`);
+      } catch {
+        // ignore - no upstream ref, so nothing ahead to report
+      }
       if (localCommits?.trim()) {
         info('');
         info('Local commits that would be lost:');

@@ -1,5 +1,6 @@
+import { globSync } from 'glob';
 import { GluegunFilesystem } from 'gluegun';
-import { join } from 'path';
+import { basename, join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 
@@ -112,10 +113,7 @@ export class ApiMode {
     // 1. Delete files matching filePatterns
     if (modeConfig.filePatterns) {
       for (const pattern of modeConfig.filePatterns) {
-        const matches = this.filesystem.find(projectPath, {
-          matching: pattern,
-        });
-        for (const file of matches) {
+        for (const file of this.globFiles(projectPath, pattern)) {
           this.filesystem.remove(file);
         }
       }
@@ -174,6 +172,30 @@ export class ApiMode {
   }
 
   /**
+   * Resolve a POSIX-style glob pattern against `baseDir` and return the
+   * matching files as absolute, OS-native paths.
+   *
+   * Deliberately NOT `filesystem.find()`: gluegun/fs-jetpack builds its
+   * matcher by string-concatenating the *resolved* base path in front of
+   * the pattern (fs-jetpack/lib/utils/matcher.js). On Windows that base
+   * path is backslash-separated, and minimatch reads a backslash inside a
+   * pattern as an escape character — so a base of `C:\project\src`
+   * collapses to the literal `C:projectsrc` and nothing ever matches.
+   * Effect: on Windows no file was deleted and no region was stripped,
+   * silently. `glob` keeps pattern and base directory apart and
+   * normalises separators itself, so it behaves the same on every
+   * platform.
+   */
+  private globFiles(baseDir: string, pattern: string): string[] {
+    return globSync(pattern, {
+      absolute: true,
+      cwd: baseDir,
+      dot: true,
+      nodir: true,
+    });
+  }
+
+  /**
    * Strip region markers from all .ts files
    *
    * For removeMarker: delete marker lines AND content between them
@@ -187,7 +209,7 @@ export class ApiMode {
         continue;
       }
 
-      const files = this.filesystem.find(dir, { matching: '**/*.ts' });
+      const files = this.globFiles(dir, '**/*.ts');
       for (const file of files) {
         const content = this.filesystem.read(file);
         if (!content) {
@@ -203,7 +225,10 @@ export class ApiMode {
         // graphql` block with an explicit `graphQl: false,` so GraphQL
         // is cleanly disabled.
         let processed: string;
-        if (removeMarker === 'graphql' && file.endsWith('/config.env.ts')) {
+        // `basename` instead of `endsWith('/config.env.ts')`: on Windows the
+        // path separator is a backslash, so the POSIX-only suffix check never
+        // matched and config.env.ts was processed like any other file.
+        if (removeMarker === 'graphql' && basename(file) === 'config.env.ts') {
           processed = this.replaceGraphqlRegionsWithDisabled(content, keepMarker);
         } else {
           processed = this.processFileRegions(content, removeMarker, keepMarker);
@@ -320,7 +345,7 @@ export class ApiMode {
         continue;
       }
 
-      const files = this.filesystem.find(dir, { matching: '**/*.ts' });
+      const files = this.globFiles(dir, '**/*.ts');
       for (const file of files) {
         const content = this.filesystem.read(file);
         if (!content) {
@@ -483,7 +508,7 @@ export class ApiMode {
         continue;
       }
 
-      const files = this.filesystem.find(dir, { matching: '**/*.ts' });
+      const files = this.globFiles(dir, '**/*.ts');
       for (const file of files) {
         const content = this.filesystem.read(file);
         if (!content) {

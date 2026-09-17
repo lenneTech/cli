@@ -278,10 +278,21 @@ export function loadSession(root: string, sessionFile: string = SESSION_FILE): D
   return null;
 }
 
-/** True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var). */
+/**
+ * True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var).
+ *
+ * `.native` rather than plain `realpathSync`, because on Windows the JS
+ * implementation follows symlinks but keeps 8.3 short components: a path spelled
+ * `C:\Users\RUNNER~1\…` and the same directory spelled `C:\Users\runneradmin\…`
+ * stay different strings. Both spellings occur in practice — `os.tmpdir()` hands
+ * out the short form while git prints the long one — so a registry entry written
+ * under one and a cwd under the other would read as a DIFFERENT checkout. The
+ * native variant asks the OS for the final name and collapses both.
+ * No behavioural difference on POSIX.
+ */
 export function sameRealPath(a: string, b: string): boolean {
   try {
-    return realpathSync(a) === realpathSync(b);
+    return realpathSync.native(a) === realpathSync.native(b);
   } catch {
     return a === b;
   }

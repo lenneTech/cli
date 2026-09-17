@@ -1,5 +1,7 @@
 export {};
 
+import { fileURLToPath } from 'url';
+
 import { evalInNodeEsm, templateUrl } from './check-template-esm';
 
 /**
@@ -12,6 +14,12 @@ import { evalInNodeEsm, templateUrl } from './check-template-esm';
  */
 describe('check.mjs template', () => {
   const CHECK = templateUrl('check.mjs');
+  // `resolveCliEntry` compares OS-NATIVE paths (in production: `process.argv[1]`
+  // against `fileURLToPath(import.meta.url)`), so the fixtures have to be native
+  // paths too. `new URL(fileUrl).pathname` is not one on Windows: it yields
+  // `/D:/a/cli/…`, which `realpathSync` cannot resolve — every comparison then
+  // failed as "unresolvable" instead of testing the comparison.
+  const CHECK_PATH = fileURLToPath(CHECK);
   const inCheck = <T>(body: string): T =>
     evalInNodeEsm<T>(`import * as m from ${JSON.stringify(CHECK)};\n${body}`);
 
@@ -272,7 +280,7 @@ describe('check.mjs template', () => {
   describe('CLI entry resolution', () => {
     it('reports the real entry as the entry', () => {
       const result = inCheck<{ isEntry: boolean }>(`
-        const self = new URL(${JSON.stringify(CHECK)}).pathname;
+        const self = ${JSON.stringify(CHECK_PATH)};
         report(m.resolveCliEntry(self, self));
       `);
       expect(result.isEntry).toBe(true);
@@ -283,7 +291,7 @@ describe('check.mjs template', () => {
       // `node scripts/check.mjs` print nothing and exit 0 — a green gate that
       // never ran.
       const result = inCheck<{ isEntry: boolean; unresolvable: boolean }>(`
-        const r = m.resolveCliEntry('/definitely/not/here-' + Date.now() + '.mjs', ${JSON.stringify(CHECK)}.replace('file://',''));
+        const r = m.resolveCliEntry('/definitely/not/here-' + Date.now() + '.mjs', ${JSON.stringify(CHECK_PATH)});
         report({ isEntry: r.isEntry, unresolvable: Boolean(r.unresolvable) });
       `);
       expect(result.isEntry).toBe(false);
@@ -292,8 +300,8 @@ describe('check.mjs template', () => {
 
     it('reports a different real file as not the entry', () => {
       const result = inCheck<{ isEntry: boolean; unresolvable: boolean }>(`
-        const self = new URL(${JSON.stringify(CHECK)}).pathname;
-        const other = new URL(${JSON.stringify(templateUrl('build-test-gate.mjs'))}).pathname;
+        const self = ${JSON.stringify(CHECK_PATH)};
+        const other = ${JSON.stringify(fileURLToPath(templateUrl('build-test-gate.mjs')))};
         const r = m.resolveCliEntry(other, self);
         report({ isEntry: r.isEntry, unresolvable: Boolean(r.unresolvable) });
       `);

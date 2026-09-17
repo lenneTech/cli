@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process';
 import { existsSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'fs';
-import { join, relative } from 'path';
+import { join, relative, sep } from 'path';
 
 /** Outcome of `healDangerousOxlintFixFlags`. */
 export interface FixFlagHealResult {
@@ -61,8 +61,11 @@ const LINT_STAGED_FILES = [
  */
 export function findDangerousFixFlagUsage(appDir: string, workspaceRoot?: string): string[] {
   const base = workspaceRoot ?? appDir;
-  const files = [...(workspaceRoot ? [join(workspaceRoot, 'scripts', 'check.mjs')] : []), ...fixFlagFiles(appDir, workspaceRoot)];
-  return [...new Set(files)].filter((file) => usesDangerousFixFlag(file)).map((file) => relative(base, file) || file);
+  const files = [
+    ...(workspaceRoot ? [join(workspaceRoot, 'scripts', 'check.mjs')] : []),
+    ...fixFlagFiles(appDir, workspaceRoot),
+  ];
+  return [...new Set(files)].filter((file) => usesDangerousFixFlag(file)).map((file) => repoRelative(base, file));
 }
 
 /**
@@ -81,7 +84,7 @@ export function healDangerousOxlintFixFlags(appDir: string, workspaceRoot?: stri
     if (!usesDangerousFixFlag(file)) {
       continue;
     }
-    const rel = relative(base, file) || file;
+    const rel = repoRelative(base, file);
     const dir = join(file, '..');
     const name = relative(dir, file);
     if (isSymlink(file)) {
@@ -177,7 +180,10 @@ export function healOxlintrcFilename(appDir: string, workspaceRoot?: string): Ox
   if (existsSync(pkgPath) && !isSymlink(pkgPath)) {
     const pkg = readFileSync(pkgPath, 'utf8');
     // Textual, not JSON round-trip: only the flag value changes, the file keeps its formatting.
-    const updated = pkg.replace(CONFIG_FLAG, (_match, flag: string, sep: string, dot = '') => `${flag}${sep}${dot}${TARGET}`);
+    const updated = pkg.replace(
+      CONFIG_FLAG,
+      (_match, flag: string, sep: string, dot = '') => `${flag}${sep}${dot}${TARGET}`,
+    );
     if (updated !== pkg) {
       writeFileSync(pkgPath, updated);
       changed.push('package.json');
@@ -230,6 +236,21 @@ function isTracked(dir: string, relPath: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * `file` relative to `base`, always with forward slashes.
+ *
+ * These strings are reported to the user next to git facts ("not tracked by
+ * git", "uncommitted changes") and name files inside the repository, which git
+ * itself always spells with `/`. `relative()` returns the OS-native form, so on
+ * Windows the report would say `projects\app\package.json` while `git status`
+ * says `projects/app/package.json` for the same file. Falls back to the
+ * absolute path when there is no relative form (`base` IS the file).
+ */
+function repoRelative(base: string, file: string): string {
+  const rel = relative(base, file);
+  return rel ? rel.split(sep).join('/') : file;
 }
 
 function usesDangerousFixFlag(file: string): boolean {

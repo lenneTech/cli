@@ -1,12 +1,42 @@
+// Import-equals, not `import * as fs`: the namespace form is transpiled into a copy
+// with non-configurable getters, which `jest.spyOn` cannot replace. This binds the
+// real `fs` module object — the same one `dev-env-bridge.ts` calls through.
+import fs = require('fs');
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { clearEnvBridge, detectCaddyRootCa, envBridgePath, writeEnvBridge } from '../src/lib/dev-env-bridge';
 import { DevEnv } from '../src/lib/dev-env';
+import { clearEnvBridge, detectCaddyRootCa, envBridgePath, writeEnvBridge } from '../src/lib/dev-env-bridge';
+
+/** The mode `writeEnvBridge` asks for: read/write for the owner, nothing for anyone else. */
+const OWNER_ONLY = 0o600;
+
+/**
+ * Assert the bridge file ends up owner-only.
+ *
+ * On POSIX that is simply the file's mode. Windows has no POSIX mode bits at
+ * all: NTFS carries ACLs instead, `fs.chmod` there only toggles the read-only
+ * attribute, and `statSync` reports a synthetic 0666 (0444 when read-only).
+ * Asserting 0600 on win32 would test libuv's translation layer rather than our
+ * code, so there we assert the 0600 request still leaves `writeEnvBridge` —
+ * which is what a regression would delete. Neither platform can drop the chmod
+ * and stay green.
+ *
+ * What actually keeps the bridge private on Windows is the ACL that `.lt-dev/`
+ * inherits from the project directory inside the user's profile; no mode bit we
+ * could pass would widen or narrow it.
+ */
+function expectOwnerOnly(file: string, chmod: jest.SpyInstance): void {
+  if (process.platform === 'win32') {
+    expect(chmod).toHaveBeenCalledWith(file, OWNER_ONLY);
+    return;
+  }
+  expect(statSync(file).mode & 0o777).toBe(OWNER_ONLY);
+}
 
 const fakeDevEnv: DevEnv = {
-  api: { internalPort: 4010, env: { PORT: '4010' } },
+  api: { env: { PORT: '4010' }, internalPort: 4010 },
   app: {
     env: {
       API_URL: 'https://api.crm.localhost',
@@ -29,13 +59,18 @@ const fakeDevEnv: DevEnv = {
 };
 
 describe('dev-env-bridge', () => {
+  let chmod: jest.SpyInstance;
   let project: string;
 
   beforeEach(() => {
     project = mkdtempSync(join(tmpdir(), 'lt-dev-bridge-'));
+    // Call-through spy: on Windows the written file keeps no POSIX mode bits, so the
+    // recorded call is the only observable proof of the 0600 — see `expectOwnerOnly`.
+    chmod = jest.spyOn(fs, 'chmodSync');
   });
   afterEach(() => {
-    rmSync(project, { recursive: true, force: true });
+    chmod.mockRestore();
+    rmSync(project, { force: true, recursive: true });
   });
 
   describe('writeEnvBridge', () => {
@@ -58,7 +93,7 @@ describe('dev-env-bridge', () => {
       // the bridge file must not be world-readable.
       const file = writeEnvBridge(project, fakeDevEnv, 'crm-local');
       expect(readFileSync(file, 'utf8')).toContain('NUXT_SESSION_PASSWORD=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6');
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expectOwnerOnly(file, chmod);
     });
 
     test('heals the mode of a bridge written by an older lt version', () => {
@@ -66,9 +101,12 @@ describe('dev-env-bridge', () => {
       // this change would silently keep its permissions.
       const file = writeEnvBridge(project, fakeDevEnv, 'crm-local');
       chmodSync(file, 0o644);
+      // Forget the create-time chmod, so what is asserted below is the HEAL and not
+      // the first write (only relevant on Windows, where the spy is the evidence).
+      chmod.mockClear();
       // Content-compare short-circuits an identical rewrite, so change the db name to force one
       writeEnvBridge(project, fakeDevEnv, 'crm-other');
-      expect(statSync(file).mode & 0o777).toBe(0o600);
+      expectOwnerOnly(file, chmod);
     });
 
     test('exports legacy aliases API_URL + SITE_URL', () => {

@@ -64,7 +64,16 @@ const NewCommand: GluegunCommand = {
       info('');
 
       // Show commits that would be rebased
-      const commitsToRebase = await run(`git log ${baseBranchPreview}..HEAD --oneline 2>/dev/null || echo ""`);
+      // try/catch, not `2>/dev/null || echo ""`: on Windows that `echo` succeeds
+      // and the git log never runs, so a dry-run would report zero commits to
+      // rebase for a branch that has some — a preview that quietly understates
+      // what the real command will do.
+      let commitsToRebase = '';
+      try {
+        commitsToRebase = await run(`git log ${baseBranchPreview}..HEAD --oneline`);
+      } catch {
+        // Unknown base ref — nothing to preview, which the check below handles.
+      }
       if (commitsToRebase?.trim()) {
         const commitCount = commitsToRebase.trim().split('\n').length;
         info(`Would rebase ${commitCount} commit(s) from branch "${branch}" onto "${baseBranchPreview}":`);

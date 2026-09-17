@@ -34,6 +34,23 @@ import {
   writeTicketMarker,
 } from '../src/lib/dev-ticket';
 
+/**
+ * Create a temp dir and return its CANONICAL path, so that what we hand to git
+ * and what git hands back are the same string.
+ *
+ * On the Windows CI runner `os.tmpdir()` is the 8.3 SHORT form
+ * (`C:\Users\RUNNER~1\AppData\Local\Temp`), while git resolves every path it
+ * prints to the expanded long form (`C:\Users\runneradmin\…`). `fs.realpathSync`
+ * follows symlinks but leaves short components alone, so the two spellings never
+ * compared equal and `gitMainRepoRoot`/`listWorktrees` looked broken when only
+ * the fixture was. Only `realpathSync.native` asks the OS for the final name and
+ * expands them. On macOS/Linux it does the same `/var` → `/private/var`
+ * resolution the plain variant already did.
+ */
+function makeTempDir(prefix: string): string {
+  return realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
+}
+
 /** Parse a real `lt ticket stop …` argv the way gluegun does. */
 function stopArgv(...argv: string[]): Record<string, unknown> {
   return parseParams(['ticket', 'stop', ...argv]).options;
@@ -263,15 +280,20 @@ describe('dev-ticket', () => {
   });
 
   describe('worktreePathFor', () => {
+    // The expectation is BUILT with `join`, never spelled out: the result is a
+    // real filesystem path handed to `git worktree add`, so it has to carry the
+    // OS separator — `\` on Windows. A POSIX literal would assert the wrong
+    // thing there, not a wrong behaviour of the function.
     test('sibling of the main repo, named <slug>-<id>', () => {
-      expect(worktreePathFor('/Users/x/code/svl-sports-system', 'svl', '2200')).toBe('/Users/x/code/svl-2200');
+      const parent = join('/Users', 'x', 'code');
+      expect(worktreePathFor(join(parent, 'svl-sports-system'), 'svl', '2200')).toBe(join(parent, 'svl-2200'));
     });
   });
 
   describe('ticket marker', () => {
     let root: string;
     beforeEach(() => {
-      root = mkdtempSync(join(tmpdir(), 'lt-ticket-marker-'));
+      root = makeTempDir('lt-ticket-marker-');
     });
     afterEach(() => rmSync(root, { force: true, recursive: true }));
 
@@ -287,7 +309,7 @@ describe('dev-ticket', () => {
   describe('resolveDevIdentity', () => {
     let root: string;
     beforeEach(() => {
-      root = mkdtempSync(join(tmpdir(), 'lt-ticket-resolve-'));
+      root = makeTempDir('lt-ticket-resolve-');
       writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'svl' }));
       mkdirSync(join(root, 'projects', 'api'), { recursive: true });
       mkdirSync(join(root, 'projects', 'app'), { recursive: true });
@@ -333,7 +355,7 @@ describe('dev-ticket', () => {
   describe('checkGlobalSetupTicketSafe', () => {
     let root: string;
     beforeEach(() => {
-      root = mkdtempSync(join(tmpdir(), 'lt-ticket-gs-'));
+      root = makeTempDir('lt-ticket-gs-');
       writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'svl' }));
       mkdirSync(join(root, 'projects', 'api'), { recursive: true });
       mkdirSync(join(root, 'projects', 'app'), { recursive: true });
@@ -456,8 +478,8 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
   let wt: string;
 
   beforeEach(() => {
-    remote = mkdtempSync(join(tmpdir(), 'lt-remote-'));
-    repo = mkdtempSync(join(tmpdir(), 'lt-repo-'));
+    remote = makeTempDir('lt-remote-');
+    repo = makeTempDir('lt-repo-');
     wt = `${repo}-wt`; // sibling path that does NOT exist yet (git worktree add creates it)
     git(remote, 'init', '-q', '--bare');
     git(repo, 'init', '-q');
@@ -487,10 +509,14 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
     }
   });
 
+  // The git side goes through `realpathSync.native`, the same canonicalisation
+  // `makeTempDir` already applied to `repo`: git answers with its OWN spelling
+  // of the path — separators and short/long name components included — so only
+  // resolving both through the OS makes them one comparable string.
   test('gitMainRepoRoot resolves the main repo — also from inside a worktree', () => {
-    expect(realpathSync(gitMainRepoRoot(repo))).toBe(realpathSync(repo));
+    expect(realpathSync.native(gitMainRepoRoot(repo))).toBe(repo);
     worktreeAdd(repo, wt, 'feat/x', 'origin/dev');
-    expect(realpathSync(gitMainRepoRoot(wt))).toBe(realpathSync(repo)); // shared .git → main repo
+    expect(realpathSync.native(gitMainRepoRoot(wt))).toBe(repo); // shared .git → main repo
   });
 
   test('gitBranchExists', () => {
@@ -500,11 +526,13 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
 
   test('worktreeAdd → listWorktrees → worktreeRemove', () => {
     worktreeAdd(repo, wt, 'feat/DEV-2200', 'origin/dev');
-    const entry = listWorktrees(repo).find((w) => realpathSync(w.path) === realpathSync(wt));
+    const entry = listWorktrees(repo).find((w) => realpathSync.native(w.path) === realpathSync.native(wt));
     expect(entry).toBeTruthy();
     expect(entry!.branch).toBe('feat/DEV-2200');
     worktreeRemove(repo, wt);
-    expect(listWorktrees(repo).some((w) => w.path === wt)).toBe(false);
+    // Canonicalised too — a raw string compare against git's own spelling is
+    // vacuously false on Windows, so it would report "removed" either way.
+    expect(listWorktrees(repo).some((w) => realpathSync.native(w.path) === wt)).toBe(false);
   });
 
   test('worktreeDirtyOnlyGenerated: clean=false · only generated=true · real source=false', () => {
@@ -633,7 +661,7 @@ describe('dev-ticket — slug for a worktree of an unrenamed lt-monorepo project
   let wt: string;
 
   beforeEach(() => {
-    parent = realpathSync(mkdtempSync(join(tmpdir(), 'lt-imo-')));
+    parent = makeTempDir('lt-imo-');
     main = join(parent, 'imo');
     wt = join(parent, 'imo-2314'); // sibling worktree, created by `git worktree add`
     mkdirSync(main);
@@ -697,8 +725,8 @@ describe('dev-ticket — base ref resolution', () => {
 
   /** A repo whose remote carries exactly the given branches (first = default). */
   const repoWithRemoteBranches = (branches: string[]): string => {
-    const remote = mkdtempSync(join(tmpdir(), 'lt-baseref-remote-'));
-    const repo = mkdtempSync(join(tmpdir(), 'lt-baseref-repo-'));
+    const remote = makeTempDir('lt-baseref-remote-');
+    const repo = makeTempDir('lt-baseref-repo-');
     dirs.push(remote, repo);
     git(remote, 'init', '-q', '--bare');
     git(repo, 'init', '-q');
@@ -747,7 +775,7 @@ describe('dev-ticket — base ref resolution', () => {
   });
 
   test('falls back to a LOCAL branch in a repo without a remote', () => {
-    const repo = mkdtempSync(join(tmpdir(), 'lt-baseref-local-'));
+    const repo = makeTempDir('lt-baseref-local-');
     dirs.push(repo);
     git(repo, 'init', '-q');
     git(repo, 'config', 'user.email', 'ci@lenne.tech');
@@ -790,7 +818,7 @@ describe('dev-ticket — base ref resolution', () => {
 
 /** Minimal project dir → a real DevIdentity via buildIdentity (api + app subdomains). */
 function buildIdentityFixture(name: string) {
-  const dir = mkdtempSync(join(tmpdir(), 'lt-ticket-fixture-'));
+  const dir = makeTempDir('lt-ticket-fixture-');
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name }));
   mkdirSync(join(dir, 'projects', 'api'), { recursive: true });
   mkdirSync(join(dir, 'projects', 'app'), { recursive: true });

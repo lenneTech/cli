@@ -2,7 +2,23 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { nonInteractiveGitEnv } from '../../lib/git-env';
 
+/**
+ * Environment that keeps the `git` calls below non-interactive.
+ *
+ * This used to be a POSIX prefix on the command string
+ * (`GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-…}" git …`).
+ * `system.run` shells out through `cmd.exe` on Windows, which does not read
+ * `VAR=value cmd` as an assignment but as a command name — so every `lt git
+ * update` failed there with "'GIT_TERMINAL_PROMPT' is not recognized". Handing
+ * the variables to the child as its environment works on every platform.
+ *
+ * The `||` keeps the semantics of the shell's `:-` default: a caller who
+ * configured ssh deliberately (a user with a custom agent, or a test harness
+ * pinning the behaviour) still wins. See `git.ts#gitInstalled` for why the
+ * assignment must never be unconditional.
+ */
 /**
  * Update branch
  */
@@ -54,13 +70,21 @@ const NewCommand: GluegunCommand = {
       info(`Current branch: ${branch}`);
       info('');
 
-      // Fetch to see incoming changes (use short SSH timeout so it doesn't hang offline)
-      await run(
-        'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null || true',
-      );
+      // Fetch to see incoming changes (use short SSH timeout so it doesn't hang offline).
+      // Best effort: offline or without credentials the preview falls back to the local refs.
+      try {
+        await run('git fetch', { env: nonInteractiveGitEnv() });
+      } catch {
+        // ignore - a failed fetch only makes the preview less current
+      }
 
-      // Check for incoming commits
-      const incomingCommits = await run(`git log ${branch}..origin/${branch} --oneline 2>/dev/null || echo ""`);
+      // Check for incoming commits (none yet when the upstream ref is unknown locally)
+      let incomingCommits = '';
+      try {
+        incomingCommits = await run(`git log ${branch}..origin/${branch} --oneline`);
+      } catch {
+        // ignore - no upstream ref, so nothing incoming to report
+      }
       const commits =
         incomingCommits
           ?.trim()
@@ -95,9 +119,12 @@ const NewCommand: GluegunCommand = {
 
     // Update
     const updateSpin = spin(`Update branch ${branch}`);
-    await run(
-      'GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git fetch 2>/dev/null || true && GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o ConnectTimeout=5 -o BatchMode=yes}" git pull --rebase',
-    );
+    try {
+      await run('git fetch', { env: nonInteractiveGitEnv() });
+    } catch {
+      // ignore - `git pull --rebase` below fetches again and reports the real failure
+    }
+    await run('git pull --rebase', { env: nonInteractiveGitEnv() });
     updateSpin.succeed();
 
     // Install packages (unless skipped) with correctly detected package manager (supports monorepo lockfiles)
@@ -107,7 +134,9 @@ const NewCommand: GluegunCommand = {
         const projectDir = dirname(pkgPath);
         const detectedPm = toolbox.pm.detect(projectDir);
         const installSpin = spin(`Install packages using ${detectedPm}`);
-        await run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+        // `cwd` instead of `cd <dir> &&`: cmd.exe's `cd` does not switch drives,
+        // and it needs no quoting for paths with spaces.
+        await run(toolbox.pm.install(detectedPm), { cwd: projectDir });
         installSpin.succeed();
       }
     }
