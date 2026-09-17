@@ -29,6 +29,7 @@
 import type { GluegunFilesystem, GluegunPatching } from 'gluegun';
 
 import * as yaml from 'js-yaml';
+import { sep } from 'path';
 
 import { ensureRootDockerignore } from './ensure-root-dockerignore';
 import { hoistPackageManager, hoistWorkspacePnpmConfig } from './hoist-workspace-pnpm-config';
@@ -124,11 +125,20 @@ export function detectSubProjectContext(
 
   // Resolve absolute prefixes for a clean startsWith compare. We use
   // the gluegun-resolved paths because all callers go through it.
+  //
+  // The prefix MUST carry the OS separator, not a literal `/`:
+  // `filesystem.path` resolves through Node's `path`, so on Windows both
+  // sides come back with backslashes and an `${apiDir}/` prefix can never
+  // match. Every cwd below `projects\api\` then read as "not a
+  // sub-project", and the standalone gate in `runStandaloneWorkspaceGate`
+  // waved the user through instead of pointing them at the workspace root
+  // — the exact case (cloning a sibling tree INSIDE an existing
+  // sub-project) the check exists to prevent.
   const startAbs = filesystem.path(startDir);
-  if (startAbs === apiDir || startAbs.startsWith(`${apiDir}/`)) {
+  if (startAbs === apiDir || startAbs.startsWith(apiDir + sep)) {
     return { kind: 'api', subProjectDir: apiDir, workspaceRoot: root };
   }
-  if (startAbs === appDir || startAbs.startsWith(`${appDir}/`)) {
+  if (startAbs === appDir || startAbs.startsWith(appDir + sep)) {
     return { kind: 'app', subProjectDir: appDir, workspaceRoot: root };
   }
   return null;

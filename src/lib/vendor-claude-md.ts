@@ -23,6 +23,8 @@
  * content below it.
  */
 
+import { join } from 'path';
+
 export const BACKEND_VENDOR_MARKER = '<!-- lt-vendor-marker -->';
 export const FRONTEND_VENDOR_MARKER = '<!-- lt-vendor-marker-frontend -->';
 export const ROOT_VENDOR_MARKER = '<!-- lt-vendor-marker-root -->';
@@ -214,9 +216,14 @@ export function healVendorClaudeMd(fs: VendorClaudeMdFs, state: VendorClaudeMdSt
     }
   };
 
+  // `join`, not string concatenation with `/`: the returned paths are reported
+  // to the user and compared by callers, so they have to be the same spelling
+  // the rest of the CLI produces. Concatenating `/` onto a Windows directory
+  // yields `C:\ws\projects\api/CLAUDE.md` — it opens fine, but it matches
+  // nothing and reads like a bug in the output.
   if (state.apiDir) {
     apply(
-      joinPath(state.apiDir, 'CLAUDE.md'),
+      join(state.apiDir, 'CLAUDE.md'),
       BACKEND_VENDOR_MARKER,
       state.backendVendor ? buildBackendVendorBlock() : null,
     );
@@ -224,7 +231,7 @@ export function healVendorClaudeMd(fs: VendorClaudeMdFs, state: VendorClaudeMdSt
 
   if (state.appDir) {
     apply(
-      joinPath(state.appDir, 'CLAUDE.md'),
+      join(state.appDir, 'CLAUDE.md'),
       FRONTEND_VENDOR_MARKER,
       state.frontendVendor ? buildFrontendVendorBlock() : null,
     );
@@ -233,7 +240,7 @@ export function healVendorClaudeMd(fs: VendorClaudeMdFs, state: VendorClaudeMdSt
   if (state.workspaceRoot) {
     const anyVendor = state.backendVendor || state.frontendVendor;
     apply(
-      joinPath(state.workspaceRoot, 'CLAUDE.md'),
+      join(state.workspaceRoot, 'CLAUDE.md'),
       ROOT_VENDOR_MARKER,
       anyVendor ? buildRootVendorBlock({ backend: state.backendVendor, frontend: state.frontendVendor }) : null,
     );
@@ -294,8 +301,4 @@ function blockRegex(marker: string): RegExp {
 /** Escape a string for safe use inside a RegExp. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function joinPath(dir: string, file: string): string {
-  return dir.endsWith('/') ? `${dir}${file}` : `${dir}/${file}`;
 }
