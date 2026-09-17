@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { nonInteractiveGitEnv } from '../../lib/git-env';
 
 /**
  * Environment that keeps the `git` calls below non-interactive.
@@ -18,12 +19,6 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
  * pinning the behaviour) still wins. See `git.ts#gitInstalled` for why the
  * assignment must never be unconditional.
  */
-const nonInteractiveGitEnv = (): NodeJS.ProcessEnv => ({
-  ...process.env,
-  GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND || 'ssh -o ConnectTimeout=5 -o BatchMode=yes',
-  GIT_TERMINAL_PROMPT: '0',
-});
-
 /**
  * Update branch
  */

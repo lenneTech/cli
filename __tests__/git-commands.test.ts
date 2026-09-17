@@ -95,53 +95,13 @@ const createFixture = (): Fixture => {
 
 export {};
 
-describe('git ssh environment contract', () => {
-  // Pins the `:-` default. Assigning GIT_SSH_COMMAND outright overrode any caller
-  // who had configured ssh deliberately — including this very test file — and cost
-  // 61 s per fetch on a machine whose agent needs interactive approval.
-  const nodeFs = require('fs');
-  const nodePath = require('path');
+// The `git ssh environment contract` block used to live here, scanning each call
+// site's source for a deferring `GIT_SSH_COMMAND` assignment. The default now has
+// exactly one definition point (`src/lib/git-env.ts`), so that scan moved to
+// `__tests__/git-env.test.ts` and got stronger on the way: deferral is proven by
+// CALLING the helper rather than by matching its source text, and a repo-wide
+// guard fails if any other file assigns GIT_SSH_COMMAND at all.
 
-  const SOURCES = ['src/extensions/git.ts', 'src/commands/git/reset.ts', 'src/commands/git/update.ts'];
-
-  /**
-   * Two spellings may assign GIT_SSH_COMMAND, and only these two forms defer.
-   *
-   * Shell form — a POSIX prefix inside a `system.run` string: `${GIT_SSH_COMMAND:-…}`.
-   * Env form — a key in the child's environment: `process.env.GIT_SSH_COMMAND || …`.
-   *
-   * The env form replaced the prefix wherever the command must also run on
-   * Windows: `system.run` shells out through `cmd.exe`, which reads
-   * `VAR=value git …` as a command name, not as an assignment.
-   */
-  const DEFERS = /GIT_SSH_COMMAND="\\?\$\{GIT_SSH_COMMAND:-|GIT_SSH_COMMAND:\s*process\.env\.GIT_SSH_COMMAND\s*(\|\||\?\?)/;
-  const read = (rel: string): string => nodeFs.readFileSync(nodePath.join(src, rel), 'utf8');
-
-  test('every GIT_SSH_COMMAND assignment defers to an existing value', () => {
-    const offenders: string[] = [];
-    for (const rel of SOURCES) {
-      read(rel)
-        .split('\n')
-        .forEach((line: string, i: number) => {
-          if (!/GIT_SSH_COMMAND["']?\s*[:=]/.test(line)) return;
-          if (line.trim().startsWith('*')) return; // the explanatory comment block
-          if (!DEFERS.test(line)) {
-            offenders.push(
-              `${rel}:${i + 1} assigns GIT_SSH_COMMAND unconditionally — use "\${GIT_SSH_COMMAND:-…}" or process.env.GIT_SSH_COMMAND || …`,
-            );
-          }
-        });
-    }
-    expect(offenders).toEqual([]);
-  });
-
-  // Not vacuous: the scan above only proves something as long as every source
-  // still HAS a deferring assignment. Checked per file rather than as a total
-  // count, so consolidating two identical calls into one does not trip it.
-  test('the contract check is not vacuous — every source still assigns GIT_SSH_COMMAND', () => {
-    expect(SOURCES.filter((rel) => !DEFERS.test(read(rel)))).toEqual([]);
-  });
-});
 
 describe('Git Commands', () => {
   let fx: Fixture;
