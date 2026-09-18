@@ -10,8 +10,9 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
-import { ensureCrossEnvDependency, withCrossEnv } from '../lib/cross-env';
+import { ensureCrossEnvDependency } from '../lib/cross-env';
 import { formatMarkdownTable } from '../lib/markdown-table';
+import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
 import { stripComments } from '../lib/strip-comments';
 import {
   BACKEND_VENDOR_MARKER,
@@ -19,18 +20,6 @@ import {
   insertVendorBlockIfMissing,
   removeVendorBlock,
 } from '../lib/vendor-claude-md';
-
-/**
- * Environments the generated `migrate:<env>:up` scripts cover: script suffix → NODE_ENV.
- * `prod` is spelled `production` because that is what NestJS config files key off.
- */
-const MIGRATE_ENVIRONMENTS: [string, string][] = [
-  ['develop', 'develop'],
-  ['test', 'test'],
-  ['preview', 'preview'],
-  ['prod', 'production'],
-];
-
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(
   questions:
@@ -1765,14 +1754,14 @@ export class Server {
           scripts['migrate:up'] = `node ./bin/migrate.js up ${migrateArgs}`;
           scripts['migrate:down'] = `node ./bin/migrate.js down ${migrateArgs}`;
           scripts['migrate:list'] = `node ./bin/migrate.js list ${migrateArgs}`;
-          // `cross-env`, not a bare `NODE_ENV=…` prefix: npm and pnpm run scripts
-          // through cmd.exe on Windows, which cannot parse that form (see
-          // src/lib/cross-env.ts).
-          for (const [scriptEnv, nodeEnv] of MIGRATE_ENVIRONMENTS) {
-            scripts[`migrate:${scriptEnv}:up`] = withCrossEnv(
-              { NODE_ENV: nodeEnv },
-              `node ./bin/migrate.js up ${migrateArgs}`,
-            );
+          // The deployed scripts run the COMPILED migrations under dist/, not the
+          // sources: a production tree has no ts-node (devDependency), so the
+          // `--compiler ts:…` form dies there. `copy:bin` ships the shim into
+          // dist/bin. See src/lib/migrate-scripts.ts.
+          Object.assign(scripts, deployedMigrateScripts('node ./dist/bin/migrate.js'));
+          const guardWarning = missingBuildGuardWarning(filesystem, dest);
+          if (guardWarning) {
+            this.toolbox.print.warning(guardWarning);
           }
           ensureCrossEnvDependency(pkg as Record<string, any>);
 
@@ -2729,12 +2718,14 @@ export class Server {
       scripts['migrate:down'] = `migrate down ${migrateStore} --compiler ${migrateCompiler}`;
       scripts['migrate:list'] = `migrate list ${migrateStore} --compiler ${migrateCompiler}`;
 
-      // Env-prefixed migrate scripts, via cross-env so cmd.exe can run them too.
-      for (const [scriptEnv, nodeEnv] of MIGRATE_ENVIRONMENTS) {
-        scripts[`migrate:${scriptEnv}:up`] = withCrossEnv(
-          { NODE_ENV: nodeEnv },
-          `migrate up ${migrateStore} --compiler ${migrateCompiler}`,
-        );
+      // Deployed scripts: compiled migrations under dist/, no --compiler (no ts-node
+      // in a production tree), via cross-env for cmd.exe. `migrate` is the binary of
+      // @lenne.tech/nest-server, a production dependency in npm mode — the same path
+      // docker-entrypoint.sh uses for this mode.
+      Object.assign(scripts, deployedMigrateScripts('migrate'));
+      const guardWarning = missingBuildGuardWarning(filesystem, dest);
+      if (guardWarning) {
+        this.toolbox.print.warning(guardWarning);
       }
       ensureCrossEnvDependency(pkg as Record<string, any>);
 
