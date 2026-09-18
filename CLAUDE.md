@@ -1123,6 +1123,28 @@ those rules, so a new generator is covered without touching the test.
 `migrate:create` stays a known Windows gap: it is a POSIX shell function (`f() { … }; f`)
 with no drop-in replacement. The guard pins that to the two existing occurrences so a
 third cannot appear unnoticed.
+### Verify the OUTCOME of a conversion, not that a step ran <!-- Added: 2026-09-18 -->
+`processApiMode` used to trust its own steps. Every one of them REPLACES something that
+is there (`graphQl: { … }` → `false`, region → nothing); none of them adds what is
+missing, and none checked the result. When the file selection silently matched nothing
+on Windows (the jetpack glob bug, fixed in `globFiles`), the conversion reported success
+three times over while doing nothing: a REST project shipped with GraphQL enabled — it
+died at START time with `Cannot determine a GraphQL output type for the "arguments"`,
+nowhere near the generator — and with resolvers, graphql wiring and e2e specs still in
+the tree.
+So the REST path now ends in two checks that look at the FILE, not at the steps:
+- `assertGraphQlDisabled` inserts `graphQl: false` into every env block that lacks it
+  (ts-morph, CRLF preserved, `merge(…)` shape covered) and throws naming the blocks if
+  one still does. `CoreModule.forRoot` reads a missing switch as ENABLED, so "absent" is
+  the dangerous state, not a neutral one.
+- `assertNoMarkersRemain` refuses any non-`Both` conversion that leaves a
+  `// #region (graphql|rest)` in `src/` or `tests/`. A leftover marker means the region
+  CONTENT is still there, i.e. code of a mode this project does not have.
+**Both are cheap and neither is load-bearing today** — the glob fix is what makes the
+strip work. They exist because a step that quietly does nothing reports success exactly
+as loudly as one that worked, and this stack produced three such steps in one week.
+Test them by mutating the ASSERTION BODY, not by removing the call: an unused private
+method fails `noUnusedLocals`, and the suite then reports 0 tests instead of red ones.
 
 ### npm runs package.json scripts through cmd.exe on Windows <!-- Added: 2026-09-11 -->
 The `postinstall` guard `node bin/postinstall.js 2>/dev/null || true` was meant to make

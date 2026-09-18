@@ -1,4 +1,5 @@
 import { ApiMode } from '../src/extensions/api-mode';
+import { envBlocksWithoutGraphQlDisabled } from '../src/lib/config-env-graphql';
 
 const { filesystem } = require('gluegun');
 
@@ -452,6 +453,126 @@ describe('ApiMode Extension', () => {
 
       expect(content).toContain('graphQl: {');
       expect(content).toContain('execAfterInit');
+    });
+  });
+  describe('config.env.ts always disables GraphQL in REST mode', () => {
+    // `CoreModule.forRoot` reads a missing `graphQl` as ENABLED, so a REST project
+    // without the switch builds a GraphQL schema on boot and dies with
+    // `Cannot determine a GraphQL output type for the "arguments"` — at start time.
+    // That is what a Windows project from lt 1.47.0 did: the `// #region graphql`
+    // block was stripped and no replacement written, because the code matched the
+    // file with `endsWith('/config.env.ts')` while `filesystem.find` returns
+    // backslash-separated paths there.
+    const writeConfig = (lines: string[], eol = '\n'): void =>
+      filesystem.write(filesystem.path(tempDir, 'src', 'config.env.ts'), lines.join(eol));
+
+    const envBlocks = (content: string): string[] =>
+      envBlocksWithoutGraphQlDisabled(content);
+
+    const regionConfig = [
+      "import { getEnvironmentConfig, IServerOptions } from '@lenne.tech/nest-server';",
+      '',
+      'const config: { [env: string]: IServerOptions } = {',
+      '  local: {',
+      '    // #region graphql',
+      '    graphQl: {',
+      '      driver: { playground: true },',
+      '    },',
+      '    // #endregion graphql',
+      '    port: 3000,',
+      '  },',
+      '  production: {',
+      '    // #region graphql',
+      '    graphQl: {',
+      '      driver: { playground: false },',
+      '    },',
+      '    // #endregion graphql',
+      '    port: 3000,',
+      '  },',
+      '};',
+      '',
+      'export default getEnvironmentConfig({ config });',
+      '',
+    ];
+
+    it.each([
+      ['LF', '\n'],
+      ['CRLF', '\r\n'],
+    ])('disables it in every env block (%s)', async (_label, eol) => {
+      writeConfig(regionConfig, eol);
+
+      await apiMode.processApiMode(tempDir, 'Rest');
+
+      const content = filesystem.read(filesystem.path(tempDir, 'src', 'config.env.ts'));
+      expect(envBlocks(content)).toEqual([]);
+      expect(content.match(/graphQl: false/g)).toHaveLength(2);
+      expect(content).not.toContain('playground');
+    });
+
+    it('repairs a config whose graphql block was already removed — the Windows outcome', async () => {
+      writeConfig([
+        "import { getEnvironmentConfig, IServerOptions } from '@lenne.tech/nest-server';",
+        '',
+        'const config: { [env: string]: IServerOptions } = {',
+        '  local: {',
+        '    port: 3000,',
+        '  },',
+        '  production: {',
+        '    port: 3000,',
+        '  },',
+        '};',
+        '',
+        'export default getEnvironmentConfig({ config });',
+        '',
+      ]);
+
+      await apiMode.processApiMode(tempDir, 'Rest');
+
+      const content = filesystem.read(filesystem.path(tempDir, 'src', 'config.env.ts'));
+      expect(envBlocks(content)).toEqual([]);
+      expect(content.match(/graphQl: false/g)).toHaveLength(2);
+    });
+  });
+
+  describe('markers must not survive a non-Both conversion', () => {
+    // A strip that quietly does nothing reports success exactly as loudly as one that
+    // worked — that is how a Windows REST project shipped with its graphql regions
+    // intact (the glob path bug, fixed in globFiles). The assertion turns the silent
+    // case into a named error, at generation time rather than in the user's editor.
+    const withMarkers = [
+      "import { Controller } from '@nestjs/common';",
+      '',
+      '// #region graphql',
+      'const graphqlOnly = 1;',
+      '// #endregion graphql',
+      '',
+      'export class X {}',
+      '',
+    ].join('\n');
+
+    // Called directly: stubbing the strip would stub the check with it — both go
+    // through the same globFiles — and the test would pass for the wrong reason.
+    const assertNoMarkers = (marker: string): void =>
+      (apiMode as any).assertNoMarkersRemain(tempDir, marker);
+
+    it('throws and names the files when a region survives', () => {
+      filesystem.write(filesystem.path(tempDir, 'src', 'leftover.ts'), withMarkers);
+      expect(() => assertNoMarkers('graphql')).toThrow(/still carry `\/\/ #region graphql` markers/);
+      expect(() => assertNoMarkers('graphql')).toThrow(/leftover\.ts/);
+    });
+
+    it('also sees a lone endregion, and looks in tests/ too', () => {
+      filesystem.write(filesystem.path(tempDir, 'tests', 'x.e2e-spec.ts'), '// #endregion rest\n');
+      expect(() => assertNoMarkers('rest')).toThrow(/x\.e2e-spec\.ts/);
+    });
+
+    it('is quiet for a project that really was converted', async () => {
+      filesystem.write(filesystem.path(tempDir, 'src', 'leftover.ts'), withMarkers);
+
+      await apiMode.processApiMode(tempDir, 'Rest');
+
+      expect(filesystem.read(filesystem.path(tempDir, 'src', 'leftover.ts'))).not.toContain('#region');
+      expect(() => assertNoMarkers('graphql')).not.toThrow();
     });
   });
 });
