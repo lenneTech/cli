@@ -281,6 +281,26 @@ run_scenario() {
     fail "migrate:list broken"
   fi
 
+  # 5b. env-prefixed migrate scripts run through cross-env (cmd.exe cannot parse
+  #     `NODE_ENV=… cmd`), and the binary is actually installed.
+  if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(['develop','test','preview','prod'].every((e)=>/^cross-env NODE_ENV=/.test(s['migrate:'+e+':up']||'')) ? 0 : 1)"; then
+    pass "migrate:<env>:up scripts use cross-env"
+  else
+    fail "migrate:<env>:up scripts carry a bare NODE_ENV= prefix"
+  fi
+  if [ -x "${api_dir}/node_modules/.bin/cross-env" ]; then
+    pass "cross-env installed in the api project"
+  else
+    fail "cross-env missing in the api project"
+  fi
+  # In dependencies, not devDependencies: production trees are installed with
+  # --prod / `pnpm deploy --prod`, where devDependencies are absent.
+  if node -e "const p=require('${api_dir}/package.json'); process.exit((p.dependencies&&p.dependencies['cross-env'])||(p.devDependencies&&p.devDependencies['cross-env']) ? 0 : 1)"; then
+    pass "cross-env declared in the api package.json"
+  else
+    fail "cross-env not declared in the api package.json"
+  fi
+
   # 6. Generate module/object/addProp/test
   (cd "${api_dir}/src" && \
     "${CLI_BIN}" server module --name Product --controller "${api_mode}" --noConfirm --skipLint \
