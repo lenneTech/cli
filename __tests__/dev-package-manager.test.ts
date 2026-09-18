@@ -105,6 +105,23 @@ describe('pickPackageManager', () => {
       expect(pm.bin).toBe('/opt/internal/wrap-deps');
       expect(pm.name).toBe('unknown');
     });
+
+    it('recognises a Windows launcher: backslashes and a .cmd/.exe suffix', () => {
+      // There the binary is `…\pnpm.cmd`, which neither `endsWith('pnpm')` nor
+      // `includes('/pnpm')` matched — the override resolved to `unknown` and the
+      // caller drove the wrong manager.
+      const cases: [string, string][] = [
+        ['C:\\Users\\dk\\AppData\\Roaming\\npm\\pnpm.cmd', 'pnpm'],
+        ['C:\\Program Files\\nodejs\\npm.cmd', 'npm'],
+        ['C:\\tools\\yarn.exe', 'yarn'],
+        ['C:\\tools\\PNPM.CMD', 'pnpm'],
+        ['C:\\tools\\wrap-deps.cmd', 'unknown'],
+        ['C:\\tools\\pnpm-shim.cmd', 'unknown'],
+      ];
+      for (const [bin, name] of cases) {
+        expect([bin, pickPackageManager(dir, { LT_PM_BIN: bin }).name]).toEqual([bin, name]);
+      }
+    });
   });
 
   describe('command synthesis', () => {

@@ -103,16 +103,19 @@ function buildCommand(bin: string, name: 'unknown' | PackageManager): PackageMan
   };
 }
 
+/**
+ * Manager behind an override like `LT_PM_BIN`.
+ *
+ * Reads the file NAME, split on both separators and stripped of a Windows launcher
+ * extension: there the binary is `C:\\…\\pnpm.cmd`, which neither `endsWith('pnpm')`
+ * nor `includes('/pnpm')` matched — the override then resolved to `unknown` and the
+ * caller drove the wrong manager.
+ */
 function inferNameFromBin(bin: string): 'unknown' | PackageManager {
-  const lower = bin.toLowerCase();
-  if (lower.endsWith('pnpm') || lower.includes('/pnpm')) {
-    return 'pnpm';
-  }
-  if (lower.endsWith('yarn') || lower.includes('/yarn')) {
-    return 'yarn';
-  }
-  if (lower.endsWith('npm') || lower.includes('/npm')) {
-    return 'npm';
+  const file = bin.toLowerCase().split(/[\\/]/).pop() ?? '';
+  const name = file.replace(/\.(bat|cmd|exe|ps1)$/, '');
+  if (name === 'pnpm' || name === 'yarn' || name === 'npm') {
+    return name;
   }
   return 'unknown';
 }

@@ -3,6 +3,7 @@ import { GluegunFilesystem } from 'gluegun';
 import { basename, join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { disableGraphQlInEveryEnvBlock, envBlocksWithoutGraphQlDisabled } from '../lib/config-env-graphql';
 
 /**
  * API Mode processing for nest-server-starter template
@@ -41,9 +42,17 @@ export class ApiMode {
       // REST mode: remove graphql regions, keep rest regions
       await this.removeMode(projectPath, manifest, 'graphql', 'rest');
       await this.modifyConfigEnvForRest(projectPath);
+      this.assertGraphQlDisabled(projectPath);
     } else if (mode === 'GraphQL') {
       // GraphQL mode: remove rest regions, keep graphql regions
       await this.removeMode(projectPath, manifest, 'rest', 'graphql');
+    }
+
+    // Both conversions above must leave no marker behind. Verified rather than
+    // assumed: a strip that quietly does nothing reports success just as loudly as
+    // one that worked (see assertNoMarkersRemain).
+    if (mode !== 'Both') {
+      this.assertNoMarkersRemain(projectPath, mode === 'Rest' ? 'graphql' : 'rest');
     }
 
     // Remove manifest and strip-markers script
@@ -169,6 +178,76 @@ export class ApiMode {
 
     // 6. Clean orphan imports
     this.cleanOrphanImports(projectPath);
+  }
+
+  /**
+   * Final check of the REST conversion: every environment block in `config.env.ts`
+   * must disable GraphQL.
+   *
+   * `CoreModule.forRoot` reads a missing `graphQl` as ENABLED, so a block without it
+   * yields a project that fails at START time with `Cannot determine a GraphQL output
+   * type for the "arguments"` — long after the generator reported success. Every step
+   * before this one REPLACES an existing property; none of them adds a missing one, so
+   * nothing guaranteed the outcome.
+   *
+   * Repairs what it can (insert the switch) and throws when a block still lacks it,
+   * rather than handing over a project that cannot boot.
+   */
+  private assertGraphQlDisabled(projectPath: string): void {
+    const configPath = join(projectPath, 'src', 'config.env.ts');
+    const content = this.filesystem.read(configPath);
+    if (!content) {
+      return;
+    }
+
+    const { added, content: repaired } = disableGraphQlInEveryEnvBlock(content);
+    if (added.length > 0) {
+      this.filesystem.write(configPath, repaired);
+    }
+
+    const offenders = envBlocksWithoutGraphQlDisabled(repaired);
+    if (offenders.length > 0) {
+      throw new Error(
+        `REST conversion incomplete: src/config.env.ts has no \`graphQl: false\` in ${offenders.join(', ')}. ` +
+          'The framework treats a missing switch as GraphQL ENABLED, and the server would fail to start. ' +
+          'Add it to those environment blocks and re-run.',
+      );
+    }
+  }
+
+  /**
+   * Refuse to hand over a project that still carries markers of the removed mode.
+   *
+   * A leftover `// #region graphql` announces a mode the project does not have — and,
+   * worse, means the region CONTENT is still there: resolvers, graphql-only wiring,
+   * e2e specs. That is what a silent no-op looks like from the outside, and the strip
+   * used to be exactly that on Windows (fixed in the glob helper above): it reported
+   * success while touching nothing.
+   *
+   * Cheap, and it fails at generation time instead of in the user's editor.
+   */
+  private assertNoMarkersRemain(projectPath: string, removedMarker: string): void {
+    const marked: string[] = [];
+    for (const dir of ['src', 'tests']) {
+      const base = join(projectPath, dir);
+      if (!this.filesystem.exists(base)) {
+        continue;
+      }
+      for (const file of this.globFiles(base, '**/*.ts')) {
+        const content = this.filesystem.read(file);
+        if (content?.includes(`// #region ${removedMarker}`) || content?.includes(`// #endregion ${removedMarker}`)) {
+          marked.push(`${dir}/${basename(file)}`);
+        }
+      }
+    }
+
+    if (marked.length > 0) {
+      throw new Error(
+        `API-mode conversion incomplete: ${marked.length} file(s) still carry \`// #region ${removedMarker}\` ` +
+          `markers (${marked.slice(0, 5).join(', ')}${marked.length > 5 ? ', …' : ''}). ` +
+          'The region content was not removed, so this project still contains code of a mode it does not have.',
+      );
+    }
   }
 
   /**
