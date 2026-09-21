@@ -36,8 +36,21 @@ describe('check.mjs template', () => {
   });
 
   describe('build-dir pinning', () => {
-    it('pins every package-manager call that carries no pin of its own', () => {
-      const result = inCheck<Record<string, string>>(`
+    it('pins every package-manager call — by prefix on POSIX, by environment on Windows', () => {
+      // Since lt-monorepo 3.13.1 the pin is delivered two different ways, because
+      // `VAR=value cmd` is POSIX shell syntax and cmd.exe reads the assignment as
+      // the command name. So `pinCheckBuildDir` writes NO prefix on win32 and
+      // `stepEnv` carries the value to the spawn instead.
+      //
+      // Both branches are asserted from any host: `pinCheckBuildDir` takes the
+      // platform as a parameter. Skipping one on the other's OS would leave the
+      // Windows path — the one that regressed — unchecked on the machine where
+      // this suite normally runs.
+      const result = inCheck<{
+        env: Record<string, null | Record<string, string>>;
+        posix: Record<string, string>;
+        win: Record<string, string>;
+      }>(`
         const cmds = [
           'pnpm install --frozen-lockfile',
           'pnpm i',
@@ -46,10 +59,23 @@ describe('check.mjs template', () => {
           'npm audit',
           'pnpm run audit:ci',
         ];
-        report(Object.fromEntries(cmds.map((c) => [c, m.pinCheckBuildDir(c)])));
+        report({
+          env: Object.fromEntries(cmds.map((c) => [c, m.stepEnv({ cmd: c })])),
+          posix: Object.fromEntries(cmds.map((c) => [c, m.pinCheckBuildDir(c, 'linux')])),
+          win: Object.fromEntries(cmds.map((c) => [c, m.pinCheckBuildDir(c, 'win32')])),
+        });
       `);
-      for (const [cmd, pinned] of Object.entries(result)) {
+
+      for (const [cmd, pinned] of Object.entries(result.posix)) {
         expect(pinned).toBe(`NUXT_BUILD_DIR=.nuxt-check ${cmd}`);
+      }
+      for (const [cmd, pinned] of Object.entries(result.win)) {
+        expect([cmd, pinned]).toEqual([cmd, cmd]);
+      }
+      // The half that makes the Windows branch safe rather than merely different:
+      // dropping the prefix must not drop the pin.
+      for (const [cmd, env] of Object.entries(result.env)) {
+        expect([cmd, env]).toEqual([cmd, { NUXT_BUILD_DIR: '.nuxt-check' }]);
       }
     });
 
@@ -96,7 +122,19 @@ describe('check.mjs template', () => {
       // command then runs `postinstall: nuxt prepare` against a dev server's
       // `.nuxt`. Asserted over the hoisting logic itself (buildGroups), not over
       // a hand-picked sample of spellings.
-      const result = inCheck<{ audit: string; install: string; unpinned: string[] }[]>(`
+      //
+      // Asserted per PLATFORM since 3.13.1. "Pinned" is no longer one thing:
+      // on POSIX it is the textual prefix, on Windows it is the environment
+      // `stepEnv` hands to the spawn. `buildGroups` pins through the AMBIENT
+      // platform, so the raw command is recovered and each mechanism judged
+      // explicitly — otherwise this assertion would silently only ever exercise
+      // whichever OS happened to run it, which is how the Windows job went red.
+      // `buildGroups` pins through the AMBIENT platform, so it is run twice with
+      // `process.platform` redefined — the real Windows code path, exercised from
+      // macOS. `pinCheckBuildDir` reads the platform as a default parameter, i.e.
+      // at CALL time, which is what makes the redefinition take effect after the
+      // module has already been imported.
+      const result = inCheck<Record<string, { audit: string; install: string; unpinned: string[] }[]>>(`
         const chains = [
           'pnpm install --frozen-lockfile && pnpm audit && pnpm run build',
           'pnpm i && pnpm run lint',
@@ -104,22 +142,47 @@ describe('check.mjs template', () => {
           'yarn npm audit --all && yarn run build',
           'cross-env NUXT_BUILD_DIR=.nuxt-check pnpm install --frozen-lockfile && pnpm test',
         ];
-        report(chains.map((check) => {
+        const run = () => chains.map((check) => {
           const r = m.buildGroups([{ check, dir: '.', name: 'x', rel: '.' }]);
           const hoisted = [r.auditCmd, r.installCmd].filter(Boolean);
           return {
             audit: r.auditCmd,
             install: r.installCmd,
-            unpinned: hoisted.filter((c) => !/(^|\\s)NUXT_BUILD_DIR=/.test(c)),
+            // "Pinned" means the value actually reaches the child: by the textual
+            // prefix, or by the environment stepEnv hands to the spawn.
+            unpinned: hoisted.filter((c) => !/(^|\\s)NUXT_BUILD_DIR=/.test(c) && !m.stepEnv({ cmd: c })),
           };
-        }));
+        });
+        const out = {};
+        for (const platform of ['linux', 'win32']) {
+          Object.defineProperty(process, 'platform', { configurable: true, value: platform });
+          out[platform] = run();
+        }
+        report(out);
       `);
-      for (const row of result) {
-        expect(row.unpinned).toEqual([]);
+
+      for (const platform of ['linux', 'win32']) {
+        for (const row of result[platform]) {
+          // The predicate that must not diverge from the hoisting decision: if
+          // `buildGroups` hoists a command `stepEnv` does not recognise, the pin is
+          // gone on Windows with nothing to replace it.
+          expect([platform, row.unpinned]).toEqual([platform, []]);
+        }
+        // …and the hoist actually happened on this platform, so the assertion
+        // above is not vacuous for either branch.
+        expect(result[platform].filter((r) => r.install).length).toBeGreaterThan(0);
+        expect(result[platform].filter((r) => r.audit).length).toBeGreaterThan(0);
       }
-      // …and the hoist actually happened, so the assertion above is not vacuous.
-      expect(result.filter((r) => r.install).length).toBeGreaterThan(0);
-      expect(result.filter((r) => r.audit).length).toBeGreaterThan(0);
+
+      // The behaviour change 3.13.1 brought, stated as an assertion rather than
+      // left to the reader: on Windows the wrapper adds no prefix at all, so the
+      // only hoisted command carrying `NUXT_BUILD_DIR=` is the one that brought
+      // its own (`cross-env …`). A test that knew only the prefix form read this
+      // as a regression — that is what turned the Windows job red.
+      const prefixedOnWindows = result.win32
+        .map((row) => row.install)
+        .filter((cmd) => cmd && /(^|\s)NUXT_BUILD_DIR=/.test(cmd));
+      expect(prefixedOnWindows).toEqual(['cross-env NUXT_BUILD_DIR=.nuxt-check pnpm install --frozen-lockfile']);
     });
 
     it('does not hoist a project script that merely has "audit" in its name', () => {
