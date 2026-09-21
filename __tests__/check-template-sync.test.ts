@@ -7,6 +7,7 @@ import {
   CHECK_TEMPLATE_PIN_FILE,
   CHECK_TEMPLATE_REPOSITORY,
   readCheckTemplatePin,
+  spawnedSiblings,
   syncCheckTemplate,
   verifyCheckTemplate,
 } from '../src/lib/check-template-sync';
@@ -112,6 +113,59 @@ describe('syncCheckTemplate', () => {
     const sha = commit({ 'scripts/check.mjs': '#!/usr/bin/env node\nconsole.log("unversioned");\n' });
     expect(() => syncCheckTemplate({ from: upstream, ref: sha, templateDir })).toThrow(/no @lt-check-wrapper marker/);
     expect(existsSync(join(templateDir, CHECK_TEMPLATE_PIN_FILE))).toBe(false);
+  });
+
+  describe('a sibling the template STARTS instead of importing', () => {
+    // resolveCopySet follows imports. A `node scripts/x.mjs` is invisible to it, so the
+    // file is never shipped, the pin test stays green, and only the generated project
+    // breaks — a check that reports success without ever asking the real question.
+    const wrapperSpawning = (call: string): string =>
+      `#!/usr/bin/env node\n// @lt-check-wrapper 3.13.1\nexport const x = 1;\n${call}\n`;
+
+    it('refuses to sync, naming the file and the choice', () => {
+      const sha = commit({
+        'scripts/check.mjs': wrapperSpawning("execFileSync('node', ['scripts/remove.mjs', 'node_modules']);"),
+        'scripts/remove.mjs': 'export const removed = true;\n',
+      });
+
+      expect(() => syncCheckTemplate({ from: upstream, ref: sha, templateDir })).toThrow(/remove\.mjs/);
+      expect(() => syncCheckTemplate({ from: upstream, ref: sha, templateDir })).toThrow(
+        /starts sibling script\(s\) it does not ship/,
+      );
+      // Nothing half-written: no pin, so the next run starts clean.
+      expect(existsSync(join(templateDir, CHECK_TEMPLATE_PIN_FILE))).toBe(false);
+    });
+
+    it('catches every call shape, and never the wrapper itself', () => {
+      writeFileSync(
+        join(templateDir, 'check.mjs'),
+        [
+          '// @lt-check-wrapper 3.13.1',
+          "spawn('node', ['scripts/watchdog.mjs']);",
+          "await run('node ./scripts/seed.mjs --force');",
+          "execSync('bash scripts/mongo-watchdog.sh');",
+          "// a mention of scripts/check.mjs itself must not count",
+        ].join('\n'),
+      );
+
+      expect(spawnedSiblings(templateDir, ['check.mjs'])).toEqual([
+        'mongo-watchdog.sh',
+        'seed.mjs',
+        'watchdog.mjs',
+      ]);
+    });
+
+    it('stays quiet when the sibling is shipped, and for a pure import', () => {
+      writeFileSync(
+        join(templateDir, 'check.mjs'),
+        "// @lt-check-wrapper 3.13.1\nimport { g } from './gate.mjs';\nspawn('node', ['scripts/gate.mjs']);\n",
+      );
+      writeFileSync(join(templateDir, 'gate.mjs'), 'export const g = 1;\n');
+
+      expect(spawnedSiblings(templateDir, ['check.mjs']).filter((n) => n !== 'gate.mjs')).toEqual([]);
+      const pin = { commit: 'a'.repeat(40), files: { 'check.mjs': '', 'gate.mjs': '' }, ref: 'x', repository: CHECK_TEMPLATE_REPOSITORY, version: '3.13.1' };
+      expect(verifyCheckTemplate(templateDir, pin).filter((p) => p.includes('STARTED'))).toEqual([]);
+    });
   });
 
   describe('verifyCheckTemplate', () => {
