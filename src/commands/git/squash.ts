@@ -142,7 +142,10 @@ const NewCommand: GluegunCommand = {
     const mergeBaseSpin = spin(`Get merge ${base}`);
     const mergeBase = await git.getMergeBase(base);
     if (!mergeBase) {
-      error('No merge base found!');
+      // `fail` rather than `error` + `return`: a running spinner holds the event
+      // loop open (ora resumes stdin and keeps a render interval), so the old
+      // shape did not just print and leave — the command never exited at all.
+      mergeBaseSpin.fail(`No merge base found with ${base}!`);
       return;
     }
     mergeBaseSpin.succeed();
