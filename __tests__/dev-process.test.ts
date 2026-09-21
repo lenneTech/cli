@@ -134,11 +134,17 @@ describe('waitForHttp', () => {
 
   it('keeps polling while `abort` stays false', async () => {
     // The guard must not short-circuit a server that is merely still booting.
-    // Budget generously: each curl probe against a black-holed address burns its
-    // full `--max-time 2`, so a 1.5s budget would expire inside the FIRST probe
-    // and `abort` would never be consulted at all — proving nothing.
+    // Probe a port that REFUSES (a server not listening yet) rather than the
+    // black-holed TEST-NET address the timeout test uses: there every probe
+    // burns curl's full `--max-time 2`, so only two probes fit into the budget
+    // with ~0.4s to spare — and `retry` skips `abort` once the budget is spent.
+    // Under load the second probe missed that window and the test failed with
+    // `calls === 1` on unchanged code. A refused connection returns in
+    // milliseconds, so the 500ms poll interval decides the count, not the
+    // machine. (Windows retries a refused connect for up to ~2s, which is no
+    // slower than the black hole was.)
     let calls = 0;
-    const ok = await waitForHttp('https://192.0.2.1:1/', 5_000, undefined, () => {
+    const ok = await waitForHttp('https://127.0.0.1:1/', 5_000, undefined, () => {
       calls++;
       return false;
     });

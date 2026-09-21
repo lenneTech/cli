@@ -40,6 +40,41 @@ const COMPILED_ENTRIES = ['dist/src/main.js', 'dist/main.js'] as const;
 /** Runtime that can execute an API's compiled bundle. */
 export type ApiRuntime = 'bun' | 'node';
 
+/** What {@link applyPendingMigrations} did. */
+export type MigrationOutcome =
+  | { exitCode: null | number; status: 'failed' }
+  | { status: 'applied' }
+  | { status: 'skipped' };
+
+/**
+ * Apply the project's pending migrations (`<pm> run migrate:up`) ahead of an API
+ * that is started WITHOUT its own `start` script.
+ *
+ * lt projects chain the migration into that script (`migrate:up && start:local`),
+ * so every path that starts the compiled bundle directly — `lt dev up
+ * --api-compiled` and `lt dev test` — drops the migration along with it. On a
+ * database that outlives the run, that leaves the API on a state no deployed
+ * environment has: a changed unique index never reached the `lt dev test` DB, and
+ * the suite failed with a 409 that looked like a bug in the feature (DEV-3289).
+ *
+ * `env` must be the environment the API itself gets. The migration store resolves
+ * its database from the same `config.env.ts` + `NSC__MONGOOSE__URI` merge, so
+ * sharing the env is what makes both reach the same database.
+ *
+ * A project without a `migrate:up` script is `skipped`, never an error — nest-base
+ * (Prisma) projects have none. A migration killed by a signal (`null`) is `failed`.
+ */
+export async function applyPendingMigrations(options: {
+  apiDir: string;
+  env: NodeJS.ProcessEnv;
+  pm: PackageManagerCommand;
+}): Promise<MigrationOutcome> {
+  const { apiDir, env, pm } = options;
+  if (!hasScript(apiDir, 'migrate:up')) return { status: 'skipped' };
+  const exitCode = await runChildInherit(pm.bin, pm.runScript('migrate:up'), { cwd: apiDir, env });
+  return exitCode === 0 ? { status: 'applied' } : { exitCode, status: 'failed' };
+}
+
 /** Resolve the compiled API entry point in `apiDir`, or `undefined` if none was built. */
 export function findCompiledEntry(apiDir: string): string | undefined {
   return COMPILED_ENTRIES.map((rel) => join(apiDir, rel)).find((candidate) => existsSync(candidate));
@@ -120,14 +155,14 @@ export async function startCompiledApi(options: StartCompiledApiOptions): Promis
   const entry = findCompiledEntry(apiDir);
 
   if (build === 0 && entry) {
-    if (hasScript(apiDir, 'migrate:up')) {
-      const migrate = await runChildInherit(pm.bin, pm.runScript('migrate:up'), { cwd: apiDir, env });
-      if (migrate !== 0) {
-        // Parity with `migrate:up && start:local`: a failed migration must PREVENT the server
-        // from starting rather than boot it against a half-migrated DB behind a "Started" banner.
-        log.warn(`migrate:up failed (exit ${String(migrate)}) — API NOT started (would run on an un-migrated DB).`);
-        return undefined;
-      }
+    const migration = await applyPendingMigrations({ apiDir, env, pm });
+    if (migration.status === 'failed') {
+      // Parity with `migrate:up && start:local`: a failed migration must PREVENT the server
+      // from starting rather than boot it against a half-migrated DB behind a "Started" banner.
+      log.warn(
+        `migrate:up failed (exit ${String(migration.exitCode)}) — API NOT started (would run on an un-migrated DB).`,
+      );
+      return undefined;
     }
     return spawnDetached(resolveApiRuntime(apiDir), [entry], {
       cwd: apiDir,
