@@ -1279,6 +1279,43 @@ needle. A comment is not part of the AST, so there is nothing to strip and nothi
 wrong. A `.vue` SFC is not valid TypeScript as a whole, so `fileImportedSpecifiers` splits
 its `<script>` blocks out and parses each one — skipping `<template>`, where a commented
 import is prose by definition.
+### A spinner left running keeps the process alive — `process.exitCode` needs a draining loop <!-- Added: 2026-09-21 -->
+gluegun's `spin(text)` is ora 4.0.2 with `discardStdin: true`. Starting one does three
+things that only a stop undoes: `stdin.setRawMode(true)` (remembering the value it
+found), `stdin.resume()` plus a `data` listener, and `setInterval(render)` for the
+animation. The interval and the resumed stdin **hold the Node event loop open**.
+
+That interacts with a deliberate decision elsewhere. `failRun` sets
+`process.exitCode = 1` instead of calling `process.exit()`, so a failure message is
+never truncated — and `bin/lt` has no terminal `process.exit()` after `run()`. So the
+process ends only when the loop drains. A command that called `failRun` and returned
+with a spinner still spinning therefore **did not exit at all**: no message, no prompt
+back, terminal stuck in raw mode.
+
+Live in `fullstack/init.ts` until 2026-09-21: `ngBaseSpinner` started at the top of the
+command and had exactly ONE stop, inside `if (isDirectory(projects/app))`. Three error
+paths returned before it; a fourth — the `isDirectory` check being false — had no
+`else` at all and fell off the end of the command with **exit code 0, no message, and a
+process that never came back**. The silent-success path was the worst of the four.
+
+**Rules:**
+- Stop the spinner on every path, including the one you think cannot happen. The fix is
+  never to switch `failRun` to `process.exit()` — that trades a hang for the
+  truncated-output bug `failRun` exists to avoid.
+- Prefer `spinner.fail(msg)` over `error(msg)` on an error path: one call both reports
+  and stops, so the two cannot drift apart.
+- `__tests__/spinner-lifetime.test.ts` enforces it structurally over the three
+  `fullstack` scaffolding commands, via `src/lib/spinner-lifetime.ts#findSpinnerLeaks`
+  (TS AST: a statement list "stops" if it stops directly, or is an `if` stopping in
+  BOTH branches, or a `try` stopping in body and `catch`, or a stopping `finally`).
+  `return spinner;` hands ownership to the caller and is not a leak — `logger.ts#spin`
+  is that factory.
+- **The analyser is conservative, and its scope is an explicit file list for that
+  reason.** Over all of `src/` it reports 15 more findings in 7 files, and they are not
+  all bugs: `commands/doctor.ts` stops its spinner either inside a `for` loop or in a
+  following `if (!hasConfig)` — correct, but only provable with value tracking. Widen
+  the scope per file, after triage. Verified genuine and still open:
+  `commands/git/squash.ts:146`.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
