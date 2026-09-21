@@ -24,8 +24,10 @@ import { resolveDevIdentity } from '../../lib/dev-ticket';
  * App mode (default) runs the Playwright suite against a fully ISOLATED test
  * stack (own URLs / ports / Caddy block / dedicated `<…>-test` database) that
  * runs parallel to — and never touches — the developer's `lt dev up` session.
- * Playwright's global-setup resets that dedicated DB once before the first test.
- * The stack is torn down automatically when the run finishes (residue-free).
+ * That DB outlives the run, so pending migrations are applied to it before the
+ * API starts; a project's Playwright global-setup may reset it on top (the CLI
+ * does not). The stack is torn down automatically when the run finishes
+ * (residue-free).
  *
  * API mode (`--api`) runs the standalone API test suite (`pnpm test:e2e` in the
  * API), which already isolates itself on its own DB — no stack is brought up.
@@ -221,7 +223,7 @@ const TestCommand: GluegunCommand = {
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         ...readBridgeEnv(layout.root),
-        // Playwright global-setup resets THIS db (allow-listed) before the suite.
+        // THIS db, for a project whose global-setup resets or cleans it (allow-listed).
         MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}`,
         // Point the auth E2E specs directly at the isolated test API log so they
         // read the email-verification token without relying on the spec's upward

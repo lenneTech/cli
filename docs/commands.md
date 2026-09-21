@@ -663,29 +663,33 @@ Run `--explain` to see three commonly recommended keys the profile deliberately 
 
 ### `lt dev test`
 
-One-shot E2E wrapper: ensure `up`, wait for the App URL, run `pnpm run test:e2e` with the `.lt-dev/.env` bridge loaded. Optional teardown after.
+One-shot E2E wrapper: brings up an isolated test stack next to the `lt dev up` session (own URLs `<slug>-test.localhost` / `api.<slug>-test.localhost`, own ports, own Caddy block, own database `<…>-test`), runs `test:e2e` against it, and tears the stack down afterwards. The dev session is never touched.
 
 **Usage:**
 ```bash
-lt dev test                      # App E2E (projects/app)
-lt dev test --api                # API E2E (projects/api) — no Caddy required
-lt dev test --teardown           # plus `lt dev down` after
+lt dev test                      # App E2E against the isolated stack, auto teardown
+lt dev test --keep               # leave the test stack up afterwards
+lt dev test down                 # tear a leftover test stack down
+lt dev test --api                # API E2E (projects/api) — no stack, no Caddy
 lt dev test --debug              # PWDEBUG=1 + HEADED=1
+lt dev test --shard [N|auto]     # split across N isolated stacks (bare --shard = 2)
 lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwright
 ```
 
 **Alias:** `lt d t`
 
-**Behaviour:**
-1. Pre-flight: Caddy installed + daemon running (App mode only).
-2. If no `lt dev up` session is alive: invokes `lt dev up` first.
-3. Waits up to 30 s for the App URL to respond.
-4. Reads `<root>/.lt-dev/.env` and merges into the spawn env (existing process.env wins for keys it defines).
-5. Spawns `pnpm run test:e2e [forwarded args]` in `projects/api` (with `--api`) or `projects/app` (default).
-6. With `--teardown`, runs `lt dev down` after.
+**Behaviour (App mode):**
+1. Pre-flight: Caddy installed + daemon running, and `playwright.config.ts` env-aware (otherwise abort; `--force` overrides).
+2. Builds the API and applies pending migrations to the test DB (`migrate:up`, with the API's own env, so it hits the same DB). A failed migration aborts the run; a project without a `migrate:up` script starts unmigrated. Then starts the compiled API. Without a build output it falls back to the project's `start` script, which migrates by itself.
+3. Builds the App (`nuxt build`) and serves the Nitro output.
+4. Waits for both to answer and aborts if either never does, so the suite never runs against a dead stack.
+5. Runs `test:e2e [forwarded args]` in the App with the `.lt-dev/.env.test` bridge loaded.
+6. Tears the stack down (processes, Caddy block, env bridge, session file) unless `--keep` is set.
+
+The test DB outlives the run: the CLI never drops it. That is why step 2 migrates it: without the migration the DB drifts behind every environment that does migrate. A project whose Playwright global-setup resets the DB gets it passed as `MONGO_URI`.
 
 **When to use this vs. `pnpm run test:e2e` directly:**
-- Use **`lt dev test`** for TDD loops, ad-hoc reproduction, or when you want a single-command "ensure-up + run + teardown" flow.
+- Use **`lt dev test`** for TDD loops, ad-hoc reproduction, or when you want a single-command "isolated stack + run + teardown" flow.
 - Use **direct `pnpm run test:e2e`** (or VS Code Playwright Extension, IDE test runners) for everyday work — the auto-injected `playwright.config.ts` bridge loads the `.lt-dev/.env` automatically, so the env is correct without the wrapper.
 
 ---

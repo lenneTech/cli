@@ -278,14 +278,27 @@ describe('dev-test-session', () => {
     });
   });
 
-  describe('compiled API runtime (DEV-3208)', () => {
-    test('the API spawn derives its runtime instead of hardcoding node', () => {
+  describe('compiled API start (DEV-3208, DEV-3289)', () => {
+    // What `startTestApi` does — runtime per project, migration before the
+    // server — is covered by behaviour in `dev-test-session-api.test.ts`. What
+    // only the source can show is that `bringUpTestSession` goes through it,
+    // with the env the API runs with.
+    test('bring-up starts the API through startTestApi, handing it the API env', () => {
+      expect(source).toMatch(/startTestApi\(\{[^}]*\bapiEnv\b[^}]*\}\)/);
+    });
+
+    test('the spawn derives its runtime instead of hardcoding node', () => {
       // `nest-base` bundles with `Bun.build({ target: 'bun' })`; under node that
-      // output dies instantly with "__require is not a function". Pinned
-      // statically because `bringUpTestSession` spawns real servers — the risk is
-      // a future edit re-inlining `'node'`, which is exactly what this catches.
-      expect(source).toMatch(/spawnDetached\(\s*resolveApiRuntime\(\s*layout\.apiDir\s*\)/);
-      expect(source).not.toMatch(/apiSpawn\s*=\s*spawnDetached\(\s*'node'/);
+      // output dies instantly with "__require is not a function".
+      expect(source).toMatch(/spawnDetached\(\s*resolveApiRuntime\(\s*apiDir\s*\)/);
+      expect(source).not.toMatch(/spawnDetached\(\s*'node',\s*\[\s*entry/);
+    });
+
+    test('the bring-up log claims no DB reset the CLI does not perform (DEV-3289)', () => {
+      // It read "reset before the suite by Playwright global-setup" — true only for
+      // projects whose global-setup drops the DB, which the starter's does not.
+      // The claim pointed a diagnosis away from the un-migrated, long-lived test DB.
+      expect(source).not.toMatch(/reset before the suite/);
     });
   });
 

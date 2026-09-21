@@ -4,7 +4,13 @@ import { dirname, join } from 'path';
 
 import type { PackageManagerCommand } from '../src/lib/dev-package-manager';
 
-import { findCompiledEntry, isApiCompiledRequested, resolveApiRuntime, startCompiledApi } from '../src/lib/dev-api-launch';
+import {
+  applyPendingMigrations,
+  findCompiledEntry,
+  isApiCompiledRequested,
+  resolveApiRuntime,
+  startCompiledApi,
+} from '../src/lib/dev-api-launch';
 import { runChildInherit, spawnDetached } from '../src/lib/dev-process';
 
 // Real gluegun argv parser (yargs-parser) — exercises isApiCompiledRequested against
@@ -174,6 +180,59 @@ describe('startCompiledApi', () => {
     expect(spawnDetachedMock).not.toHaveBeenCalled(); // fail-safe: no API on an un-migrated DB
     expect(result).toBeUndefined();
     expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('migrate:up failed'));
+  });
+});
+
+describe('applyPendingMigrations (DEV-3289)', () => {
+  let apiDir: string;
+
+  const writePkg = (scripts: Record<string, string>) =>
+    writeFileSync(join(apiDir, 'package.json'), JSON.stringify({ name: 'api', scripts }));
+
+  beforeEach(() => {
+    apiDir = mkdtempSync(join(tmpdir(), 'lt-dev-migrate-'));
+    runChildInheritMock.mockReset();
+  });
+
+  afterEach(() => {
+    rmSync(apiDir, { force: true, recursive: true });
+  });
+
+  it('runs migrate:up in the API dir with exactly the env it was given', async () => {
+    // The env is what decides the database: the migration store resolves it from
+    // the same config.env.ts + NSC__MONGOOSE__URI merge the API uses.
+    writePkg({ 'migrate:up': 'node migrate up' });
+    runChildInheritMock.mockResolvedValue(0);
+    const env = { NODE_ENV: 'local', NSC__MONGOOSE__URI: 'mongodb://127.0.0.1/svl-test' };
+
+    const outcome = await applyPendingMigrations({ apiDir, env, pm });
+
+    expect(runChildInheritMock).toHaveBeenCalledTimes(1);
+    expect(runChildInheritMock).toHaveBeenCalledWith('pnpm', ['migrate:up'], { cwd: apiDir, env });
+    expect(outcome).toEqual({ status: 'applied' });
+  });
+
+  it('is skipped, running nothing, when the project has no migrate:up script (nest-base)', async () => {
+    writePkg({ build: 'bun run scripts/build.ts', 'prisma:migrate': 'prisma migrate deploy' });
+
+    const outcome = await applyPendingMigrations({ apiDir, env: {}, pm });
+
+    expect(runChildInheritMock).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ status: 'skipped' });
+  });
+
+  it('reports a non-zero exit as failed, with the exit code', async () => {
+    writePkg({ 'migrate:up': 'node migrate up' });
+    runChildInheritMock.mockResolvedValue(1);
+
+    expect(await applyPendingMigrations({ apiDir, env: {}, pm })).toEqual({ exitCode: 1, status: 'failed' });
+  });
+
+  it('reports a migration killed by a signal (null) as failed, never as applied', async () => {
+    writePkg({ 'migrate:up': 'node migrate up' });
+    runChildInheritMock.mockResolvedValue(null);
+
+    expect(await applyPendingMigrations({ apiDir, env: {}, pm })).toEqual({ exitCode: null, status: 'failed' });
   });
 });
 

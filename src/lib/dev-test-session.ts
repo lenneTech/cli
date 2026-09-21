@@ -4,8 +4,10 @@
  * Brings up a SECOND, fully separate stack (own URLs, own internal ports,
  * own Caddy block, own database) that runs PARALLEL to — and never touches —
  * the developer's `lt dev up` session. Used to run the Playwright E2E suite
- * against a clean, dedicated database so a developer can keep working in their
- * own environment while tests run, and so a test run never pollutes dev data.
+ * against a dedicated database so a developer can keep working in their own
+ * environment while tests run, and so a test run never pollutes dev data. That
+ * database outlives the run — the CLI never drops it — so the API is migrated
+ * before it starts, like every other environment (DEV-3289).
  *
  * Topology (for slug `svl`):
  *   - dev session  : svl.localhost / api.svl.localhost   → db `<…>-local`
@@ -32,7 +34,7 @@ import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
 import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
-import { findCompiledEntry, resolveApiRuntime } from './dev-api-launch';
+import { applyPendingMigrations, findCompiledEntry, resolveApiRuntime } from './dev-api-launch';
 import { buildDevEnv } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
@@ -53,6 +55,20 @@ export interface BringUpOptions {
   /** Override the dev DB the test DB is derived from (per-ticket isolation). */
   devDbName?: string;
   shardIndex?: number;
+  skipBuild?: boolean;
+}
+
+/** Inputs of {@link startTestApi}. */
+export interface StartTestApiOptions {
+  apiDir: string;
+  /** The API process env. The migration runs with it too, which is what makes both reach the same DB. */
+  apiEnv: NodeJS.ProcessEnv;
+  /** The test DB — named in the abort when its migration fails. */
+  dbName: string;
+  log: TestSessionLogger;
+  /** Log file the detached API writes to. */
+  logFile: string;
+  /** Reuse the existing build (sibling shards). */
   skipBuild?: boolean;
 }
 import {
@@ -132,12 +148,13 @@ const TEST_PORT_BASE = 4500;
  * `systemSetup.initialAdmin.*` and seeds the admin ONCE on an empty DB (it never
  * overwrites an existing admin), so a set-up system exists before the suite runs.
  * A fresh template project's standard auth E2E specs assume such a system — they
- * do no self-setup — so without this they fail LOCALLY on the empty per-run DB.
+ * do no self-setup — so without this they fail LOCALLY on a test DB that has no
+ * users yet (its first run, or after a global-setup reset it).
  * These are the exact values the lt-monorepo template CI uses
  * (`.gitlab-ci.yml` / `.github/workflows/test.yml`), keeping CI ↔ local parity.
  *
- * Injected ONLY into the `lt dev test` API process (its DB is fresh + discarded
- * per run), NEVER into `lt dev up` — no surprise admin in the persistent dev DB.
+ * Injected ONLY into the `lt dev test` API process (its DB is the dedicated
+ * `<…>-test` one), NEVER into `lt dev up` — no surprise admin in the dev DB.
  */
 export const TEST_INITIAL_ADMIN_ENV: NodeJS.ProcessEnv = {
   NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL: 'ci-admin@test.com',
@@ -315,7 +332,11 @@ export async function bringUpTestSession(
   log.info(`Starting isolated test stack "${testIdentity.slug}"`);
   if (appUrl) log.info(`  app: ${appUrl}  →  127.0.0.1:${appPort}`);
   if (apiUrl) log.info(`  api: ${apiUrl}  →  127.0.0.1:${apiPort}`);
-  log.info(`  db:  mongodb://127.0.0.1/${dbName}  (reset before the suite by Playwright global-setup)`);
+  // No claim about resetting here: the CLI never drops this DB, and whether a
+  // project's global-setup does is the project's business. The claim used to be
+  // printed unconditionally and sent a diagnosis looking for a reset that never
+  // happened instead of at the un-migrated DB (DEV-3289).
+  log.info(`  db:  mongodb://127.0.0.1/${dbName}`);
   log.info('');
 
   const devEnv = buildDevEnv({
@@ -337,42 +358,23 @@ export async function bringUpTestSession(
 
   const pids: { api?: number; app?: number } = {};
 
-  // --- API: compiled (`node dist`) for stability; fall back to the project's
-  // own dev start script. `skipBuild` (sibling shards) reuses the dist the
-  // first shard produced. Per-component PM detection mirrors `lt dev up`:
-  // a monorepo with an npm api and a pnpm app must drive each correctly. ---
+  // --- API: compiled (`node dist`) for stability, migrated first; falls back to
+  // the project's own start script (see `startTestApi`). ---
   if (layout.apiDir && apiPort) {
-    const apiPm = pickPackageManager(layout.apiDir);
-    let build: null | number = 0;
-    if (!skipBuild) {
-      log.info(log.dim('Building API (compiled, for stable long runs) …'));
-      build = await runChildInherit(apiPm.bin, apiPm.runScript('build'), { cwd: layout.apiDir, env: process.env });
-    }
-    const entry = findCompiledEntry(layout.apiDir);
-    // Seed a throwaway initial admin into the fresh, isolated test DB so the
-    // standard auth E2E specs run against a set-up system — locally exactly like
-    // the lt-monorepo template CI. Defaults first so an explicitly inherited
+    // Seed a throwaway initial admin into the isolated test DB so the standard
+    // auth E2E specs run against a set-up system — locally exactly like the
+    // lt-monorepo template CI. Defaults first so an explicitly inherited
     // `NSC__…INITIAL_ADMIN__…` still wins (deliberate override respected). Only
     // reached from `lt dev test` — `lt dev up` never calls bringUpTestSession.
     const apiEnv = { ...TEST_INITIAL_ADMIN_ENV, ...devEnv.api.env, NODE_ENV: 'local' };
-    let apiSpawn: ReturnType<typeof spawnDetached>;
-    if (build === 0 && entry) {
-      // Runtime follows the PROJECT, never a hardcoded default: a `nest-base` API
-      // bundles with `Bun.build({ target: 'bun' })` and dies under node with
-      // "__require is not a function" (DEV-3208).
-      apiSpawn = spawnDetached(resolveApiRuntime(layout.apiDir), [entry], {
-        cwd: layout.apiDir,
-        env: apiEnv,
-        logFile: join(layout.root, '.lt-dev', names.apiLog),
-      });
-    } else {
-      log.warn(`compiled API not available — falling back to \`${apiPm.bin} start\` (ts-node).`);
-      apiSpawn = spawnDetached(apiPm.bin, apiPm.runScript('start'), {
-        cwd: layout.apiDir,
-        env: apiEnv,
-        logFile: join(layout.root, '.lt-dev', names.apiLog),
-      });
-    }
+    const apiSpawn = await startTestApi({
+      apiDir: layout.apiDir,
+      apiEnv,
+      dbName,
+      log,
+      logFile: join(layout.root, '.lt-dev', names.apiLog),
+      skipBuild,
+    });
     if (apiSpawn) pids.api = apiSpawn.pid;
   }
 
@@ -570,6 +572,22 @@ export function isStackServing(status: number): boolean {
   return status > 0 && ![502, 503, 504].includes(status);
 }
 
+/**
+ * The abort thrown when the test DB cannot be migrated.
+ *
+ * An abort rather than a warning for the same reason as `unreachableStackError`:
+ * a suite run on an un-migrated DB tests a data state no environment has, and
+ * whatever it reports is about the test setup, not about the feature. Unlike the
+ * API's boot, `migrate:up` runs in the foreground, so its output is already on
+ * screen right above this message.
+ */
+export function migrationFailedError(dbName: string, exitCode: null | number): Error {
+  return new Error(
+    `migrate:up failed (exit ${String(exitCode)}) against the test DB "${dbName}" — test API not started, ` +
+      'because a suite on an un-migrated DB tests a state no environment has. The migration output is above.',
+  );
+}
+
 /** Build the dedicated test identity + test DB name for a project. */
 export function resolveTestSession(
   layout: DevProjectLayout,
@@ -685,6 +703,49 @@ export async function runShardedTestSession(
  */
 export function shardReportDir(root: string, shardIndex: number): string {
   return join(root, '.lt-dev', `shard.${shardIndex}.playwright-report`);
+}
+
+/**
+ * Start the test stack's API: build → apply pending migrations → start the
+ * compiled bundle, or fall back to the project's own `start` script when no
+ * bundle is available.
+ *
+ * The compiled start bypasses that `start` script and therefore the
+ * `migrate:up` it chains in front of the server. The test DB outlives every
+ * run — the CLI never drops it — so without the explicit step here it drifted
+ * behind every environment that does migrate (DEV-3289). The migration runs
+ * with `apiEnv`, the API's own env, so both resolve the same database, and
+ * before the spawn, because the API syncs its indexes against whatever it finds
+ * on boot. A failed migration throws `migrationFailedError`.
+ *
+ * `skipBuild` (sibling shards) reuses the dist the first shard produced but
+ * still migrates: every shard has a database of its own. The fallback does not
+ * migrate itself — the `start` script it runs owns that, exactly as under
+ * `lt dev up`. Per-directory package manager, like `lt dev up`: a monorepo with
+ * an npm API and a pnpm App must drive each with its own.
+ */
+export async function startTestApi(opts: StartTestApiOptions): Promise<ReturnType<typeof spawnDetached>> {
+  const { apiDir, apiEnv, dbName, log, logFile, skipBuild } = opts;
+  const apiPm = pickPackageManager(apiDir);
+  let build: null | number = 0;
+  if (!skipBuild) {
+    log.info(log.dim('Building API (compiled, for stable long runs) …'));
+    build = await runChildInherit(apiPm.bin, apiPm.runScript('build'), { cwd: apiDir, env: process.env });
+  }
+  const entry = findCompiledEntry(apiDir);
+
+  if (build === 0 && entry) {
+    const migration = await applyPendingMigrations({ apiDir, env: apiEnv, pm: apiPm });
+    if (migration.status === 'failed') throw migrationFailedError(dbName, migration.exitCode);
+    if (migration.status === 'skipped') log.info(log.dim(`no migrate:up script — ${dbName} is not migrated`));
+    // Runtime follows the PROJECT, never a hardcoded default: a `nest-base` API
+    // bundles with `Bun.build({ target: 'bun' })` and dies under node with
+    // "__require is not a function" (DEV-3208).
+    return spawnDetached(resolveApiRuntime(apiDir), [entry], { cwd: apiDir, env: apiEnv, logFile });
+  }
+
+  log.warn(`compiled API not available — falling back to \`${apiPm.bin} start\` (ts-node).`);
+  return spawnDetached(apiPm.bin, apiPm.runScript('start'), { cwd: apiDir, env: apiEnv, logFile });
 }
 
 /**
