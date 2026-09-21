@@ -13,7 +13,7 @@ import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness
 import { ensureCrossEnvDependency } from '../lib/cross-env';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
-import { stripComments } from '../lib/strip-comments';
+import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
 import {
   BACKEND_VENDOR_MARKER,
   buildBackendVendorBlock,
@@ -2125,15 +2125,11 @@ export class Server {
     // Scan all consumer files for stale bare-specifier imports that the
     // codemod should have rewritten. A single miss causes a compile error,
     // so catching it here with a clear message saves the user debugging time.
-    const staleImports = this.findStaleImports(
-      dest,
-      '@lenne.tech/nest-server',
-      // Match only real import/export/require specifiers in single/double
-      // quotes — NOT comment references like
-      // `node_modules/@lenne.tech/nest-server/...` (backticks, no keyword),
-      // which the codemod legitimately leaves untouched. A naive substring
-      // match flagged config.env.ts's JSDoc path as a false positive.
-      /(?:from|import|export|require)\s*\(?\s*['"]@lenne\.tech\/nest-server(?:\/[^'"]*)?['"]/,
+    // A specifier, not a text match: a JSDoc path like
+    // `node_modules/@lenne.tech/nest-server/...` is prose and never reaches the AST,
+    // which is what used to make config.env.ts a false positive.
+    const staleImports = this.findStaleImports(dest, (specifier) =>
+      isPackageImport(specifier, '@lenne.tech/nest-server'),
     );
     if (staleImports.length > 0) {
       const { print } = this.toolbox;
@@ -2818,11 +2814,7 @@ export class Server {
     // Scan all consumer files for stale relative imports that still resolve
     // to the (now deleted) src/core/ directory. These would be silent
     // compile errors.
-    const staleRelativeImports = this.findStaleImports(
-      dest,
-      '../core',
-      /['"]\.\.?\/[^'"]*core['"]|from\s+['"]\.\.?\/[^'"]*core['"]/,
-    );
+    const staleRelativeImports = this.findStaleImports(dest, isRelativeCoreImport);
     if (staleRelativeImports.length > 0) {
       const { print } = this.toolbox;
       print.warning(
@@ -2840,11 +2832,10 @@ export class Server {
    * rewritten by a mode conversion. Returns a list of file paths that still
    * contain matches.
    *
-   * @param dest      Project root directory
-   * @param needle    Literal string to search for (used when no regex provided)
-   * @param pattern   Optional regex for more flexible matching
+   * @param dest    Project root directory
+   * @param matches Predicate on a module SPECIFIER, e.g. `(s) => isPackageImport(s, 'pkg')`
    */
-  private findStaleImports(dest: string, needle: string, pattern?: RegExp): string[] {
+  private findStaleImports(dest: string, matches: (specifier: string) => boolean): string[] {
     // Patterns are relative to `dest` and passed to `glob` rather than
     // `filesystem.find`: jetpack concatenates the resolved base path in front of
     // the pattern, and minimatch treats a backslash inside a PATTERN as an escape,
@@ -2864,15 +2855,15 @@ export class Server {
     for (const glob of globs) {
       const files = globSync(glob, { absolute: true, cwd: dest, dot: true, nodir: true });
       for (const file of files) {
-        const raw = this.filesystem.read(file) || '';
-        // Strip comments before matching. The keyword-anchored pattern is not enough on its own:
-        // a docblock that DOCUMENTS the conversion legitimately quotes the very syntax it looks
-        // for — nest-server-starter's `tests/unit/bootstrap-diagnostics.spec.ts` contains
-        // "rewrites `from '@lenne.tech/nest-server'` to a relative `./core` path", which matched
-        // and told the user to rewrite imports that file does not have. A detector that reads
-        // comments as code produces false alarms on exactly the files that explain it best.
-        const content = stripComments(raw);
-        if (pattern ? pattern.test(content) : content.includes(needle)) {
+        // Ask the parser for the file's module specifiers rather than searching its
+        // text. A docblock that DOCUMENTS the conversion quotes the very syntax a text
+        // search looks for — nest-server-starter's `tests/unit/bootstrap-diagnostics.spec.ts`
+        // names `from '@lenne.tech/nest-server'` in prose, and the detector told the user
+        // to rewrite imports that file does not have. Blanking comments first was the old
+        // answer and does not hold (see src/lib/module-specifiers.ts); a comment is not
+        // part of the AST at all.
+        const specifiers = fileImportedSpecifiers(file, (path) => this.filesystem.read(path) || undefined);
+        if (specifiers.some(matches)) {
           stale.push(file.replace(`${dest}/`, ''));
         }
       }

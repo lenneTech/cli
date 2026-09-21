@@ -930,8 +930,9 @@ against the live database.
   solution. "Unrecognised" ≠ "absent".
 - Decide on the **AST**, not on regex-stripped text. A regex has no
   string/template/regex-literal state, so a `/*` or `//` inside a literal erases the
-  guard from the analysed text and triggers the overwrite. (`lib/strip-comments.ts`
-  already solves the comment half with the TS scanner — reuse it or go one better.)
+  guard from the analysed text and triggers the overwrite. A TS *scanner* is not the
+  fix either — see "Blanking comments with a bare `ts.createScanner` quietly stops
+  working" below. Parse.
 - Establish recoverability directly: empty `git status --porcelain` does NOT mean
   "committed", it also means ignored / untracked / not a repo — precisely the cases
   where nothing can be recovered. Use `git ls-files --error-unmatch`, write a `.bak`
@@ -1222,6 +1223,49 @@ env and file probe are injectable, so write the Windows branch as a test on any 
 requirements. The `lt dev` spawn sites (`dev-process.ts`, `dev/up.ts`, …) and
 `dev-service.ts#resolveCaddyBin` are not migrated yet. They follow once the Windows
 laptop test settles process lifecycle and the Caddy mode.
+
+### Blanking comments with a bare `ts.createScanner` quietly stops working <!-- Added: 2026-09-21 -->
+Two detectors used to ask "does this file still import X?" by searching the raw text,
+with comments blanked first — because a docblock that DOCUMENTS the conversion quotes
+the very syntax they look for (`nest-server-starter/tests/unit/bootstrap-diagnostics.spec.ts`
+names `from '@lenne.tech/nest-server'` in prose, and the detector told the user to
+rewrite imports that file does not have).
+
+The blanking was done by the retired `src/lib/strip-comments.ts`: a standalone
+`ts.createScanner` in a plain `scan()` loop. **That loop cannot read a template literal
+with a substitution.** The scanner returns `TemplateHead` at `` `x${ `` and the caller
+must call `reScanTemplateToken()` to continue; nothing did. From that token on the
+scanner was desynchronised, stopped classifying comment trivia as trivia, and every
+comment below passed through verbatim. Two lines reproduce it:
+
+```ts
+const seconds = `${ms / 1000}s`;
+/** quoted `from '@lenne.tech/nest-server'` */   // ← survived stripping
+```
+
+Measured over the exact file sets both call sites scan: degraded in **23 of 76** real
+frontend files (3 of them `.vue`) and **21 of 50** backend files — template literals are
+everywhere. Harmful combinations today: **0**, because no surviving comment happened to
+quote a needle. A live trap, not a live bug.
+
+**Cause-hunting note, because it cost a published claim.** The first diagnosis was "a
+regex literal followed by a division, which a scanner has no parser context to tell
+apart" — read off the offset where blanking stopped, and wrong: bisecting growing
+prefixes of `src/templates/check/check.mjs` shows the regex on line 63 and the division
+on line 66 both handled, and the break at line 67's `` `${s.toFixed(1)}s` ``. Isolated
+per construct: interpolating template → leaks; plain template → clean; division alone →
+clean; regex-then-division → clean. It was the counter-test written from the wrong
+theory that failed and exposed it. **Write the counter-test before publishing the
+cause.**
+
+**The fix was to remove the need, not to improve the stripper** (`src/lib/module-specifiers.ts`):
+`importedSpecifiers` reads specifiers off the AST — `import`, `export … from`,
+`import x = require()`, dynamic `import()` and `require()` — and both call sites now take
+a predicate over a specifier (`isPackageImport`, `isRelativeCoreImport`) instead of a text
+needle. A comment is not part of the AST, so there is nothing to strip and nothing to get
+wrong. A `.vue` SFC is not valid TypeScript as a whole, so `fileImportedSpecifiers` splits
+its `<script>` blocks out and parses each one — skipping `<template>`, where a commented
+import is prose by definition.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

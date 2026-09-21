@@ -58,9 +58,10 @@ type GitRecoverability = 'dirty' | 'recoverable' | 'unknown';
  * Detection runs on the TypeScript AST, not on regex-stripped text. A regex
  * "lexer" has no string/template/regex-literal state, so a `/*` or `//` inside a
  * literal earlier in the file silently erased the guard and triggered the very
- * overwrite this function must avoid. `lib/strip-comments.ts` solves the comment
- * half properly (TS scanner) and would have been the right reuse; the AST solves
- * comments AND nesting in one step, and recognises a backtick require for free.
+ * overwrite this function must avoid. Scanning is not enough either: a standalone
+ * `ts.createScanner` loop desynchronises on the first interpolating template
+ * literal (that is what retired `lib/strip-comments.ts`). The AST solves comments
+ * AND nesting in one step, and recognises a backtick require for free.
  *
  * ## Recoverability
  *
