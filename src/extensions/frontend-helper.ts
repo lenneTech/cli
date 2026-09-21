@@ -1,7 +1,7 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { formatMarkdownTable } from '../lib/markdown-table';
-import { stripComments } from '../lib/strip-comments';
+import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
 import { stripVendorSchemaAugmentation } from '../lib/strip-vendor-schema-augmentation';
 import {
   buildFrontendVendorBlock,
@@ -471,7 +471,7 @@ export class FrontendHelper {
     }
 
     // ── Post-conversion verification ─────────────────────────────────────
-    const stale = this.findStaleFrontendImports(dest, /from\s+['"]\..*\/core['"]/);
+    const stale = this.findStaleFrontendImports(dest, isRelativeCoreImport);
     if (stale.length > 0) {
       const { print } = this.toolbox;
       print.warning(`${stale.length} file(s) still contain relative core imports after npm conversion:`);
@@ -821,10 +821,9 @@ export class FrontendHelper {
     }
 
     // ── Post-conversion verification ─────────────────────────────────────
-    // Only match actual import/from statements, not comments or strings
     const staleImports = this.findStaleFrontendImports(
       dest,
-      /(?:^|\s)(?:import|from)\s+['"][^'"]*@lenne\.tech\/nuxt-extensions/m,
+      (specifier) => isPackageImport(specifier, '@lenne.tech/nuxt-extensions'),
       'app/core/',
     );
     if (staleImports.length > 0) {
@@ -952,20 +951,24 @@ export class FrontendHelper {
   /**
    * Scan consumer files for stale imports matching a pattern.
    */
-  private findStaleFrontendImports(appDir: string, needle: RegExp | string, skipPathContaining?: string): string[] {
+  private findStaleFrontendImports(
+    appDir: string,
+    matches: (specifier: string) => boolean,
+    skipPathContaining?: string,
+  ): string[] {
     const { filesystem } = this.toolbox;
     const allFiles = this.walkConsumerFiles(appDir);
     const stale: string[] = [];
 
     for (const absFile of allFiles) {
       if (skipPathContaining && absFile.includes(skipPathContaining)) continue;
-      // Strip comments first — a docblock that DOCUMENTS the conversion legitimately quotes the
-      // very import syntax this looks for, and would otherwise be reported as a file the user has
-      // to fix by hand. Same false-positive class that hit the backend detector on
-      // nest-server-starter's bootstrap-diagnostics.spec.ts.
-      const content = stripComments(filesystem.read(absFile) || '');
-      const matches = typeof needle === 'string' ? content.includes(needle) : needle.test(content);
-      if (matches) {
+      // Ask the parser for the file's module specifiers instead of searching its text.
+      // A docblock that DOCUMENTS the conversion quotes the very import syntax a text
+      // search looks for, and blanking comments first does not hold either — see
+      // src/lib/module-specifiers.ts. A comment is not part of the AST, so the whole
+      // false-positive class is gone rather than worked around.
+      const specifiers = fileImportedSpecifiers(absFile, (path) => filesystem.read(path) || undefined);
+      if (specifiers.some(matches)) {
         stale.push(absFile.replace(`${appDir}/`, ''));
       }
     }
