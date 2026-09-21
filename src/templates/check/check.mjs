@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @lt-check-wrapper 3.13.0
+// @lt-check-wrapper 3.13.1
 /**
  * Quiet, report-driven wrapper around the project `check` pipeline.
  *
@@ -33,7 +33,7 @@
  * scripts/check-wrapper-version.test.mjs fails when it drifts from
  * package.json. In a generated project it keeps the release it came from.
  */
-import { execSync, spawn } from 'node:child_process';
+import { execFileSync, execSync, spawn } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -84,6 +84,12 @@ function fmtDuration(ms) {
 // binds only to the first simple command, so a step written with `;` or a
 // leading `cd` would be reported as pinned and run unpinned. Both carry the
 // same value, so they cannot disagree.
+//
+// On Windows only the second level exists: cmd.exe has no `VAR=value cmd`
+// syntax and would run the assignment as a command, so `pinCheckBuildDir`
+// writes no prefix there and `stepEnv` carries the pin alone. That is why
+// `stepEnv` keys on the command rather than on the presence of a prefix —
+// scripts/check-windows.test.mjs holds the two together.
 const CHECK_BUILD_DIR = '.nuxt-check';
 
 // Deliberately narrow: a blanket prefix would override the dirs the package.json
@@ -123,8 +129,15 @@ export const PM_INVOCATION = new RegExp(`${PM_INSTALL.source}|${PM_AUDIT.source}
  * existing-pin test is NOT anchored to the start of the string, because the
  * shape the nuxt starter actually ships is `cross-env NUXT_BUILD_DIR=… pnpm …`,
  * which a `^` anchor does not see.
+ *
+ * On Windows there is no prefix at all: `VAR=value cmd` is POSIX shell syntax,
+ * and cmd.exe reads the assignment as the command name ('NUXT_BUILD_DIR' is not
+ * recognized as an internal or external command). `stepEnv` below hands the
+ * same value to the child as a real environment variable, which is what every
+ * step relies on there.
  */
-export function pinCheckBuildDir(cmd) {
+export function pinCheckBuildDir(cmd, platform = process.platform) {
+  if (platform === 'win32') return cmd;
   if (!PM_INVOCATION.test(cmd) || /(^|\s)NUXT_BUILD_DIR=/.test(cmd)) return cmd;
   return `NUXT_BUILD_DIR=${CHECK_BUILD_DIR} ${cmd}`;
 }
@@ -132,13 +145,22 @@ export function pinCheckBuildDir(cmd) {
 /**
  * The environment a step needs beyond the inherited one.
  *
- * Mirrors the textual pin so a shell construct the prefix cannot reach (a `;`
- * separator, a leading `cd`) still gets the isolated build dir. Only for
- * commands the pin applies to — a step that pins itself keeps its own value,
- * because the prefix check already declined to touch it.
+ * Keyed on the COMMAND, not on the textual pin. Two reasons, and the second is
+ * why reading the text was not enough:
+ *
+ *  - a shell construct the prefix cannot reach (a `;` separator, a leading
+ *    `cd`) would be reported as pinned and run unpinned;
+ *  - on Windows `pinCheckBuildDir` writes no prefix, so a predicate that looks
+ *    for one would find nothing and hand the step NO build dir — the pin would
+ *    silently disappear on exactly the platform that cannot use the prefix.
+ *
+ * A step that pins itself keeps its own value: the textual prefix wins over the
+ * inherited environment, and `cross-env` sets the variable itself.
  */
-function stepEnv(step) {
-  return /(^|\s)NUXT_BUILD_DIR=/.test(step.cmd) ? { NUXT_BUILD_DIR: CHECK_BUILD_DIR } : null;
+export function stepEnv(step) {
+  return PM_INVOCATION.test(step.cmd) || /(^|\s)NUXT_BUILD_DIR=/.test(step.cmd)
+    ? { NUXT_BUILD_DIR: CHECK_BUILD_DIR }
+    : null;
 }
 
 // ── step classification ────────────────────────────────────────────────────
@@ -407,11 +429,39 @@ const IDLE_TIMEOUT_MS = (() => {
 // ── command runner ─────────────────────────────────────────────────────────
 const RUNNING = new Set();
 
+/**
+ * How to kill a process tree on this platform.
+ *
+ * Windows has neither `pgrep` nor signals: `process.kill(pid, 'SIGTERM')` there ends the one
+ * process and orphans its children, and `taskkill /T` alone was measured to leave the tree
+ * running ("Die Beendigung dieses Prozesses muss erzwungen werden") with the port still held.
+ * `/F` is what actually frees it, so the whole tree is force-killed in one call.
+ *
+ * The consequence is worth stating, because it is a behaviour difference and not an
+ * implementation detail: on Windows there is no graceful stage. The SIGTERM call already
+ * terminates, so a child's graceful-shutdown hook does not run — a server gets no chance to
+ * close connections or flush. The SIGKILL escalation five seconds later then finds nothing.
+ *
+ * Split out as a pure function so both branches can be tested from either platform.
+ */
+export function killTreePlan(pid, signal, platform = process.platform) {
+  return platform === 'win32' ? { args: ['/PID', String(pid), '/T', '/F'], command: 'taskkill' } : { signal };
+}
+
 // Best-effort kill of a child's whole process tree (sh → pnpm → vitest →
 // fork workers). Killing only the direct child orphans the tree — exactly the
 // zombie workers a deadlock leaves behind. Children are collected via pgrep
 // and killed leaves-first.
 function killTree(child, signal = 'SIGTERM') {
+  const plan = killTreePlan(child.pid, signal);
+  if (plan.command) {
+    try {
+      execFileSync(plan.command, plan.args, { stdio: 'ignore' });
+    } catch {
+      /* already gone, or taskkill refused — nothing further to try */
+    }
+    return;
+  }
   const pids = [];
   const collect = (pid) => {
     pids.push(pid);
