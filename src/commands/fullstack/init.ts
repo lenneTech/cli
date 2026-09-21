@@ -533,7 +533,7 @@ const NewCommand: GluegunCommand = {
     try {
       await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
     } catch (err) {
-      error(`Failed to initialize git: ${err.message}`);
+      ngBaseSpinner.fail(`Failed to initialize git: ${err.message}`);
       failRun(toolbox);
       return;
     }
@@ -543,7 +543,7 @@ const NewCommand: GluegunCommand = {
       try {
         await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
       } catch (err) {
-        error(`Failed to add remote: ${err.message}`);
+        ngBaseSpinner.fail(`Failed to add remote: ${err.message}`);
         failRun(toolbox);
         return;
       }
@@ -573,7 +573,7 @@ const NewCommand: GluegunCommand = {
     }
 
     if (!frontendResult.success) {
-      error(`Failed to set up ${frontend} frontend: ${frontendResult.path}`);
+      ngBaseSpinner.fail(`Failed to set up ${frontend} frontend: ${frontendResult.path}`);
       failRun(toolbox);
       return;
     }
@@ -845,6 +845,16 @@ const NewCommand: GluegunCommand = {
 
       // For tests
       return `new workspace ${projectDir} with ${name}`;
+    } else {
+      // The frontend setup reported success but left no `projects/app`. Without this
+      // branch the command fell off the end here: no message, no failing exit code,
+      // and `ngBaseSpinner` still spinning — which keeps the event loop alive (see
+      // the spinner note in CLAUDE.md), so the process never returned at all.
+      ngBaseSpinner.fail(
+        `${frontend} was set up but "${projectDir}/projects/app" does not exist — cannot continue`,
+      );
+      failRun(toolbox);
+      return;
     }
   },
 };

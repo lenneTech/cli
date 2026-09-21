@@ -19,6 +19,17 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
  * buffered output, including the spinner's own failure message, which is the one
  * line the operator actually needs.
  *
+ * That choice carries a precondition worth stating, because it was violated:
+ * setting `process.exitCode` only ends the process once **the event loop drains**,
+ * and `bin/lt` has no terminal `process.exit()` after `run()`. A running ora
+ * spinner holds the loop open on two counts — its `setInterval` for the animation
+ * and the `stdin.resume()` its stdin discarder performs. So a command that called
+ * `failRun` and returned while a spinner was still spinning did not exit at all:
+ * no message, no prompt back, and the terminal left in raw mode. The remedy is to
+ * stop the spinner, NOT to switch this helper to `process.exit()` — that would
+ * trade a hang for the truncated-output bug this helper exists to avoid.
+ * `__tests__/spinner-lifetime.test.ts` enforces the spinner half.
+ *
  * **Guarded by `fromGluegunMenu`**, like the CLI's other exit-code call sites
  * (`dev test`, `dev tunnel`, `tools ocr`, `workspace-integration`): inside the
  * interactive `lt` menu a command is one step of a longer session, and failing
