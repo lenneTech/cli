@@ -952,6 +952,30 @@ including subdirectories like `./lib/…`, but never outside the asset dir). Der
 directory" is the tempting shortcut and is wrong in the other direction — it turns the
 template dir into a live namespace over the project's `scripts/`, so any file a future
 contributor drops there lands in every user project.
+**Rule 1b — an import is not the only way to need a file.** `resolveCopySet` follows
+IMPORTS. A sibling the wrapper STARTS (`node scripts/x.mjs`, `spawn`, `execSync`) is
+invisible to it: the file is never shipped, the pin test stays green, and only the
+generated project breaks. `spawnedSiblings` (`src/lib/check-template-sync.ts`) therefore
+scans for `scripts/<name>` inside string literals and makes both the sync and
+`verifyCheckTemplate` REFUSE rather than ship it silently — whether such a file belongs
+in the template or whether lt-monorepo should drop the call is a human decision, and a
+wrong automatic answer in either direction is expensive.
+Two things that cost a draft each, both worth keeping:
+- **Skip comment LINES, do not trust `stripComments` here.** These templates document
+  their own behaviour in backtick-quoted prose, and a backtick is a string delimiter to
+  a regex: the first draft reported `bash scripts/audit.sh` out of a comment and would
+  have refused every sync from then on.
+- **`stripComments` silently degrades on this file.** Measured by stripping growing
+  prefixes: a regex literal (`/^projects\//`, line 63) and a division (`ms / 1000`,
+  line 66) are both handled — it breaks at line 67, ``return `${s.toFixed(1)}s` ``. A
+  standalone `ts.createScanner` returns `TemplateHead` at `` `x${ `` and needs
+  `reScanTemplateToken()` to continue; the plain `scan()` loop never calls it, so from
+  the first interpolating template on, every comment passes through verbatim. Since
+  those are everywhere, 23 of 76 real frontend files and 21 of 50 backend files degrade.
+  (An earlier version of this entry blamed the regex/division ambiguity — plausible from
+  the offset alone, disproven by the counter-test built on it. A separate PR removes the
+  helper and has its two call sites read imports from the AST instead.)
+
 **Rule 2 — the set moves ALL-OR-NOTHING.** This is the subtle one, and it bit here:
 the per-file guard *created* the very drift the change existed to prevent. The guard
 skips a file with uncommitted changes, and `git status --porcelain` reports an

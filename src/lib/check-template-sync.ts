@@ -102,6 +102,17 @@ export function syncCheckTemplate(options: SyncCheckTemplateOptions): CheckTempl
       }
     }
 
+    // Refuse rather than ship silently: whether a spawned sibling belongs in the
+    // template or whether lt-monorepo should drop the call is a human decision.
+    const spawned = spawnedSiblings(templateDir, Object.keys(files)).filter((name) => !(name in files));
+    if (spawned.length > 0) {
+      throw new Error(
+        `${ref}: the template starts sibling script(s) it does not ship: ${spawned.join(', ')}. ` +
+          'resolveCopySet only follows imports, so these would be missing in every generated project. ' +
+          'Add them to the wrapper\'s import closure, ship them deliberately, or remove the call upstream.',
+      );
+    }
+
     const pin: CheckTemplatePin = {
       commit,
       files: sortKeys(files),
@@ -117,9 +128,55 @@ export function syncCheckTemplate(options: SyncCheckTemplateOptions): CheckTempl
 }
 
 /**
+ * A sibling script the wrapper SPAWNS rather than imports.
+ *
+ * `resolveCopySet` follows imports, so a `node scripts/x.mjs` — or a spawn/execFile
+ * with such a path — is invisible to it: the file is never shipped, the pin test stays
+ * green, and only the generated project breaks. Matched on the path inside a STRING
+ * rather than on the call shape, so `spawn('node', ['scripts/x.mjs'])`,
+ * `execSync('bash scripts/x.sh')` and a bare `'scripts/x.mjs'` are all covered.
+ *
+ * Comment LINES are skipped before matching. These files document their own behaviour
+ * in backtick-quoted prose, and a backtick is a string delimiter to a regex: the first
+ * draft reported `bash scripts/audit.sh` out of a comment on `check.mjs:103` and would
+ * have refused every sync from then on. `stripComments` is deliberately NOT used —
+ * measured on this very file, it stops blanking at offset 3329, where a regex literal
+ * (`/^projects\//`) is followed by a division (`ms / 1000`) and the standalone
+ * TypeScript scanner, having no parser context, can no longer tell the two apart.
+ */
+const SPAWNED_SIBLING = /['"`](?:[\w./-]+\s+)*(?:\.\/)?scripts\/([\w.-]+\.(?:mjs|cjs|js|sh))/g;
+
+/**
+ * Sibling scripts the template STARTS instead of importing, as `scripts/<name>`.
+ * Deduplicated, and the wrapper's own name is never reported.
+ */
+export function spawnedSiblings(templateDir: string, files: string[]): string[] {
+  const found = new Set<string>();
+  for (const name of files) {
+    const file = join(templateDir, name);
+    if (!existsSync(file)) {
+      continue;
+    }
+    for (const line of readFileSync(file, 'utf8').split('\n')) {
+      const code = line.trimStart();
+      if (code.startsWith('//') || code.startsWith('*') || code.startsWith('/*')) {
+        continue;
+      }
+      for (const [, sibling] of code.matchAll(SPAWNED_SIBLING)) {
+        if (sibling !== 'check.mjs' && sibling !== name) {
+          found.add(sibling);
+        }
+      }
+    }
+  }
+  return [...found].sort();
+}
+
+/**
  * Differences between the template dir and its pin; empty when they match.
- * Checks both directions: every pinned file with its hash, and every file the
- * wrapper actually imports is pinned (a hand-added import would otherwise slip by).
+ * Checks three directions: every pinned file with its hash, every file the wrapper
+ * imports is pinned (a hand-added import would otherwise slip by), and no file is
+ * SPAWNED that nothing ships.
  */
 export function verifyCheckTemplate(templateDir: string, pin: CheckTemplatePin): string[] {
   const problems: string[] = [];
@@ -136,6 +193,15 @@ export function verifyCheckTemplate(templateDir: string, pin: CheckTemplatePin):
   for (const name of actual) {
     if (!(name in pin.files)) {
       problems.push(`${name}: imported by the wrapper but not pinned`);
+    }
+  }
+  for (const sibling of spawnedSiblings(templateDir, [...Object.keys(pin.files), ...actual])) {
+    if (!(sibling in pin.files)) {
+      problems.push(
+        `${sibling}: STARTED by the template (\`node scripts/${sibling}\`) but not shipped — ` +
+          'a generated project would call a file it does not have. Decide deliberately: add it to the ' +
+          'template, or have lt-monorepo drop the call.',
+      );
     }
   }
   const version = readWrapperVersion(join(templateDir, 'check.mjs'));
