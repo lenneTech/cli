@@ -18,25 +18,37 @@
  *
  * ## Scope, and why it is not the whole repo
  *
- * Deliberately the same three files as `fullstack-init-exit-code.test.ts`: the
- * scaffolding commands that hand off to each other. Running the analyser over all
- * of `src/` reports 15 more findings in 7 files, and they are NOT all bugs —
- * `commands/doctor.ts` stops its spinner either inside a `for` loop or in a
- * following `if (!hasConfig)`, which is correct but needs value tracking to prove.
- * A guard that flags correct code gets switched off, so the untriaged files stay
- * out until someone looks at them one by one. `commands/git/squash.ts:146` was
- * checked by hand and IS a real leak — that one is a follow-up, not a false alarm.
+ * The list is explicit and grows by triage, never by glob. It started as the same
+ * three files as `fullstack-init-exit-code.test.ts` — the scaffolding commands that
+ * hand off to each other — and `commands/git/squash.ts` joined once its leak was
+ * confirmed by hand and fixed.
+ *
+ * Running the analyser over all of `src/` reports further findings, and they are NOT
+ * all bugs: `commands/doctor.ts` stops its spinner either inside a `for` loop or in a
+ * following `if (!hasConfig)`, which is correct but needs value tracking to prove. A
+ * guard that flags correct code gets switched off, so a file joins this list only
+ * after someone has read it.
  */
 import { findSpinnerLeaks } from '../src/lib/spinner-lifetime';
 
-describe('spinner lifetimes in the scaffolding commands', () => {
+describe('spinner lifetimes in the covered commands', () => {
   const nodeFs = require('fs');
   const nodePath = require('path');
 
-  const COMMANDS = ['init.ts', 'add-api.ts', 'add-app.ts'];
+  /**
+   * Paths relative to `src/`. `lt git squash` is here for the same reason as the
+   * scaffolders rather than a different one: it runs in the unattended ticket flow,
+   * where a command that neither exits nor reports blocks everything behind it.
+   */
+  const COMMANDS = [
+    'commands/fullstack/init.ts',
+    'commands/fullstack/add-api.ts',
+    'commands/fullstack/add-app.ts',
+    'commands/git/squash.ts',
+  ];
 
   const sourceOf = (file: string): string =>
-    nodeFs.readFileSync(nodePath.join(__dirname, '..', 'src', 'commands', 'fullstack', file), 'utf8');
+    nodeFs.readFileSync(nodePath.join(__dirname, '..', 'src', ...file.split('/')), 'utf8');
 
   test.each(COMMANDS)('%s stops every spinner it starts, on every path', (file) => {
     // Formatted into the compared value rather than passed as a message: Jest's
