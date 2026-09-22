@@ -30,6 +30,7 @@ import { homedir, platform, userInfo } from 'os';
 import { dirname, join } from 'path';
 
 import { paths as caddyPaths } from './caddy';
+import { httpStatus } from './dev-process';
 import { findExecutable, type FindExecutableOptions } from './platform';
 
 /**
@@ -456,14 +457,9 @@ async function installLinux(paths: ServicePaths, changed: boolean, existed: bool
   };
 }
 
-function pingCaddyAdmin(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn('curl', ['-fsS', '-o', '/dev/null', '--max-time', '1', 'http://127.0.0.1:2019/config/'], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-    });
-    child.on('error', () => resolve(false));
-    child.on('close', (code) => resolve(code === 0));
-  });
+/** See `caddy.ts#caddyDaemonRunning` for why this is not a `curl` any more. */
+async function pingCaddyAdmin(): Promise<boolean> {
+  return (await httpStatus('http://127.0.0.1:2019/config/', 1000)) !== null;
 }
 
 function sleep(ms: number): Promise<void> {

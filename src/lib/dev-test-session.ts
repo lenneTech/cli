@@ -41,7 +41,7 @@ import { buildTestIdentity, DevIdentity } from './dev-identity';
 import { type PackageManagerCommand, pickPackageManager } from './dev-package-manager';
 import { addToGitignore, autoPatch } from './dev-patches';
 import {
-  listenSnapshot,
+  probePorts,
   runChildInherit,
   runChildToFile,
   spawnDetached,
@@ -304,10 +304,15 @@ export async function bringUpTestSession(
     appPort = layout.appDir ? allocateInternalPort(TEST_PORT_BASE, taken) : undefined;
 
     const portsToCheck = [apiPort, appPort].filter((p): p is number => typeof p === 'number');
-    const snap = await listenSnapshot(portsToCheck);
+    const probe = await probePorts(portsToCheck);
     for (const p of portsToCheck) {
-      const r = snap.get(p);
-      if (r) throw new Error(`test internal port ${p} already in use by ${r.command} (pid ${r.pid}).`);
+      if (!probe.bound.has(p)) continue;
+      const owner = probe.owners.get(p);
+      throw new Error(
+        owner
+          ? `test internal port ${p} already in use by ${owner.command} (pid ${owner.pid}).`
+          : `test internal port ${p} already in use by an unidentified process.`,
+      );
     }
 
     // Reserve immediately (still under the lock) so a concurrent run sees these

@@ -1341,6 +1341,48 @@ process that never came back**. The silent-success path was the worst of the fou
   the scope per file, after triage. Verified genuine and still open:
   `commands/git/squash.ts:146`.
 
+### A probe that reads an EXIT CODE must be counter-tested on the exit code <!-- Added: 2026-09-22 -->
+`lt dev up` refused to start on Windows with *"caddy daemon is not running"* while
+Caddy was running, listening on :2019 and answering 200. The detector was:
+
+```ts
+spawn('curl', ['-fsS', '-o', '/dev/null', 'http://localhost:2019/config/'])
+// resolve(code === 0)
+```
+
+**`/dev/null` is an ordinary file path on Windows** — the null device is `NUL`. So
+curl made the request, received the 226-byte answer, failed to WRITE it, and exited
+**23 ("client returned ERROR on write")**. The request succeeded; only the discard
+failed. The exit code was the only thing the detector looked at.
+
+Measured, with return values rather than printed output:
+
+```
+curl.exe -fsS -o NUL       http://localhost:2019/config/  →  exit 0
+curl.exe -fsS -o /dev/null http://localhost:2019/config/  →  exit 23
+```
+
+**The lesson is about the counter-test, not about curl.** A first measurement ran
+`curl -s -o /dev/null -w "%{http_code}"`, saw `200` on stdout and concluded the flag
+was harmless — the status line is printed by `-w` regardless. The **exit code was
+never in that measurement**, and it is the only thing the code under test consults.
+An earlier, correct diagnosis was withdrawn on the strength of it.
+
+**Rule: when a check consumes an exit code, the counter-test consumes the exit code.**
+When it consumes stdout, test stdout. Measuring the other channel proves nothing and
+reads exactly like proof. (Fourth instance this week of the measurement method being
+the defect — the others: a Windows-path fixture that translated its paths back to
+POSIX, a guard whose false alarm came from matching a comment, and a `grep` pattern
+that spanned a line wrap.)
+
+**Fix, and why it is not "use `NUL` on Windows":** `httpStatus` (`dev-process.ts`)
+does the request with Node's own `http`/`https` client. No external binary, no null
+device, no exit code to misread — and one probe for all three call sites
+(`waitForHttp`, `caddy.ts#caddyDaemonRunning`, `dev-service.ts#pingCaddyAdmin`), two
+of which had the identical bug. `2>/dev/null` inside `system.run` shell strings is a
+separate, still-open instance of the same family (see
+`windows-support/cli-posix-commands.md`).
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

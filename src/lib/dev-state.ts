@@ -224,14 +224,28 @@ export function detectSlugConflict(slug: string, root: string): null | SlugConfl
   return { otherPath: entry.path, otherSessionAlive };
 }
 
-/** Check whether a process with the given PID is currently alive. */
+/**
+ * Check whether a process with the given PID is currently alive.
+ *
+ * Signal 0 delivers nothing; it only asks the kernel whether the target exists
+ * and may be signalled. The two failures mean opposite things, and collapsing
+ * them was a bug:
+ *
+ * - `ESRCH` — no such process. Dead.
+ * - `EPERM` — **the process EXISTS**, this user may not signal it.
+ *
+ * Reading `EPERM` as dead made `classifyComponentHealth` report a running
+ * component as `dead`, so `lt dev up` killed and restarted a healthy stack.
+ * Reproducible on any POSIX machine: `process.kill(1, 0)` throws `EPERM`.
+ * More likely on Windows, where an elevated shell is ordinary.
+ */
 export function isPidAlive(pid: number): boolean {
   if (!isValidPid(pid)) return false;
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === 'EPERM';
   }
 }
 

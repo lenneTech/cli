@@ -11,7 +11,7 @@ import { writeEnvBridge } from '../../lib/dev-env-bridge';
 import { buildIdentity } from '../../lib/dev-identity';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { addToGitignore, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
-import { killProcessGroup, listenSnapshot, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
+import { killProcessGroup, probePorts, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
 import { deriveDbName, resolveLayout } from '../../lib/dev-project';
 import { collectDevPrunePlan } from '../../lib/dev-prune';
 import {
@@ -256,10 +256,17 @@ const UpCommand: GluegunCommand = {
         const portsToCheck = [apiPortReused ? undefined : apiPort, appPortReused ? undefined : appPort].filter(
           (p): p is number => typeof p === 'number',
         );
-        const snap = await listenSnapshot(portsToCheck);
+        const probe = await probePorts(portsToCheck);
         for (const p of portsToCheck) {
-          const r = snap.get(p);
-          if (r) throw new Error(`Internal port ${p} already in use by ${r.command} (pid ${r.pid}).`);
+          if (!probe.bound.has(p)) continue;
+          const owner = probe.owners.get(p);
+          // The port is occupied either way; naming the occupant is a courtesy the
+          // platform may not be able to extend.
+          throw new Error(
+            owner
+              ? `Internal port ${p} already in use by ${owner.command} (pid ${owner.pid}).`
+              : `Internal port ${p} already in use by an unidentified process.`,
+          );
         }
 
         // Reserve immediately so a concurrent `lt dev up` sees these as taken.
@@ -292,18 +299,18 @@ const UpCommand: GluegunCommand = {
     // false-positive the `starting` state exists to prevent).
     const hasApi = Boolean(layout.apiDir && existsSync(join(layout.apiDir, 'package.json')) && apiPort);
     const hasApp = Boolean(layout.appDir && existsSync(join(layout.appDir, 'package.json')) && appPort);
-    const healthSnap = await listenSnapshot([apiPort, appPort].filter((p): p is number => typeof p === 'number'));
+    const healthProbe = await probePorts([apiPort, appPort].filter((p): p is number => typeof p === 'number'));
     const apiHealth: ComponentHealth | undefined = hasApi
       ? classifyComponentHealth({
           pid: existingSession?.pids.api,
-          portBound: !!apiPort && healthSnap.has(apiPort),
+          portBound: !!apiPort && healthProbe.bound.has(apiPort),
           startedAt: existingSession?.startedAt,
         })
       : undefined;
     const appHealth: ComponentHealth | undefined = hasApp
       ? classifyComponentHealth({
           pid: existingSession?.pids.app,
-          portBound: !!appPort && healthSnap.has(appPort),
+          portBound: !!appPort && healthProbe.bound.has(appPort),
           startedAt: existingSession?.startedAt,
         })
       : undefined;
@@ -401,8 +408,20 @@ const UpCommand: GluegunCommand = {
     // first start (no prev PID, port free).
     const reclaimPort = async (prevPid: number | undefined, port: number | undefined, health: ComponentHealth) => {
       if (health === 'crashed' && prevPid) await terminateProcessGroup(prevPid);
-      const bound = port ? healthSnap.get(port) : undefined;
-      if (bound?.pid) await terminateProcessGroup(bound.pid);
+      if (!port || !healthProbe.bound.has(port)) return;
+      const owner = healthProbe.owners.get(port);
+      if (owner?.pid) {
+        await terminateProcessGroup(owner.pid);
+        return;
+      }
+      // Occupied, but the platform could not name the occupant — so there is
+      // nothing to terminate. Saying so beats respawning onto a taken port and
+      // letting the component fail with an address-in-use nobody connects to this.
+      warning(
+        `port ${port} is in use and the occupant could not be identified` +
+          `${healthProbe.ownersUnavailable ? ' (no lsof/netstat available)' : ''} — ` +
+          'not reclaiming it; the component may fail to bind.',
+      );
     };
 
     if (hasApi && layout.apiDir && apiPort) {

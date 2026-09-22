@@ -4,15 +4,62 @@
  * - `spawnDetached`: detached child whose stdout/stderr go to a log file.
  *   The Claude Code session does NOT block waiting for it, and `lt dev down`
  *   can SIGTERM the entire process group via `process.kill(-pid, …)`.
- * - `listenSnapshot` / `checkPortInUse`: thin lsof wrappers used by
- *   `lt dev doctor` to detect port collisions.
+ * - `probePorts`: which of a set of ports has a listener (a TCP connect, so it
+ *   answers on every platform) and — where the platform can say — who holds it.
  */
 import { ChildProcess, spawn } from 'child_process';
 import { closeSync, mkdirSync, openSync, renameSync, statSync, unlinkSync } from 'fs';
+import { request as httpRequest } from 'http';
+import { request as httpsRequest } from 'https';
+import { Socket } from 'net';
 import { dirname } from 'path';
 
 import { isPidAlive, isValidPid } from './dev-state';
-import { spawnCmd } from './platform';
+import { isWindows, spawnCmd } from './platform';
+
+/**
+ * Who is bound to each of `ports`, and whether that could be established at all.
+ *
+ * Two questions, deliberately separated, because they have different failure
+ * modes and different consumers:
+ *
+ * - **`bound`** — "is something listening?" Answered by a TCP connect to
+ *   127.0.0.1 from Node itself. No external tool, identical on every platform,
+ *   and it cannot fail open: a connect either succeeds or it does not.
+ * - **`owners`** — "which process?" Needs a tool (`lsof`, `netstat`), so it can
+ *   be unavailable. Only three call sites care: the two "port already in use by
+ *   X" messages and `reclaimPort`, which KILLS the pid it finds.
+ *
+ * The predecessor answered both from one `lsof` call and returned an EMPTY MAP
+ * when lsof was missing — indistinguishable from "nothing is bound". Every
+ * component then classified as `crashed` and `lt dev up` restarted a perfectly
+ * healthy stack; `reclaimPort` silently reclaimed nothing and the respawn landed
+ * on an occupied port. `ownersUnavailable` exists so a caller can say "I could
+ * not tell" instead of acting on an absence of evidence.
+ */
+/** stdout of a command, or null when it could not run at all. */
+export type CaptureStdout = (command: string, args: string[]) => Promise<null | string>;
+
+export interface PortProbe {
+  /** Ports with a listener. Reliable on every platform. */
+  bound: Set<number>;
+  /** Owning process per bound port, where the platform could name it. */
+  owners: Map<number, { command: string; pid: number }>;
+  /** True when the owner lookup could not run — NOT "no owners found". */
+  ownersUnavailable: boolean;
+}
+
+/**
+ * Injection points, so both owner-lookup branches — and the "no tool available"
+ * path — stay assertable from any host. A branch only the other platform runs is
+ * an unchecked branch; the same reasoning as `platform.ts`.
+ */
+export interface PortProbeOptions {
+  /** Default: spawn the command and collect stdout. */
+  capture?: CaptureStdout;
+  /** Default: `process.platform`. */
+  platform?: NodeJS.Platform;
+}
 
 export interface RotateResult {
   /** Path the previous log was moved to (only set when `rotated`). */
@@ -28,36 +75,11 @@ export interface RunChildOptions {
   env: NodeJS.ProcessEnv;
 }
 
+
 export interface SpawnOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   logFile: string;
-}
-
-/**
- * Check via `lsof` whether a single TCP port is bound by a LISTEN socket.
- * Returns null if lsof is unavailable.
- */
-export async function checkPortInUse(port: number): Promise<null | { command?: string; inUse: boolean; pid?: number }> {
-  return new Promise((resolve) => {
-    const child = spawn('lsof', ['-iTCP', `-sTCP:LISTEN`, '-nP', `-iTCP:${port}`], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let errored = false;
-    child.stdout?.on('data', (b) => (stdout += String(b)));
-    child.on('error', () => (errored = true));
-    child.on('close', () => {
-      if (errored) return resolve(null);
-      const lines = stdout.split('\n').filter((l) => l && !l.startsWith('COMMAND'));
-      const matching = lines.find(
-        (l) => new RegExp(`[: ]${port}\\s.*\\(LISTEN\\)`).test(l) || l.includes(`:${port} (LISTEN)`),
-      );
-      if (!matching) return resolve({ inUse: false });
-      const parts = matching.trim().split(/\s+/);
-      resolve({ command: parts[0], inUse: true, pid: Number(parts[1]) });
-    });
-  });
 }
 
 /**
@@ -98,6 +120,78 @@ export function detachedSpawnCommand(
   return { args: ['-c', `${raiseFdLimit}; exec "$0" "$@"`, cmd, ...args], command: '/bin/sh' };
 }
 
+/**
+ * HTTP status of `url`, or null when the request could not be made at all.
+ *
+ * Node's own client rather than `curl`. That removes three separate hazards at
+ * once, all of which were live:
+ *
+ * - **`curl -o /dev/null` fails on Windows.** `/dev/null` is a file path there,
+ *   not the null device (`NUL` is), so curl exits **23 — "client returned ERROR
+ *   on write"** *after* a perfectly successful request. Any caller reading the
+ *   exit code concluded the service was down. That is exactly what made
+ *   `lt dev up` refuse with "caddy daemon is not running" against a Caddy that
+ *   was running and answering 200.
+ * - **`curl` is an external dependency** we do not need.
+ * - a spawn per probe, where a socket does.
+ *
+ * TLS verification is off for https URLs, matching the `-k` this replaces: the
+ * targets are local Caddy vhosts with a private CA.
+ */
+export function httpStatus(url: string, timeoutMs = 2000): Promise<null | number> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: null | number): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    try {
+      const parsed = new URL(url);
+      const client = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
+      const request = client(url, { rejectUnauthorized: false, timeout: timeoutMs }, (response) => {
+        // The body is irrelevant; draining it lets the socket close promptly.
+        response.resume();
+        done(response.statusCode ?? null);
+      });
+      request.on('timeout', () => {
+        request.destroy();
+        done(null);
+      });
+      request.on('error', () => done(null));
+      request.end();
+    } catch {
+      done(null);
+    }
+  });
+}
+
+/**
+ * True when something accepts a TCP connection on `127.0.0.1:port`.
+ *
+ * 127.0.0.1 rather than `localhost`: the components bind it explicitly
+ * (`dev-env.ts` sets `HOST`/`NITRO_HOST`) and Caddy proxies to it, while
+ * `localhost` can resolve to `::1` first and miss an IPv4-only listener — the
+ * trap `caddy.ts` already documents for the reverse proxy.
+ */
+export function isPortBound(port: number, timeoutMs = 700): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new Socket();
+    let settled = false;
+    const done = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
+    socket.connect(port, '127.0.0.1');
+  });
+}
+
 /** Send SIGTERM to a detached process group; falls back to single-PID kill. */
 export function killProcessGroup(pid: number): boolean {
   if (!isValidPid(pid)) return false;
@@ -115,38 +209,26 @@ export function killProcessGroup(pid: number): boolean {
 }
 
 /**
- * Multi-port lsof snapshot — single subprocess for N ports.
- * Returns map<port, {command, pid}> for ports that are in use.
+ * Probe `ports` for listeners and, where the platform can tell, their owners.
+ *
+ * The connects run in parallel — one round trip to loopback, not N.
  */
-export async function listenSnapshot(ports: number[]): Promise<Map<number, { command: string; pid: number }>> {
-  const result = new Map<number, { command: string; pid: number }>();
-  if (ports.length === 0) return result;
-  return new Promise((resolve) => {
-    const portArgs = ports.flatMap((p) => ['-iTCP', `-iTCP:${p}`]);
-    const child = spawn('lsof', ['-sTCP:LISTEN', '-nP', ...portArgs], { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let errored = false;
-    child.stdout?.on('data', (b) => (stdout += String(b)));
-    child.on('error', () => (errored = true));
-    child.on('close', () => {
-      if (errored) return resolve(result);
-      for (const line of stdout.split('\n')) {
-        if (!line || line.startsWith('COMMAND')) continue;
-        const parts = line.trim().split(/\s+/);
-        if (parts.length < 9) continue;
-        const command = parts[0];
-        const pid = Number(parts[1]);
-        const name = parts[8];
-        const portMatch = name.match(/:(\d+)$/);
-        if (!portMatch) continue;
-        const port = Number(portMatch[1]);
-        if (ports.includes(port) && /\(LISTEN\)/.test(line)) {
-          result.set(port, { command, pid });
-        }
-      }
-      resolve(result);
-    });
-  });
+export async function probePorts(ports: number[], options: PortProbeOptions = {}): Promise<PortProbe> {
+  const unique = [...new Set(ports)];
+  if (unique.length === 0) {
+    return { bound: new Set(), owners: new Map(), ownersUnavailable: false };
+  }
+
+  const results = await Promise.all(unique.map(async (port) => [port, await isPortBound(port)] as const));
+  const bound = new Set(results.filter(([, up]) => up).map(([port]) => port));
+
+  if (bound.size === 0) {
+    // Nothing to attribute; skip the subprocess entirely.
+    return { bound, owners: new Map(), ownersUnavailable: false };
+  }
+
+  const owners = await portOwners([...bound], options);
+  return { bound, owners: owners ?? new Map(), ownersUnavailable: owners === null };
 }
 
 /**
@@ -362,31 +444,121 @@ export function waitForHttp(
 ): Promise<boolean> {
   const start = Date.now();
   return new Promise((resolve) => {
-    const tick = () => {
-      const child = spawn('curl', ['-sk', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '2', url], {
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
-      let status = '';
-      child.stdout?.on('data', (b) => (status += String(b)));
-      const retry = () => {
+    const tick = (): void => {
+      httpStatus(url, 2000).then((status) => {
+        if (status !== null && ready(status)) {
+          return resolve(true);
+        }
         // Order matters: a LAST probe already ran above, so a server that came up
         // just before dying is still reported ready. Only then does `abort` end it.
-        if (Date.now() - start > timeoutMs || abort()) return resolve(false);
-        setTimeout(tick, 500);
-      };
-      child.on('close', () => {
-        const code = Number(status.trim());
-        // `000` (curl could not connect) parses to 0 → never "ready".
-        if (Number.isFinite(code) && code > 0 && ready(code)) return resolve(true);
-        retry();
+        if (abort()) {
+          return resolve(false);
+        }
+        if (Date.now() - start >= timeoutMs) {
+          return resolve(false);
+        }
+        setTimeout(tick, 250);
       });
-      child.on('error', retry);
     };
     tick();
+  });
+}
+
+/** stdout of a command, or null when it could not run. */
+function captureStdout(command: string, args: string[]): Promise<null | string> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let stdout = '';
+    let errored = false;
+    child.stdout?.on('data', (b) => (stdout += String(b)));
+    child.on('error', () => (errored = true));
+    child.on('close', () => resolve(errored ? null : stdout));
   });
 }
 
 /** Promise-based delay used by the graceful→forced termination escalation. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** `lsof` path. Parses the positional column layout. */
+async function lsofPortOwners(
+  ports: number[],
+  capture: CaptureStdout,
+): Promise<Map<number, { command: string; pid: number }> | null> {
+  const portArgs = ports.flatMap((p) => ['-iTCP', `-iTCP:${p}`]);
+  const stdout = await capture('lsof', ['-sTCP:LISTEN', '-nP', ...portArgs]);
+  if (stdout === null) return null;
+
+  const result = new Map<number, { command: string; pid: number }>();
+  for (const line of stdout.split('\n')) {
+    if (!line || line.startsWith('COMMAND')) continue;
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 9) continue;
+    const portMatch = parts[8].match(/:(\d+)$/);
+    if (!portMatch) continue;
+    const port = Number(portMatch[1]);
+    if (ports.includes(port) && /\(LISTEN\)/.test(line)) {
+      result.set(port, { command: parts[0], pid: Number(parts[1]) });
+    }
+  }
+  return result;
+}
+
+/**
+ * Owning process per port, or null when the lookup could not run.
+ *
+ * POSIX asks `lsof`. Windows asks `netstat -ano` for the pid and `tasklist` for
+ * the name — both ship with the OS and neither needs PowerShell, so this works
+ * in cmd.exe too.
+ */
+async function portOwners(
+  ports: number[],
+  options: PortProbeOptions,
+): Promise<Map<number, { command: string; pid: number }> | null> {
+  const capture = options.capture ?? captureStdout;
+  return isWindows(options.platform) ? windowsPortOwners(ports, capture) : lsofPortOwners(ports, capture);
+}
+
+/** `netstat -ano` + `tasklist` path. */
+async function windowsPortOwners(
+  ports: number[],
+  capture: CaptureStdout,
+): Promise<Map<number, { command: string; pid: number }> | null> {
+  const netstat = await capture('netstat', ['-ano']);
+  if (netstat === null) return null;
+
+  const pidByPort = new Map<number, number>();
+  for (const line of netstat.split('\n')) {
+    // `  TCP    127.0.0.1:4000   0.0.0.0:0   LISTENING   1234`
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || !/^TCP$/i.test(parts[0]) || !/^LISTENING$/i.test(parts[3])) continue;
+    const portMatch = parts[1].match(/:(\d+)$/);
+    const pid = Number(parts[4]);
+    if (!portMatch || !Number.isInteger(pid)) continue;
+    const port = Number(portMatch[1]);
+    if (ports.includes(port) && !pidByPort.has(port)) pidByPort.set(port, pid);
+  }
+
+  const names = await windowsProcessNames([...new Set(pidByPort.values())], capture);
+  const result = new Map<number, { command: string; pid: number }>();
+  for (const [port, pid] of pidByPort) {
+    result.set(port, { command: names.get(pid) ?? String(pid), pid });
+  }
+  return result;
+}
+
+/** Image name per pid via `tasklist`, best effort — an unnamed pid is still a pid. */
+async function windowsProcessNames(pids: number[], capture: CaptureStdout): Promise<Map<number, string>> {
+  const names = new Map<number, string>();
+  if (pids.length === 0) return names;
+  // `/FO CSV /NH` keeps the output parseable without a header line.
+  const filters = pids.flatMap((pid) => ['/FI', `PID eq ${pid}`]);
+  const out = await capture('tasklist', [...filters, '/FO', 'CSV', '/NH']);
+  if (out === null) return names;
+  for (const line of out.split('\n')) {
+    const match = line.match(/^"([^"]+)","(\d+)"/);
+    if (match) names.set(Number(match[2]), match[1]);
+  }
+  return names;
 }
