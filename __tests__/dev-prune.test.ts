@@ -286,3 +286,55 @@ describe('dev-prune', () => {
     });
   });
 });
+
+describe('registry entries with a relative path (written before the path was absolutised)', () => {
+  const { planRegistryPrune } = require('../src/lib/dev-prune');
+  const nodeOs = require('os');
+  const nodeFs = require('fs');
+  const nodePath = require('path');
+
+  const registry = (projects: Record<string, { dbName?: string; path: string }>) => ({
+    projects: Object.fromEntries(
+      Object.entries(projects).map(([slug, e]) => [
+        slug,
+        { dbName: e.dbName ?? `${slug}-local`, internalPorts: {}, path: e.path, subdomains: {} },
+      ]),
+    ),
+    version: 1,
+  });
+
+  it('does NOT declare a live project orphaned just because its path is relative', () => {
+    // The consequence that actually hurts. `lt fullstack init` wrote
+    // `path: "t-3"` — a bare segment — so `existsSync('t-3')` answers about the
+    // cwd of whatever process happens to be running. From anywhere but the
+    // parent directory that is false, the entry was pruned, and the project lost
+    // its slug and its reserved internal ports to the next project that asked.
+    //
+    // Deliberately run from a directory where the relative name does NOT exist,
+    // which is the situation that produced the bug.
+    const elsewhere = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'lt-elsewhere-'));
+    const previous = process.cwd();
+    try {
+      process.chdir(elsewhere);
+      expect(planRegistryPrune(registry({ 't-3': { path: 't-3' } }))).toEqual([]);
+    } finally {
+      process.chdir(previous);
+      nodeFs.rmSync(elsewhere, { force: true, recursive: true });
+    }
+  });
+
+  it('still prunes an absolute path that is genuinely gone', () => {
+    // The guard must not turn into "never prune anything".
+    const gone = nodePath.join(nodeOs.tmpdir(), 'lt-definitely-not-here-xyz');
+    expect(planRegistryPrune(registry({ dead: { path: gone } }))).toEqual(['dead']);
+  });
+
+  it('keeps pruning a live absolute entry out of the plan', () => {
+    const live = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'lt-live-'));
+    try {
+      expect(planRegistryPrune(registry({ live: { path: live } }))).toEqual([]);
+    } finally {
+      nodeFs.rmSync(live, { force: true, recursive: true });
+    }
+  });
+});

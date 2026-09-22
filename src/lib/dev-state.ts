@@ -23,7 +23,7 @@ import {
   writeFileSync,
 } from 'fs';
 import { homedir } from 'os';
-import { dirname, join } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 
 /**
  * Health of a single supervised dev component (api or app).
@@ -217,7 +217,13 @@ export function clearSession(root: string, sessionFile: string = SESSION_FILE): 
  */
 export function detectSlugConflict(slug: string, root: string): null | SlugConflict {
   const entry = loadRegistry().projects[slug];
-  if (!entry?.path || sameRealPath(entry.path, root)) return null;
+  // A relative stored path cannot be compared to anything: its base is lost, so
+  // it names a different directory from every cwd. Entries like that were written
+  // by `lt fullstack init` before the path was absolutised, and comparing one
+  // produced "slug 't-5' is also registered to another checkout: t-5". Claiming a
+  // conflict we cannot establish is worse than staying quiet — the next registry
+  // write from inside the project repairs the entry anyway.
+  if (!entry?.path || !isVerifiablePath(entry.path) || sameRealPath(entry.path, root)) return null;
   const session = loadSession(entry.path);
   const otherSessionAlive =
     !!session && [session.pids.api, session.pids.app].some((p) => typeof p === 'number' && isPidAlive(p));
@@ -238,6 +244,22 @@ export function isPidAlive(pid: number): boolean {
 /** Validate a PID — positive integer, within plausible range. */
 export function isValidPid(pid: unknown): pid is number {
   return typeof pid === 'number' && Number.isInteger(pid) && pid > 0 && pid < 4_194_304;
+}
+
+/**
+ * True when a stored registry path can be checked against the file system.
+ *
+ * A relative path in the registry has lost the directory it was relative TO, so
+ * `existsSync` / `realpathSync` answer about whatever directory the current
+ * process started in. Every such answer is meaningless, and two of them were
+ * actively harmful: `planRegistryPrune` reclaimed a live project's slug and
+ * reserved ports, and `detectSlugConflict` reported a project as colliding with
+ * itself. Legacy entries are therefore treated as "cannot determine" rather than
+ * as "gone"; running any `lt dev` command inside the project rewrites the entry
+ * with an absolute path and clears the condition.
+ */
+export function isVerifiablePath(storedPath: string | undefined): storedPath is string {
+  return !!storedPath && isAbsolute(storedPath);
 }
 
 /** Load the central registry; returns an empty one if missing or unreadable. */

@@ -9,7 +9,7 @@
 import type { GluegunFilesystem } from 'gluegun';
 
 import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 
 import { detectStandaloneKind } from './dev-identity';
 import { detectSubProjectContext, detectWorkspaceLayout, findWorkspaceRoot } from './workspace-integration';
@@ -113,7 +113,20 @@ export function deriveTicketDbName(devDbName: string, ticketId: string): string 
  * and build allowlists there), and an npm workspace may use `packages/*`
  * rather than the lt `projects/*` convention.
  */
-export function resolveLayout(cwd: string, filesystem: GluegunFilesystem): DevProjectLayout {
+export function resolveLayout(cwdOrRelative: string, filesystem: GluegunFilesystem): DevProjectLayout {
+  // Absolutised HERE rather than at the call sites, so no caller can inherit the
+  // trap. `lt fullstack init` passes `kebabCase(name)` — a bare relative segment
+  // — and the resulting `root` was written verbatim into `~/.lenneTech/projects.json`
+  // as the project's `path`. Everything that later asks "does this checkout still
+  // exist?" then resolved it against whatever directory the process happened to
+  // start in: `planRegistryPrune` declared a live project orphaned and reclaimed
+  // its slug and reserved ports, and `detectSlugConflict` produced the nonsense
+  // "slug 't-5' is also registered to another checkout: t-5".
+  //
+  // Not Windows-specific. It surfaced there because those projects were created
+  // by `lt fullstack init`; on macOS the entries happen to come from `lt dev up`
+  // run inside the project, where the cwd is already absolute.
+  const cwd = resolve(cwdOrRelative);
   const subContext = detectSubProjectContext(cwd, filesystem);
   if (subContext) return monorepoLayout(subContext.workspaceRoot);
 

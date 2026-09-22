@@ -36,6 +36,7 @@ import { join } from 'path';
 import type { ProjectsRegistry } from './dev-state';
 
 import { deriveTestDbName } from './dev-project';
+import { isVerifiablePath } from './dev-state';
 import { deriveTicketId, isReservedTicketId, isTicketScopedDb, listWorktrees } from './dev-ticket';
 
 /** Branch prefix `lt ticket start` creates worktrees on. */
@@ -224,9 +225,17 @@ export function planOrphanTicketDbSweep(args: {
  * never auto-dropped).
  */
 export function planRegistryPrune(registry: ProjectsRegistry): string[] {
-  return Object.entries(registry.projects)
-    .filter(([, entry]) => entry.path && !existsSync(entry.path))
-    .map(([key]) => key);
+  return (
+    Object.entries(registry.projects)
+      // A relative stored path is not evidence of anything: `existsSync` resolves
+      // it against the current process's cwd, so a perfectly live project reads as
+      // gone from any other directory — and pruning it reclaims its slug and its
+      // reserved internal ports for the next project that asks. "Cannot verify" is
+      // not "absent"; these are left alone until a registry write from inside the
+      // project replaces the path with an absolute one.
+      .filter(([, entry]) => isVerifiablePath(entry.path) && !existsSync(entry.path))
+      .map(([key]) => key)
+  );
 }
 
 /**
@@ -256,13 +265,16 @@ export function planSmokeTestDbSweep(args: { observedDbNames: null | string[]; r
     ([key, entry]) =>
       (key === SMOKE_TEST_DB_PREFIX || key.startsWith(`${SMOKE_TEST_DB_PREFIX}-`)) &&
       entry.path &&
-      existsSync(entry.path),
+      (!isVerifiablePath(entry.path) || existsSync(entry.path)),
   );
   if (smokeRunLive) return [];
 
   const protectedNames = new Set<string>();
   for (const [, entry] of entries) {
-    if (entry.dbName && entry.path && existsSync(entry.path)) {
+    // `!isVerifiablePath` → we cannot prove the checkout is gone, so the database
+    // keeps its protection. Erring the other way would expose a live project's DB
+    // to the orphan sweep on the strength of a path we know we cannot read.
+    if (entry.dbName && entry.path && (!isVerifiablePath(entry.path) || existsSync(entry.path))) {
       protectedNames.add(entry.dbName);
       protectedNames.add(deriveTestDbName(entry.dbName));
     }
