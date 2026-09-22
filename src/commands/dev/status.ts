@@ -2,7 +2,7 @@ import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
-import { listenSnapshot } from '../../lib/dev-process';
+import { probePorts } from '../../lib/dev-process';
 import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import {
   classifyComponentHealth,
@@ -54,7 +54,7 @@ const StatusCommand: GluegunCommand = {
           if (e.internalPorts.api) allPorts.push(e.internalPorts.api);
           if (e.internalPorts.app) allPorts.push(e.internalPorts.app);
         }
-        const snap = await listenSnapshot(allPorts);
+        const probe = await probePorts(allPorts);
         for (const slug of slugs) {
           const e = reg.projects[slug];
           const session = loadSession(e.path);
@@ -65,7 +65,7 @@ const StatusCommand: GluegunCommand = {
             comps.push(
               classifyComponentHealth({
                 pid: session?.pids.api,
-                portBound: snap.has(e.internalPorts.api),
+                portBound: probe.bound.has(e.internalPorts.api),
                 startedAt: session?.startedAt,
               }),
             );
@@ -74,7 +74,7 @@ const StatusCommand: GluegunCommand = {
             comps.push(
               classifyComponentHealth({
                 pid: session?.pids.app,
-                portBound: snap.has(e.internalPorts.app),
+                portBound: probe.bound.has(e.internalPorts.app),
                 startedAt: session?.startedAt,
               }),
             );
@@ -187,16 +187,16 @@ const StatusCommand: GluegunCommand = {
       const ports = [entry.internalPorts.api, entry.internalPorts.app].filter(
         (p): p is number => typeof p === 'number',
       );
-      const snap = await listenSnapshot(ports);
+      const probe = await probePorts(ports);
 
       const apiHealth = classifyComponentHealth({
         pid: session.pids.api,
-        portBound: entry.internalPorts.api ? snap.has(entry.internalPorts.api) : false,
+        portBound: entry.internalPorts.api ? probe.bound.has(entry.internalPorts.api) : false,
         startedAt: session.startedAt,
       });
       const appHealth = classifyComponentHealth({
         pid: session.pids.app,
-        portBound: entry.internalPorts.app ? snap.has(entry.internalPorts.app) : false,
+        portBound: entry.internalPorts.app ? probe.bound.has(entry.internalPorts.app) : false,
         startedAt: session.startedAt,
       });
       const label = (health: ComponentHealth): string =>
@@ -221,8 +221,15 @@ const StatusCommand: GluegunCommand = {
         info('');
         info(colors.bold('  Live upstream state'));
         for (const p of ports) {
-          const r = snap.get(p);
-          info(`    ${p}: ${r ? colors.green(`bound to ${r.command} (pid ${r.pid})`) : colors.dim('free')}`);
+          if (!probe.bound.has(p)) {
+            info(`    ${p}: ${colors.dim('free')}`);
+            continue;
+          }
+          const owner = probe.owners.get(p);
+          // "bound" is measured; the occupant's name is not always obtainable.
+          info(
+            `    ${p}: ${owner ? colors.green(`bound to ${owner.command} (pid ${owner.pid})`) : colors.green('bound')}`,
+          );
         }
       }
 

@@ -15,11 +15,11 @@
  * Lifecycle is owned by `lt dev install` (one-time setup) and
  * `lt dev up`/`lt dev down` (per-project block management).
  */
-import { spawn } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
+import { httpStatus } from './dev-process';
 import { spawnCmd } from './platform';
 
 /** Mapping from public hostname to internal upstream port. */
@@ -45,15 +45,21 @@ export async function caddyAvailable(): Promise<boolean> {
   return result.ok;
 }
 
-/** Detect whether the Caddy admin endpoint is reachable (i.e. a daemon is running). */
+/**
+ * Detect whether the Caddy admin endpoint is reachable (i.e. a daemon is running).
+ *
+ * This asked `curl -fsS -o /dev/null`, and on Windows that reported a running
+ * Caddy as down: `/dev/null` is an ordinary file path there, so curl completed
+ * the request, received the 226-byte answer, failed to WRITE it, and exited 23.
+ * The exit code was all this function looked at. Measured on the laptop against a
+ * Caddy that was listening on :2019 and answering 200.
+ *
+ * `127.0.0.1` rather than `localhost` for consistency with the reverse-proxy
+ * upstreams (see the note above `renderProjectBlock`) — not because `localhost`
+ * was the fault here; it was measured to resolve correctly on that machine.
+ */
 export async function caddyDaemonRunning(): Promise<boolean> {
-  return new Promise((resolve) => {
-    const child = spawn('curl', ['-fsS', '-o', '/dev/null', 'http://localhost:2019/config/'], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-    });
-    child.on('error', () => resolve(false));
-    child.on('close', (code) => resolve(code === 0));
-  });
+  return (await httpStatus('http://127.0.0.1:2019/config/', 2000)) !== null;
 }
 
 /** Read the current Caddyfile (or empty string). */

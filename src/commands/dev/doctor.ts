@@ -3,7 +3,7 @@ import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, caddyDaemonRunning, paths as caddyPaths, validateCaddyfile } from '../../lib/caddy';
-import { checkPortInUse } from '../../lib/dev-process';
+import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
 import { getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
@@ -81,15 +81,35 @@ const DoctorCommand: GluegunCommand = {
     }
 
     // 4. Port 80 / 443 free or held by Caddy
+    //
+    // "Is it bound" is now a TCP connect, so it answers on every platform — the
+    // old `lsof`-only probe degraded to a WARN on Windows and doctor then exited
+    // 0 while nothing worked. Only the OCCUPANT'S NAME can still be unavailable,
+    // and that is reported as its own state rather than folded into either
+    // verdict: a bound port we cannot attribute is not "free", and it is not
+    // proof that Caddy is blocked either.
+    const portProbe = await probePorts([80, 443]);
     for (const port of [80, 443]) {
-      const r = await checkPortInUse(port);
-      if (r === null) line('WARN', colors.yellow, `lsof unavailable — cannot probe port ${port}`);
-      else if (!r.inUse) line('OK', colors.green, `port ${port} free`);
-      else if (r.command === 'caddy') line('OK', colors.green, `port ${port} held by caddy (pid ${r.pid})`);
-      else {
-        line('FAIL', colors.red, `port ${port} held by ${r.command} (pid ${r.pid}) — Caddy cannot bind`);
-        fails++;
+      if (!portProbe.bound.has(port)) {
+        line('OK', colors.green, `port ${port} free`);
+        continue;
       }
+      const owner = portProbe.owners.get(port);
+      if (!owner) {
+        line(
+          'WARN',
+          colors.yellow,
+          `port ${port} is in use but the occupant could not be identified` +
+            `${portProbe.ownersUnavailable ? ' (no lsof/netstat available)' : ''}`,
+        );
+        continue;
+      }
+      if (owner.command.toLowerCase().startsWith('caddy')) {
+        line('OK', colors.green, `port ${port} held by caddy (pid ${owner.pid})`);
+        continue;
+      }
+      line('FAIL', colors.red, `port ${port} held by ${owner.command} (pid ${owner.pid}) — Caddy cannot bind`);
+      fails++;
     }
 
     // 5. *.localhost resolves to 127.0.0.1

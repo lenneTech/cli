@@ -328,3 +328,250 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
     }
   });
 });
+
+describe('probePorts', () => {
+  const { isPortBound, probePorts } = require('../src/lib/dev-process');
+  const nodeNet = require('net');
+
+  const listen = (): Promise<{ close: () => void; port: number }> =>
+    new Promise((resolve) => {
+      const server = nodeNet.createServer();
+      // Drop every accepted socket at once: `server.close()` stops new
+      // connections but waits for open ones, which left Jest with an open handle.
+      server.on('connection', (socket: { destroy: () => void }) => socket.destroy());
+      server.unref();
+      server.listen(0, '127.0.0.1', () =>
+        resolve({ close: () => server.close(), port: (server.address() as { port: number }).port }),
+      );
+    });
+
+  it('sees a listener and reports a closed port as free', async () => {
+    const server = await listen();
+    try {
+      expect(await isPortBound(server.port)).toBe(true);
+    } finally {
+      server.close();
+    }
+    // Same port, now nothing behind it.
+    expect(await isPortBound(server.port)).toBe(false);
+  });
+
+  it('separates "bound" from "who owns it"', async () => {
+    const server = await listen();
+    try {
+      const probe = await probePorts([server.port]);
+      // Measured by a TCP connect — reliable on every platform.
+      expect(probe.bound.has(server.port)).toBe(true);
+      // The owner lookup needs a tool and may legitimately come up empty; what
+      // must never happen is an unavailable lookup reading as "nothing bound".
+      // That was the predecessor's failure mode: an empty map on a missing lsof,
+      // which classified every running component as crashed.
+      if (probe.ownersUnavailable) {
+        expect(probe.owners.size).toBe(0);
+      } else if (probe.owners.has(server.port)) {
+        expect(probe.owners.get(server.port).pid).toBe(process.pid);
+      }
+    } finally {
+      server.close();
+    }
+  });
+
+  it('asks nothing and reports nothing for an empty port list', async () => {
+    const probe = await probePorts([]);
+    expect([probe.bound.size, probe.owners.size, probe.ownersUnavailable]).toEqual([0, 0, false]);
+  });
+
+  it('does not report free ports as owner-unavailable', async () => {
+    // Nothing bound means nothing to attribute, so the owner lookup never runs —
+    // and must not be reported as having failed.
+    const probe = await probePorts([1]);
+    expect(probe.ownersUnavailable).toBe(false);
+  });
+});
+
+describe('isPidAlive and EPERM', () => {
+  const { isPidAlive } = require('../src/lib/dev-state');
+
+  it('treats a process it may not signal as alive, not dead', () => {
+    // `process.kill(1, 0)` throws EPERM on POSIX: PID 1 exists, we may not
+    // signal it. Reading that as "dead" made `lt dev up` restart a healthy
+    // component. On Windows an elevated process produces the same situation.
+    expect(isPidAlive(process.pid)).toBe(true);
+    if (process.platform !== 'win32') {
+      expect(isPidAlive(1)).toBe(true);
+    }
+  });
+
+  it('still reports a genuinely absent pid as dead', async () => {
+    // A pid that has provably exited, rather than a high number that merely
+    // looks unused — `pid_max` is configurable, so "probably nobody" is not a
+    // property a test may rely on.
+    const { spawnCmd } = require('../src/lib/platform');
+    const child = spawnCmd(process.execPath, ['-e', ''], { stdio: 'ignore' });
+    const pid: number = child.pid;
+    await new Promise((resolve) => child.on('close', resolve));
+    expect(isPidAlive(pid)).toBe(false);
+  });
+});
+
+describe('probePorts owner lookup — both platform branches, from any host', () => {
+  const { probePorts } = require('../src/lib/dev-process');
+  const nodeNet = require('net');
+
+  const listen = (): Promise<{ close: () => void; port: number }> =>
+    new Promise((resolve) => {
+      const server = nodeNet.createServer();
+      server.on('connection', (socket: { destroy: () => void }) => socket.destroy());
+      server.unref();
+      server.listen(0, '127.0.0.1', () =>
+        resolve({ close: () => server.close(), port: (server.address() as { port: number }).port }),
+      );
+    });
+
+  it('reports ownersUnavailable when the tool cannot run — and still knows the port is bound', async () => {
+    // THE failure mode this rewrite exists for. The predecessor returned an empty
+    // map when `lsof` was missing, which is indistinguishable from "nothing is
+    // bound": every component then classified as crashed and `lt dev up`
+    // restarted a healthy stack. `bound` comes from a TCP connect, so it stays
+    // true regardless; only the attribution is lost, and it says so.
+    const server = await listen();
+    try {
+      const probe = await probePorts([server.port], { capture: async () => null, platform: 'linux' });
+      expect(probe.bound.has(server.port)).toBe(true);
+      expect(probe.ownersUnavailable).toBe(true);
+      expect(probe.owners.size).toBe(0);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('parses lsof output', async () => {
+    const server = await listen();
+    const lsof = [
+      'COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME',
+      `node    4242 me     23u  IPv4 0x1234      0t0  TCP 127.0.0.1:${server.port} (LISTEN)`,
+    ].join('\n');
+    try {
+      const probe = await probePorts([server.port], { capture: async () => lsof, platform: 'darwin' });
+      expect(probe.ownersUnavailable).toBe(false);
+      expect(probe.owners.get(server.port)).toEqual({ command: 'node', pid: 4242 });
+    } finally {
+      server.close();
+    }
+  });
+
+  it('parses netstat + tasklist output — the Windows branch, exercised here', async () => {
+    const server = await listen();
+    const capture = async (command: string): Promise<string> => {
+      if (command === 'netstat') {
+        return [
+          'Aktive Verbindungen',
+          '  Proto  Lokale Adresse         Remoteadresse          Status           PID',
+          // The ESTABLISHED row comes FIRST on purpose: a client connection to
+          // the same port carries a different pid, and the first match wins. If
+          // the LISTENING filter were dropped, this test would report the
+          // connecting process instead of the server — which is what
+          // `reclaimPort` would then terminate.
+          `  TCP    127.0.0.1:${server.port}        127.0.0.1:51000        ESTABLISHED     9999`,
+          '  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       900',
+          `  TCP    127.0.0.1:${server.port}        0.0.0.0:0              LISTENING       7654`,
+        ].join('\n');
+      }
+      return '"caddy.exe","7654","Console","1","52.000 K"';
+    };
+    try {
+      const probe = await probePorts([server.port], { capture, platform: 'win32' });
+      expect(probe.ownersUnavailable).toBe(false);
+      // The LISTENING row wins over the ESTABLISHED one despite coming later,
+      // and the name comes from tasklist rather than being left as a bare pid.
+      expect(probe.owners.get(server.port)).toEqual({ command: 'caddy.exe', pid: 7654 });
+    } finally {
+      server.close();
+    }
+  });
+
+  it('falls back to the bare pid when tasklist says nothing', async () => {
+    const server = await listen();
+    const capture = async (command: string): Promise<string> =>
+      command === 'netstat'
+        ? `  TCP    127.0.0.1:${server.port}   0.0.0.0:0   LISTENING   31337`
+        : 'INFORMATION: No tasks are running which match the specified criteria.';
+    try {
+      const probe = await probePorts([server.port], { capture, platform: 'win32' });
+      expect(probe.owners.get(server.port)).toEqual({ command: '31337', pid: 31337 });
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe('httpStatus — the probe that replaced `curl -o /dev/null`', () => {
+  const { httpStatus, waitForHttp } = require('../src/lib/dev-process');
+  const nodeHttp = require('http');
+
+  const serve = (handler: (req: unknown, res: { end: () => void; statusCode: number }) => void) =>
+    new Promise<{ close: () => void; url: string }>((resolve) => {
+      const server = nodeHttp.createServer(handler);
+      server.unref();
+      server.listen(0, '127.0.0.1', () =>
+        resolve({
+          close: () => server.close(),
+          url: `http://127.0.0.1:${(server.address() as { port: number }).port}/`,
+        }),
+      );
+    });
+
+  it('reports the status of a reachable endpoint', async () => {
+    // The regression this guards: `curl -fsS -o /dev/null` exits 23 on Windows —
+    // `/dev/null` is a file path there, not the null device — AFTER a successful
+    // request. Callers read the exit code, so a running Caddy answering 200 was
+    // reported as "daemon is not running". Nothing in the response was wrong;
+    // only writing it to nowhere failed.
+    const server = await serve((_req, res) => {
+      res.statusCode = 204;
+      res.end();
+    });
+    try {
+      expect(await httpStatus(server.url)).toBe(204);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('reports a 500 as a status, not as unreachable', async () => {
+    // "Reachable" and "healthy" are different questions; `caddyDaemonRunning`
+    // asks the first one.
+    const server = await serve((_req, res) => {
+      res.statusCode = 500;
+      res.end();
+    });
+    try {
+      expect(await httpStatus(server.url)).toBe(500);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('returns null when nothing answers', async () => {
+    const server = await serve((_req, res) => res.end());
+    const url = server.url;
+    server.close();
+    expect(await httpStatus(url, 700)).toBeNull();
+  });
+
+  it('waitForHttp gives up within its budget when nothing comes up', async () => {
+    const started = Date.now();
+    const ok = await waitForHttp('http://127.0.0.1:1/', 900);
+    expect(ok).toBe(false);
+    expect(Date.now() - started).toBeLessThan(8000);
+  });
+
+  it('waitForHttp stops early once `abort` says there is nothing left to wait for', async () => {
+    const started = Date.now();
+    const ok = await waitForHttp('http://127.0.0.1:1/', 30_000, undefined, () => true);
+    expect(ok).toBe(false);
+    // The point of `abort`: a component that died on boot must not burn the full
+    // timeout (120s for the `lt dev test` API).
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+});
