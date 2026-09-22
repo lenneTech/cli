@@ -256,7 +256,10 @@ const DoctorCommand: GluegunCommand = {
 function dnsResolvesLocalhost(host: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn(
-      'node',
+      // `process.execPath`, not a bare `node`: the CLI may run from a Node that
+      // is not on PATH at all (a version manager, a packaged install), and a
+      // different `node` on PATH would answer for a different runtime.
+      process.execPath,
       [
         '-e',
         `require('dns').lookup(${JSON.stringify(host)}, { all: true }, (e, addrs) => {

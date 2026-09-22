@@ -826,3 +826,31 @@ function buildIdentityFixture(name: string) {
   rmSync(dir, { force: true, recursive: true });
   return identity;
 }
+
+describe('installWorktreeDeps error contract', () => {
+  const { installWorktreeDeps } = require('../src/lib/dev-ticket');
+  const nodeOs = require('os');
+  const nodeFs = require('fs');
+  const nodePath = require('path');
+
+  it('throws when the install exits non-zero', () => {
+    // The contract `lt ticket start` relies on: it wraps this in try/catch and
+    // warns. Migrating from `execFileSync` (throws) to `spawnSync` (does not)
+    // would have made a failed install silent, handing the developer a
+    // half-installed worktree with no hint anything went wrong.
+    //
+    // `LT_PM_BIN` points the package-manager lookup at the current Node, so the
+    // call becomes `node install` — which exits non-zero on every platform
+    // without needing a shell script fixture.
+    const dir = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'lt-install-fail-'));
+    const previous = process.env.LT_PM_BIN;
+    process.env.LT_PM_BIN = process.execPath;
+    try {
+      expect(() => installWorktreeDeps(dir)).toThrow(/exited with|Cannot find|install/i);
+    } finally {
+      if (previous === undefined) delete process.env.LT_PM_BIN;
+      else process.env.LT_PM_BIN = previous;
+      nodeFs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+});

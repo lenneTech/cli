@@ -166,3 +166,33 @@ describe('CLI lookups on macOS/Linux', () => {
     ).toBe('/Users/u/.claude/local/claude');
   });
 });
+
+describe('spawnCmd / spawnCmdSync semantics', () => {
+  const { spawnCmd, spawnCmdSync } = require('../src/lib/platform');
+
+  it('spawnCmd starts a child and reports its exit code', async () => {
+    const code = await new Promise<null | number>((resolve) => {
+      const child = spawnCmd(process.execPath, ['-e', 'process.exit(7)'], { stdio: 'ignore' });
+      child.on('error', () => resolve(-1));
+      child.on('close', (c: null | number) => resolve(c));
+    });
+    expect(code).toBe(7);
+  });
+
+  it('does NOT throw on a non-zero exit — unlike the execFileSync it replaced', () => {
+    // The trap this pins: `execFileSync` throws on a non-zero exit, `spawnSync`
+    // returns a result. Every call site migrated from one to the other has to
+    // check `status` explicitly, or a failing install/build becomes silent.
+    // `installWorktreeDeps` and `ensurePlaywrightBrowsers` both depend on this.
+    const result = spawnCmdSync(process.execPath, ['-e', 'process.exit(3)'], { stdio: 'ignore' });
+    expect(result.status).toBe(3);
+    // cross-spawn reports `null`, not `undefined`, when nothing went wrong at the
+    // spawn level — so a call site must test falsiness, not `=== undefined`.
+    expect(result.error).toBeFalsy();
+  });
+
+  it('reports a missing binary as an error rather than throwing', () => {
+    const result = spawnCmdSync('lt-definitely-not-a-real-binary-xyz', [], { stdio: 'ignore' });
+    expect(result.error).toBeTruthy();
+  });
+});

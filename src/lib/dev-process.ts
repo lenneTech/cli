@@ -12,6 +12,7 @@ import { closeSync, mkdirSync, openSync, renameSync, statSync, unlinkSync } from
 import { dirname } from 'path';
 
 import { isPidAlive, isValidPid } from './dev-state';
+import { spawnCmd } from './platform';
 
 export interface RotateResult {
   /** Path the previous log was moved to (only set when `rotated`). */
@@ -186,7 +187,7 @@ export function rotateLogFile(logFile: string): RotateResult {
  */
 export function runChildInherit(cmd: string, args: string[], opts: RunChildOptions): Promise<null | number> {
   return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: 'inherit' });
+    const child = spawnCmd(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: 'inherit' });
     child.on('error', () => resolve(1));
     child.on('close', (code) => resolve(code));
   });
@@ -214,7 +215,7 @@ export function runChildToFile(cmd: string, args: string[], opts: SpawnOptions):
   return new Promise((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ['ignore', out, out] });
+      child = spawnCmd(cmd, args, { cwd: opts.cwd, env: opts.env, stdio: ['ignore', out, out] });
     } catch {
       close();
       return resolve(1);
@@ -258,7 +259,7 @@ export function spawnDetached(
   let child: ChildProcess | undefined;
   try {
     const spawned = detachedSpawnCommand(cmd, args);
-    child = spawn(spawned.command, spawned.args, {
+    child = spawnCmd(spawned.command, spawned.args, {
       cwd: opts.cwd,
       detached: true,
       env: opts.env,

@@ -28,6 +28,7 @@ import { pickPackageManager } from './dev-package-manager';
 import { autoPatch, canonicaliseBridgeSpan } from './dev-patches';
 import { deriveDbName, deriveTestDbName, deriveTicketDbName, DevProjectLayout } from './dev-project';
 import { paths, sameRealPath } from './dev-state';
+import { spawnCmdSync } from './platform';
 
 /** Marker file (under `.lt-dev/`) that tags a worktree with its ticket id. */
 const TICKET_MARKER = 'ticket';
@@ -354,7 +355,17 @@ export function gitRefExists(repoDir: string, ref: string): boolean {
  */
 export function installWorktreeDeps(dir: string): void {
   const pm = pickPackageManager(dir);
-  execFileSync(pm.bin, pm.installArgs, { cwd: dir, stdio: 'inherit' });
+  // `spawnCmdSync` (spawnSync) does NOT throw on a non-zero exit, unlike the
+  // `execFileSync` this replaced. The contract here is to throw: the only caller
+  // (`lt ticket start`) catches and warns, and swallowing the failure would hand
+  // the developer a half-installed worktree with no hint that anything went wrong.
+  const result = spawnCmdSync(pm.bin, pm.installArgs, { cwd: dir, stdio: 'inherit' });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`${pm.bin} ${pm.installArgs.join(' ')} exited with ${result.status ?? 'a signal'}`);
+  }
 }
 
 /**

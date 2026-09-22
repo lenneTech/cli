@@ -30,6 +30,7 @@ import { homedir, platform, userInfo } from 'os';
 import { dirname, join } from 'path';
 
 import { paths as caddyPaths } from './caddy';
+import { findExecutable, type FindExecutableOptions } from './platform';
 
 /**
  * Resolve the user's home directory in a test-overridable way.
@@ -166,7 +167,9 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
  *   - bootstraps the service only when not already loaded
  *   - on content change: bootout + bootstrap (= reload)
  */
-export async function installService(opts: { caddyBin?: string } = {}): Promise<InstallServiceResult> {
+export async function installService(
+  opts: { caddyBin?: string; lookup?: FindExecutableOptions } = {},
+): Promise<InstallServiceResult> {
   const plat = platformSupported();
   if (plat === 'unsupported') {
     return {
@@ -177,12 +180,12 @@ export async function installService(opts: { caddyBin?: string } = {}): Promise<
     };
   }
 
-  const caddyBin = opts.caddyBin || (await resolveCaddyBin());
+  const caddyBin = opts.caddyBin || (await resolveCaddyBin(opts.lookup));
   if (!caddyBin) {
     return {
       bootstrapped: false,
       created: false,
-      message: 'caddy not found on PATH. Install with `brew install caddy` (macOS) or your package manager (Linux).',
+      message: caddyMissingMessage(),
       ok: false,
     };
   }
@@ -291,12 +294,17 @@ WantedBy=default.target
 `;
 }
 
-/** Resolve the absolute path of `caddy` via `which` so launchd has a guaranteed path. */
-export async function resolveCaddyBin(): Promise<string | undefined> {
-  const r = await activeRunner('which', ['caddy']);
-  if (!r.ok) return undefined;
-  const line = r.stdout.split('\n').find((s) => s.trim().length > 0);
-  return line ? line.trim() : undefined;
+/**
+ * Absolute path of `caddy`, so launchd/systemd get a guaranteed path rather than
+ * a PATH lookup in an environment they do not share with the user's shell.
+ *
+ * Resolved in-process instead of by spawning `which`: there is no `which` on
+ * Windows, and `where.exe` prints every match rather than the first. The async
+ * signature is kept because callers await it and a future platform may need to
+ * ask something that does spawn.
+ */
+export async function resolveCaddyBin(options: FindExecutableOptions = {}): Promise<string | undefined> {
+  return findExecutable('caddy', options) ?? undefined;
 }
 
 /** Inject a custom runner (tests). Pass `null` to reset to the real spawner. */
@@ -353,6 +361,17 @@ export async function waitForServiceReady(timeoutMs = 5_000): Promise<boolean> {
     await sleep(150);
   }
   return false;
+}
+
+/** Install hint for the current platform — `brew` is not advice on Linux or Windows. */
+function caddyMissingMessage(): string {
+  if (process.platform === 'darwin') {
+    return 'caddy not found on PATH. Install with `brew install caddy`.';
+  }
+  if (process.platform === 'win32') {
+    return 'caddy not found on PATH. Install with `winget install CaddyServer.Caddy` or `scoop install caddy`.';
+  }
+  return 'caddy not found on PATH. Install it with your package manager.';
 }
 
 function defaultShellRunner(cmd: string, args: string[]): Promise<ShellResult> {

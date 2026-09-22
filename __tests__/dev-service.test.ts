@@ -326,16 +326,28 @@ describe('dev-service', () => {
       });
 
       test('caddy not on PATH returns ok=false with actionable message', async () => {
-        const { runner } = makeRecorder((call) => {
-          if (call.cmd === 'which' && call.args[0] === 'caddy') return fail('not found');
-          return fail();
-        });
+        // The lookup no longer spawns `which` — there is none on Windows, and
+        // `where.exe` prints every match instead of the first. It goes through
+        // `findExecutable`, whose file probe is the injection point now.
+        const { runner } = makeRecorder(() => fail());
         setShellRunner(runner);
 
-        const result = await installService();
+        const result = await installService({ lookup: { isExecutableFile: () => false } });
         expect(result.ok).toBe(false);
         expect(result.message).toMatch(/caddy not found/i);
         expect(existsSync(getServicePaths().unitFile)).toBe(false);
+      });
+
+      test('the install hint names a package manager that exists on the platform', async () => {
+        // `brew install caddy` is not advice on Linux or Windows, and this message
+        // is the one a user sees at exactly the moment nothing works yet.
+        const { runner } = makeRecorder(() => fail());
+        setShellRunner(runner);
+
+        const result = await installService({ lookup: { isExecutableFile: () => false } });
+        const expected =
+          process.platform === 'darwin' ? /brew install caddy/ : process.platform === 'win32' ? /winget|scoop/ : /package manager/;
+        expect(result.message).toMatch(expected);
       });
 
       test('explicit caddyBin bypasses `which` lookup', async () => {
