@@ -96,6 +96,13 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
     // Legacy aliases — see dev-env.ts for the rationale.
     'API_URL',
     'SITE_URL',
+    // The loopback addresses. An external runner that RESOLVES a URL from Node —
+    // an API helper, a seeding script, a readiness check — needs these: on Windows
+    // `*.localhost` does not resolve for Node at all, only for browsers. The
+    // public names above stay, because browser-facing values (a Playwright
+    // `baseURL`, a link a developer opens) must keep them. See `dev-env.ts#internalUrl`.
+    'LT_DEV_API_INTERNAL_URL',
+    'LT_DEV_APP_INTERNAL_URL',
   ];
   for (const key of exported) {
     const v = devEnv.app.env[key as string];

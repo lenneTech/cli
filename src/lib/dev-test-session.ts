@@ -35,7 +35,7 @@ import { join } from 'path';
 
 import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
 import { applyPendingMigrations, findCompiledEntry, resolveApiRuntime } from './dev-api-launch';
-import { buildDevEnv } from './dev-env';
+import { buildDevEnv, internalUrl } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
 import { type PackageManagerCommand, pickPackageManager } from './dev-package-manager';
@@ -480,10 +480,20 @@ export async function bringUpTestSession(
   // the wait, so this only ever makes the abort arrive sooner.
   const gone = (pid?: number) => pid === undefined || !isPidAlive(pid);
 
+  // The probes go to the LOOPBACK address, not the public name: this is Node
+  // asking, and on Windows `*.localhost` does not resolve for Node at all — the
+  // waits would time out against a stack that is up, and `bringUpTestSession`
+  // aborts before Playwright ever starts. Probing the port directly also measures
+  // the component rather than the proxy, which is the better question here.
+  // The public name stays in the MESSAGES, because that is what the developer
+  // opens; the loopback pair is printed next to it above.
+  const appProbeUrl = internalUrl(appPort) || appUrl;
+  const apiProbeUrl = internalUrl(apiPort) || apiUrl;
+
   // Wait for the test App to answer.
   if (appUrl) {
     log.info(log.dim(`Waiting for ${appUrl} …`));
-    const appReady = await waitForHttp(appUrl, 90_000, isStackServing, () => gone(pids.app));
+    const appReady = await waitForHttp(appProbeUrl, 90_000, isStackServing, () => gone(pids.app));
     if (!appReady) throw unreachableStackError('App', appUrl, appLogPath);
   }
   // Wait for the test API to actually SERVE before handing off to Playwright.
@@ -492,7 +502,7 @@ export async function bringUpTestSession(
   // `ensureApiReachableOrSkip` guard (the API-readiness race).
   if (apiUrl) {
     log.info(log.dim(`Waiting for ${apiUrl}/meta …`));
-    const apiReady = await waitForHttp(`${apiUrl}/meta`, 120_000, isStackServing, () => gone(pids.api));
+    const apiReady = await waitForHttp(`${apiProbeUrl}/meta`, 120_000, isStackServing, () => gone(pids.api));
     if (!apiReady) throw unreachableStackError('API', `${apiUrl}/meta`, apiLogPath);
   }
 

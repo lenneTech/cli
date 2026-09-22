@@ -67,6 +67,9 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
 
   const apiUrl = apiSub ? `https://${apiSub.hostname}` : '';
   const appUrl = appSub ? `https://${appSub.hostname}` : '';
+  // Same two services, addressed the way Node can reach them. See `internalUrl`.
+  const apiInternal = internalUrl(apiInternalPort);
+  const appInternal = internalUrl(appInternalPort);
 
   const caPath = detectCaddyRootCa();
   const sharedKeys: NodeJS.ProcessEnv = {
@@ -75,6 +78,11 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
     // user-cache) so E2E suites run without a separate VITEST/PLAYWRIGHT flag.
     // (Also written to the .lt-dev/.env bridge for external test runners.)
     LT_DEV_ACTIVE: 'true',
+    // The loopback addresses, named explicitly so anything Node-side (an external
+    // test runner reading the `.lt-dev/.env` bridge, a project's own helper) can
+    // reach the components without going through a hostname it may not resolve.
+    ...(apiInternal ? { LT_DEV_API_INTERNAL_URL: apiInternal } : {}),
+    ...(appInternal ? { LT_DEV_APP_INTERNAL_URL: appInternal } : {}),
     ...(apiUrl ? { BASE_URL: apiUrl, NSC__BASE_URL: apiUrl } : {}),
     ...(appUrl ? { APP_URL: appUrl, NSC__APP_URL: appUrl } : {}),
     ...(dbName ? { DATABASE_URL: buildPostgresUrl(dbName), NSC__MONGOOSE__URI: `mongodb://127.0.0.1/${dbName}` } : {}),
@@ -113,7 +121,14 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         // those projects "just work" under `lt dev up` without code
         // changes. The `NUXT_*` variants below win at runtime where
         // both are read.
-        ...(apiUrl ? { API_URL: apiUrl, NUXT_API_URL: apiUrl, NUXT_PUBLIC_API_URL: apiUrl } : {}),
+        // `NUXT_API_URL` is the SERVER-side address (the Vite/Nitro proxy target,
+        // and what `buildLtApiUrl()` prefers during SSR); `NUXT_PUBLIC_API_URL`
+        // lands in `runtimeConfig.public` and is fetched by the BROWSER. The
+        // module already distinguishes the two — until now they carried the same
+        // value, so the distinction bought nothing. `API_URL` is the legacy alias
+        // projects read into `runtimeConfig.public`, so it stays public.
+        ...(apiUrl ? { API_URL: apiUrl, NUXT_PUBLIC_API_URL: apiUrl } : {}),
+        ...(apiInternal || apiUrl ? { NUXT_API_URL: apiInternal || apiUrl } : {}),
         ...(appUrl ? { NUXT_PUBLIC_SITE_URL: appUrl, SITE_URL: appUrl } : {}),
         // Vite-API-Proxy is OFF by default in lt dev mode — Caddy serves
         // both subdomains under HTTPS with shared cookie domain, so
@@ -161,6 +176,43 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
       internalPort: appInternalPort,
     },
   };
+}
+
+/**
+ * The loopback address of a component, for anything that RESOLVES a name.
+ *
+ * `lt dev` is URL-first: a project is reached at `https://<slug>.localhost`, and
+ * Caddy proxies that to an opaque internal port. That promise holds for
+ * **browsers**. It does not hold for Node: on Windows `*.localhost` subdomains do
+ * not resolve at all (`dns.lookup('api.demo.localhost')` → ENOTFOUND, and `curl`
+ * agrees), while Chromium resolves them internally without asking a resolver.
+ *
+ * So the question at every call site is not "which URL" but **"who reads it"**:
+ *
+ * | | example | address to use |
+ * |---|---|---|
+ * | a browser resolves it | Playwright `baseURL`, a printed link | the public name |
+ * | Node resolves it | readiness probes, SSR fetches, a proxy target | **this** |
+ * | another binary resolves it | `cloudflared` | **this** |
+ * | nobody resolves it — it is COMPARED | `APP_URL` (CORS / `trustedOrigins`), the Caddy vhost matcher, the tunnel `Host:` header | the public name, untouched |
+ *
+ * That last row is why "rewrite every internal URL to 127.0.0.1" would be wrong:
+ * `APP_URL` is matched as a string against the `Origin` header a browser sends,
+ * and the browser arrives from `https://<slug>.localhost`. Rewriting it would
+ * break every login — on the platform where only a health probe was broken before.
+ *
+ * **Loopback on every platform, not only on Windows.** 127.0.0.1 works everywhere,
+ * so there is no branch to get wrong, and the path Windows depends on is the one
+ * macOS exercises daily. A branch only the other platform runs is an unchecked
+ * branch.
+ *
+ * One consequence to keep in mind: this goes PAST Caddy. For "is the component
+ * alive?" that is an advantage — it measures the component, not the proxy. For
+ * "does the routing work?" it is the wrong question, and that one belongs to
+ * `lt dev doctor` over the public name.
+ */
+export function internalUrl(port: number | undefined): string {
+  return port ? `http://127.0.0.1:${port}` : '';
 }
 
 /** Postgres convenience URL — used by Postgres-based projects (e.g. nest-base). */

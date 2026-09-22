@@ -47,10 +47,41 @@ describe('dev-env / buildDevEnv', () => {
     expect(env.api.env.DATABASE_URL).toContain('crm');
 
     expect(env.app.env.PORT).toBe('4011');
-    expect(env.app.env.NUXT_API_URL).toBe('https://api.crm.localhost');
     expect(env.app.env.NUXT_PUBLIC_API_URL).toBe('https://api.crm.localhost');
     expect(env.app.env.NUXT_PUBLIC_SITE_URL).toBe('https://crm.localhost');
     expect(env.app.env.NUXT_PUBLIC_STORAGE_PREFIX).toBe('crm');
+  });
+
+  test('server-side and browser-side API addresses are NOT the same value', () => {
+    // The split AP-3 exists for. `NUXT_API_URL` is read by Node (the Vite/Nitro
+    // proxy target, and what nuxt-extensions' `buildLtApiUrl()` prefers during
+    // SSR); `NUXT_PUBLIC_API_URL` lands in `runtimeConfig.public` and is fetched
+    // by the BROWSER. They carried the same `*.localhost` value until now, which
+    // is fine until Node has to resolve it — on Windows it cannot.
+    const env = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, dbName: 'crm', identity: fullIdentity });
+    expect(env.app.env.NUXT_API_URL).toBe('http://127.0.0.1:4010');
+    expect(env.app.env.NUXT_PUBLIC_API_URL).toBe('https://api.crm.localhost');
+    expect(env.app.env.NUXT_API_URL).not.toBe(env.app.env.NUXT_PUBLIC_API_URL);
+    // The loopback pair is also published under its own names, for anything
+    // Node-side that reads the `.lt-dev/.env` bridge.
+    expect(env.app.env.LT_DEV_API_INTERNAL_URL).toBe('http://127.0.0.1:4010');
+    expect(env.app.env.LT_DEV_APP_INTERNAL_URL).toBe('http://127.0.0.1:4011');
+  });
+
+  test('the values that are COMPARED rather than resolved keep the public name', () => {
+    // `APP_URL` / `NSC__APP_URL` are the CORS allow-list and Better-Auth's
+    // `trustedOrigins` — matched as a string against the `Origin` header a
+    // browser sends, and the browser arrives from `https://crm.localhost`.
+    // Rewriting them to loopback would break every login, on a platform where
+    // only a health probe was broken before. Same for `BASE_URL`, which is
+    // declared (OpenAPI `servers[]`, e-mail links), not fetched.
+    const env = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, dbName: 'crm', identity: fullIdentity });
+    for (const key of ['APP_URL', 'NSC__APP_URL'] as const) {
+      expect([key, env.api.env[key]]).toEqual([key, 'https://crm.localhost']);
+    }
+    for (const key of ['BASE_URL', 'NSC__BASE_URL'] as const) {
+      expect([key, env.api.env[key]]).toEqual([key, 'https://api.crm.localhost']);
+    }
   });
 
   test('gives the App a session password so logins work on the built server', () => {
