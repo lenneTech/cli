@@ -20,6 +20,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
+import { spawnCmd } from './platform';
+
 /** Mapping from public hostname to internal upstream port. */
 export interface CaddyRoute {
   hostname: string;
@@ -155,7 +157,7 @@ export function writeCaddyfile(content: string): void {
 /** Run a caddy subcommand and capture stdout/stderr. */
 function runCaddy(args: string[]): Promise<CaddyResult> {
   return new Promise((resolve) => {
-    const child = spawn('caddy', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawnCmd('caddy', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
     let errored = false;

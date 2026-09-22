@@ -10,9 +10,9 @@
  * branches stay assertable from a test on macOS or Linux (same approach as
  * `vscode-settings.ts#settingsPathFor`).
  */
-import type { SpawnSyncOptions, SpawnSyncReturns } from 'child_process';
+import type { ChildProcess, SpawnOptions, SpawnSyncOptions, SpawnSyncReturns } from 'child_process';
 
-import { sync as crossSpawnSync } from 'cross-spawn';
+import crossSpawn, { sync as crossSpawnSync } from 'cross-spawn';
 import { accessSync, constants, statSync } from 'fs';
 import { posix, win32 } from 'path';
 
@@ -80,6 +80,25 @@ export function findExecutable(name: string, options: FindExecutableOptions = {}
  */
 export function isWindows(platform: NodeJS.Platform = process.platform): boolean {
   return platform === 'win32';
+}
+
+/**
+ * `spawn` that also runs `.cmd`/`.bat` shims on Windows.
+ *
+ * The asynchronous counterpart of `spawnCmdSync`, with the same delegation and
+ * the same argument limit — see there. Needed because every long-running child
+ * the CLI starts (`pnpm run dev`, `pnpm start`, a Playwright run) is spawned
+ * asynchronously, and `pnpm` is `pnpm.cmd` on Windows: Node refuses to exec a
+ * `.cmd` directly (CVE-2024-27980, `EINVAL`), so without this nothing starts
+ * there at all.
+ *
+ * `detached` and `stdio` pass through unchanged, so a caller keeps its process
+ * group and its log-file descriptors. On Windows cross-spawn interposes
+ * `cmd.exe /c`, which means the reported pid is that of `cmd.exe` — the child
+ * tree, not a process group, is what a killer has to walk there.
+ */
+export function spawnCmd(command: string, args: readonly string[] = [], options: SpawnOptions = {}): ChildProcess {
+  return crossSpawn(command, [...args], options);
 }
 
 /**

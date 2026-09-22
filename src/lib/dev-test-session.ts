@@ -28,7 +28,7 @@
  * Teardown is idempotent and residue-free (processes, Caddy block, env bridge,
  * session file, registry entry), so a stale session is always safely reclaimed.
  */
-import { execFileSync } from 'child_process';
+
 import { existsSync, readdirSync, rmSync } from 'fs';
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
@@ -49,6 +49,7 @@ import {
   waitForHttp,
 } from './dev-process';
 import { deriveDbName, deriveTestDbName, DevProjectLayout } from './dev-project';
+import { spawnCmdSync } from './platform';
 
 /** Per-bring-up options. `shardIndex` selects an isolated shard stack; `skipBuild` reuses an existing build. */
 export interface BringUpOptions {
@@ -127,11 +128,21 @@ export function ensurePlaywrightBrowsers(
   pm: PackageManagerCommand,
   logInfo?: (message: string) => void,
 ): void {
+  const note = (): void => {
+    logInfo?.('playwright install chromium failed — continuing (the suite reports missing browsers itself).');
+  };
   try {
     const args = pm.exec('playwright', ['install', 'chromium']);
-    execFileSync(pm.bin, args, { cwd: appDir, stdio: 'ignore', timeout: 300_000 });
+    // `spawnCmdSync` (spawnSync) does NOT throw on a non-zero exit, unlike the
+    // `execFileSync` this replaced — so the status is checked explicitly.
+    // Without it the failure would be silent and the suite would die later on a
+    // missing browser, which reads as a broken spec rather than a missing install.
+    const result = spawnCmdSync(pm.bin, args, { cwd: appDir, stdio: 'ignore', timeout: 300_000 });
+    if (result.error || result.status !== 0) {
+      note();
+    }
   } catch {
-    logInfo?.('playwright install chromium failed — continuing (the suite reports missing browsers itself).');
+    note();
   }
 }
 
