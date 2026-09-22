@@ -128,8 +128,11 @@ export function patchApiConfig(file: string): PatchResult {
  * URLs is a no-op; re-running with different URLs replaces the block
  * in place.
  */
-export function patchClaudeMd(file: string, options: { dbName?: string; identity: DevIdentity }): PatchResult {
-  const { dbName, identity } = options;
+export function patchClaudeMd(
+  file: string,
+  options: { apiPort?: number; appPort?: number; dbName?: string; identity: DevIdentity },
+): PatchResult {
+  const { apiPort, appPort, dbName, identity } = options;
   const startMarker = '<!-- lt-dev:url-block:start -->';
   const endMarker = '<!-- lt-dev:url-block:end -->';
 
@@ -155,8 +158,22 @@ export function patchClaudeMd(file: string, options: { dbName?: string; identity
     '**Active URLs for THIS project:**',
     '',
   ];
-  if (appSub) lines.push(`- App: \`https://${appSub.hostname}\``);
-  if (apiSub) lines.push(`- API: \`https://${apiSub.hostname}\``);
+  // Both addresses, with who each one is for. The block tells an agent never to
+  // assume `localhost:3000/3001` — so if it only named the `*.localhost` host, an
+  // agent following it would `curl` a name that does not resolve for Node on
+  // Windows, and fail silently. The browser address stays first: it is the one a
+  // human opens.
+  if (appSub) {
+    lines.push(`- App: \`https://${appSub.hostname}\`${appPort ? ` — from a script: \`http://127.0.0.1:${appPort}\`` : ''}`);
+  }
+  if (apiSub) {
+    lines.push(`- API: \`https://${apiSub.hostname}\`${apiPort ? ` — from a script: \`http://127.0.0.1:${apiPort}\`` : ''}`);
+  }
+  if (appPort || apiPort) {
+    lines.push(
+      '- The `*.localhost` names are resolved by BROWSERS. Node, `curl` and other tools may not resolve them (they do not on Windows) — use the loopback address from a script.',
+    );
+  }
   if (dbName) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
   lines.push('');
   lines.push(

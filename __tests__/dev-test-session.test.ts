@@ -393,8 +393,21 @@ describe('dev-test-session', () => {
       // The app wait used to pass `undefined` and take waitForHttp's default,
       // which accepts ANY status — Caddy's 502 included. That made the app half
       // of the check meaningless, and now that it throws it has to be right.
-      expect(source).toMatch(/waitForHttp\(\s*appUrl,\s*90_000,\s*isStackServing/);
-      expect(source).toMatch(/waitForHttp\(\s*`\$\{apiUrl\}\/meta`,\s*120_000,\s*isStackServing/);
+      expect(source).toMatch(/waitForHttp\(\s*appProbeUrl,\s*90_000,\s*isStackServing/);
+      expect(source).toMatch(/waitForHttp\(\s*`\$\{apiProbeUrl\}\/meta`,\s*120_000,\s*isStackServing/);
+    });
+
+    test('both waits probe the LOOPBACK address, not the *.localhost name', () => {
+      // Node is what asks here, and on Windows `*.localhost` does not resolve for
+      // Node at all — the waits would time out against a stack that is up, and
+      // bring-up aborts before Playwright ever starts. Probing the port also
+      // measures the component rather than Caddy, which is the better question
+      // for "is it alive".
+      expect(source).toMatch(/const\s+appProbeUrl\s*=\s*internalUrl\(appPort\)/);
+      expect(source).toMatch(/const\s+apiProbeUrl\s*=\s*internalUrl\(apiPort\)/);
+      // …while the human-facing messages keep the name the developer opens.
+      expect(source).toMatch(/unreachableStackError\('App',\s*appUrl/);
+      expect(source).toMatch(/unreachableStackError\('API',\s*`\$\{apiUrl\}\/meta`/);
     });
   });
 
