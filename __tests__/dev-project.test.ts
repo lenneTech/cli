@@ -165,3 +165,40 @@ describe('dev-project', () => {
     });
   });
 });
+
+describe('resolveLayout absolutises its root', () => {
+  const { resolveLayout } = require('../src/lib/dev-project');
+  const nodeOs = require('os');
+  const nodeFs = require('fs');
+  const nodePath = require('path');
+  const jetpack = require('fs-jetpack');
+
+  it('turns a relative cwd into an absolute root — the value that reaches the registry', () => {
+    // `lt fullstack init` calls this with `kebabCase(name)`, a bare segment, and
+    // `up.ts` writes `layout.root` straight into `~/.lenneTech/projects.json` as
+    // the project's `path`. Absolutising at the call site would fix today's
+    // caller and invite the next one to repeat it.
+    const parent = nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'lt-abs-')));
+    const name = 'demo-project';
+    nodeFs.mkdirSync(nodePath.join(parent, name));
+    const previous = process.cwd();
+    try {
+      process.chdir(parent);
+      const layout = resolveLayout(name, jetpack);
+      expect(nodePath.isAbsolute(layout.root)).toBe(true);
+      expect(nodeFs.realpathSync(layout.root)).toBe(nodePath.join(parent, name));
+    } finally {
+      process.chdir(previous);
+      nodeFs.rmSync(parent, { force: true, recursive: true });
+    }
+  });
+
+  it('leaves an already absolute cwd alone', () => {
+    const dir = nodeFs.realpathSync(nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'lt-abs2-')));
+    try {
+      expect(resolveLayout(dir, jetpack).root).toBe(dir);
+    } finally {
+      nodeFs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+});
