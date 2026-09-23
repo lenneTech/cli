@@ -347,7 +347,9 @@ lt dev
 
 ### `lt dev install`
 
-One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing. Owns the full Caddy lifecycle via a dedicated LaunchAgent (macOS) / systemd-user unit (Linux) — **does not** use `brew services caddy`, whose hardcoded `/opt/homebrew/etc/Caddyfile` path would crash-loop against our `~/.lenneTech/Caddyfile`.
+One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing. Owns the full Caddy lifecycle via a dedicated LaunchAgent (macOS) / systemd-user unit (Linux) — **does not** use `brew services caddy`, whose hardcoded `/opt/homebrew/etc/Caddyfile` path would crash-loop against our `~/.lenneTech/Caddyfile`. On **Windows** there is no service: `lt dev install` and `lt dev up` start Caddy themselves as a background process when none is running.
+
+**A Caddy that `lt dev` did not start is never touched.** If something else already runs Caddy on `:2019`, every `lt dev` command that would reload it stops instead. It prints the path of our Caddyfile and the `caddy reload` / `caddy run` commands, and leaves the decision to you. `lt dev` recognises its own Caddy by an inert marker in the loaded config (a `log lt-dev-owner { output discard }` global option). An instance started before that marker existed is recognised because its loaded config equals our adapted Caddyfile.
 
 **Usage:**
 ```bash
@@ -361,14 +363,15 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
 
 **What it does:**
 1. Verifies `caddy` is on PATH (suggests `brew install caddy` if missing).
-2. Creates `~/.lenneTech/Caddyfile` stub if absent.
-3. Detects a conflicting `brew services caddy` registration and asks you to stop it.
-4. Writes + bootstraps a dedicated service:
+2. Refuses to go on if a foreign Caddy holds `:2019` (see above).
+3. Creates `~/.lenneTech/Caddyfile` stub if absent. An existing file keeps its project blocks and only gets the owner marker.
+4. Detects a conflicting `brew services caddy` registration and asks you to stop it.
+5. Writes + bootstraps a dedicated service (Windows: starts Caddy in the background instead):
    - **macOS:** `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`.
    - **Linux:** `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`.
-5. Waits up to 8s for Caddy's admin endpoint (`http://127.0.0.1:2019/config/`) to respond.
-6. Validates the Caddyfile.
-7. Reminds you to run the CA trust command **with HOME preserved**:
+6. Waits up to 8s for Caddy's admin endpoint (`http://127.0.0.1:2019/config/`) to respond.
+7. Validates the Caddyfile.
+8. Reminds you to run the CA trust command **with HOME preserved** (Windows: plain `caddy trust`, only if browsers still warn — Windows asks once on Caddy's first start, and `caddy trust` needs the running instance):
    ```bash
    sudo -E HOME="$HOME" caddy trust
    ```
@@ -380,7 +383,7 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
 
 ### `lt dev uninstall`
 
-Symmetric counterpart to `lt dev install`. Removes the LaunchAgent / systemd-user unit and stops the Caddy daemon. Does **not** remove the caddy binary itself.
+Symmetric counterpart to `lt dev install`. Removes the LaunchAgent / systemd-user unit and stops the Caddy daemon. On Windows it stops the Caddy that `lt dev` started, and only that one. Does **not** remove the caddy binary itself.
 
 **Usage:**
 ```bash

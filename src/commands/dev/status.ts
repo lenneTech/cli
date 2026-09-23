@@ -1,9 +1,10 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
+import { caddyAvailable, detectCaddyOwner } from '../../lib/caddy';
 import { probePorts } from '../../lib/dev-process';
 import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
+import { caddyLaunchMode } from '../../lib/dev-service';
 import {
   classifyComponentHealth,
   type ComponentHealth,
@@ -164,12 +165,18 @@ const StatusCommand: GluegunCommand = {
     // Caddy status — quick view whether the daemon is reachable.
     {
       const caddyOk = await caddyAvailable();
-      const daemonOk = caddyOk ? await caddyDaemonRunning() : false;
+      const owner = caddyOk ? await detectCaddyOwner() : 'none';
       info('');
       if (!caddyOk) {
         warning('  Caddy not installed — run `lt dev install` first.');
-      } else if (!daemonOk) {
-        warning('  Caddy daemon not running — run `lt dev install` to (re)start the lt-dev service.');
+      } else if (owner === 'foreign') {
+        warning('  Caddy on :2019 was not started by lt dev — `lt dev up` will not change it.');
+      } else if (owner === 'none') {
+        warning(
+          caddyLaunchMode() === 'on-demand'
+            ? '  Caddy not running — `lt dev up` starts it.'
+            : '  Caddy daemon not running — run `lt dev install` to (re)start the lt-dev service.',
+        );
       } else {
         info(colors.dim('  Caddy: ready'));
       }
