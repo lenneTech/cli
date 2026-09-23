@@ -91,14 +91,21 @@ JavaScript file: src/main.ts
 see [Debug.run.xml](.run/Debug.run.xml)
 
 
+<% if (props.vendor) { -%>
+## Working on the framework core
+This project runs in vendor mode: the `@lenne.tech/nest-server` core is part of the source tree under `src/core/`, not an npm package, so there is nothing to link.
+
+- Read `src/core/VENDOR.md` first. It records the upstream baseline and every local change to the core.
+- Put project-specific code outside `src/core/`: extend, inherit from or override the core, never patch it for one project.
+- Pull in upstream changes with `/lt-dev:backend:update-nest-server-core`, and propose generally useful core fixes upstream with `/lt-dev:backend:contribute-nest-server-core`.
+
+<% } else { -%>
 ## Test & debug the NestServer package in this project
-Use [yalc](https://github.com/wclr/yalc) to include the NestJS server in the project.
+1. Clone [NestServer](https://github.com/lenneTech/nest-server): `git clone https://github.com/lenneTech/nest-server.git`
+2. Link it into this project with `pnpm run link:nest-server` and start the server: `pnpm start`
+3. Switch back to the published package when you are done: `pnpm run unlink:nest-server`
 
-1. clone [NestServer](https://github.com/lenneTech/nest-server): `git clone https://github.com/lenneTech/nest-server.git`
-2. go to the nest-server folder (`cd nest-server`), install the packages via `npm i` and start the nest server in watch & yalc mode: `npm run watch`
-3. link the nest server live package to this project via `npm run link:nest-server` and start the server: `npm start`
-4. unlink the nest-server live package and use the normal package again when you are done: `npm run unlink:nest-server`
-
+<% } -%>
 ## Deployment with deploy.party
 
 This project is prepared for deployment with deploy.party.
