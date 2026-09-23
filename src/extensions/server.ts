@@ -762,7 +762,7 @@ export class Server {
         if (!experimental) {
           // Generate README
           await template.generate({
-            props: { description, name },
+            props: { description, name, vendor: frameworkMode === 'vendor' },
             target: `${dest}/README.md`,
             template: 'nest-server-starter/README.md.ejs',
           });
