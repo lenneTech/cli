@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
+import { ensureOwnCaddy } from '../../lib/dev-caddy-gate';
 import { envBridgePath } from '../../lib/dev-env-bridge';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { runChildInherit } from '../../lib/dev-process';
@@ -124,15 +124,13 @@ const TestCommand: GluegunCommand = {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev test: no app';
     }
-    if (!(await caddyAvailable())) {
-      error('caddy is not installed. Run `lt dev install` first.');
+    const caddyGate = await ensureOwnCaddy({ startIfDown: true });
+    if (!caddyGate.ok) {
+      const [first, ...rest] = caddyGate.lines;
+      error(first);
+      rest.forEach((l) => info(l));
       if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev test: caddy missing';
-    }
-    if (!(await caddyDaemonRunning())) {
-      error('caddy daemon not running. Run `lt dev install` first.');
-      if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev test: caddy daemon down';
+      return `dev test: caddy ${caddyGate.reason}`;
     }
 
     // Pre-flight (#3): if the project's playwright.config is not env-aware

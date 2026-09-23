@@ -2,10 +2,10 @@ import { spawn } from 'child_process';
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, caddyDaemonRunning, paths as caddyPaths, validateCaddyfile } from '../../lib/caddy';
+import { caddyAvailable, paths as caddyPaths, detectCaddyOwner, validateCaddyfile } from '../../lib/caddy';
 import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
-import { getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
+import { caddyLaunchMode, getServicePaths, getServiceStatus } from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
 import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
 
@@ -46,9 +46,11 @@ const DoctorCommand: GluegunCommand = {
     }
 
     // 2. Service installed (LaunchAgent / systemd-user)
-    const plat = platformSupported();
-    if (plat === 'unsupported') {
+    const mode = caddyLaunchMode();
+    if (mode === 'manual') {
       line('WARN', colors.yellow, `service management not supported on ${process.platform} — run caddy manually`);
+    } else if (mode === 'on-demand') {
+      line('INFO', colors.cyan, 'no service on this platform — `lt dev up` starts Caddy when it is not running');
     } else {
       const svc = await getServiceStatus();
       const servicePaths = getServicePaths();
@@ -63,11 +65,18 @@ const DoctorCommand: GluegunCommand = {
       }
     }
 
-    // 3. Caddy daemon admin endpoint
+    // 3. Caddy daemon admin endpoint — and whose it is. A foreign Caddy is
+    //    stated, not acted on: no advice to stop it (see `caddy.ts`). It still
+    //    counts as a failure, because `lt dev` cannot route through it.
     if (hasCaddy) {
-      const daemon = await caddyDaemonRunning();
-      if (daemon) line('OK', colors.green, 'caddy admin (:2019) reachable');
-      else {
+      const owner = await detectCaddyOwner();
+      if (owner === 'ours') line('OK', colors.green, 'caddy admin (:2019) reachable, started by lt dev');
+      else if (owner === 'foreign') {
+        line('FAIL', colors.red, 'caddy on :2019 was not started by lt dev — lt dev neither uses nor changes it');
+        fails++;
+      } else if (mode === 'on-demand') {
+        line('INFO', colors.cyan, 'caddy not running — `lt dev up` starts it');
+      } else {
         line('FAIL', colors.red, 'caddy admin (:2019) unreachable — run `lt dev install`');
         fails++;
       }
