@@ -10,6 +10,7 @@ import { ensureOwnCaddy } from '../../lib/dev-caddy-gate';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
 import { buildIdentity } from '../../lib/dev-identity';
+import { describeLog, diagnoseLog, findEarlyExits } from '../../lib/dev-log-tail';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { addToGitignore, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
 import { killProcessGroup, probePorts, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
@@ -20,6 +21,7 @@ import {
   classifyComponentHealth,
   type ComponentHealth,
   detectSlugConflict,
+  isPidAlive,
   loadRegistry,
   loadSession,
   saveRegistry,
@@ -515,6 +517,22 @@ const UpCommand: GluegunCommand = {
     const startedAt =
       started.length > 0 ? new Date().toISOString() : (existingSession?.startedAt ?? new Date().toISOString());
     saveSession(layout.root, { pids, startedAt });
+
+    // A component that dies right after its start used to be reported as
+    // "Started": the spawn succeeded, and nothing looked again. Watch the fresh
+    // pids for a moment and show what the log says (or that it is empty).
+    const earlyExits = await findEarlyExits(
+      started.map((name) => ({ name, pid: pids[name as 'api' | 'app'] })),
+      { budgetMs: 3_000, isAlive: isPidAlive },
+    );
+    if (earlyExits.length > 0) {
+      for (const name of earlyExits) {
+        error(`${name} exited right after its start (pid ${pids[name as 'api' | 'app']}).`);
+        describeLog(diagnoseLog(join(layout.root, '.lt-dev', `${name}.log`))).forEach((l) => info(l));
+      }
+      if (!parameters.options.fromGluegunMenu) process.exit(1);
+      return `dev up: ${earlyExits.join('+')} exited on start`;
+    }
 
     // Write the ENV bridge so external tools (Playwright, IDE test runners,
     // custom shell scripts) can pick up the URLs without inheriting our shell.

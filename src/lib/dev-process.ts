@@ -130,9 +130,23 @@ export type TerminationPlan =
  *   - the cascade tries a high limit first, falling back on machines with a
  *     lower `kern.maxfilesperproc`; `2>/dev/null` keeps it best-effort.
  *
- * Windows gets the command directly. There is no `/bin/sh` to run the wrapper —
- * spawning it fails outright — and no RLIMIT_NOFILE for `ulimit` to raise, so
- * the wrapper has nothing to offer there even in principle.
+ * Windows has no `/bin/sh` and no RLIMIT_NOFILE, but it needs a wrapper for a
+ * different reason: **without one the log stays empty.** `detached` starts the
+ * child without a console. When that child is `cmd.exe` (cross-spawn runs every
+ * `.cmd` shim, `pnpm.cmd` included, through it), the console program below it
+ * gets a NEW console, and Windows then replaces the standard handles that
+ * `cmd.exe` merely inherited, our log file among them. The output lands in an
+ * extra console window instead, and `.lt-dev/*.log` stays at 0 bytes while the
+ * app runs. Measured on windows-latest (fake `pnpm.cmd` → node → node grandchild):
+ * 0 bytes this way, and 0 bytes even when `cmd.exe` redirects with `>>` itself.
+ * On the laptop an API died on start and its error sat unseen in that window.
+ *
+ * The fix is a small Node process in between (`windowsTrampoline`). libuv hands
+ * it the file explicitly, and it starts the real command with `stdio: 'inherit'`,
+ * which passes the handles explicitly again, so `cmd.exe` gets a console of its
+ * own and its children inherit both. Measured the same way: 94 child + 46
+ * grandchild lines in the file. The recorded pid is the trampoline's, so
+ * `taskkill /T` from it reaches the whole tree.
  *
  * Note for the POSIX path: because `spawn('/bin/sh', …)` almost always succeeds,
  * a bogus `cmd` does not surface as `pid === undefined` — the inner `exec` fails
@@ -145,8 +159,9 @@ export function detachedSpawnCommand(
   cmd: string,
   args: string[],
   platform: NodeJS.Platform = process.platform,
+  nodePath: string = process.execPath,
 ): { args: string[]; command: string } {
-  if (platform === 'win32') return { args, command: cmd };
+  if (platform === 'win32') return { args: ['-e', windowsTrampoline(), '--', cmd, ...args], command: nodePath };
   const raiseFdLimit = 'ulimit -n 65536 2>/dev/null || ulimit -n 10240 2>/dev/null || true';
   return { args: ['-c', `${raiseFdLimit}; exec "$0" "$@"`, cmd, ...args], command: '/bin/sh' };
 }
@@ -402,6 +417,8 @@ export function spawnDetached(
       detached: true,
       env: opts.env,
       stdio: ['ignore', out, out],
+      // Windows only: keep the trampoline's console out of sight. No effect on POSIX.
+      windowsHide: true,
     });
     // spawn reports "could not start this at all" (missing executable, bad cwd)
     // through an ASYNCHRONOUS 'error' event — the try/catch around spawn() never
@@ -523,6 +540,23 @@ export function waitForHttp(
     };
     tick();
   });
+}
+
+/**
+ * Source of the Windows trampoline (see `detachedSpawnCommand`), run as `node -e`.
+ * cross-spawn is required by absolute path because `-e` resolves modules from the
+ * child's cwd, i.e. the user's project, not from the CLI. It exits with the
+ * command's code, so a dead command still reads as a dead pid.
+ */
+export function windowsTrampoline(): string {
+  const crossSpawnPath = JSON.stringify(require.resolve('cross-spawn'));
+  return [
+    `const spawn = require(${crossSpawnPath});`,
+    'const [cmd, ...args] = process.argv.slice(1);',
+    "const child = spawn(cmd, args, { stdio: 'inherit', windowsHide: true });",
+    "child.on('error', (e) => { process.stderr.write('lt dev: could not start ' + cmd + ': ' + e.message + '\\n'); process.exit(127); });",
+    "child.on('exit', (code) => process.exit(code === null ? 1 : code));",
+  ].join(' '); // one line: a newline inside a Windows command-line argument is asking for trouble
 }
 
 /** stdout of a command, or null when it could not run. */

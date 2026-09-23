@@ -1,7 +1,9 @@
 import { GluegunCommand } from 'gluegun';
+import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { caddyAvailable, detectCaddyOwner } from '../../lib/caddy';
+import { describeLog, diagnoseLog, isSilentLog } from '../../lib/dev-log-tail';
 import { probePorts } from '../../lib/dev-process';
 import { apiNeedsPortPatch, appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import { caddyLaunchMode } from '../../lib/dev-service';
@@ -267,6 +269,25 @@ const StatusCommand: GluegunCommand = {
           `  ${down.join(' + ')} not serving${crashed ? ' (supervisor still up — crashed)' : ''}. ` +
             `Run \`lt dev up\` to restart ${down.length === 1 ? 'it' : 'them'}.`,
         );
+        // Why it is down is in its log, so show it here instead of sending the
+        // reader to look. An empty log is said out loud: that is a finding too.
+        for (const name of down) {
+          describeLog(diagnoseLog(join(layout.root, '.lt-dev', `${name}.log`), 8)).forEach((l) =>
+            info(colors.dim(`  ${l}`)),
+          );
+        }
+      }
+      // A log that exists but stays empty while its component runs: the output
+      // is going somewhere else (on Windows it once went to an extra console
+      // window). Worse than no log, because it looks trustworthy.
+      for (const [name, present] of [
+        ['api', apiPresent],
+        ['app', appPresent],
+      ] as const) {
+        const logDiagnosis = diagnoseLog(join(layout.root, '.lt-dev', `${name}.log`));
+        if (present && !down.includes(name) && isSilentLog(logDiagnosis, session.startedAt, Date.now())) {
+          warning(`  ${name}: ${logDiagnosis.file} is still EMPTY — its output is not being captured.`);
+        }
       }
     }
 
