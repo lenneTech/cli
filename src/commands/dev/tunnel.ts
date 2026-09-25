@@ -1,8 +1,8 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyDaemonRunning } from '../../lib/caddy';
 import { cloudflaredAvailable, spawnQuickTunnel } from '../../lib/cloudflared';
+import { ensureOwnCaddy } from '../../lib/dev-caddy-gate';
 import { buildIdentity } from '../../lib/dev-identity';
 import { resolveLayout } from '../../lib/dev-project';
 import { loadRegistry } from '../../lib/dev-state';
@@ -72,12 +72,16 @@ const TunnelCommand: GluegunCommand = {
       return 'dev tunnel: cloudflared missing';
     }
 
-    // Pre-flight: Caddy must be up — without it cloudflared would forward
-    // to a dead upstream and the public URL would 502.
-    if (!(await caddyDaemonRunning())) {
-      error('Caddy daemon is not running — run `lt dev install` first.');
+    // Pre-flight: OUR Caddy must be up — without it cloudflared would forward
+    // to a dead upstream, and a foreign Caddy has none of our vhosts; either way
+    // the public URL would 502. Not started here: the routes come from `lt dev up`.
+    const caddyGate = await ensureOwnCaddy({ startIfDown: false });
+    if (!caddyGate.ok) {
+      const [first, ...rest] = caddyGate.lines;
+      error(first);
+      rest.forEach((l) => info(l));
       if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev tunnel: caddy down';
+      return `dev tunnel: caddy ${caddyGate.reason}`;
     }
     const registry = loadRegistry();
     if (!registry.projects[identity.slug]) {

@@ -1,7 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { reloadCaddy, removeProjectBlock } from '../../lib/caddy';
+import { detectCaddyOwner, foreignCaddyLines, reloadCaddy, removeProjectBlock } from '../../lib/caddy';
 import { clearEnvBridge } from '../../lib/dev-env-bridge';
 import { killProcessGroup } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
@@ -63,11 +63,19 @@ const DownCommand: GluegunCommand = {
       );
       info(colors.dim(`  ${conflict.otherPath}`));
     } else {
+      // Ownership first: it is proven by comparing the loaded config with the
+      // Caddyfile, so it must be asked before the file changes.
+      const owner = await detectCaddyOwner();
       const removed = removeProjectBlock(identity.slug);
-      if (removed) {
+      if (removed && owner === 'ours') {
         const r = await reloadCaddy();
         if (r.ok) success(`Removed Caddy block for "${identity.slug}".`);
         else warning(`Removed Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+      } else if (removed && owner === 'foreign') {
+        warning(`Removed the block for "${identity.slug}" from lt dev's Caddyfile, but did not reload:`);
+        foreignCaddyLines().forEach((l) => info(`  ${l}`));
+      } else if (removed) {
+        info(colors.dim(`Removed Caddy block for "${identity.slug}" (Caddy not running; nothing to reload).`));
       }
     }
 

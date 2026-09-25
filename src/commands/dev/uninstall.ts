@@ -3,8 +3,8 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { paths as caddyPaths } from '../../lib/caddy';
-import { getServicePaths, platformSupported, uninstallService } from '../../lib/dev-service';
+import { paths as caddyPaths, detectCaddyOwner, foreignCaddyLines, stopCaddy } from '../../lib/caddy';
+import { caddyLaunchMode, getServicePaths, uninstallService } from '../../lib/dev-service';
 
 /**
  * Symmetric counterpart to `lt dev install`.
@@ -39,25 +39,40 @@ const UninstallCommand: GluegunCommand = {
     info(colors.bold('lt dev uninstall — remove the lt-dev Caddy service'));
     info(colors.dim('─'.repeat(60)));
 
-    const plat = platformSupported();
-    if (plat === 'unsupported') {
+    const mode = caddyLaunchMode();
+    if (mode === 'manual') {
       info('No managed service to remove on this platform.');
       if (!parameters.options.fromGluegunMenu) process.exit(0);
       return 'dev uninstall: nothing to do';
     }
 
     const paths = getServicePaths();
-    const result = await uninstallService();
-    if (!result.ok) {
-      error(result.message);
-      if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev uninstall: failed';
-    }
-
-    if (result.removed.length === 0) {
-      info(colors.dim('Service was not installed.'));
+    if (mode === 'on-demand') {
+      // No service to remove: `lt dev` started Caddy itself, so it stops it
+      // itself — but only its own. A foreign Caddy is reported, not stopped.
+      const owner = await detectCaddyOwner();
+      if (owner === 'ours') {
+        const stopped = await stopCaddy();
+        if (stopped.ok) success('Stopped the lt-dev Caddy.');
+        else warning(`Could not stop the lt-dev Caddy: ${stopped.stderr.split('\n')[0]}`);
+      } else if (owner === 'foreign') {
+        foreignCaddyLines().forEach((l) => info(l));
+      } else {
+        info(colors.dim('The lt-dev Caddy is not running.'));
+      }
     } else {
-      success(`Removed: ${result.removed.join(', ')}`);
+      const result = await uninstallService();
+      if (!result.ok) {
+        error(result.message);
+        if (!parameters.options.fromGluegunMenu) process.exit(1);
+        return 'dev uninstall: failed';
+      }
+
+      if (result.removed.length === 0) {
+        info(colors.dim('Service was not installed.'));
+      } else {
+        success(`Removed: ${result.removed.join(', ')}`);
+      }
     }
 
     // Optional purge of related state files.
