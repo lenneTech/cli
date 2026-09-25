@@ -3,7 +3,15 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { detachedSpawnCommand, rotateLogFile, runChildInherit, spawnDetached, terminateProcessGroup, waitForHttp } from '../src/lib/dev-process';
+import {
+  detachedSpawnCommand,
+  rotateLogFile,
+  runChildInherit,
+  spawnDetached,
+  terminateProcessGroup,
+  waitForHttp,
+  windowsTrampoline,
+} from '../src/lib/dev-process';
 
 describe('rotateLogFile', () => {
   let dir: string;
@@ -88,13 +96,37 @@ describe('detachedSpawnCommand', () => {
     expect(args[1]).toEqual(expect.stringContaining('exec "$0" "$@"'));
   });
 
-  it('spawns the command directly on Windows — there is no /bin/sh there', () => {
-    // A `/bin/sh` that does not exist makes spawn emit an async 'error' event
-    // instead of returning, which used to take the whole process down. Windows
-    // also has no RLIMIT_NOFILE, so the wrapper buys nothing there anyway.
-    const { args, command } = detachedSpawnCommand('node', ['server.js', '--port=1'], 'win32');
-    expect(command).toBe('node');
-    expect(args).toEqual(['server.js', '--port=1']);
+  it('runs the command through a Node trampoline on Windows, never /bin/sh', () => {
+    // No /bin/sh there (spawning it emits an async 'error'), and the trampoline is
+    // what keeps the log from staying empty — see `detachedSpawnCommand`.
+    const { args, command } = detachedSpawnCommand('pnpm', ['run', 'dev'], 'win32', 'C:\\node\\node.exe');
+    expect(command).toBe('C:\\node\\node.exe');
+    expect(args[0]).toBe('-e');
+    expect(args[1]).toContain('cross-spawn');
+    expect(args[1]).toContain("stdio: 'inherit'");
+    expect(args[1]).not.toContain('\n');
+    // `--` ends node's own options; cmd and args follow verbatim.
+    expect(args.slice(2)).toEqual(['--', 'pnpm', 'run', 'dev']);
+  });
+});
+
+describe('windowsTrampoline — runs on every platform, so its behaviour is tested here', () => {
+  const run = (...args: string[]) =>
+    require('child_process').spawnSync(process.execPath, ['-e', windowsTrampoline(), '--', ...args], {
+      encoding: 'utf8',
+    });
+
+  it('passes stdout, stderr and the exit code through', () => {
+    const r = run(process.execPath, '-e', 'console.log("to-out"); console.error("to-err"); process.exit(7)');
+    expect(r.stdout).toBe('to-out\n');
+    expect(r.stderr).toBe('to-err\n');
+    expect(r.status).toBe(7);
+  });
+
+  it('turns a command that cannot start into exit 127 with a readable line', () => {
+    const r = run('lt-dev-no-such-command-xyz');
+    expect(r.status).toBe(127);
+    expect(r.stderr).toContain('lt dev: could not start lt-dev-no-such-command-xyz');
   });
 });
 
@@ -270,7 +302,10 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
     return existsSync(logFile) ? readFileSync(logFile, 'utf8') : '';
   }
 
-  it('preserves PID identity through the wrapper — the recorded pid IS the real process', async () => {
+  // POSIX only: on Windows the recorded pid is deliberately the trampoline's (see
+  // `detachedSpawnCommand`). It lives exactly as long as the command, and
+  // `taskkill /T` from it reaches the whole tree, which is what the pid is for there.
+  (process.platform === 'win32' ? it.skip : it)('preserves PID identity through the wrapper — the recorded pid IS the real process', async () => {
     const logFile = join(dir, 'pid.log');
     const result = spawnDetached('node', ['-e', 'process.stdout.write(String(process.pid))'], {
       cwd: process.cwd(),
@@ -330,8 +365,9 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
 });
 
 describe('probePorts', () => {
-  const { isPortBound, probePorts } = require('../src/lib/dev-process');
   const nodeNet = require('net');
+
+  const { isPortBound, probePorts } = require('../src/lib/dev-process');
 
   const listen = (): Promise<{ close: () => void; port: number }> =>
     new Promise((resolve) => {
@@ -415,8 +451,9 @@ describe('isPidAlive and EPERM', () => {
 });
 
 describe('probePorts owner lookup — both platform branches, from any host', () => {
-  const { probePorts } = require('../src/lib/dev-process');
   const nodeNet = require('net');
+
+  const { probePorts } = require('../src/lib/dev-process');
 
   const listen = (): Promise<{ close: () => void; port: number }> =>
     new Promise((resolve) => {
@@ -506,8 +543,9 @@ describe('probePorts owner lookup — both platform branches, from any host', ()
 });
 
 describe('httpStatus — the probe that replaced `curl -o /dev/null`', () => {
-  const { httpStatus, waitForHttp } = require('../src/lib/dev-process');
   const nodeHttp = require('http');
+
+  const { httpStatus, waitForHttp } = require('../src/lib/dev-process');
 
   const serve = (handler: (req: unknown, res: { end: () => void; statusCode: number }) => void) =>
     new Promise<{ close: () => void; url: string }>((resolve) => {
