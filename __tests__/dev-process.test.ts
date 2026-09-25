@@ -575,3 +575,105 @@ describe('httpStatus — the probe that replaced `curl -o /dev/null`', () => {
     expect(Date.now() - started).toBeLessThan(5000);
   });
 });
+
+describe('planTermination — the only gate between a stored number and a signal', () => {
+  const { planTermination } = require('../src/lib/dev-process');
+  const self = { pid: 50_000, ppid: 49_999 };
+
+  it('refuses pid 1 on POSIX: `-1` is the kill(2) broadcast, not a group', () => {
+    // 2026-09-23: exactly this pid, sent through the real signal path by a test,
+    // SIGTERMed every process of the user and rebooted the Mac.
+    expect(planTermination(1, 'darwin', self).kind).toBe('refuse');
+    expect(planTermination(1, 'linux', self).kind).toBe('refuse');
+  });
+
+  it('refuses the Windows system pids 0 and 4, and allows the next one', () => {
+    expect(planTermination(4, 'win32', self).kind).toBe('refuse');
+    expect(planTermination(8, 'win32', self)).toEqual({ kind: 'taskkill', target: 8 });
+  });
+
+  it('refuses this CLI and its parent', () => {
+    expect(planTermination(self.pid, 'linux', self).kind).toBe('refuse');
+    expect(planTermination(self.ppid, 'linux', self).kind).toBe('refuse');
+  });
+
+  it('refuses what a corrupted state.json can hold', () => {
+    for (const pid of [0, -5, 1.5, Number.NaN, '4242', null, undefined]) {
+      expect(planTermination(pid, 'linux', self).kind).toBe('refuse');
+    }
+  });
+
+  it('plans a group signal for an ordinary pid', () => {
+    expect(planTermination(2, 'linux', self)).toEqual({ kind: 'group', target: 2 });
+  });
+});
+
+describe('killProcessGroup / terminateProcessGroup — every signal injected, none real', () => {
+  const { killProcessGroup, terminateProcessGroup: terminate } = require('../src/lib/dev-process');
+
+  /** Records instead of acting. Nothing here may reach `process.kill` or `taskkill`. */
+  const fake = (aliveChecks: boolean[] = []) => {
+    const signals: [number, string][] = [];
+    const runs: { args: string[]; command: string }[] = [];
+    let checks = 0;
+    return {
+      options: (platform: NodeJS.Platform) => ({
+        isAlive: () => aliveChecks[Math.min(checks++, aliveChecks.length - 1)] ?? false,
+        platform,
+        run: (command: string, args: string[]) => {
+          runs.push({ args, command });
+          return { status: 0 };
+        },
+        signal: (pid: number, sig: string) => {
+          signals.push([pid, sig]);
+        },
+      }),
+      runs,
+      signals,
+    };
+  };
+
+  it('sends nothing for pid 1 on POSIX', () => {
+    const f = fake();
+    expect(killProcessGroup(1, f.options('linux'))).toBe(false);
+    expect(f.signals).toEqual([]);
+  });
+
+  it('sends SIGTERM to the group of an ordinary pid on POSIX', () => {
+    const f = fake();
+    expect(killProcessGroup(4242, f.options('linux'))).toBe(true);
+    expect(f.signals).toEqual([[-4242, 'SIGTERM']]);
+  });
+
+  it('uses `taskkill /T /F` on Windows — `/F` is not optional', () => {
+    // Measured: `taskkill /PID <pid> /T` WITHOUT `/F` fails on the children and
+    // leaves the port bound — a refusal, not a graceful stop.
+    const f = fake();
+    killProcessGroup(4242, f.options('win32'));
+    expect(f.runs).toEqual([{ args: ['/PID', '4242', '/T', '/F'], command: 'taskkill' }]);
+    expect(f.signals).toEqual([]);
+  });
+
+  it('on Windows, one `/T /F` ends it — there is no gentler first step to wait out', async () => {
+    // alive before, gone after the first taskkill
+    const f = fake([true, false]);
+    await expect(terminate(4242, 1000, f.options('win32'))).resolves.toBe(true);
+    expect(f.runs).toHaveLength(1);
+  });
+
+  it('on Windows, a survivor gets a second `/T /F` and an honest false', async () => {
+    const f = fake([true]);
+    await expect(terminate(4242, 200, f.options('win32'))).resolves.toBe(false);
+    expect(f.runs).toHaveLength(2);
+    expect(f.signals).toEqual([]);
+  });
+
+  it('on POSIX, a survivor is escalated from SIGTERM to SIGKILL on the group', async () => {
+    const f = fake([true]);
+    await expect(terminate(4242, 200, f.options('linux'))).resolves.toBe(false);
+    expect(f.signals).toEqual([
+      [-4242, 'SIGTERM'],
+      [-4242, 'SIGKILL'],
+    ]);
+  });
+});

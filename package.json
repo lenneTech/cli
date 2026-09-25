@@ -134,6 +134,9 @@
     "rootDir": "__tests__",
     "testTimeout": 60000,
     "workerIdleMemoryLimit": "512MB",
+    "setupFilesAfterEnv": [
+      "<rootDir>/support/signal-guard.ts"
+    ],
     "testMatch": [
       "<rootDir>/*.test.ts"
     ],

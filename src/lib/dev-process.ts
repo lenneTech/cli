@@ -3,7 +3,8 @@
  *
  * - `spawnDetached`: detached child whose stdout/stderr go to a log file.
  *   The Claude Code session does NOT block waiting for it, and `lt dev down`
- *   can SIGTERM the entire process group via `process.kill(-pid, …)`.
+ *   can SIGTERM the entire process group (`killProcessGroup`, gated by
+ *   `planTermination`).
  * - `probePorts`: which of a set of ports has a listener (a TCP connect, so it
  *   answers on every platform) and — where the platform can say — who holds it.
  */
@@ -15,7 +16,7 @@ import { Socket } from 'net';
 import { dirname } from 'path';
 
 import { isPidAlive, isValidPid } from './dev-state';
-import { isWindows, spawnCmd } from './platform';
+import { isWindows, spawnCmd, spawnCmdSync } from './platform';
 
 /**
  * Who is bound to each of `ports`, and whether that could be established at all.
@@ -76,11 +77,41 @@ export interface RunChildOptions {
 }
 
 
+/** A pid `planTermination` has cleared for signalling. Not constructible elsewhere. */
+export type SignalTarget = number & { readonly __signalTarget: true };
+
 export interface SpawnOptions {
   cwd: string;
   env: NodeJS.ProcessEnv;
   logFile: string;
 }
+
+/**
+ * Injection points, so both termination paths stay assertable from any host
+ * without a single real signal leaving the test process.
+ */
+export interface TerminateOptions {
+  /** Default: `isPidAlive`. */
+  isAlive?: (pid: number) => boolean;
+  /** Default: `process.platform`. */
+  platform?: NodeJS.Platform;
+  /** Default: spawn the command. Injected in tests. */
+  run?: (command: string, args: string[]) => { status: null | number };
+  /** Default: `process.kill`. Injected in tests. */
+  signal?: (pid: number, signal: NodeJS.Signals) => void;
+}
+
+/**
+ * What `planTermination` decided for a pid: whom to signal, or why nobody.
+ *
+ * `group` carries the pid as a `SignalTarget`, the only type `signalGroup`
+ * accepts — so no code path can put a minus in front of a number that did not
+ * pass the plan first.
+ */
+export type TerminationPlan =
+  | { kind: 'group'; target: SignalTarget }
+  | { kind: 'refuse'; reason: string }
+  | { kind: 'taskkill'; target: SignalTarget };
 
 /**
  * How a detached child is actually launched on this platform.
@@ -192,20 +223,45 @@ export function isPortBound(port: number, timeoutMs = 700): Promise<boolean> {
   });
 }
 
-/** Send SIGTERM to a detached process group; falls back to single-PID kill. */
-export function killProcessGroup(pid: number): boolean {
-  if (!isValidPid(pid)) return false;
-  try {
-    process.kill(-pid, 'SIGTERM');
-    return true;
-  } catch {
-    try {
-      process.kill(pid, 'SIGTERM');
-      return true;
-    } catch {
-      return false;
-    }
-  }
+/**
+ * End a detached process tree: SIGTERM to its group on POSIX (single-PID
+ * fallback), `taskkill /T /F` on Windows — forceful there, see `killWindowsTree`.
+ *
+ * Returns false without signalling anything when `planTermination` refuses the pid.
+ */
+export function killProcessGroup(pid: number, options: TerminateOptions = {}): boolean {
+  const plan = planTermination(pid, options.platform);
+  if (plan.kind === 'refuse') return false;
+  if (plan.kind === 'taskkill') return killWindowsTree(plan.target, options);
+  return signalGroup(plan.target, 'SIGTERM', options);
+}
+
+/**
+ * Decide whether `pid` may be signalled, and how. Pure — the only gate between
+ * a number read from disk (`state.json`) or from `lsof` and a real signal.
+ *
+ * Refused, and why each one matters:
+ * - **Not a plausible pid** (`isValidPid`): 0, negative, fractional, NaN.
+ * - **pid 1** on POSIX: `-1` is not a process group, it is the kill(2)
+ *   BROADCAST — every process this user may signal. On 2026-09-23 a test called
+ *   `killProcessGroup(1)`; the SIGTERM took down every terminal and session and
+ *   the Mac rebooted two minutes later. A corrupted `state.json` holding `1`
+ *   would do the same through `lt dev down`. And pid 1 itself is launchd/init.
+ * - **pid ≤ 4** on Windows: 0 is the idle process, 4 is `System`.
+ * - **This process and its parent**: a group signal to either reaches the CLI
+ *   itself and whatever launched it.
+ */
+export function planTermination(
+  pid: unknown,
+  platform: NodeJS.Platform = process.platform,
+  self: { pid: number; ppid: number } = { pid: process.pid, ppid: process.ppid },
+): TerminationPlan {
+  if (!isValidPid(pid)) return { kind: 'refuse', reason: `not a valid pid: ${String(pid)}` };
+  const windows = isWindows(platform);
+  if (pid <= (windows ? 4 : 1)) return { kind: 'refuse', reason: `pid ${pid} is a system process` };
+  if (pid === self.pid || pid === self.ppid) return { kind: 'refuse', reason: `pid ${pid} is this CLI or its parent` };
+  const target = pid as SignalTarget;
+  return windows ? { kind: 'taskkill', target } : { kind: 'group', target };
 }
 
 /**
@@ -385,32 +441,37 @@ export function spawnDetached(
  * (only a hung process waits the full `graceMs`). Returns true if the process
  * is gone by the end, false if it somehow survived even SIGKILL.
  */
-export async function terminateProcessGroup(pid: number, graceMs = 4000): Promise<boolean> {
-  if (!isValidPid(pid)) return false;
-  if (!isPidAlive(pid)) return true;
+export async function terminateProcessGroup(
+  pid: number,
+  graceMs = 4000,
+  options: TerminateOptions = {},
+): Promise<boolean> {
+  const plan = planTermination(pid, options.platform);
+  if (plan.kind === 'refuse') return false;
+  const isAlive = options.isAlive ?? isPidAlive;
+  if (!isAlive(plan.target)) return true;
 
   // Phase 1 — graceful: SIGTERM the group (single-PID fallback inside).
-  killProcessGroup(pid);
+  // On Windows there is no such thing: `killProcessGroup` is already `/T /F`
+  // there, so the two phases collapse into one. The polling stays, because the
+  // RETURN VALUE still has to be honest about whether the pid actually went.
+  killProcessGroup(plan.target, options);
   const deadline = Date.now() + Math.max(0, graceMs);
   while (Date.now() < deadline) {
-    if (!isPidAlive(pid)) return true;
+    if (!isAlive(plan.target)) return true;
     await delay(150);
   }
 
   // Phase 2 — forced: SIGKILL the group, then the single PID.
-  if (!isPidAlive(pid)) return true;
-  try {
-    process.kill(-pid, 'SIGKILL');
-  } catch {
-    /* group already gone or pid is not a group leader */
-  }
-  try {
-    process.kill(pid, 'SIGKILL');
-  } catch {
-    /* already dead */
+  if (!isAlive(plan.target)) return true;
+  if (plan.kind === 'taskkill') {
+    // Nothing harder exists; a second `/T /F` is the only escalation there is.
+    killWindowsTree(plan.target, options);
+  } else {
+    signalGroup(plan.target, 'SIGKILL', options);
   }
   await delay(150);
-  return !isPidAlive(pid);
+  return !isAlive(plan.target);
 }
 
 /**
@@ -481,6 +542,38 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Windows has no process groups in this sense, and **no gentle step.**
+ *
+ * `taskkill /PID <pid> /T` without `/F` was measured on a Windows laptop (a node
+ * parent with two children holding port 3999): it fails on the children ("must be
+ * forcefully terminated") and leaves the port bound — i.e. it looks like a refusal,
+ * not like a graceful stop. Only `/T /F` actually ends the tree and frees the
+ * port. So on Windows this function is forceful where its POSIX twin is polite,
+ * and two consequences follow that a caller has to know:
+ *
+ * - **Shutdown hooks do not run.** No SIGTERM handler, no `onApplicationShutdown`,
+ *   no ordered close of a Mongo connection. In practice the components write
+ *   nothing on exit that the next start does not rebuild, but "in practice" is not
+ *   "never": a project that holds something open at shutdown gets no chance there.
+ * - **`/T` walks the child TREE from a snapshot, not a process group.** A
+ *   grandchild that has been re-parented (its parent exited first) is no longer in
+ *   that tree and survives. The negative-PID kill on POSIX has no such hole,
+ *   because group membership is inherited and does not change when a parent dies.
+ *
+ * The pid is the one `spawnDetached` recorded. On Windows that is cross-spawn's
+ * `cmd.exe`, and the package manager plus everything it started hang below it — so
+ * the tree walk should reach them. That part is NOT yet measured on a real
+ * `lt dev` stack — only on the synthetic tree above.
+ */
+function killWindowsTree(target: SignalTarget, options: TerminateOptions): boolean {
+  const run = options.run ?? ((command: string, args: string[]) => spawnCmdSync(command, args, { stdio: 'ignore' }));
+  const isAlive = options.isAlive ?? isPidAlive;
+  const result = run('taskkill', ['/PID', String(target), '/T', '/F']);
+  // taskkill exits non-zero when the pid is already gone, which is success for us.
+  return result.status === 0 || !isAlive(target);
+}
+
 /** `lsof` path. Parses the positional column layout. */
 async function lsofPortOwners(
   ports: number[],
@@ -518,6 +611,27 @@ async function portOwners(
 ): Promise<Map<number, { command: string; pid: number }> | null> {
   const capture = options.capture ?? captureStdout;
   return isWindows(options.platform) ? windowsPortOwners(ports, capture) : lsofPortOwners(ports, capture);
+}
+
+/**
+ * The one place in `src/` that signals a negative pid. It accepts only a
+ * `SignalTarget`, i.e. a pid `planTermination` has cleared — never a raw number.
+ * Returns true when either the group or the single pid took the signal.
+ */
+function signalGroup(target: SignalTarget, signal: NodeJS.Signals, options: TerminateOptions): boolean {
+  const send = options.signal ?? ((pid: number, sig: NodeJS.Signals) => process.kill(pid, sig));
+  try {
+    send(-target, signal);
+    return true;
+  } catch {
+    // Not a group leader, or the group is gone: fall back to the pid itself.
+    try {
+      send(target, signal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 /** `netstat -ano` + `tasklist` path. */
