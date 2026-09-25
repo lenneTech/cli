@@ -1296,6 +1296,19 @@ entry point run as `process.execPath` + `bin/lt`, never `lt` from PATH: during a
 install the bin link may not exist yet, and on Windows it is a `.cmd` shim that cannot
 be spawned without a shell.
 
+### A warm jest cache is not a type check — claim green only from `--no-cache` <!-- Added: 2026-09-25 -->
+PR #120 was reported locally as "1236 tests green" and was red in CI on Linux and Windows:
+`dev-test-session.test.ts` failed to compile, TS2353 in `dev-process.ts#httpStatus`
+("`rejectUnauthorized` does not exist in type `ClientRequestArgs`"). The trigger was not in that
+file: `caddy.ts` had started importing `http`, and the call on the union
+`isHttps ? httpsRequest : httpRequest` type-checks only when TypeScript picks the https signature,
+which ts-jest's per-file program then no longer did. The local run reused cached transforms and never
+type-checked again; `tsc -p .` and `tsc -p tsconfig.test.json` did not see it either.
+**Rules:** before stating that a suite is green (PR text, commit message, release notes), run
+`npx jest --no-cache`. When CI and local disagree, rerun locally without the cache before suspecting
+CI. And don't call a union of overloaded functions: two separately typed calls (see `httpStatus`)
+do not depend on which signature the compiler picks.
+
 ### A hook in a linked worktree inherits GIT_DIR — and hands it to the test suite <!-- Added: 2026-09-14 -->
 In a linked worktree (`git worktree add`) git exports `GIT_DIR=<repo>/.git/worktrees/<name>`
 to hooks; in the main checkout it does not. The former `.husky/pre-push` ran `npm run test`, and many
