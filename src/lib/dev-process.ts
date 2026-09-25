@@ -10,7 +10,7 @@
  */
 import { ChildProcess, spawn } from 'child_process';
 import { closeSync, mkdirSync, openSync, renameSync, statSync, unlinkSync } from 'fs';
-import { request as httpRequest } from 'http';
+import { request as httpRequest, IncomingMessage } from 'http';
 import { request as httpsRequest } from 'https';
 import { Socket } from 'net';
 import { dirname } from 'path';
@@ -193,12 +193,19 @@ export function httpStatus(url: string, timeoutMs = 2000): Promise<null | number
     };
     try {
       const parsed = new URL(url);
-      const client = parsed.protocol === 'https:' ? httpsRequest : httpRequest;
-      const request = client(url, { rejectUnauthorized: false, timeout: timeoutMs }, (response) => {
+      const onResponse = (response: IncomingMessage): void => {
         // The body is irrelevant; draining it lets the socket close promptly.
         response.resume();
         done(response.statusCode ?? null);
-      });
+      };
+      // Two calls, not one call on `isHttps ? httpsRequest : httpRequest`: a call
+      // on that union type-checks only when TypeScript picks the https signature,
+      // and ts-jest's per-file program did not always. It failed with TS2353 on
+      // `rejectUnauthorized` once caddy.ts started importing `http` too.
+      const request =
+        parsed.protocol === 'https:'
+          ? httpsRequest(url, { rejectUnauthorized: false, timeout: timeoutMs }, onResponse)
+          : httpRequest(url, { timeout: timeoutMs }, onResponse);
       request.on('timeout', () => {
         request.destroy();
         done(null);
