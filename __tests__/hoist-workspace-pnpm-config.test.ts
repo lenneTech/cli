@@ -582,15 +582,15 @@ describe('hoistWorkspacePnpmConfig', () => {
     writeJson(`${tempDir}/projects/api/package.json`, {
       name: 'api',
       pnpm: {
+        executionEnv: { nodeVersion: '24.0.0' }, // per-project, not workspace-scoped
         overrides: { qs: '6.15.1' },
-        peerDependencyRules: { allowedVersions: {} }, // not workspace-scoped here
       },
     });
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
 
     const api = readJson(`${tempDir}/projects/api/package.json`);
-    expect(api.pnpm).toEqual({ peerDependencyRules: { allowedVersions: {} } });
+    expect(api.pnpm).toEqual({ executionEnv: { nodeVersion: '24.0.0' } });
   });
 
   it('is idempotent — running twice produces the same result', () => {
@@ -750,6 +750,52 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
     expect(rootWs().auditConfig).toEqual({ ignoreGhsas: ['GHSA-x'], someScalar: true });
+  });
+
+  it('hoists peerDependencyRules, merging allowedVersions and unioning the lists', () => {
+    // Regression, same trap as `auditConfig` above: the starter scope-allows
+    // `@swc/cli>chokidar` and `graphql-upload>@types/express` here, the
+    // settings-only file is removed after hoisting, and the root `check:peers`
+    // step (`pnpm peers check`) then fails the first `pnpm run check` of every
+    // generated project.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.write(
+      `${tempDir}/pnpm-workspace.yaml`,
+      [
+        'peerDependencyRules:',
+        '  allowedVersions:',
+        "    'root>peer': '1'",
+        '  ignoreMissing:',
+        '    - root-missing',
+        '',
+      ].join('\n'),
+    );
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      [
+        'peerDependencyRules:',
+        '  allowedVersions:',
+        "    '@swc/cli>chokidar': '4'",
+        "    'graphql-upload>@types/express': '5'",
+        '  ignoreMissing:',
+        '    - sub-missing',
+        '',
+      ].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+
+    // The root's own rule must survive next to the sub-project's.
+    expect(rootWs().peerDependencyRules).toEqual({
+      allowedVersions: {
+        '@swc/cli>chokidar': '4',
+        'graphql-upload>@types/express': '5',
+        'root>peer': '1',
+      },
+      ignoreMissing: ['root-missing', 'sub-missing'],
+    });
+    expect(filesystem.exists(`${tempDir}/projects/api/pnpm-workspace.yaml`)).toBe(false);
   });
 
   it('keeps a sub-project pnpm-workspace.yaml that declares packages, minus hoisted keys', () => {

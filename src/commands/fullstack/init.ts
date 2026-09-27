@@ -850,9 +850,7 @@ const NewCommand: GluegunCommand = {
       // branch the command fell off the end here: no message, no failing exit code,
       // and `ngBaseSpinner` still spinning — which keeps the event loop alive (see
       // the spinner note in CLAUDE.md), so the process never returned at all.
-      ngBaseSpinner.fail(
-        `${frontend} was set up but "${projectDir}/projects/app" does not exist — cannot continue`,
-      );
+      ngBaseSpinner.fail(`${frontend} was set up but "${projectDir}/projects/app" does not exist — cannot continue`);
       failRun(toolbox);
       return;
     }

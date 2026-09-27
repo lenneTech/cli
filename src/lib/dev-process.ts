@@ -76,7 +76,6 @@ export interface RunChildOptions {
   env: NodeJS.ProcessEnv;
 }
 
-
 /** A pid `planTermination` has cleared for signalling. Not constructible elsewhere. */
 export type SignalTarget = number & { readonly __signalTarget: true };
 

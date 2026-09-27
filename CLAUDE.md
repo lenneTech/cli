@@ -1015,6 +1015,15 @@ last-writer-wins with no warning. Note `auditConfig` SUPPRESSES vulnerability
 findings, so hoisting widens its blast radius from one package to the whole
 workspace; `annotateAuditConfig` writes that fact into the YAML as a comment so a
 reviewer sees it in the diff.
+`peerDependencyRules` (2026-09-27, 1.50.0) was the same trap one step later: the
+starter scope-allows known-stale peer ranges there (`@swc/cli>chokidar`,
+`graphql-upload>@types/express`), the hoist deleted them, and the root `check:peers`
+step (`pnpm peers check`) failed the first `pnpm run check` of every generated project.
+It rides in `NESTED_ARRAY_FIELDS`, which now also merges an inner MAP
+(`allowedVersions`) key by key. That map is the one exception to "union classes keep
+both sides": two sub-projects allowing the same selector with different ranges end
+last-writer-wins without a warning — acceptable because the rule only silences a peer
+warning, but it is not conflict-checked.
 
 ### Hoisting is destructive, so conflict detection only sees ONE run <!-- Added: 2026-08-24 -->
 `hoistWorkspacePnpmConfig` returns `{ conflicts }` when two sources set the same key

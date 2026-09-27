@@ -285,17 +285,19 @@ const UpCommand: GluegunCommand = {
     // the block had nothing but a hostname that does not resolve for Node on
     // Windows. NEVER for a ticket worktree: that CLAUDE.md is git-tracked and
     // would carry per-ticket URLs into a commit.
-        if (!ticket) {
-          const claudeCandidates = [
-            join(layout.root, 'CLAUDE.md'),
-            ...(layout.apiDir ? [join(layout.apiDir, 'CLAUDE.md')] : []),
-            ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
-          ];
-          const patched = claudeCandidates.map((f) => patchClaudeMd(f, { apiPort, appPort, dbName, identity })).filter((r) => r.patched);
-          if (patched.length > 0) {
-            info(colors.dim(`updated CLAUDE.md URL block in ${patched.length} file(s)`));
-          }
-        }
+    if (!ticket) {
+      const claudeCandidates = [
+        join(layout.root, 'CLAUDE.md'),
+        ...(layout.apiDir ? [join(layout.apiDir, 'CLAUDE.md')] : []),
+        ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
+      ];
+      const patched = claudeCandidates
+        .map((f) => patchClaudeMd(f, { apiPort, appPort, dbName, identity }))
+        .filter((r) => r.patched);
+      if (patched.length > 0) {
+        info(colors.dim(`updated CLAUDE.md URL block in ${patched.length} file(s)`));
+      }
+    }
 
     // ── Health-aware (re)start decision ──────────────────────────────────────
     // Probe the just-resolved ports so we can tell a still-serving component

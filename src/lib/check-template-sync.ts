@@ -109,7 +109,7 @@ export function syncCheckTemplate(options: SyncCheckTemplateOptions): CheckTempl
       throw new Error(
         `${ref}: the template starts sibling script(s) it does not ship: ${spawned.join(', ')}. ` +
           'resolveCopySet only follows imports, so these would be missing in every generated project. ' +
-          'Add them to the wrapper\'s import closure, ship them deliberately, or remove the call upstream.',
+          "Add them to the wrapper's import closure, ship them deliberately, or remove the call upstream.",
       );
     }
 

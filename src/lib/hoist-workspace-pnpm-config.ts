@@ -30,11 +30,16 @@ import { isSymlink } from './fs-utils';
  * starter's assessed-advisory allowlist is destroyed rather than merely ignored,
  * and the generated project's very first pipeline goes red on an advisory that
  * was already justified upstream.
+ *
+ * `peerDependencyRules` (`{ allowedVersions: {...}, ignoreMissing: [...] }`) is
+ * the same trap one step later: the starter scope-allows known-stale peer ranges
+ * there, and without the hoist the root `check:peers` step fails the first
+ * `pnpm run check` of every generated project.
  */
 const OBJECT_FIELDS = ['overrides', 'allowBuilds'] as const;
 const ARRAY_FIELDS = ['onlyBuiltDependencies', 'ignoredOptionalDependencies', 'minimumReleaseAgeExclude'] as const;
-/** Objects whose values are arrays to be unioned, not replaced. */
-const NESTED_ARRAY_FIELDS = ['auditConfig'] as const;
+/** Objects whose inner arrays are unioned and inner maps merged, not replaced. */
+const NESTED_ARRAY_FIELDS = ['auditConfig', 'peerDependencyRules'] as const;
 
 /** The union of all three, in declaration order. Declared here, with its inputs,
  * because the comment-carrying helpers below default their `fields` parameter to it. */
@@ -740,12 +745,13 @@ function mergePnpmFieldValue(field: PnpmConfigField, rootValue: unknown, subValu
     const subArr = Array.isArray(subValue) ? (subValue as string[]) : [];
     return Array.from(new Set([...rootArr, ...subArr])).sort((a, b) => a.localeCompare(b));
   }
-  // Nested (`auditConfig.ignoreGhsas` / `.ignoreCves`): union each inner array
-  // instead of letting the sub-project's object replace the root's. A plain
-  // key-by-key merge would drop every advisory the root had already justified.
+  // Nested (`auditConfig.ignoreGhsas`, `peerDependencyRules.allowedVersions`, …):
+  // union each inner array and merge each inner map instead of letting the
+  // sub-project's object replace the root's. A plain key-by-key merge would drop
+  // every advisory or peer rule the root had already justified.
   if (isNestedArrayField(field)) {
-    const asObj = (v: unknown): Record<string, unknown> =>
-      v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+    const isMap = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+    const asObj = (v: unknown): Record<string, unknown> => (isMap(v) ? v : {});
     const rootObj = asObj(rootValue);
     const subObj = asObj(subValue);
     const merged: Record<string, unknown> = { ...rootObj };
@@ -754,6 +760,9 @@ function mergePnpmFieldValue(field: PnpmConfigField, rootValue: unknown, subValu
         const a = Array.isArray(merged[key]) ? (merged[key] as string[]) : [];
         const b = Array.isArray(value) ? (value as string[]) : [];
         merged[key] = Array.from(new Set([...a, ...b])).sort((x, y) => x.localeCompare(y));
+      } else if (isMap(value) && isMap(merged[key])) {
+        const inner: Record<string, unknown> = { ...merged[key], ...value };
+        merged[key] = Object.fromEntries(Object.entries(inner).sort(([x], [y]) => x.localeCompare(y)));
       } else {
         merged[key] = value;
       }

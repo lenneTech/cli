@@ -164,10 +164,14 @@ export function patchClaudeMd(
   // Windows, and fail silently. The browser address stays first: it is the one a
   // human opens.
   if (appSub) {
-    lines.push(`- App: \`https://${appSub.hostname}\`${appPort ? ` — from a script: \`http://127.0.0.1:${appPort}\`` : ''}`);
+    lines.push(
+      `- App: \`https://${appSub.hostname}\`${appPort ? ` — from a script: \`http://127.0.0.1:${appPort}\`` : ''}`,
+    );
   }
   if (apiSub) {
-    lines.push(`- API: \`https://${apiSub.hostname}\`${apiPort ? ` — from a script: \`http://127.0.0.1:${apiPort}\`` : ''}`);
+    lines.push(
+      `- API: \`https://${apiSub.hostname}\`${apiPort ? ` — from a script: \`http://127.0.0.1:${apiPort}\`` : ''}`,
+    );
   }
   if (appPort || apiPort) {
     lines.push(
