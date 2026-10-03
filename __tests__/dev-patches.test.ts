@@ -600,6 +600,45 @@ describe('dev-patches', () => {
         expect(out).toContain(`\`${key}\``);
       }
     });
+    test('points a script at the loopback env vars, never at a port number', () => {
+      // The block used to carry `from a script: http://127.0.0.1:4031`. CLAUDE.md is committed,
+      // and the internal port is allocated per machine (4000 + whatever other projects took), so
+      // every `lt dev up` left the file modified, and committing it only moved the diff to the next
+      // developer's checkout. Observed in `ltw`. The env var names are the same on every machine.
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(f, '# Project notes\n');
+      patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('`LT_DEV_APP_INTERNAL_URL`');
+      expect(out).toContain('`LT_DEV_API_INTERNAL_URL`');
+      expect(out).toContain('`lt dev status`');
+      expect(out).not.toMatch(/127\.0\.0\.1:\d/);
+
+      // An app-only project is not told about an API variable it never gets.
+      const appOnly = join(tmp, 'APP-ONLY.md');
+      writeFileSync(appOnly, '# Project notes\n');
+      patchClaudeMd(appOnly, {
+        identity: { ...fullIdentity, subdomains: { app: fullIdentity.subdomains.app } },
+      });
+      expect(readFileSync(appOnly, 'utf8')).not.toContain('LT_DEV_API_INTERNAL_URL');
+    });
+    test('the block is byte-identical whatever internal ports the stack runs on', () => {
+      // The test above calls without ports, so it would stay green if the port came back
+      // (as it did once, in #117). This one hands in ports — through a cast, because the
+      // signature no longer accepts them — and demands the same bytes on every "machine".
+      const render = (name: string, ports: object) => {
+        const f = join(tmp, name);
+        writeFileSync(f, '# P\n');
+        patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity, ...ports } as Parameters<
+          typeof patchClaudeMd
+        >[1]);
+        return readFileSync(f, 'utf8');
+      };
+      const a = render('a.md', { apiPort: 4031, appPort: 4032 });
+      expect(a).toEqual(render('b.md', { apiPort: 4517, appPort: 4518 }));
+      expect(a).toEqual(render('c.md', {}));
+      expect(a).not.toMatch(/40(31|32)|45(17|18)/);
+    });
     test('idempotent: re-applies replace block in-place', () => {
       const f = join(tmp, 'CLAUDE.md');
       writeFileSync(f, '# X\n');

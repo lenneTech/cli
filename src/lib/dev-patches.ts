@@ -128,11 +128,8 @@ export function patchApiConfig(file: string): PatchResult {
  * URLs is a no-op; re-running with different URLs replaces the block
  * in place.
  */
-export function patchClaudeMd(
-  file: string,
-  options: { apiPort?: number; appPort?: number; dbName?: string; identity: DevIdentity },
-): PatchResult {
-  const { apiPort, appPort, dbName, identity } = options;
+export function patchClaudeMd(file: string, options: { dbName?: string; identity: DevIdentity }): PatchResult {
+  const { dbName, identity } = options;
   const startMarker = '<!-- lt-dev:url-block:start -->';
   const endMarker = '<!-- lt-dev:url-block:end -->';
 
@@ -163,19 +160,21 @@ export function patchClaudeMd(
   // agent following it would `curl` a name that does not resolve for Node on
   // Windows, and fail silently. The browser address stays first: it is the one a
   // human opens.
-  if (appSub) {
+  //
+  // The loopback address is named by its env var, never by its port. This file is
+  // committed, and the internal port is allocated per machine (4000 + whatever the
+  // other registered projects took), so writing `127.0.0.1:4031` here left every
+  // checkout modified after `lt dev up`, and committing it only moved the diff to
+  // the next developer. The env var names are the same everywhere.
+  if (appSub) lines.push(`- App: \`https://${appSub.hostname}\``);
+  if (apiSub) lines.push(`- API: \`https://${apiSub.hostname}\``);
+  const loopbackVars = [
+    ...(appSub ? ['`LT_DEV_APP_INTERNAL_URL`'] : []),
+    ...(apiSub ? ['`LT_DEV_API_INTERNAL_URL`'] : []),
+  ];
+  if (loopbackVars.length > 0) {
     lines.push(
-      `- App: \`https://${appSub.hostname}\`${appPort ? ` — from a script: \`http://127.0.0.1:${appPort}\`` : ''}`,
-    );
-  }
-  if (apiSub) {
-    lines.push(
-      `- API: \`https://${apiSub.hostname}\`${apiPort ? ` — from a script: \`http://127.0.0.1:${apiPort}\`` : ''}`,
-    );
-  }
-  if (appPort || apiPort) {
-    lines.push(
-      '- The `*.localhost` names are resolved by BROWSERS. Node, `curl` and other tools may not resolve them (they do not on Windows) — use the loopback address from a script.',
+      `- The \`*.localhost\` names are resolved by BROWSERS. Node, \`curl\` and other tools may not resolve them (they do not on Windows), so a script uses the loopback address: ${loopbackVars.join(' / ')} (set in the processes and in \`.lt-dev/.env\`), or the \`→ 127.0.0.1:<port>\` that \`lt dev status\` prints. The port differs per machine, which is why it is not written here.`,
     );
   }
   if (dbName) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
