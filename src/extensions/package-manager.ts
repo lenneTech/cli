@@ -54,22 +54,6 @@ export class PackageManager {
   }
 
   /**
-   * Get the cache clean command
-   * @param pm - Override detected package manager
-   */
-  cacheClean(pm?: PackageManagerType): string {
-    const manager = pm || this.detect();
-    switch (manager) {
-      case 'pnpm':
-        return 'pnpm store prune';
-      case 'yarn':
-        return 'yarn cache clean';
-      default:
-        return 'npm cache clean --force';
-    }
-  }
-
-  /**
    * Detect the package manager for the given directory
    * Uses caching per directory for performance
    *

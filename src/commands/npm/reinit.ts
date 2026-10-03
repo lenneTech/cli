@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { buildReinitCommand } from '../../lib/reinit-command';
 
 /**
  * Reinitialize npm packages
@@ -89,9 +90,12 @@ const NewCommand: GluegunCommand = {
       if (system.which('rimraf')) {
         await system.run(pm.globalInstall('rimraf'));
       }
-      const lockfile = pm.getLockfileName(detectedPm);
       await system.run(
-        `cd ${dirname(path)} && rimraf ${lockfile} && rimraf node_modules && ${pm.cacheClean(detectedPm)} && ${pm.install(detectedPm)}`,
+        buildReinitCommand({
+          dir: dirname(path),
+          install: pm.install(detectedPm),
+          lockfile: pm.getLockfileName(detectedPm),
+        }),
       );
       reinitSpin.succeed();
       if (data.scripts && data.scripts['test:e2e']) {

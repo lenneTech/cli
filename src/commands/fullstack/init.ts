@@ -285,9 +285,7 @@ const NewCommand: GluegunCommand = {
 
     // ── Frontend framework mode ─────────────────────────────────────────
     const configFrontendFrameworkMode = ltConfig?.commands?.fullstack?.frontendFrameworkMode as
-      | 'npm'
-      | 'vendor'
-      | undefined;
+      'npm' | 'vendor' | undefined;
 
     // Precedence: frontend-specific CLI flag > workspace-wide CLI flag >
     // frontend-specific config > workspace-wide config > vendor default.

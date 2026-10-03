@@ -2160,8 +2160,8 @@ export class Server {
    * dep in disguise that needs to live in `dependencies` after vendoring?
    *
    * `@lenne.tech/nest-server` keeps a few packages in devDependencies that
-   * the framework code imports at runtime (e.g. `find-file-up` in its
-   * config loader). When we vendor the framework source into a consumer
+   * the framework code imports at runtime (e.g. the better-auth trio, which
+   * it mirrors from peerDependencies). When we vendor the framework source into a consumer
    * project, those must end up in `dependencies` so the compiled/dist
    * runtime has them available.
    *

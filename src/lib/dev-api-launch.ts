@@ -42,9 +42,7 @@ export type ApiRuntime = 'bun' | 'node';
 
 /** What {@link applyPendingMigrations} did. */
 export type MigrationOutcome =
-  | { exitCode: null | number; status: 'failed' }
-  | { status: 'applied' }
-  | { status: 'skipped' };
+  { exitCode: null | number; status: 'failed' } | { status: 'applied' } | { status: 'skipped' };
 
 /**
  * Apply the project's pending migrations (`<pm> run migrate:up`) ahead of an API

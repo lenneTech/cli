@@ -8,7 +8,7 @@
  * to tell "the log says X" apart from "the log is empty", and say the latter out
  * loud instead of printing nothing.
  */
-import { existsSync, readFileSync, statSync } from 'fs';
+import { closeSync, existsSync, openSync, readSync, statSync } from 'fs';
 
 /** What was found in a log file. */
 export interface LogDiagnosis {
@@ -34,12 +34,25 @@ export function describeLog(d: LogDiagnosis): string[] {
   return [`Last lines of ${d.file}:`, ...d.tail.map((l) => `  ${l}`)];
 }
 
-/** Read `file` and keep its last `lines` non-empty lines. */
-export function diagnoseLog(file: string, lines = 20): LogDiagnosis {
+/**
+ * How much of a log's end is read. A dev log reached 1 GB (Vue warnings carry
+ * serialized vnode traces of several MB each), and reading all of it to show 20
+ * lines threw "Cannot create a string longer than 0x1fffffe8 characters".
+ */
+const TAIL_BYTES = 64 * 1024;
+
+/** Longest line shown: one of those traces would otherwise flood the terminal. */
+const MAX_LINE_LENGTH = 500;
+
+/** Read the end of `file` and keep its last `lines` non-empty lines. */
+export function diagnoseLog(file: string, lines = 20, maxBytes = TAIL_BYTES): LogDiagnosis {
   if (!existsSync(file)) return { file, size: -1, state: 'missing', tail: [] };
   const size = statSync(file).size;
   if (size === 0) return { file, size, state: 'empty', tail: [] };
-  return { file, size, state: 'ok', tail: tailLines(readFileSync(file, 'utf8'), lines) };
+  const tail = tailLines(readEnd(file, size, maxBytes), lines).map((l) =>
+    l.length > MAX_LINE_LENGTH ? `${l.slice(0, MAX_LINE_LENGTH)}…` : l,
+  );
+  return { file, size, state: 'ok', tail };
 }
 
 /**
@@ -82,4 +95,24 @@ export function tailLines(content: string, n: number): string[] {
     .split(/\r?\n/)
     .filter((l) => l.trim().length > 0)
     .slice(-n);
+}
+
+/**
+ * The last `maxBytes` of `file`. The first line of a cut window is partial and
+ * dropped, unless the window lies inside one line: then the fragment is kept,
+ * marked with a leading `…`.
+ */
+function readEnd(file: string, size: number, maxBytes: number): string {
+  const length = Math.min(size, maxBytes);
+  const buffer = Buffer.alloc(length);
+  const fd = openSync(file, 'r');
+  try {
+    readSync(fd, buffer, 0, length, size - length);
+  } finally {
+    closeSync(fd);
+  }
+  const text = buffer.toString('utf8');
+  if (length === size) return text;
+  const rest = text.slice(text.indexOf('\n') + 1);
+  return text.includes('\n') && rest.trim() ? rest : `…${text}`;
 }

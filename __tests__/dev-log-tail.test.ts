@@ -29,6 +29,38 @@ describe('dev-log-tail', () => {
     expect(describeLog(d).slice(1)).toEqual(['  two', '  Cannot determine a GraphQL output type']);
   });
 
+  it('reads only the end of a large log, so a GB-sized log cannot crash status', () => {
+    // A dev log reached 1 GB (Vue warnings with serialized vnode traces) and
+    // readFileSync of the whole file threw "Cannot create a string longer
+    // than 0x1fffffe8 characters" — `lt dev status` died on it.
+    const file = join(dir, 'huge.log');
+    writeFileSync(file, `${'early line that must not be read\n'.repeat(500)}last but one\nlast\n`);
+    const d = diagnoseLog(file, 5, 30);
+    expect(d.state).toBe('ok');
+    expect(d.tail).toEqual(['last but one', 'last']);
+  });
+
+  it('drops the partial first line of the read window', () => {
+    const file = join(dir, 'cut.log');
+    writeFileSync(file, `${'x'.repeat(100)}\nwhole line\n`);
+    expect(diagnoseLog(file, 5, 20).tail).toEqual(['whole line']);
+  });
+
+  it('shortens a long line instead of printing all of it', () => {
+    const file = join(dir, 'wide.log');
+    writeFileSync(file, `[Vue warn]: Hydration node mismatch ${'{"__v_isVNode":true}'.repeat(1_000)}\n`);
+    const [line] = diagnoseLog(file).tail;
+    expect(line.startsWith('[Vue warn]: Hydration node mismatch')).toBe(true);
+    expect(line.length).toBe(501);
+    expect(line.endsWith('…')).toBe(true);
+  });
+
+  it('still shows something when the whole read window sits inside one line', () => {
+    const file = join(dir, 'one-line.log');
+    writeFileSync(file, `${'y'.repeat(1_000)}end of the trace\n`);
+    expect(diagnoseLog(file, 5, 30).tail).toEqual([`…${'y'.repeat(13)}end of the trace`]);
+  });
+
   it('tailLines keeps the last n non-empty lines in order', () => {
     expect(tailLines('a\n\nb\nc\n', 2)).toEqual(['b', 'c']);
   });

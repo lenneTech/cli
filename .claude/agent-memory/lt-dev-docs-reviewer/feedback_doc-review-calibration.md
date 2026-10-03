@@ -39,6 +39,10 @@ gets ignored with it.
   The recurring shape is an **asymmetric contrast** ("unlike X, Y needs …") that silently
   promotes X to a framework feature. Check BOTH halves, and check whether the same file already
   states the opposite elsewhere — self-contradiction within one file is the cheapest tell.
+  pnpm-internals claims are checkable offline: the corepack bundle lives at
+  `~/.cache/node/corepack/v1/pnpm/<ver>/dist/pnpm.mjs` (grep it with `/usr/bin/grep`; the shell's
+  grep is ugrep and chokes on long-line regexes). Verified 2026-10-03: `store prune` deletes
+  every store file with `nlink === 1`, so clone/reflink imports really do empty the store.
   Cross-repo claims *are* verifiable and were all correct here: a starter version floor
   (`git log --oneline` around the release commit), a TurboOps "since vX" claim (`git log
   vA..vB`), and a quoted upstream error string / API call.

@@ -472,6 +472,112 @@ describe('dev-patches', () => {
       expect(out).toContain('<!-- lt-dev:url-block:start -->');
       expect(out).toContain('<!-- lt-dev:url-block:end -->');
     });
+    test('keeps a foreign section that sits between the markers instead of deleting it', () => {
+      // Observed in `offers`: a 29-line documentation section lived between the markers, and one
+      // `lt dev up` removed it while reporting only "updated CLAUDE.md URL block in 1 file(s)".
+      // The markers are HTML comments, so they are invisible in every rendered view of the file,
+      // and a section appended after the preceding one lands inside them unnoticed.
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(
+        f,
+        [
+          '# Project notes',
+          '',
+          '<!-- lt-dev:url-block:start -->',
+          '',
+          '## Playwright: watch `pageerror`',
+          '',
+          'An uncaught rejection reaches Playwright through `page.on("pageerror")`.',
+          '',
+          '## Local Development (lt dev)',
+          '',
+          'stale generated content',
+          '',
+          '<!-- lt-dev:url-block:end -->',
+          '',
+        ].join('\n'),
+      );
+
+      const r = patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      expect(r.patched).toBe(true);
+
+      const out = readFileSync(f, 'utf8');
+      // The foreign section survived, with its body.
+      expect(out).toContain('## Playwright: watch `pageerror`');
+      expect(out).toContain('An uncaught rejection reaches Playwright');
+      // And it now sits OUTSIDE the block, so the next run cannot eat it either.
+      expect(out.indexOf('## Playwright: watch `pageerror`')).toBeLessThan(
+        out.indexOf('<!-- lt-dev:url-block:start -->'),
+      );
+      // The generated section was refreshed, not duplicated.
+      expect(out).not.toContain('stale generated content');
+      expect(out.match(/## Local Development \(lt dev\)/g)).toHaveLength(1);
+      expect(out).toContain('https://crm.localhost');
+    });
+
+    test('keeps a foreign section whose heading only STARTS with the generated heading', () => {
+      // Matching the heading by prefix discarded `## Local Development (lt dev) — <anything>` as if
+      // it were the generated section — and appending words is the most natural way to add notes
+      // next to it. Only the exact generated heading may be dropped.
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(
+        f,
+        [
+          '# Project notes',
+          '',
+          '<!-- lt-dev:url-block:start -->',
+          '',
+          '## Local Development (lt dev)',
+          '',
+          'stale generated content',
+          '',
+          '## Local Development (lt dev) — Windows notes',
+          '',
+          'my own troubleshooting notes',
+          '',
+          '<!-- lt-dev:url-block:end -->',
+          '',
+        ].join('\n'),
+      );
+
+      patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+
+      const out = readFileSync(f, 'utf8');
+      expect(out).toContain('## Local Development (lt dev) — Windows notes');
+      expect(out).toContain('my own troubleshooting notes');
+      expect(out).not.toContain('stale generated content');
+      expect(out.match(/^## Local Development \(lt dev\)$/gm)).toHaveLength(1);
+    });
+
+    test('a second run is idempotent and does not keep re-rescuing', () => {
+      // The rescue moves content out of the block; running again must not shuffle it further or
+      // produce a second copy, otherwise every `lt dev up` would grow the file.
+      const f = join(tmp, 'CLAUDE.md');
+      writeFileSync(
+        f,
+        [
+          '# Project notes',
+          '',
+          '<!-- lt-dev:url-block:start -->',
+          '',
+          '## Kept section',
+          '',
+          'body',
+          '',
+          '<!-- lt-dev:url-block:end -->',
+          '',
+        ].join('\n'),
+      );
+
+      patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      const afterFirst = readFileSync(f, 'utf8');
+      patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+      const afterSecond = readFileSync(f, 'utf8');
+
+      expect(afterSecond).toEqual(afterFirst);
+      expect(afterSecond.match(/## Kept section/g)).toHaveLength(1);
+    });
+
     test('names every env var `lt dev up` injects, so a Claude session can rely on the list', () => {
       // No test pinned this sentence, so a key could be added to `buildDevEnv` and forgotten
       // here (or removed here and not noticed) — and this block is what a consumer project's

@@ -196,7 +196,18 @@ export function patchClaudeMd(
   if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
     const before = content.slice(0, startIdx);
     const after = content.slice(endIdx + endMarker.length);
-    next = before + block + after;
+    // Anything between the markers that is NOT this generated block is somebody's own writing,
+    // and it is kept — moved out in front of the block rather than overwritten.
+    //
+    // Replacing the span wholesale was silent data loss, observed in `offers`: a 29-line section
+    // of project documentation sat between the markers and one `lt dev up` deleted it, reporting
+    // only "updated CLAUDE.md URL block in 1 file(s)". Nothing about the markers suggests the
+    // span is owned — they are HTML comments, so they are invisible in every rendered view of the
+    // file, and a section appended after the preceding one lands inside them without anyone
+    // seeing it. The only reason it was noticed at all is that the file happened to be under
+    // review in the same minute.
+    const rescued = rescueForeignContent(content.slice(startIdx + startMarker.length, endIdx));
+    next = before + (rescued ? `${rescued}\n\n` : '') + block + after;
   } else {
     const sep = content.endsWith('\n\n') ? '' : content.endsWith('\n') ? '\n' : '\n\n';
     // No trailing newline: oxfmt strips it from .md files, so emitting one
@@ -447,4 +458,28 @@ function normaliseBridgeBlock(s: string): string {
     .replace(/['"]/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Pull out the sections between the lt-dev markers that this tool did not write.
+ *
+ * The generated block is one section, `## Local Development (lt dev)`. Every other `##` section
+ * found inside the markers was written by somebody else and is returned so the caller can place
+ * it outside the block. Whitespace-only remainders are dropped — that is the generated block's
+ * own padding, not content.
+ *
+ * Deliberately conservative about what counts as ours: a section is discarded only when its
+ * heading matches exactly. A renamed or hand-edited heading is treated as foreign and kept, which
+ * leaves a duplicate for a human to resolve. A duplicate is visible; a deletion is not.
+ */
+function rescueForeignContent(span: string): string {
+  const own = '## Local Development (lt dev)';
+  const sections = span.split(/\n(?=## )/);
+  // Compare the whole heading line, not a prefix: `## Local Development (lt dev) — notes` is a
+  // section somebody wrote next to ours, and a prefix match would delete it.
+  const foreign = sections
+    .filter((section) => section.trimStart().split(/\r?\n/, 1)[0].trim() !== own)
+    .map((section) => section.trim())
+    .filter(Boolean);
+  return foreign.join('\n\n');
 }

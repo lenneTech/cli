@@ -95,9 +95,7 @@ const NewCommand: GluegunCommand = {
 
     const configFrontend = ltConfig?.commands?.fullstack?.frontend;
     const configFrontendFrameworkMode = ltConfig?.commands?.fullstack?.frontendFrameworkMode as
-      | 'npm'
-      | 'vendor'
-      | undefined;
+      'npm' | 'vendor' | undefined;
     const configFrontendBranch = ltConfig?.commands?.fullstack?.frontendBranch;
     const configFrontendCopy = ltConfig?.commands?.fullstack?.frontendCopy;
     const configFrontendLink = ltConfig?.commands?.fullstack?.frontendLink;

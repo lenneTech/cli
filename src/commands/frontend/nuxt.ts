@@ -90,9 +90,7 @@ const NewCommand: GluegunCommand = {
     const configCopy = ltConfig?.commands?.frontend?.nuxt?.copy;
     const configLink = ltConfig?.commands?.frontend?.nuxt?.link;
     const configFrontendFrameworkMode = ltConfig?.commands?.fullstack?.frontendFrameworkMode as
-      | 'npm'
-      | 'vendor'
-      | undefined;
+      'npm' | 'vendor' | undefined;
 
     // Parse CLI arguments
     const cliBranch = parameters.options.branch || parameters.options.b;

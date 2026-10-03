@@ -1,6 +1,6 @@
 ---
 name: cli-perf-calibration
-description: Measured cost constants for lt CLI file-patcher work (readFileSync ~30us, writeFileSync ~100us, 1KB regex-replace ~7us) — use to avoid manufacturing CPU findings
+description: Measured cost constants for lt CLI (file I/O, regex, startup incl. eager axios ~100ms, bounded log tail, CLAUDE.md rescue) — use to avoid manufacturing CPU findings
 metadata:
   type: project
 ---
@@ -31,6 +31,18 @@ Measured on Kai's machine (macOS/APFS, Node in-repo) while reviewing `dev-patche
 **The repo's own convention is to lazy-require heavyweight third-party deps inside the function body** — `open`, `js-yaml`, `playwright-core`, `ts-morph` are all `await import(...)`/`require(...)`d at call time. Across all 110 command files the only third-party top-level imports are `gluegun` (78), `js-sha256` (2), `ejs` (1), `@aws-sdk/client-s3` (1). A new top-level third-party import is a convention deviation worth flagging even when the absolute cost is ~0.3% of startup, because the fix is one line.
 
 **How to apply:** before flagging "extra regex allocation" or recommending hoisting a constant out of a patcher, check the call-site multiplicity first. The `lt dev` patchers (`autoPatch` → `patchApiConfig`/`patchNuxtConfig`/`patchPlaywrightConfig`) run **once per command**, over at most 3 config files; the only multiplier is `lt dev test --shard N` (N stacks, `autoShardCount()` caps auto-sizing at 8), which still means single-digit invocations against a run that boots N full stacks. Micro-optimising there is premature — say so plainly instead of inventing a finding.
+
+**Transitive exception (measured 2026-10-03):** `axios` IS paid on every run. It is top-level-imported by `src/lib/crawler.ts` and `src/lib/nuxt-base-components.ts`, which `tools/crawl`, `blocks/add` and `components/add` import at top level. Warm `require('axios')` costs ~80-150 ms (median ~95-140 ms over 10 runs, very noisy), i.e. a large slice of the ~715 ms startup. Pre-existing; 1.19.0 -> 1.20.0 left it unchanged (same deps, same timings). Only a finding when a diff ADDS such an import path, not on a version bump.
+
+## Bounded log tail + CLAUDE.md rescue (measured 2026-10-03)
+
+| Thing | Cost |
+|---|---|
+| `diagnoseLog` (64 KB tail via openSync/readSync) on a 1.13 GB log | ~0.15 ms, +0.3-2 MB RSS, fd count flat over 20k calls |
+| Old whole-file `readFileSync(utf8)` of the same log | throws `ERR_STRING_TOO_LONG` |
+| `patchClaudeMd` + `rescueForeignContent` on an 8 MB / 32 MB marker span | ~280 ms / ~840 ms (linear) |
+
+Measure against the compiled `build/lib/*.js` directly if it already contains the new code (grep for the new function name first). This avoids a ts-node setup.
 
 ## Scaffold-time key walks (measured 2026-08-24, reviewing `hoist-workspace-pnpm-config.ts`)
 
