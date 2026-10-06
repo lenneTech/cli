@@ -1,3 +1,4 @@
+import { symlinkSync } from 'fs';
 import { dump, load } from 'js-yaml';
 
 import {
@@ -926,6 +927,181 @@ describe('hoistWorkspacePnpmConfig', () => {
 
     expect(rootWs().onlyBuiltDependencies).toEqual(['esbuild', 'sharp']);
     expect(rootWs().allowBuilds).toEqual({ esbuild: true, sharp: true });
+  });
+});
+
+/**
+ * pnpm reads `patchedDependencies` only from the workspace ROOT, and the hoist deletes a
+ * settings-only sub-project `pnpm-workspace.yaml` afterwards. So a patch the sub-project
+ * declares is not merely ignored, it is destroyed, while the override it belongs to does
+ * reach the root. nuxt-base-starter pairs `simple-git: 4.0.2` with a patch that restores a
+ * default export; without the patch `nuxt prepare` (postinstall) aborts the very first
+ * `pnpm install` of every generated project.
+ *
+ * The patch FILE has to move as well: the value is a path relative to the root, and the
+ * Dockerfiles copy only the build-context-root `patches/`, which in a monorepo is the root.
+ */
+describe('hoistWorkspacePnpmConfig — patchedDependencies', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = filesystem.path(
+      filesystem.cwd(),
+      '__tests__',
+      'temp-hoist-patch-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+    );
+    filesystem.dir(tempDir);
+    filesystem.write(`${tempDir}/package.json`, JSON.stringify({ name: 'root' }, null, 2) + '\n');
+    filesystem.write(`${tempDir}/pnpm-workspace.yaml`, dump({ packages: ['projects/*'] }));
+  });
+
+  afterEach(() => {
+    if (filesystem.exists(tempDir)) filesystem.remove(tempDir);
+  });
+
+  const rootWs = (): any => load(filesystem.read(`${tempDir}/pnpm-workspace.yaml`) || '') || {};
+  const PATCH = 'diff --git a/dist/esm/index.js b/dist/esm/index.js\n+export default simpleGit;\n';
+
+  /** A sub-project carrying its patch the way nuxt-base-template does. */
+  const seedApp = (patch = PATCH): void => {
+    filesystem.write(
+      `${tempDir}/projects/app/pnpm-workspace.yaml`,
+      dump({
+        overrides: { 'simple-git': '4.0.2' },
+        patchedDependencies: { 'simple-git@4.0.2': 'patches/simple-git@4.0.2.patch' },
+      }),
+    );
+    filesystem.write(`${tempDir}/projects/app/patches/simple-git@4.0.2.patch`, patch);
+  };
+
+  it('hoists the entry together with the override, and moves the patch to <root>/patches/', () => {
+    seedApp();
+
+    const { conflicts } = hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(conflicts).toEqual([]);
+    expect(rootWs().overrides).toEqual({ 'simple-git': '4.0.2' });
+    expect(rootWs().patchedDependencies).toEqual({ 'simple-git@4.0.2': 'patches/simple-git@4.0.2.patch' });
+    expect(filesystem.read(`${tempDir}/patches/simple-git@4.0.2.patch`)).toBe(PATCH);
+    // The settings-only file is gone, and so is the copy it pointed at.
+    expect(filesystem.exists(`${tempDir}/projects/app/pnpm-workspace.yaml`)).toBe(false);
+    expect(filesystem.exists(`${tempDir}/projects/app/patches`)).toBe(false);
+  });
+
+  it('hoists from package.json#pnpm and rewrites a nested path to the root', () => {
+    filesystem.write(
+      `${tempDir}/projects/api/package.json`,
+      JSON.stringify(
+        { name: 'api', pnpm: { patchedDependencies: { 'left-pad@1.3.0': 'patches/vendor/left-pad@1.3.0.patch' } } },
+        null,
+        2,
+      ) + '\n',
+    );
+    filesystem.write(`${tempDir}/projects/api/patches/vendor/left-pad@1.3.0.patch`, PATCH);
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+
+    expect(rootWs().patchedDependencies).toEqual({ 'left-pad@1.3.0': 'patches/left-pad@1.3.0.patch' });
+    expect(filesystem.read(`${tempDir}/patches/left-pad@1.3.0.patch`)).toBe(PATCH);
+    expect(filesystem.exists(`${tempDir}/projects/api/patches`)).toBe(false);
+    expect(JSON.parse(filesystem.read(`${tempDir}/projects/api/package.json`)).pnpm).toBeUndefined();
+  });
+
+  it('moves a patch shared by two entries once and points both at it', () => {
+    filesystem.write(
+      `${tempDir}/projects/app/pnpm-workspace.yaml`,
+      dump({
+        patchedDependencies: {
+          'simple-git@4.0.1': 'patches/simple-git.patch',
+          'simple-git@4.0.2': 'patches/simple-git.patch',
+        },
+      }),
+    );
+    filesystem.write(`${tempDir}/projects/app/patches/simple-git.patch`, PATCH);
+
+    const { conflicts } = hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(conflicts).toEqual([]);
+    expect(rootWs().patchedDependencies).toEqual({
+      'simple-git@4.0.1': 'patches/simple-git.patch',
+      'simple-git@4.0.2': 'patches/simple-git.patch',
+    });
+    expect(filesystem.read(`${tempDir}/patches/simple-git.patch`)).toBe(PATCH);
+  });
+
+  it('keeps a patch the root already ships when a sub-project brings the same file', () => {
+    filesystem.write(`${tempDir}/patches/simple-git@4.0.2.patch`, PATCH);
+    seedApp();
+
+    const { conflicts } = hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(conflicts).toEqual([]);
+    expect(rootWs().patchedDependencies).toEqual({ 'simple-git@4.0.2': 'patches/simple-git@4.0.2.patch' });
+    expect(filesystem.exists(`${tempDir}/projects/app/patches`)).toBe(false);
+  });
+
+  it('reports two sub-projects patching the same version differently, and loses neither patch', () => {
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      dump({ patchedDependencies: { 'simple-git@4.0.2': 'patches/simple-git@4.0.2.patch' } }),
+    );
+    filesystem.write(`${tempDir}/projects/api/patches/simple-git@4.0.2.patch`, 'api version\n');
+    seedApp();
+
+    const { conflicts } = hoistWorkspacePnpmConfig({
+      filesystem,
+      projectDir: tempDir,
+      subProjects: ['projects/api', 'projects/app'],
+    });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('simple-git@4.0.2');
+    expect(conflicts[0]).toContain('projects/api');
+    expect(conflicts[0]).toContain('projects/app');
+    // The root copy is never overwritten, and the losing patch stays on disk.
+    expect(filesystem.read(`${tempDir}/patches/simple-git@4.0.2.patch`)).toBe('api version\n');
+    expect(filesystem.read(`${tempDir}/projects/app/patches/simple-git@4.0.2.patch`)).toBe(PATCH);
+  });
+
+  it('reports an entry whose patch file does not exist instead of hoisting it silently', () => {
+    filesystem.write(
+      `${tempDir}/projects/app/pnpm-workspace.yaml`,
+      dump({ patchedDependencies: { 'simple-git@4.0.2': 'patches/simple-git@4.0.2.patch' } }),
+    );
+
+    const { conflicts } = hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/app'] });
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toContain('simple-git@4.0.2');
+    expect(conflicts[0]).toContain('projects/app/patches/simple-git@4.0.2.patch');
+    expect(rootWs().patchedDependencies).toEqual({
+      'simple-git@4.0.2': 'projects/app/patches/simple-git@4.0.2.patch',
+    });
+  });
+
+  it('never writes a patch through a symlinked root patches/ directory', () => {
+    const elsewhere = `${tempDir}-elsewhere`;
+    filesystem.dir(elsewhere);
+    symlinkSync(elsewhere, `${tempDir}/patches`);
+    seedApp();
+
+    try {
+      const { conflicts } = hoistWorkspacePnpmConfig({
+        filesystem,
+        projectDir: tempDir,
+        subProjects: ['projects/app'],
+      });
+
+      expect(filesystem.list(elsewhere)).toEqual([]);
+      expect(conflicts.some((c) => c.includes('symlink'))).toBe(true);
+      // Left where pnpm can still find it, so the install keeps working.
+      expect(rootWs().patchedDependencies).toEqual({
+        'simple-git@4.0.2': 'projects/app/patches/simple-git@4.0.2.patch',
+      });
+      expect(filesystem.read(`${tempDir}/projects/app/patches/simple-git@4.0.2.patch`)).toBe(PATCH);
+    } finally {
+      filesystem.remove(elsewhere);
+    }
   });
 });
 

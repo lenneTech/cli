@@ -21,13 +21,20 @@ compile standalone, run a plain node comparison:
 ```bash
 git show HEAD:src/lib/<file>.ts | perl -pe "s|^import \{ T \} from './x';|type T = any;|" > "$SP/old/<file>.ts"
 perl -pe "s|^import \{ T \} from './x';|type T = any;|" src/lib/<file>.ts > "$SP/new/<file>.ts"
-npx tsc --ignoreConfig --target ES2020 --module commonjs --moduleResolution node \
-  --esModuleInterop --skipLibCheck --rootDir "$SP" --outDir "$SP/out" "$SP"/harness.ts "$SP"/{old,new}/<file>.ts
+npx --prefix <repo> tsc --ignoreConfig --ignoreDeprecations 6.0 --target ES2020 --module commonjs \
+  --moduleResolution node --esModuleInterop --skipLibCheck \
+  --typeRoots <repo>/node_modules/@types --types node \
+  --rootDir "$SP" --outDir "$SP/out" "$SP"/harness.ts "$SP"/{old,new}/<file>.ts
 node "$SP/out/harness.js"
 ```
 
 `--ignoreConfig` is required (tsc refuses to load the repo `tsconfig.json` when files are
-passed on the CLI). Older revisions of the same file (`git show <sha>^:path`) can be added
+passed on the CLI). Since TS 6, `--moduleResolution node` raises TS5107 unless
+`--ignoreDeprecations 6.0` is passed (it still emits, but exit is non-zero). A private
+helper under test (e.g. `normaliseBridgeBlock`) can be exported in BOTH scratch copies with
+a one-line `perl -0pi` so the harness can probe it directly. A table of mutation cases
+(want=tolerate/detect) run through old and new side by side answers "does the new test
+fail on HEAD" and "did leniency open a gap" in one pass. Older revisions of the same file (`git show <sha>^:path`) can be added
 as a third implementation to replay a historically-shipped upgrade against the new logic —
 that is how the masked-upgrade class of bug gets found.
 

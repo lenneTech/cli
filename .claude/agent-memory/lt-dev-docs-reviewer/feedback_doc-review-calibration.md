@@ -55,6 +55,14 @@ gets ignored with it.
   `from '...'` (single quotes) while `src/templates/check/check.mjs` uses double quotes — the
   `matchAll` loop ran **zero** iterations and asserted nothing. Reproduce such loops with a
   throwaway `node -e` against the real fixture before crediting the comment.
+- **Bridge-block / formatter claims can be reproduced end to end, offline.** Copy the consumer's
+  `playwright.config.ts` + formatter config into the scratchpad, call `patchPlaywrightConfig` via
+  `TS_NODE_COMPILER_OPTIONS='{"module":"commonjs","moduleResolution":"node10","ignoreDeprecations":"6.0"}' npx ts-node -T`
+  (plain `ts-node` dies on TS 6's moduleResolution deprecation), run the consumer's own pinned
+  formatter binary from its `node_modules/.pnpm/<fmt>@<ver>/…/bin`, then re-patch and `cmp`.
+  Running the HEAD copy of `dev-patches.ts` the same way proves the "before" half of a bugfix
+  claim. oxfmt's defaults are in its shipped `configuration_schema.json` (printWidth also falls
+  back to `.editorconfig` `max_line_length`).
 - **For `src/templates/**` assets, "does this file exist?" has TWO answers.** A freshly
   `lt fullstack init`-ed project gets the whole `lt-monorepo` clone (e.g.
   `scripts/nuxt-builddir-isolation.test.mjs`, `test:scripts`); a project migrated via

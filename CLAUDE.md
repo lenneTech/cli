@@ -575,6 +575,16 @@ it by making the EMITTED block match one formatter's output (`"utf8"` → `'utf8
 expanded braces). That only holds for projects on that exact formatter + config.
 Never chase a formatter's style; be indifferent to it.
 
+**The third one (1.50.4) came from a printWidth.** turboops formats with oxfmt at
+`printWidth: 80`, and both bridge imports are longer than that (83 and 81
+characters), so oxfmt wraps them and adds a trailing comma. Quotes and whitespace
+were already normalised, the comma and the padding inside the braces were not, so
+`lt dev up` rewrote turboops' `playwright.config.ts` on every run and broke its
+`format:check`. oxfmt's default (100) and nuxt-base-starter (180) never wrap
+them, which is why it surfaced in only one project. Verified against the real
+oxfmt 0.28.0 and turboops' config: inject → format → three re-runs leave the file
+byte-identical and `oxfmt --check` green.
+
 **Three rules, all load-bearing:**
 
 1. **Compare semantically — but drop comment lines, do NOT collapse newlines.**
@@ -584,7 +594,8 @@ Never chase a formatter's style; be indifferent to it.
    `.lt-dev/.env` again, with Playwright falling back to `localhost:3001` —
    possibly a parallel project's stack. `normaliseBridgeBlock` therefore drops
    comment lines entirely (so rewording a comment is free) and only then
-   normalises quotes + intra-line whitespace. Measured against a 15-case matrix:
+   normalises quotes, intra-line whitespace, padding inside brackets and trailing
+   commas — never anything that changes what the code does. Measured against a 15-case matrix:
    comment-dropping 14/15, whitespace-collapsing 11/15.
 2. **Version the marker; bump `BRIDGE_VERSION` on EVERY block change — including
    a formatting-only one.** Since the content comparison ignores quote style and
@@ -675,16 +686,20 @@ sources, fixed 4.3.2 / 3.15.2). It is a direct production dependency of this CLI
 (`src/extensions/config.ts`, `src/lib/hoist-workspace-pnpm-config.ts`).
 
 The dev-only 3.x path (ts-jest > @jest/transform > babel-plugin-istanbul >
-@istanbuljs/load-nyc-config, which requests `^3.13.1`) now resolves to **3.15.2 on its
-own** — no override. Until 2026-09-14 a consumer-scoped override forced it onto 4.x,
-because the `!!omap` advisory originally said the fix was not backported to 3.x. js-yaml
-later published 3.15.1 and 3.15.2, so the forced cross-major jump was removed: fewer
-forced majors, and the consumer gets the line it asked for. The price is a second
-js-yaml copy in the dev tree. If a future js-yaml advisory is again fixed only in 4.x,
-the old remedy still applies: a top-level `js-yaml@<x` selector does **not** reach that
-nested path in npm, only a consumer-scoped `"@istanbuljs/load-nyc-config": { "js-yaml": … }`
-does, and it needs the export-shape check (`index.js:80` calls `.load`, which 4.x has;
-4.x `load` behaves like 3.x `safeLoad`).
+@istanbuljs/load-nyc-config, which requests `^3.13.1`) is forced onto 4.x again, by
+the consumer-scoped override `"@istanbuljs/load-nyc-config": { "js-yaml": "$js-yaml" }`
+(`$js-yaml` = this project's own direct js-yaml, so the two cannot drift). History:
+until 2026-09-14 the same override existed for the `!!omap` advisory; it was dropped
+when js-yaml backported that fix to 3.15.1/3.15.2. On 2026-10-06 GHSA-hp3w-g68c-fv3c
+(sprintf-js, DoS, advisory range ALL versions) brought it back: js-yaml 3.x needs
+argparse 1.x, argparse 1.x needs sprintf-js, and every link is at its latest release.
+Only js-yaml 4.x leaves the chain (argparse ^2 has no sprintf-js). Two facts that cost
+time: a top-level `js-yaml@<x` selector does **not** reach that nested path in npm,
+only the consumer-scoped form does; and `npm install` does **not** re-resolve a nested
+node already in the lockfile when you add an override for it (`npm ls` then reports it
+`invalid`): delete that node's `packages` entries (here `…/load-nyc-config/node_modules/{js-yaml,argparse}`)
+and the matching `node_modules` dirs, then install. The export-shape check still holds
+(`index.js:80` calls `.load`, which 4.x has; 4.x `load` behaves like 3.x `safeLoad`).
 
 ### `lt fullstack init` used to exit 0 on EVERY error path <!-- Added: 2026-08-23 -->
 A gluegun command that `return`s leaves the process at exit code 0. Until 1.43.0 every
@@ -1024,6 +1039,20 @@ It rides in `NESTED_ARRAY_FIELDS`, which now also merges an inner MAP
 both sides": two sub-projects allowing the same selector with different ranges end
 last-writer-wins without a warning — acceptable because the rule only silences a peer
 warning, but it is not conflict-checked.
+
+`patchedDependencies` (2026-10-06, 1.50.4) is the third instance, and the first with a
+FILE attached. nuxt-base-starter closes the simple-git advisories with an override to
+4.0.2 plus a patch restoring the default export `@nuxt/devtools` imports. The override
+was hoisted, the patch entry was not, so every generated project installed simple-git
+unpatched and `nuxt prepare` aborted its first `pnpm install`. It is an
+`OBJECT_FIELDS` member (conflict-checked like `overrides`), and `relocatePatches` runs
+before the merge: it moves each patch to `<root>/patches/<basename>` and rewrites the
+value, because pnpm resolves the path from the workspace root and the api/app
+Dockerfiles copy only the build-context-root `patches/`. It never overwrites, never
+writes through a symlink and never deletes a patch it could not place; a missing file,
+a name clash with different content or an unusable root `patches/` leaves the entry
+pointing at the file where it is and is reported. Verified against the real starter
+files and pnpm 11.14.0: the lockfile records the patch hash.
 
 ### Hoisting is destructive, so conflict detection only sees ONE run <!-- Added: 2026-08-24 -->
 `hoistWorkspacePnpmConfig` returns `{ conflicts }` when two sources set the same key

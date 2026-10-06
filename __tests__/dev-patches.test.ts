@@ -191,6 +191,34 @@ describe('dev-patches', () => {
       expect(readFileSync(f, 'utf8')).toBe(reflowed);
     });
 
+    test('leaves imports the formatter wrapped with trailing commas alone', () => {
+      const f = join(tmp, 'playwright.config.ts');
+      writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");
+      patchPlaywrightConfig(f);
+
+      // oxfmt at printWidth 80 (turboops' config; oxfmt's default is 100) wraps
+      // both bridge imports and adds a trailing comma. This is the shape of
+      // turboops' committed playwright.config.ts. Read as a code change, it was
+      // rewritten on every `lt dev up` and broke format:check.
+      const wrapped = readFileSync(f, 'utf8')
+        .replace(
+          "import { existsSync as __ltDevExists, readFileSync as __ltDevRead } from 'node:fs';",
+          "import {\n  existsSync as __ltDevExists,\n  readFileSync as __ltDevRead,\n} from 'node:fs';",
+        )
+        .replace(
+          "import { dirname as __ltDevDirname, resolve as __ltDevResolve } from 'node:path';",
+          "import {\n  dirname as __ltDevDirname,\n  resolve as __ltDevResolve,\n} from 'node:path';",
+        );
+      expect(wrapped).not.toBe(readFileSync(f, 'utf8')); // guard: mutation applied
+      writeFileSync(f, wrapped);
+
+      for (let i = 0; i < 3; i++) {
+        const r = patchPlaywrightConfig(f);
+        expect(r.patched).toBe(false);
+        expect(readFileSync(f, 'utf8')).toBe(wrapped);
+      }
+    });
+
     test('CRLF line endings are not treated as an outdated block', () => {
       const f = join(tmp, 'playwright.config.ts');
       writeFileSync(f, "    baseURL: 'http://localhost:3001',\n");

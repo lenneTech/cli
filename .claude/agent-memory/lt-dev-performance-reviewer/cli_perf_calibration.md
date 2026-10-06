@@ -53,3 +53,11 @@ Measure against the compiled `build/lib/*.js` directly if it already contains th
 | same over 200 keys | ~41 us |
 
 Realistic input for the workspace hoist is 2 sub-projects x a few dozen `overrides` entries, i.e. **~10 us total** inside a command that clones two git repos and runs `pnpm install`. **How to apply:** do not raise a complexity/allocation finding for per-key `JSON.stringify` at scaffold scale — grade it noise and spend the review on the *semantics* of the comparison instead (key order, `false` vs YAML-1.2 `no`, circular anchors).
+
+## Real `lt-dev:bridge` spans + `normaliseBridgeBlock` regex worst case (measured 2026-10-06)
+
+Over 23 real consumer `playwright.config.ts` files under `~/code` carrying the bridge marker: largest file **12.1 KB**, largest marker span **1.16 KB**, longest intra-line whitespace run inside a span **1 char** (lines are trimmed, and the consumer's formatter collapses runs inside a line).
+
+`/\s+([)\]}])/g` (added 2026-10-06, uncommitted at the time) is **quadratic in the length of ONE contiguous whitespace run that is not followed by a closer**: 8 K → 41 ms, 16 K → 177 ms, 32 K → 667 ms, 64 K → 6.9 s, 256 K → 99.5 s. Many short runs that add up to 1 MB stay linear (2-25 ms). `/,\s*closer/` and `/opener\s+/` are linear: under 20 ms on 1 MB in every shape, because each attempt is anchored on a literal punctuation char.
+
+**How to apply:** a regex shaped `\s+X` is quadratic only when a single long run has no X after it. Check the longest run real input can contain, not the total input length. For the bridge span that run is 1 char, and even a 12 KB file made entirely of whitespace costs about 100 ms, so this is not a finding unless the input source changes.

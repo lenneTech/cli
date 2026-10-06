@@ -1,6 +1,8 @@
 import type { GluegunFilesystem } from 'gluegun';
 
+import { readFileSync } from 'fs';
 import { dump, load } from 'js-yaml';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 import { isSymlink } from './fs-utils';
 
@@ -35,8 +37,16 @@ import { isSymlink } from './fs-utils';
  * the same trap one step later: the starter scope-allows known-stale peer ranges
  * there, and without the hoist the root `check:peers` step fails the first
  * `pnpm run check` of every generated project.
+ *
+ * `patchedDependencies` (`{ "pkg@version": "patches/pkg@version.patch" }`) is the
+ * same trap once more, with a file attached. nuxt-base-starter pairs an override
+ * (`simple-git: 4.0.2`) with a patch that restores the default export its consumer
+ * imports. Hoisting the override without the patch installs the package unpatched,
+ * and `nuxt prepare` aborts the first `pnpm install` of every generated project.
+ * The value is a path relative to the workspace root, so the file moves with it —
+ * see `relocatePatches`.
  */
-const OBJECT_FIELDS = ['overrides', 'allowBuilds'] as const;
+const OBJECT_FIELDS = ['overrides', 'allowBuilds', 'patchedDependencies'] as const;
 const ARRAY_FIELDS = ['onlyBuiltDependencies', 'ignoredOptionalDependencies', 'minimumReleaseAgeExclude'] as const;
 /** Objects whose inner arrays are unioned and inner maps merged, not replaced. */
 const NESTED_ARRAY_FIELDS = ['auditConfig', 'peerDependencyRules'] as const;
@@ -266,6 +276,12 @@ interface HoistContext {
   /** Who set which key, across every source of this run. */
   provenance: HoistProvenance;
   /**
+   * Patch files this run already moved to the root, absolute source path → new
+   * root-relative value. One file may serve several entries (one patch for two
+   * versions), and the second entry must follow the file, not report it missing.
+   */
+  relocatedPatches: Map<string, string>;
+  /**
    * Keys whose value the current source changes relative to the value the ROOT
    * already carried when the run started. Evaluated after the loop: on its own
    * this is the documented root-vs-sub precedence, but combined with a
@@ -438,6 +454,7 @@ export function hoistWorkspacePnpmConfig(options: {
   const conflicts: string[] = [];
   const rootOverrides: HoistContext['rootOverrides'] = [];
   const auditWidenedBy = new Set<string>();
+  const relocatedPatches = new Map<string, string>();
 
   // Sub-projects that are present and eligible but hand over nothing, because an
   // earlier run already hoisted their settings and deleted the source. They are
@@ -455,15 +472,31 @@ export function hoistWorkspacePnpmConfig(options: {
     // across its own two config sources is the same silent-winner bug one scope
     // down, and a shared label hides it.
     const fromPkg = hoistFromSubPackageJson({
-      context: { auditWidenedBy, conflicts, provenance, rootOverrides, sourceLabel: `${subDir}/package.json#pnpm` },
+      context: {
+        auditWidenedBy,
+        conflicts,
+        provenance,
+        relocatedPatches,
+        rootOverrides,
+        sourceLabel: `${subDir}/package.json#pnpm`,
+      },
       filesystem,
+      projectDir,
       rootWs,
       subPath,
     });
     const fromYaml = hoistFromSubWorkspaceYaml({
       comments,
-      context: { auditWidenedBy, conflicts, provenance, rootOverrides, sourceLabel: `${subDir}/pnpm-workspace.yaml` },
+      context: {
+        auditWidenedBy,
+        conflicts,
+        provenance,
+        relocatedPatches,
+        rootOverrides,
+        sourceLabel: `${subDir}/pnpm-workspace.yaml`,
+      },
       filesystem,
+      projectDir,
       rootWs,
       subPath,
     });
@@ -667,15 +700,17 @@ function hoistFields(
 function hoistFromSubPackageJson(options: {
   context?: HoistContext;
   filesystem: GluegunFilesystem;
+  projectDir: string;
   rootWs: Record<string, unknown>;
   subPath: string;
 }): boolean {
-  const { filesystem, rootWs, subPath } = options;
+  const { filesystem, projectDir, rootWs, subPath } = options;
   const subPkgPath = `${subPath}/package.json`;
   if (!filesystem.exists(subPkgPath)) return false;
   const subPkg = filesystem.read(subPkgPath, 'json') as null | PackageJson;
   if (!subPkg?.pnpm) return false;
 
+  relocatePatches({ context: options.context, filesystem, projectDir, source: subPkg.pnpm, subPath });
   if (!hoistFields(rootWs, subPkg.pnpm, options.context)) return false;
 
   // If the sub-project's pnpm section is now empty, drop it entirely.
@@ -691,10 +726,11 @@ function hoistFromSubWorkspaceYaml(options: {
   comments: KeyComments;
   context?: HoistContext;
   filesystem: GluegunFilesystem;
+  projectDir: string;
   rootWs: Record<string, unknown>;
   subPath: string;
 }): boolean {
-  const { comments, filesystem, rootWs, subPath } = options;
+  const { comments, filesystem, projectDir, rootWs, subPath } = options;
   const subWsPath = `${subPath}/pnpm-workspace.yaml`;
   if (!filesystem.exists(subWsPath)) return false;
 
@@ -709,6 +745,7 @@ function hoistFromSubWorkspaceYaml(options: {
     if (!comments.has(key)) comments.set(key, block);
   }
 
+  relocatePatches({ context: options.context, filesystem, projectDir, source: ws, subPath });
   if (!hoistFields(rootWs, ws, options.context)) return false;
 
   // A settings-only file (no `packages:`) exists solely to carry these
@@ -788,6 +825,19 @@ function pmName(pin: string): string {
 function pmVersion(pin: string): string {
   const afterAt = pin.slice(pin.lastIndexOf('@') + 1);
   return afterAt.split('+')[0];
+}
+
+/** Remove `dir` and every parent it empties, stopping below `stopAt`, which is never removed. */
+function pruneEmptyDirs(filesystem: GluegunFilesystem, dir: string, stopAt: string): void {
+  const stop = resolve(stopAt);
+  let current = resolve(dir);
+  for (;;) {
+    const rel = relative(stop, current);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) return;
+    if ((filesystem.list(current) ?? ['?']).length > 0) return;
+    filesystem.remove(current);
+    current = dirname(current);
+  }
 }
 
 /** Parse a YAML file into a plain object, or null on missing/malformed/non-object. */
@@ -883,6 +933,103 @@ function recordRootOverrides(
       source: context.sourceLabel,
     });
   }
+}
+
+/**
+ * Make every `patchedDependencies` path in a sub-project's pnpm config valid at the
+ * workspace root, by moving the patch file to `<root>/patches/`.
+ *
+ * Why the file moves instead of the path just being rewritten to
+ * `projects/app/patches/…`: pnpm would find either, but the Dockerfiles copy only the
+ * build-context-root `patches/` into their deps stage, and in a monorepo the context IS
+ * the root. A path into `projects/app/` installs locally and breaks the image build.
+ *
+ * Never overwrites, never writes through a symlink, never deletes a patch it could not
+ * place. Where the move is impossible the entry points at the file where it is (a local
+ * install keeps working) and the reason is reported. A clash with ANOTHER sub-project's
+ * entry for the same key is left to `recordObjectFieldProvenance`, which names both
+ * sources; reporting it here as well would say the same thing twice.
+ */
+function relocatePatches(options: {
+  context?: HoistContext;
+  filesystem: GluegunFilesystem;
+  projectDir: string;
+  source: Record<string, unknown>;
+  subPath: string;
+}): void {
+  const { context, filesystem, projectDir, source, subPath } = options;
+  const entries = source.patchedDependencies;
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) return;
+
+  const rootPatchesDir = resolve(projectDir, 'patches');
+  const toRootPath = (abs: string): string => relative(resolve(projectDir), abs).split(sep).join('/');
+  const isInside = (dir: string, path: string): boolean => {
+    const rel = relative(dir, path);
+    return !!rel && !rel.startsWith('..') && !isAbsolute(rel);
+  };
+  const relocated: Record<string, unknown> = {};
+  const moved = context?.relocatedPatches ?? new Map<string, string>();
+
+  for (const [key, value] of Object.entries(entries as Record<string, unknown>)) {
+    relocated[key] = value;
+    if (typeof value !== 'string') continue;
+
+    const from = resolve(subPath, value);
+    const fromPath = toRootPath(from);
+    relocated[key] = moved.get(from) ?? fromPath;
+    if (moved.has(from)) continue;
+    const leftInPlace = (reason: string): void => {
+      context?.conflicts.push(
+        `patchedDependencies: ${JSON.stringify(key)} — ${reason}, so ${fromPath} was left in place. ` +
+          `A local install still finds it, but the Dockerfiles copy only the root patches/ and the image build will not.`,
+      );
+    };
+
+    if (isInside(rootPatchesDir, from)) continue;
+    if (filesystem.exists(from) !== 'file') {
+      context?.conflicts.push(
+        `patchedDependencies: ${JSON.stringify(key)} points at ${fromPath}, which does not exist. ` +
+          `pnpm install fails until the patch file is there.`,
+      );
+      continue;
+    }
+    if (!isInside(resolve(subPath), from)) {
+      leftInPlace('the patch lives outside its sub-project');
+      continue;
+    }
+    if (isSymlink(from)) {
+      leftInPlace('the patch file is a symlink');
+      continue;
+    }
+    const dirState = filesystem.exists(rootPatchesDir);
+    if (isSymlink(rootPatchesDir) || (dirState && dirState !== 'dir')) {
+      leftInPlace('patches/ at the workspace root is a symlink or not a directory');
+      continue;
+    }
+
+    const to = join(rootPatchesDir, basename(from));
+    if (filesystem.exists(to)) {
+      const identical =
+        filesystem.exists(to) === 'file' && !isSymlink(to) && readFileSync(to).equals(readFileSync(from));
+      if (identical) {
+        filesystem.remove(from);
+        pruneEmptyDirs(filesystem, dirname(from), subPath);
+        relocated[key] = toRootPath(to);
+        moved.set(from, toRootPath(to));
+      } else if (!context?.provenance.has(`patchedDependencies.${key}`)) {
+        leftInPlace(`${toRootPath(to)} already exists with different content`);
+      }
+      continue;
+    }
+
+    filesystem.dir(rootPatchesDir);
+    filesystem.move(from, to);
+    pruneEmptyDirs(filesystem, dirname(from), subPath);
+    relocated[key] = toRootPath(to);
+    moved.set(from, toRootPath(to));
+  }
+
+  source.patchedDependencies = relocated;
 }
 
 /**

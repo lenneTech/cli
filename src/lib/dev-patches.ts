@@ -442,11 +442,14 @@ export function patchPlaywrightConfig(file: string): PatchResult {
  * identically to a live one: the block would silently never load
  * `.lt-dev/.env` again and Playwright would fall back to `localhost:3001`.
  *
- * Quote style and intra-line whitespace are normalised away because the
- * consumer's formatter owns this file (which direction it flips is
- * project-specific — do not assume). Blind spot to keep in mind: a change
- * that differs ONLY in quotes or whitespace is invisible here, which is
- * what `BRIDGE_VERSION` is for.
+ * Quote style, intra-line whitespace, the padding inside brackets and
+ * trailing commas are normalised away because the consumer's formatter owns
+ * this file (which direction it flips is project-specific — do not assume).
+ * oxfmt at printWidth 80 wraps the bridge imports and adds a trailing comma;
+ * read as a code change, that rewrote playwright.config.ts on every run.
+ * Blind spot to keep in mind: a change that differs ONLY in quotes,
+ * whitespace or trailing commas is invisible here, which is what
+ * `BRIDGE_VERSION` is for.
  */
 function normaliseBridgeBlock(s: string): string {
   return s
@@ -455,6 +458,9 @@ function normaliseBridgeBlock(s: string): string {
     .filter((l) => l !== '' && !l.startsWith('//'))
     .join(' ')
     .replace(/['"]/g, '"')
+    .replace(/,\s*([)\]}])/g, '$1')
+    .replace(/([([{])\s+/g, '$1')
+    .replace(/\s+([)\]}])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
 }
