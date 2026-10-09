@@ -134,6 +134,11 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   a release, so lt-monorepo main after v3.12.0 still reads 3.12.0, and
   overwriting on a tie would turn later fixes back. Doctor reports those cases
   as INFO via the same `keptWrapperReason`, never as "run lt fullstack update".
+  Both act at a WORKSPACE ROOT only (`isWorkspace` in `update.ts`,
+  `layout.workspace` in doctor): `projects/api` and standalone starters ship
+  their own, unmarked `scripts/check.mjs`, which heal would read as legacy —
+  `lt fullstack update` run from `projects/api` replaced the API's check with
+  the root wrapper and the starter's own tests failed on its content.
   Like the rest of `src/templates/**` it is ESLint-exempt, so its `.mjs`
   files get no lint/tsc coverage at all; the guards that do cover them
   are `__tests__/check-template.test.ts` and

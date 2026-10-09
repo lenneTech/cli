@@ -225,6 +225,34 @@ describe('ApiMode Extension', () => {
       // UserController import should remain
       expect(content).toContain("import { UserController } from './user.controller'");
     });
+
+    // nest-server's vendored outbound-url.helper.ts imports
+    // `{ lookup as dnsLookup, type LookupAddress }`. The pruner searched the code for
+    // the literal "type LookupAddress", found nothing, and dropped a specifier that is
+    // used — TS2304 in every generated vendor-mode project.
+    it('keeps a used inline `type` specifier when cleaning orphan imports', async () => {
+      const helperPath = filesystem.path(tempDir, 'src', 'core', 'common', 'helpers', 'outbound-url.helper.ts');
+      filesystem.write(
+        helperPath,
+        [
+          "import { lookup as dnsLookup, type LookupAddress } from 'node:dns';",
+          "import { type BlockList, isIP } from 'node:net';",
+          '',
+          'export function first(list: LookupAddress[]): string | undefined {',
+          '  dnsLookup;',
+          '  return isIP(list[0]?.address ?? "") ? list[0].address : undefined;',
+          '}',
+          '',
+        ].join('\n'),
+      );
+
+      await apiMode.processApiMode(tempDir, 'Rest');
+
+      const content = filesystem.read(helperPath);
+      expect(content).toContain("import { lookup as dnsLookup, type LookupAddress } from 'node:dns';");
+      // An inline type specifier that really is unused is still pruned.
+      expect(content).toContain("import { isIP } from 'node:net';");
+    });
   });
 
   describe('processApiMode - GraphQL', () => {

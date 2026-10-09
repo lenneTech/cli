@@ -4,7 +4,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 
 # NPM Package Maintainer Memory - lenne.tech CLI
 
-- [cli maintenance](project_cli.md) — npm-based; 1256 tests/83 suites; minimatch/test-exclude overrides now dedupe-only (backports exist); TS7/js-yaml5/@types/jsdom>28.0.1 blocked; flaky gate suites
+- [cli maintenance](project_cli.md) — npm-based; 1278 tests/85 suites; dedupe-only minimatch overrides; TS7/js-yaml5/@types/jsdom>28.0.1 blocked; no blanket npm update
 - [nest-server maintenance](project_nest-server-maintenance.md) — overrides in pnpm-workspace.yaml; mongodb must track mongoose pin; brevo 4+/graphql 17/graphql-upload 16+ blocked; nest bin exec-bit quirk
 - [nuxt-extensions maintenance](project_nuxt-extensions.md) — TS 7 blocked by @nuxt/module-builder peer ^5.8.3; pnpm-pin sha512-hex method; @nuxt/kit range intentional
 - [lt-monorepo maintenance](project_lt-monorepo.md) — template repo; pnpm 11 default 24h release-age gate auto-writes minimumReleaseAgeExclude; c-a-t-v 13 deferred

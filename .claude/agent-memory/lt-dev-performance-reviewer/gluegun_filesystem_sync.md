@@ -1,5 +1,5 @@
 ---
-name: Gluegun filesystem methods are synchronous
+name: gluegun-filesystem-sync
 description: filesystem.read/write/exists are synchronous fs-jetpack wrappers — this is intentional and consistent across the entire CLI codebase
 type: project
 ---

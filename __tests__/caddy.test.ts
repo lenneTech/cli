@@ -40,6 +40,25 @@ describe('caddy / Caddyfile management', () => {
       expect(block).not.toMatch(/reverse_proxy\s+localhost/);
       expect(block).not.toMatch(/reverse_proxy\s+\[::1]/);
     });
+
+    test('caps the upstream connections of every route below the OS accept queue', () => {
+      // Regression: a cold `nuxt dev` serves ~800 raw modules on the first page
+      // load. The browser multiplexes them over one HTTP/2 connection, Caddy
+      // fanned them out into as many upstream dials, the dev server's accept
+      // queue (macOS `somaxconn` = 128) overflowed, and the excess got
+      // `connect: connection reset by peer` → 502 → the page never hydrated.
+      const block = renderProjectBlock('crm', [
+        { hostname: 'crm.localhost', upstreamPort: 4011 },
+        { hostname: 'api.crm.localhost', upstreamPort: 4010 },
+      ]);
+      const limits = [...block.matchAll(/max_conns_per_host (\d+)/g)].map((match) => Number(match[1]));
+      expect(limits).toHaveLength(2);
+      for (const limit of limits) {
+        expect(limit).toBeGreaterThan(0);
+        expect(limit).toBeLessThan(128);
+      }
+      expect(block).toMatch(/reverse_proxy 127\.0\.0\.1:4011 \{\n\s+transport http \{\n\s+max_conns_per_host \d+\n\s+\}\n\s+\}/);
+    });
   });
 
   describe('upsertProjectBlock', () => {

@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.50.4",
+  "version": "1.50.5",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -58,13 +58,13 @@
     "bin"
   ],
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/client-s3": "3.1148.0",
     "@lenne.tech/cli-plugin-helper": "0.0.14",
     "axios": "1.20.0",
     "bcrypt": "6.0.0",
     "cross-spawn": "7.0.6",
     "defuddle": "0.19.4",
-    "ejs": "6.0.1",
+    "ejs": "7.0.1",
     "glob": "13.0.6",
     "gluegun": "5.2.2",
     "js-sha256": "1.0.0",
@@ -73,7 +73,7 @@
     "jsonc-parser": "3.3.1",
     "lodash": "4.18.1",
     "open": "11.0.4",
-    "playwright-core": "1.63.0",
+    "playwright-core": "1.64.0",
     "ts-morph": "28.0.0",
     "ts-node": "10.9.2",
     "turndown": "7.2.4",

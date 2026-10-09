@@ -156,47 +156,53 @@ const DoctorCommand: GluegunCommand = {
       //     "matches the canonical CLI version" for a project whose `check` was
       //     completely broken — and doctor is the tool people reach for exactly
       //     then.
-      try {
-        const { readFileSync: read } = await import('fs');
-        const { join: j } = await import('path');
-        const { keptWrapperReason, resolveCopySet } = await import('../../lib/heal-check-wrapper');
-        const bundledCheck = j(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
-        if (filesystem.exists(bundledCheck)) {
-          const missing: string[] = [];
-          const drifted: string[] = [];
-          for (const { rel, source } of resolveCopySet(bundledCheck)) {
-            const target = j(layout.root, rel);
-            if (!filesystem.exists(target)) {
-              missing.push(rel);
-            } else if (read(target, 'utf8') !== read(source, 'utf8')) {
-              drifted.push(rel);
+      //
+      //     Workspace roots only: a standalone starter project carries its own
+      //     `scripts/check.mjs`, which is not a drifted copy of the root wrapper,
+      //     and `lt fullstack update` deliberately leaves it alone.
+      if (layout.workspace) {
+        try {
+          const { readFileSync: read } = await import('fs');
+          const { join: j } = await import('path');
+          const { keptWrapperReason, resolveCopySet } = await import('../../lib/heal-check-wrapper');
+          const bundledCheck = j(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
+          if (filesystem.exists(bundledCheck)) {
+            const missing: string[] = [];
+            const drifted: string[] = [];
+            for (const { rel, source } of resolveCopySet(bundledCheck)) {
+              const target = j(layout.root, rel);
+              if (!filesystem.exists(target)) {
+                missing.push(rel);
+              } else if (read(target, 'utf8') !== read(source, 'utf8')) {
+                drifted.push(rel);
+              }
+            }
+            // A missing module only breaks `check` when the project's wrapper is the
+            // canonical one that imports it (or the wrapper itself is missing). An
+            // older wrapper does not import the newer modules (e.g. `lib/*.mjs`) and
+            // still runs — calling that "cannot start" would be a false alarm.
+            const wrapperDrifted = drifted.includes('scripts/check.mjs');
+            // A project wrapper that heal refuses to replace (newer release, or the same
+            // release with other content) is not drift to fix: pointing at
+            // `lt fullstack update` there would recommend a no-op or a downgrade.
+            const kept = keptWrapperReason(layout.root, bundledCheck);
+            if (kept) {
+              line('INFO', colors.cyan, `check wrapper: ${kept}`);
+            } else if (missing.length > 0 && !wrapperDrifted) {
+              line('ERROR', colors.red, `check wrapper incomplete — missing ${missing.join(', ')}`);
+              line('ERROR', colors.red, '  `pnpm run check` cannot start; run `lt fullstack update` to install it');
+            } else if (drifted.length > 0) {
+              const outdated = [...drifted, ...missing.map((rel) => `${rel} (missing)`)];
+              const verb = outdated.length === 1 ? 'differs' : 'differ';
+              line('WARN', colors.yellow, `${outdated.join(', ')} ${verb} from the canonical CLI version`);
+              line('WARN', colors.yellow, '  run `lt fullstack update` to sync it (skips uncommitted local edits)');
+            } else if (filesystem.exists(j(layout.root, 'scripts', 'check.mjs'))) {
+              line('OK', colors.green, 'check wrapper matches the canonical CLI version');
             }
           }
-          // A missing module only breaks `check` when the project's wrapper is the
-          // canonical one that imports it (or the wrapper itself is missing). An
-          // older wrapper does not import the newer modules (e.g. `lib/*.mjs`) and
-          // still runs — calling that "cannot start" would be a false alarm.
-          const wrapperDrifted = drifted.includes('scripts/check.mjs');
-          // A project wrapper that heal refuses to replace (newer release, or the same
-          // release with other content) is not drift to fix: pointing at
-          // `lt fullstack update` there would recommend a no-op or a downgrade.
-          const kept = keptWrapperReason(layout.root, bundledCheck);
-          if (kept) {
-            line('INFO', colors.cyan, `check wrapper: ${kept}`);
-          } else if (missing.length > 0 && !wrapperDrifted) {
-            line('ERROR', colors.red, `check wrapper incomplete — missing ${missing.join(', ')}`);
-            line('ERROR', colors.red, '  `pnpm run check` cannot start; run `lt fullstack update` to install it');
-          } else if (drifted.length > 0) {
-            const outdated = [...drifted, ...missing.map((rel) => `${rel} (missing)`)];
-            const verb = outdated.length === 1 ? 'differs' : 'differ';
-            line('WARN', colors.yellow, `${outdated.join(', ')} ${verb} from the canonical CLI version`);
-            line('WARN', colors.yellow, '  run `lt fullstack update` to sync it (skips uncommitted local edits)');
-          } else if (filesystem.exists(j(layout.root, 'scripts', 'check.mjs'))) {
-            line('OK', colors.green, 'check wrapper matches the canonical CLI version');
-          }
+        } catch {
+          /* best-effort diagnostics */
         }
-      } catch {
-        /* best-effort diagnostics */
       }
 
       // 7.6 oxlint config filename: oxlint only auto-discovers `.oxlintrc.json`.

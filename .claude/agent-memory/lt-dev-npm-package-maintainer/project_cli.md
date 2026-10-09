@@ -1,6 +1,6 @@
 ---
 name: project-cli
-description: "@lenne.tech/cli maintenance state: npm-based, brace-expansion/minimatch overrides now DEDUPE not security, blocked updates (TS 7, js-yaml 5, @types/jsdom >28.0.1, jsdom 30), flaky gate suites, test baseline"
+description: "@lenne.tech/cli maintenance state: npm-based, brace-expansion/minimatch overrides now DEDUPE not security, blocked updates (TS 7, js-yaml 5, @types/jsdom >28.0.1, jsdom 30), ejs 7 done, targeted transitive refresh recipe, flaky gate suites, test baseline"
 metadata:
   type: project
 ---
@@ -13,8 +13,9 @@ metadata:
   `node -e 'const fs=require("fs");const f="package-lock.json";const j=JSON.parse(fs.readFileSync(f,"utf8"));for(const p of Object.values(j.packages)){if(p.peer===true)delete p.peer}fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n")'`
 - CI (`.github/workflows/build.yml`) runs `npm ci` on Node 20 = npm 10, the strict generation. The `@emnapi/core` + `@emnapi/runtime` devDeps exist ONLY for that (see `//devDependencies`); pinned exact 1.11.3 on 2026-10-03 (peer is `^1.7.1 || ^2.0.0-alpha.4`).
 
-## Test Baseline (as of 2026-10-03)
-- **83 suites / 1256 tests, 0 skipped** under `npm run check`.
+## Test Baseline (as of 2026-10-09)
+- **85 suites / 1278 tests, 0 skipped** under `npm run check` (jest ~130s). A `MODULE_NOT_FOUND ... lt-install-fail-*` stack in the log is a deliberate install-failure test, not a failure.
+- Verify the lockfile with BOTH `npm ci --dry-run` and `npx --yes npm@10 ci --dry-run` (CI = Node 20 / npm 10).
 - When editing package.json, touch ONLY deps/devDeps/overrides/`//overrides`/`//devDependencies`. NEVER `scripts`, `jest`, `files`.
 - `npm run check` = scripts/check.sh: audit gate (ANY finding aborts) → install → `prettier --write src/**` → build (lint+test+clean-build+compile+copy-templates) → CLI smoke test.
 - **Flaky under the full gate, green in isolation — rerun before blaming a dependency:**
@@ -37,15 +38,21 @@ metadata:
 - minimatch export shapes: 3.x callable; 9.x/10.x object with `__esModule` and no `default`.
 - Prod transitive: gluegun > fs-jetpack 4.3.1 > rimraf 2 > glob 7.2.3 > `inflight` (deprecated, leaks) — no advisory, unfixable until gluegun moves.
 
-## Blocked / deferred updates (verified 2026-10-03)
+## Blocked / deferred updates (re-verified 2026-10-09)
 - **typescript 6.0.3 → 7.x**: TS 7's package exports only `./lib/version.cjs` + `unstable/*` — the classic compiler API that src uses AT RUNTIME (`ts.createSourceFile`, `ts.forEachChild`, `ts.readConfigFile` in module-specifiers, spinner-lifetime, heal-vendor-migrate-store, server.ts) is gone. Plus ts-jest 29.4.14 peer `<7`, @typescript-eslint 8.65 peer `<6.1.0`, ts-node needs the JS API, tsconfig `moduleResolution: node10`. 6.0.3 is the newest 6.x.
-- **js-yaml 4.3.2 → 5.x**: differential v4 vs v5 over 20 real stack `pnpm-workspace.yaml` files = identical load + dump. But edge inputs differ: empty / whitespace / comment-only input THROWS ("expected a document") where v4 returned undefined/null; merge keys `<<` NOT resolved by default (literal `'<<'` key); `2026-10-03` stays a string; dump quotes `1_000`. Six load sites (config.ts ×2, validate.ts ×2, workspace-integration.ts, hoist-workspace-pnpm-config.ts, adopt-upstream-build-allowlist.ts). The allowBuilds deny logic depends on `no`/`off` staying STRINGS — so YAML11_SCHEMA is not a migration shortcut. Needs a deliberate migration with a shared load wrapper. 4.3.2 is patched for both current js-yaml advisories. v5 ships own types → drop `@types/js-yaml` then.
-- **@types/jsdom 28.0.1 → 28.0.2+ / 30.0.0**: every version after 28.0.1 depends on parse5 ^8, whose d.ts imports the `entities/decode` subpath → TS2307 under `moduleResolution: node10`. Re-reproduced 2026-10-03 (jest green, `tsc -p .` red). Blocked until the moduleResolution migration.
+- **js-yaml 4.3.2 → 5.x** (5.4.3 re-tested 2026-10-09, all differences below still present, plus `!!omap` now THROWS "unknown sequence tag"): differential v4 vs v5 over 20 real stack `pnpm-workspace.yaml` files = identical load + dump. But edge inputs differ: empty / whitespace / comment-only input THROWS ("expected a document") where v4 returned undefined/null; merge keys `<<` NOT resolved by default (literal `'<<'` key); `2026-10-03` stays a string; dump quotes `1_000`. Six load sites (config.ts ×2, validate.ts ×2, workspace-integration.ts, hoist-workspace-pnpm-config.ts, adopt-upstream-build-allowlist.ts). The allowBuilds deny logic depends on `no`/`off` staying STRINGS — so YAML11_SCHEMA is not a migration shortcut. Needs a deliberate migration with a shared load wrapper. 4.3.2 is patched for both current js-yaml advisories. v5 ships own types → drop `@types/js-yaml` then.
+- **@types/jsdom 28.0.1 → 28.0.2+ / 30.0.0**: every version after 28.0.1 depends on parse5 ^8, whose d.ts imports the `entities/decode` subpath → TS2307 under `moduleResolution: node10`. Re-reproduced 2026-10-03 (jest green, `tsc -p .` red). Blocked until the moduleResolution migration. 2026-10-09: 28.0.3 still red (entities 8.1.0 exposes `./decode` only via `exports`). Probe safely with `npm install --no-save --ignore-scripts @types/jsdom@X && npx tsc -p . --noEmit` (manifest + lockfile stay untouched; next `npm install` re-syncs node_modules).
 - **jsdom 29.1.1 → 30.x**: engines `^22.22.2 || ^24.15.0 || >=26.0.0` (local Node 24.12.0 fails; CI build.yml runs Node 20) and undici 8 needs Node >=22.19. `npm outdated` does not even list it.
 
 ## Done (no longer blocked)
+- **ejs 7.0.1** (2026-10-09). Breaking changes were only the ejs CLI parser and "options-in-data" removal (option-named keys in `render(tpl, data)` no longer promoted); every call site passes `{ props }` only. Proof: `lt completion bash|zsh|fish` byte-identical ejs 6 vs 7. ejs 7's `exports` no longer exposes `./package.json` (`require('ejs/package.json')` throws) and still ships no types → keep `@types/ejs`.
 - eslint 10 (10.12.0 on 2026-10-03; `@lenne.tech/eslint-config-ts` 2.3.0 moved to import-x — the old eslint-plugin-import residual is gone, audit 0).
 - prettier 3.9.9 (2026-10-03): collapses short union types onto one line; reformatted `commands/frontend/nuxt.ts`, `commands/fullstack/add-app.ts`, `commands/fullstack/init.ts`, `lib/dev-api-launch.ts`. Check `npx prettier --check` with a new prettier BEFORE the gate writes.
+
+## Transitive refresh recipe (2026-10-09)
+- Never blanket `npm update`: babel-jest/ts-jest peer ranges allow `@babel/core` ^8 (npm outdated --all shows "wanted 8.x"), and `@lenne.tech/eslint-config-ts` pins `@typescript-eslint/{parser,eslint-plugin}` 8.65.0 exactly, so a blanket update would cross a babel major and/or duplicate the ts-eslint family.
+- Instead `npm outdated --all --json`, then `npm update <pkg> ...` for the patch/minor transitives only; confirm package count unchanged (`npm ls --all --parseable | wc -l`, 722 on 2026-10-09) and `package.json` untouched.
+- Deprecated `eslint-plugin-markdown` + stale ts-eslint 8.65.0 live inside eslint-config-ts 2.3.0 → fix belongs in that repo (move to `@eslint/markdown`).
 
 ## Dependency Decisions
 - **`ejs` moved devDependencies → dependencies on 2026-10-03.** `src/commands/completion.ts` imports it at top level and gluegun loads EVERY command on EVERY `lt` run, so the published CLI depended on gluegun's ejs 3.1.10 being hoisted (phantom dependency, tests ran ejs 6). ejs 6.0.1 has zero deps and a CJS `require` export. gluegun keeps its own nested ejs 3.1.10. `@types/ejs` 3.1.5 stays (ejs 6 ships no types).

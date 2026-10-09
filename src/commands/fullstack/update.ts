@@ -206,8 +206,13 @@ const NewCommand: GluegunCommand = {
     // pre-existing projects predate it. This idempotently installs the bundled
     // wrapper (and rewrites the root `check`/`check:raw`) so a migrated project
     // gets the quiet, report-driven check too. No-op once already wired.
+    //
+    // Only at a workspace root: the bundled file is lt-monorepo's ROOT wrapper.
+    // `projects/api` and standalone starter projects ship their own, unmarked
+    // `scripts/check.mjs`, which heal reads as legacy — run from there, this
+    // replaced the API's check and the starter's tests failed on its content.
     const checkAsset = join(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
-    const changedCheck = healCheckWrapper(cwd, checkAsset);
+    const changedCheck = isWorkspace ? healCheckWrapper(cwd, checkAsset) : [];
     if (changedCheck.length > 0) {
       info('');
       // A skip entry is NOT a success — it means the wrapper stayed on its old

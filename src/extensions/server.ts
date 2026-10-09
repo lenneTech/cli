@@ -11,6 +11,7 @@ import { ServerProps } from '../interfaces/ServerProps.interface';
 import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { ensureCrossEnvDependency } from '../lib/cross-env';
+import { rewriteExpressImportsToTypeOnly } from '../lib/express-type-imports';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
@@ -1400,12 +1401,10 @@ export class Server {
     // and type imports were erased before runtime. In vendor-mode, vitest/vite
     // evaluates the TypeScript source directly and chokes with:
     //   "The requested module 'express' does not provide an export named 'Response'"
-    // Fix: convert `import { Request, Response } from 'express'` (and variants
-    // with NextFunction etc.) to type-only imports wherever they appear in the
-    // vendored core. This is safe because the core code uses Request/Response
-    // only as type annotations — any runtime `new Request(...)` calls refer
-    // to the global Fetch API Request, not the express one.
-    const expressImportRegex = /^import\s+\{([^}]*)\}\s+from\s+['"]express['"]\s*;?\s*$/gm;
+    // Fix: mark the type names in every `import { … } from 'express'` of the
+    // vendored core as type-only. Runtime exports (`json`, `urlencoded`, `Router`
+    // …) stay value imports — see src/lib/express-type-imports.ts for why a
+    // blanket `import type` broke the build (nest-server 11.42.4+).
     // `glob`, not `filesystem.find`: jetpack builds its matcher by concatenating the
     // RESOLVED base path in front of the pattern, and minimatch reads a backslash
     // inside a PATTERN as an escape. On Windows `C:\…\core` + `**/*.ts` therefore
@@ -1418,16 +1417,7 @@ export class Server {
       if (!filesystem.exists(absPath)) continue;
       const content = filesystem.read(absPath) || '';
       if (!content.includes("from 'express'") && !content.includes('from "express"')) continue;
-      const patched = content.replace(expressImportRegex, (_match, names) => {
-        const cleanNames = names
-          .split(',')
-          .map((n: string) => n.trim())
-          .filter((n: string) => n.length > 0 && n !== 'type')
-          // Strip any pre-existing 'type ' prefix on individual names
-          .map((n: string) => n.replace(/^type\s+/, ''))
-          .join(', ');
-        return `import type { ${cleanNames} } from 'express';`;
-      });
+      const patched = rewriteExpressImportsToTypeOnly(content);
       if (patched !== content) {
         filesystem.write(absPath, patched);
       }

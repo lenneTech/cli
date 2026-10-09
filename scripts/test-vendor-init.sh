@@ -283,7 +283,10 @@ run_scenario() {
 
   # 5b. env-prefixed migrate scripts run through cross-env (cmd.exe cannot parse
   #     `NODE_ENV=… cmd`), and the binary is actually installed.
-  if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(['develop','test','preview','prod'].every((e)=>/^cross-env NODE_ENV=/.test(s['migrate:'+e+':up']||'')) ? 0 : 1)"; then
+  #     Matched per `&&` link, never anchored to the start of the script: the
+  #     build guard below runs first, and an anchored check called a half-converted
+  #     chain (`cross-env NODE_ENV=x a && NODE_ENV=x b`) clean.
+  if node -e "const s=require('${api_dir}/package.json').scripts; process.exit(['develop','test','preview','prod'].every((e)=>{const v=s['migrate:'+e+':up']||''; return /(^|&&\s*)cross-env NODE_ENV=/.test(v) && !/(^|&&\s*)NODE_ENV=/.test(v);}) ? 0 : 1)"; then
     pass "migrate:<env>:up scripts use cross-env"
   else
     fail "migrate:<env>:up scripts carry a bare NODE_ENV= prefix"

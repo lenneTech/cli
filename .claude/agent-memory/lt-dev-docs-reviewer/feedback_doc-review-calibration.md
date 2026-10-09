@@ -47,7 +47,7 @@ gets ignored with it.
   (`git log --oneline` around the release commit), a TurboOps "since vX" claim (`git log
   vA..vB`), and a quoted upstream error string / API call.
 - Published artifacts (commit messages, release notes, CHANGELOG entries) are **English**.
-  See [[english-for-published-artifacts]].
+  (Kai's rule: everything published is written in English.)
 
 - **A comment that claims TEST COVERAGE is a factual claim too — execute it, don't read it.** A
   new test in `__tests__/heal-check-wrapper.test.ts` carried "Derived from the file rather than
@@ -63,6 +63,14 @@ gets ignored with it.
   Running the HEAD copy of `dev-patches.ts` the same way proves the "before" half of a bugfix
   claim. oxfmt's defaults are in its shipped `configuration_schema.json` (printWidth also falls
   back to `.editorconfig` `max_line_length`).
+- **More offline checks that worked (2026-10-08):** a claim about the rendered Caddy block →
+  write it to the scratchpad and `caddy adapt --config <file> --adapter caddyfile` (Homebrew caddy
+  is on PATH), plus `sysctl kern.ipc.somaxconn`; a "since nest-server X.Y.Z" claim →
+  `git tag --contains <first commit>` in `~/code/lenneTech/nest-server`; a list of a package's
+  runtime exports → grep `^exports\.` in its `lib/*.js` under some repo's `node_modules`.
+  Stale summary lines in `docs/VENDOR-MODE-WORKFLOW.md` / `docs/LT-ECOSYSTEM-GUIDE.md` that
+  describe what a conversion does automatically are not acted on by any lt-dev agent (checked via
+  grep in the plugin), so imprecision there stays below a High bar.
 - **For `src/templates/**` assets, "does this file exist?" has TWO answers.** A freshly
   `lt fullstack init`-ed project gets the whole `lt-monorepo` clone (e.g.
   `scripts/nuxt-builddir-isolation.test.mjs`, `test:scripts`); a project migrated via

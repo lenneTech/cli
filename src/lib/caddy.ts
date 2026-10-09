@@ -29,6 +29,8 @@ export interface CaddyRoute {
 }
 
 const CADDYFILE_PATH = process.env.LT_DEV_CADDYFILE || join(homedir(), '.lenneTech', 'Caddyfile');
+/** Upstream connection cap per route — well below the 128 of macOS `somaxconn` (see `renderProjectBlock`). */
+const UPSTREAM_MAX_CONNS = 32;
 const HEADER = '# Managed by `lt dev`. Per-project blocks are bounded by `# >>> lt-dev:<slug> >>>` markers.';
 
 /** Outcome of a Caddy command. */
@@ -108,12 +110,27 @@ export function removeProjectBlock(slug: string): boolean {
  *   - `localhost` as Caddy upstream resolves to `::1` first on macOS,
  *     so it would still pick the IPv6 family and miss the IPv4 bind.
  *     Pinning to `127.0.0.1` removes that ambiguity entirely.
+ *
+ * Every upstream is capped at `UPSTREAM_MAX_CONNS` connections. The browser
+ * talks HTTP/2 to Caddy and multiplexes a cold `nuxt dev`'s first page load —
+ * around 800 raw modules — over one connection; Caddy used to fan that out
+ * into one upstream dial per request. The dev server's accept queue
+ * (`somaxconn`, 128 on macOS) overflowed, the excess dials got `connect:
+ * connection reset by peer`, Caddy answered 502, and a page missing a module
+ * never hydrated: the form looked fine and submitted natively. With the cap,
+ * Caddy queues the burst instead (Go's `MaxConnsPerHost` blocks the dial).
+ * `~/.lenneTech/caddy.err.log` held about 51 000 such resets across projects
+ * when this was found (lt-crm DEV-2899).
  */
 export function renderProjectBlock(slug: string, routes: CaddyRoute[]): string {
   const lines: string[] = [`# >>> lt-dev:${slug} >>>`];
   for (const route of routes) {
     lines.push(`${route.hostname} {`);
-    lines.push(`  reverse_proxy 127.0.0.1:${route.upstreamPort}`);
+    lines.push(`  reverse_proxy 127.0.0.1:${route.upstreamPort} {`);
+    lines.push('    transport http {');
+    lines.push(`      max_conns_per_host ${UPSTREAM_MAX_CONNS}`);
+    lines.push('    }');
+    lines.push('  }');
     lines.push('}');
   }
   lines.push(`# <<< lt-dev:${slug} <<<`);

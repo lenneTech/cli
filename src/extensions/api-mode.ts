@@ -707,8 +707,12 @@ export class ApiMode {
    * For non-aliased imports, returns the identifier as-is.
    */
   private resolveImportAlias(identifier: string): string {
-    const asMatch = identifier.match(/^\S+\s+as\s+(\S+)$/);
-    return asMatch ? asMatch[1] : identifier;
+    // An inline `type` modifier is not part of the name: searching the code for the
+    // literal "type LookupAddress" found nothing, so a used specifier got pruned
+    // (nest-server's outbound-url.helper.ts → TS2304 in every vendor-mode project).
+    const name = identifier.replace(/^type\s+/, '');
+    const asMatch = name.match(/^\S+\s+as\s+(\S+)$/);
+    return asMatch ? asMatch[1] : name;
   }
 
   /**

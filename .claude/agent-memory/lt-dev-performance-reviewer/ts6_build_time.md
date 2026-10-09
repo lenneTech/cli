@@ -1,5 +1,5 @@
 ---
-name: TypeScript 6 build time baseline
+name: ts6-build-time
 description: TypeScript 6 pure tsc compile is ~3s (no regression vs TS5 ~9s-script). Full build script includes lint+test which accounts for the 62s total.
 type: project
 ---
