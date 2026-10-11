@@ -40,7 +40,7 @@ export interface BuildDevEnvInput {
   appInternalPort: number;
   /** Inherited shell env (defaults to {}, callers usually pass `process.env`). */
   baseEnv?: NodeJS.ProcessEnv;
-  /** Database name (per-project, used in MONGODB_URI / DATABASE_URL). */
+  /** Database name (per-project, used in NSC__MONGOOSE__URI / DATABASE_URL). */
   dbName?: string;
   /** Project identity (slug + subdomains). */
   identity: DevIdentity;
