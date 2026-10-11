@@ -133,17 +133,20 @@ export function advisoryBulkUrl(registry) {
  * and the default is what pnpm itself would use.
  */
 export function configuredRegistry(env = process.env) {
-  // Environment FIRST, and this order is not cosmetic. pnpm honours `npm_config_registry` for the
-  // audit itself, but `pnpm config get registry` does NOT report it — measured 2026-09-04:
+  // The probe must ask the registry the AUDIT used, so it reads the variable the audit reads.
+  // Under pnpm 11 that is `pnpm_config_registry`; `npm_config_registry` is IGNORED by both
+  // `pnpm audit` and `pnpm config get registry` — measured 2026-10-06 with pnpm 11.14.0,
+  // re-measured 2026-10-09 with 11.28.5:
   //
-  //   npm_config_registry=http://127.0.0.1:9/ pnpm audit               uses 127.0.0.1:9, fails
-  //   npm_config_registry=http://127.0.0.1:9/ pnpm config get registry https://registry.npmjs.org/
+  //   pnpm_config_registry=http://127.0.0.1:9/ pnpm audit --json   {"error": … "fetch failed"}
+  //   npm_config_registry=http://127.0.0.1:9/  pnpm audit --json   a normal report from npmjs.org
   //
-  // Asking pnpm alone therefore points the probe at npmjs.org while the audit talked to somewhere
-  // else. npmjs.org answers, the run concludes "no outage", and the green tick is back — the same
-  // false all-clear as a hardcoded URL, one layer further in. Found by nuxt-extensions-f7, whose
-  // end-to-end test was green and should not have been.
-  const fromEnv = env.npm_config_registry ?? env.NPM_CONFIG_REGISTRY;
+  // The version before read `npm_config_registry`, from a measurement on 2026-09-04 with an older
+  // pnpm. Under pnpm 11 that sent the probe to a registry the audit never talked to: a stub there
+  // answered, the run concluded "no outage", and an unreachable audit registry read as clean.
+  // `pnpm config get registry` below would report `pnpm_config_registry` too; reading it here saves
+  // the spawn and keeps the answer independent of how a pnpm shim forwards the environment.
+  const fromEnv = env.pnpm_config_registry ?? env.PNPM_CONFIG_REGISTRY;
   if (typeof fromEnv === 'string' && fromEnv.trim()) return fromEnv.trim();
 
   try {

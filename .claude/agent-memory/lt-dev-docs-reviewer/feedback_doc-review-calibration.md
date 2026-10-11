@@ -77,3 +77,9 @@ gets ignored with it.
   `lt fullstack update` → `healCheckWrapper` gets only what the CLI bundles in
   `src/templates/check/`. A template comment naming a sibling file must be checked against BOTH
   populations, and the CLI's template dir is usually the smaller one.
+- **"stderr no longer reaches the terminal" claims are checkable in 10 lines (2026-10-11).** Node's
+  `execFileSync` appends the child's stderr to the thrown `error.message` in every mode, but ALSO
+  writes it to `process.stderr` only when `options.stdio` is unset (Node 24). A `node -e` script that
+  swaps `process.stderr.write` and runs `git rev-parse` in a non-repo tmp dir, once with the old
+  options and once with the new, proves both halves; a test asserting only on the message proves
+  nothing.

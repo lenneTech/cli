@@ -62,7 +62,9 @@ const PruneCommand: GluegunCommand = {
     // driver; the api dir merely improves the driver fallback when present.
     const observed = listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot].filter(Boolean));
     if (observed === null) {
-      warning('Could not list databases (mongosh missing or MongoDB unreachable) — only the registry is pruned.');
+      warning(
+        'Could not list databases (mongosh missing, MongoDB unreachable, or mongosh slower than 10 s) — only the registry is pruned. Re-run to sweep the databases.',
+      );
     }
 
     const plan = collectDevPrunePlan({

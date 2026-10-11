@@ -519,6 +519,27 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
     expect(realpathSync.native(gitMainRepoRoot(wt))).toBe(repo); // shared .git → main repo
   });
 
+  // Every caller catches this throw (`lt dev prune` / `lt dev up` outside a git
+  // repo is a normal case), so git's "fatal: not a git repository" must not
+  // reach the user's terminal. Asserting on the error message would prove
+  // nothing: execFileSync appends stderr to the message either way, and only
+  // with stderr left at its default does Node ALSO write it to process.stderr.
+  // That second channel is the one the user sees, so it is the one tested.
+  // No assertion on git's wording: a translating git (Debian, Homebrew) with a
+  // German locale says "Schwerwiegend: Kein Git-Repository", which an English
+  // pattern neither matches nor guards against.
+  test('gitMainRepoRoot outside a repo throws without printing git’s fatal', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'lt-not-a-repo-'));
+    const write = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      expect(() => gitMainRepoRoot(outside)).toThrow();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+      rmSync(outside, { force: true, recursive: true });
+    }
+  });
+
   test('gitBranchExists', () => {
     expect(gitBranchExists(repo, 'dev')).toBe(true);
     expect(gitBranchExists(repo, 'does-not-exist')).toBe(false);

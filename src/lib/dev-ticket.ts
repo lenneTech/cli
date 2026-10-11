@@ -331,7 +331,14 @@ export function gitFetch(repoDir: string, remote = 'origin'): void {
 export function gitMainRepoRoot(cwd: string): string {
   // `--git-common-dir` is the SHARED `.git` (same for every worktree); its
   // parent is the main repo root.
-  const commonDir = git(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  // stderr is captured, not inherited: every caller catches the throw for a
+  // non-git directory (a normal case for `lt dev up` / `lt dev prune`), so git's
+  // "fatal: not a git repository" belongs in the error, not on the terminal.
+  const commonDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
   return dirname(commonDir);
 }
 
