@@ -1922,6 +1922,81 @@ lt directus typegen --url http://localhost:8055 --token <token> --output ./types
 
 ---
 
+### `lt directus sync`
+
+Pulls, diffs and pushes Directus schema and configuration through JSON files in the project repo. Wraps the official Directus CLI ([`@directus/cli`](https://www.npmjs.com/package/@directus/cli), binary `d6s`) and forwards every `d6s` option unchanged. Requires Directus 12.2.0 or later on every instance.
+
+**Usage:**
+```bash
+lt directus sync <pull|diff|push> [d6s options]
+```
+
+**What is synced:** collections, fields, relations, roles, policies, permissions, flows with operations, dashboards with panels, translations, folders and settings. Users only with `--all`. **Not synced:** presets/bookmarks and content.
+
+**Options (passed through to d6s):**
+| Option | Description |
+|--------|-------------|
+| `--from <profile>` | Source profile for `pull` |
+| `--to <profile>` | Target profile for `diff` and `push` |
+| `--mode <add\|merge\|mirror>` | Sync mode for `diff` and `push` (default: `merge`, never deletes) |
+| `--allow-drift` | Compare across different Directus versions (can show spurious changes) |
+| `--noConfirm` | Run non-interactively (lt option, not forwarded) |
+
+Run `npx @directus/cli sync <action> --help` for every d6s option.
+
+**Configuration:** `commands.directus.sync.noConfirm`, `defaults.noConfirm`
+
+**Policy added by lt:**
+- `diff` and `push` default to `--mode merge`.
+- Non-interactive runs (`--noConfirm`, CI, piped stdin) pass `--no-interactive`, and `push` also `--yes`.
+- A non-interactive `push` refuses `--mode mirror` and `--dangerously-allow-delete`. Columns without Directus metadata are missing from a snapshot, so a mirror push would drop them on the target. Run deleting pushes interactively.
+
+**Which d6s runs:** a local install (`node_modules/.bin/d6s`) or a global one, otherwise `npx @directus/cli@12.3.1`.
+
+**Profiles and tokens:** instance URLs live in `directus.config.json` (create with `npx @directus/cli profile add <name> --url <url>`). The token comes from `DIRECTUS_<PROFILE>_TOKEN` (e.g. `DIRECTUS_PRODUCTION_TOKEN`) or the d6s credential store; with `CI` set, d6s never reads the store. lt never handles tokens.
+
+**Things to know:**
+- Source and target must run the **exact same Directus version**. After an upgrade, upgrade every stage, then pull a fresh snapshot.
+- The repo wins on push: a manual change in the target's admin to a record that is in the repo is overwritten without warning. Records created only in the admin are kept in `merge` mode.
+- Commit `directus/<project>/id_map.json`. `push` writes it, and without it records are matched less reliably.
+- `diff` exits with 0 even when there are changes. Use `npx @directus/cli --json sync diff …` and read `"changes"` to detect them.
+
+**Examples:**
+```bash
+# Snapshot the dev instance into the repo
+lt directus sync pull --from dev
+
+# Preview what a push would change
+lt directus sync diff --to production
+
+# Apply the committed files
+lt directus sync push --to production
+```
+
+**GitLab CI example** (preview in the merge request, push in the deploy job; tokens as masked CI/CD variables):
+```yaml
+directus:diff:
+  stage: test
+  image: node:22
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [directus/**/*]
+  script:
+    - npx --yes @lenne.tech/cli directus sync diff --to production --noConfirm
+
+directus:push:
+  stage: deploy
+  image: node:22
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes: [directus/**/*]
+  script:
+    - npx --yes @lenne.tech/cli directus sync push --to production --noConfirm
+```
+`DIRECTUS_PRODUCTION_TOKEN` must be set as a CI/CD variable. Run the push job after the Directus instance of that stage is deployed.
+
+---
+
 ## TypeScript Commands
 
 ### `lt typescript create`
