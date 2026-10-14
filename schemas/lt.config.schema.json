@@ -166,6 +166,17 @@
           "type": "object",
           "description": "Directus-related configuration",
           "properties": {
+            "sync": {
+              "type": "object",
+              "description": "Configuration for 'lt directus sync' command",
+              "properties": {
+                "noConfirm": {
+                  "type": "boolean",
+                  "description": "Skip confirmation prompts; runs the Directus CLI non-interactively"
+                }
+              },
+              "additionalProperties": false
+            },
             "typegen": {
               "type": "object",
               "description": "Configuration for 'lt directus typegen' command",
