@@ -161,6 +161,16 @@ export interface LtConfig {
       };
 
       /**
+       * Configuration for 'lt directus sync' command
+       */
+      sync?: {
+        /**
+         * Skip confirmation prompts; runs the Directus CLI non-interactively
+         */
+        noConfirm?: boolean;
+      };
+
+      /**
        * Configuration for 'lt directus typegen' command
        */
       typegen?: {

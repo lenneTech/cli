@@ -35,6 +35,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
         version: 'string',
       },
       remove: { noConfirm: 'boolean' },
+      sync: { noConfirm: 'boolean' },
       typegen: { noConfirm: 'boolean', output: 'string', token: 'string', url: 'string' },
     },
     frontend: {
