@@ -1,10 +1,10 @@
 import { buildReinitCommand } from '../src/lib/reinit-command';
 
 describe('buildReinitCommand', () => {
-  it('removes lockfile and node_modules, then installs — in the project directory', () => {
-    expect(
-      buildReinitCommand({ dir: '/work/app', install: 'pnpm install', lockfile: 'pnpm-lock.yaml' }),
-    ).toBe('cd /work/app && rimraf pnpm-lock.yaml && rimraf node_modules && pnpm install');
+  it('removes lockfile and node_modules, then installs; the directory is the caller\'s cwd, never shell text', () => {
+    expect(buildReinitCommand({ install: 'pnpm install', lockfile: 'pnpm-lock.yaml' })).toBe(
+      'rimraf pnpm-lock.yaml && rimraf node_modules && pnpm install',
+    );
   });
 
   // A reinit is scoped to ONE project. `pnpm store prune` empties the machine-wide store on
@@ -16,7 +16,7 @@ describe('buildReinitCommand', () => {
     ['pnpm', 'pnpm install', 'pnpm-lock.yaml'],
     ['yarn', 'yarn install', 'yarn.lock'],
   ])('never touches a machine-wide cache (%s)', (_pm: string, install: string, lockfile: string) => {
-    const command = buildReinitCommand({ dir: '/work/app', install, lockfile });
+    const command = buildReinitCommand({ install, lockfile });
     expect(command).not.toMatch(/store prune|cache clean/);
   });
 });

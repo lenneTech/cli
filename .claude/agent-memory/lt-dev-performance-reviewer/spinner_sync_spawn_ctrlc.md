@@ -13,6 +13,9 @@ Measured 2026-10-19 (reviewing the `lt directus typegen` switch from async `syst
 |---|---|
 | `await system.run(...)` (async exec) | ~1.76 s |
 | `spawnCmdSync(...)` | ~8.16 s (child's full runtime) |
+| `await spawnArgs(...)` (`exec-args.ts`, cross-spawn async; re-measured 2026-10-19 for `lt npm reinit`) | ~1.61 s (system.run control: 1.57 s, spawnSync control: 8.18 s) |
+
+To load `spawnArgs` in such a probe without a full build: `npx tsc --ignoreConfig src/lib/exec-args.ts --outDir <scratch>/out --module commonjs --rootDir src --types node --skipLibCheck`, then run with `NODE_PATH=<cli>/node_modules`.
 
 **Why:** async → sync conversions look neutral in a diff and pass every test (Jest has no TTY), but they turn a network-bound child (e.g. `directus-sdk-typegen`: three parallel `fetch` with no timeout, undici `headersTimeout` 300 s) into an uninterruptible command.
 

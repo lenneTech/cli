@@ -90,3 +90,11 @@ gets ignored with it.
   the real upstream values there. "`CLAUDE_PLUGIN_ROOT` is not set for Bash tool commands" is
   verified by `echo ${CLAUDE_PLUGIN_ROOT-unset}` in your own Bash tool. For a "`CLAUDE_CONFIG_DIR`
   counts everywhere" claim, grep `src` for `homedir`, `'.claude'` and `.claude/` together.
+- **"Last gap closed" / completeness claims about shell injection need a grep wider than
+  `system.run` (2026-10-19).** `src/commands/mongodb/{collection-export,s3-restore}.ts` use
+  `promisify(require('child_process').exec)` directly, so a `run(`-only grep misses them. Grep
+  `execAsync\(|execSync\(|[^.]exec\(|shell:\s*true` too. Live proof is safe and offline:
+  `node bin/lt mongodb collection-export --noConfirm --mongoUri 'mongodb://127.0.0.1:1$(touch PWNED)' </dev/null`
+  from a scratchpad dir creates `PWNED` (runs the compiled `build/`; check the build copy still
+  matches the source first). `npx <bin>` claims: libnpmexec runs a local or GLOBAL bin of that
+  name before fetching the same-named package (npm's `libnpmexec/lib/index.js`, `globalBin`).

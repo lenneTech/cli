@@ -248,7 +248,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
 | ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
-| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. Every write goes through `ensureLoopbackBind`: a global `{ default_bind 127.0.0.1 [::1] }` block before the first project marker, so stacks are not reachable from the LAN (the `lt dev test` seed admin's password is in this public repo); a user-set `default_bind` is kept. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
+| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. Every site block carries `@lt_remote not remote_ip 127.0.0.0/8 ::1` + `abort @lt_remote`, so stacks are not reachable from the LAN (the `lt dev test` seed admin's password is in this public repo). **Never** use a global `default_bind 127.0.0.1 [::1]` instead: see the Gotcha "`caddy validate` passing is not Caddy binding". Every write goes through `migrateCaddyfile`: it deletes the line 1.51.0/1.51.1 wrote AND adds the guard to every block between lt's markers, in one step. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
 | VS Code memory profile | `src/commands/dev/vscode.ts` + `src/lib/vscode-settings.ts` | `lt dev vscode` (alias `vsc`) tunes the USER `settings.json` of VS Code / Insiders / Cursor / VSCodium. Machine-level, not project-level — no registry or Caddy involvement. JSONC-aware via `jsonc-parser` (lazy-required, since gluegun loads every command on every `lt` run) so comments survive; refuses an unparseable file or a symlink; keeps the FIRST `settings.json.bak`. Object-valued exclude maps are MERGED on apply (user entries win) and SUBTRACTED on `--revert`, so an undo never removes a hand-maintained exclusion. `MEMORY_PROFILE` targets the per-root SEMANTIC TS servers and excludes `**/.nuxt*/**` / `**/.output*/**` (segment globs — the bare names miss `.nuxt-test`); `EXCLUDED_FROM_PROFILE` records three commonly recommended keys that were ruled out, surfaced by `--explain`. `--dry-run` uses presence-as-intent (`isPreventingFlagSet`), not `=== true`, because it PREVENTS a write; `--noConfirm` must be an explicit CLI flag — a repo-local `lt.config.json` must not silence a prompt guarding a machine-global write. |
 | Caddy service lifecycle | `src/lib/dev-service.ts` + `src/commands/dev/{install,uninstall}.ts` | Per-OS service runner. macOS: per-user LaunchAgent `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`. Linux: `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`. Render helpers (`renderLaunchAgentPlist`, `renderSystemdUnit`) are pure + unit-tested; side-effecting ops accept an injectable `ShellRunner`. **Critical:** plist sets `HOME=$userHome` env so caddy persists its CA under `~/Library/Application Support/Caddy/`, not the launchd-empty default. `userHome()` is `process.env.HOME || homedir()` because real `os.homedir()` on macOS goes through `getpwuid()` and ignores HOME — required so test files can redirect side-effects to a tmpdir. The `caddy trust` instructions surfaced to users **must** include `-E HOME="$HOME"` for the same reason in sudo context. |
 | install↔init auto-chaining | `src/lib/dev-bootstrap.ts` (predicates) + `src/lib/dev-install-helper.ts` (`runInstall`) + `src/lib/dev-migrate-helper.ts` (`runMigrate`/`printMigrateResult`) + `src/commands/dev/{install,init}.ts` | `lt dev init` runs install first when `!isMachinePrepared()`; `lt dev install` runs init after when `isLtDevProject() && !isProjectInitialized()`. Non-recursive by construction: commands call the *helpers*, never each other. Opt-outs: `--skip-install` (init), `--skip-init` (install). `runInstall` must NOT call `process.exit`. |
@@ -1495,8 +1495,18 @@ first conversion pass missed four more (`rebase`/`reset` chains, `getFirstBranch
   path through `isPathInside` (`src/lib/safe-paths.ts`).
 - Still shell strings, by design: the scaffolders' `cd ${projectDir} && git init …` (projectDir is
   `kebabCase(name)`, so `[a-z0-9-]` only) and constant package-manager commands.
-- Remaining known gap: `npm/reinit.ts` still runs `ncu -u --packageFile ${path}` through a shell
-  (a global `.cmd` shim on Windows cannot be `execFile`d); the path comes from a filesystem lookup.
+- `lt npm reinit` is closed (after 1.51.1): `ncu` now runs via `spawnArgs`, and
+  `buildReinitCommand` no longer takes a directory; the caller passes it as `{ cwd }`. `ncu` is
+  the binary of the globally installed `npm-check-updates` (the command installs that package
+  when `ncu` is missing). Never call it as `npx ncu`: without that global install it resolves
+  the unrelated npm package named `ncu`.
+- **Remaining known gaps:** `lt mongodb collection-export` and `lt mongodb s3-restore` build
+  `mongosh` / `mongoexport` / `mongorestore` / `tar` / `find` strings for `child_process.exec`
+  DIRECTLY (a promisified `exec`, not `system.run`), with `--mongoUri`, `--output`,
+  `--database` and, in `s3-restore`, directory names read from the downloaded backup archive
+  inside double quotes, where `$(…)` and backticks still expand. A search for `run(` misses
+  such sites: audit every file that imports `child_process`, and treat a command assembled in
+  a variable first like an inline one.
 
 ### A command that changes a project refuses flags it does not know <!-- Added: 2026-10-19 -->
 gluegun/yargs-parser accepts any flag and the command never sees the typo. Plugin docs told
@@ -1506,6 +1516,25 @@ build their allow-list from their own `help.options` (`findUnknownOptions`,
 `src/lib/unknown-options.ts`, which also handles yargs' duplicate camelCase key) and exit 1
 before touching anything. `__tests__/unknown-options.test.ts` checks that every flag a command
 reads is declared in its `help`, or the command would refuse its own flag.
+
+### `caddy validate` passing is not Caddy binding — macOS reserves low ports per address <!-- Added: 2026-10-19 -->
+CLI 1.51.0/1.51.1 kept `lt dev` stacks off the LAN with a global `default_bind 127.0.0.1 [::1]`.
+On macOS that broke every `lt dev` command: an unprivileged process may bind a port below 1024
+only on the WILDCARD address (`0.0.0.0` / `::`), so `127.0.0.1:443` fails with `bind: permission
+denied` (measured as a plain user on port 1001: Errno 13 for 127.0.0.1 and ::1, ok for 0.0.0.0 and
+::). A running Caddy kept its old config because the reload failed; any restart would have failed
+outright. The change had been "verified" with `caddy validate` and `caddy adapt`, which never bind.
+**Rules:**
+- Restrict access per site, not per listener: `@lt_remote not remote_ip 127.0.0.0/8 ::1` +
+  `abort @lt_remote` in every block (`renderProjectBlock`). Measured with a throwaway Caddy on a
+  high port: 127.0.0.1 and [::1] get the response, the LAN address an aborted connection.
+- Verify a listener change by RELOADING a real Caddy, not by validating its config. The channel
+  that failed was the bind; a check that never binds cannot see it.
+- `migrateCaddyfile` (= `removeLegacyLoopbackBind` + `addLoopbackGuards`) runs on every
+  Caddyfile write, so a broken machine heals with any `lt dev` command, and ALL managed blocks get
+  the guard at once. The first fix only removed the line and guarded the block of the project
+  being started, which left every other running stack reachable from the LAN until its own next
+  `lt dev up` (found by a peer review: 0 guards in 18 blocks after the heal).
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

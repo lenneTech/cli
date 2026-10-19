@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { hasCmdShimHazard, spawnArgs } from '../../lib/exec-args';
 import { buildReinitCommand } from '../../lib/reinit-command';
 
 /**
@@ -20,7 +21,7 @@ const NewCommand: GluegunCommand = {
       npm,
       parameters,
       pm,
-      print: { info, spin, success },
+      print: { error, info, spin, success },
       prompt,
       system,
     } = toolbox;
@@ -74,8 +75,14 @@ const NewCommand: GluegunCommand = {
         await system.run(pm.globalInstall('npm-check-updates'));
         installSpin.succeed();
       }
+      // Argument list, no shell: the path comes from a directory name (see exec-args.ts). `ncu` is
+      // the global npm-check-updates binary installed above, a `.cmd` shim on Windows.
+      if (hasCmdShimHazard(path)) {
+        error(`The project path must not contain ", % or line breaks on Windows: ${path}`);
+        return;
+      }
       const updateSpin = spin('Update package.json');
-      await system.run(`ncu -u --packageFile ${path}`);
+      await spawnArgs('ncu', ['-u', '--packageFile', path]);
       updateSpin.succeed();
     }
 
@@ -91,11 +98,10 @@ const NewCommand: GluegunCommand = {
         await system.run(pm.globalInstall('rimraf'));
       }
       await system.run(
-        buildReinitCommand({
-          dir: dirname(path),
-          install: pm.install(detectedPm),
-          lockfile: pm.getLockfileName(detectedPm),
-        }),
+        buildReinitCommand({ install: pm.install(detectedPm), lockfile: pm.getLockfileName(detectedPm) }),
+        {
+          cwd: dirname(path),
+        },
       );
       reinitSpin.succeed();
       if (data.scripts && data.scripts['test:e2e']) {

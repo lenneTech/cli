@@ -61,3 +61,15 @@ digit-only POSITIONAL into a number too (`lt git create 2314` → `parameters.fi
 not only flag values. A new string guard that calls `.trim()` on raw input (`safeRef`, 2026-10-19)
 crashed `lt git create 2314` / `lt git rebase --base 77`, which worked on HEAD. The unit tests
 only fed string literals, so nothing caught it.
+
+**Commands that shell out to package managers (2026-10-19, `lt npm reinit`).** Put stub
+scripts named `ncu`/`rimraf`/`pnpm`/`npm`/`yarn`/`npx` in `$SP/stubs` that append
+`name | cwd=$(pwd)` plus one `arg=[…]` line per argv element to `$PROBE_LOG`, then run
+`node <root>/bin/lt … --noConfirm --fromGluegunMenu` with
+`PATH=$SP/stubs:<node dir>:/usr/bin:/bin HOME=$SP/home`. Stubs FIRST, so nothing global is
+installed even where the command calls `pm.globalInstall`. The log shows the cwd and the
+argv each tool actually received, which a builder-string unit test cannot. Realistic trigger
+for any `cd ${dir} &&` shell prefix: a Finder duplicate (`app copy`). macOS `/bin/sh`
+(bash 3.2) runs `cd /x/app copy` as `cd /x/app`, ignoring the extra word, so the rest of
+the chain runs in the SIBLING project. HEAD's reinit deleted the sibling's lockfile and
+node_modules this way and exited 0.

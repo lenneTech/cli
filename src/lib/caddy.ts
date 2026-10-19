@@ -33,13 +33,24 @@ const CADDYFILE_PATH = process.env.LT_DEV_CADDYFILE || join(homedir(), '.lenneTe
 const UPSTREAM_MAX_CONNS = 32;
 const HEADER = '# Managed by `lt dev`. Per-project blocks are bounded by `# >>> lt-dev:<slug> >>>` markers.';
 /**
- * Global options block that keeps Caddy on the loopback interfaces. Without it every site block
- * listens on `*:443`/`*:80`, so a running stack answers anyone on the same network who sends
- * the right Host header (`curl --resolve`), including the `lt dev test` stack with its seeded
- * admin, whose password is in this public repository (`TEST_INITIAL_ADMIN_ENV`). `*.localhost`
- * does not resolve on other machines anyway, so nothing legitimate is lost.
+ * The global option CLI 1.51.0/1.51.1 wrote to keep Caddy off the LAN. It broke `lt dev` on every
+ * Mac: macOS lets an unprivileged process bind a port below 1024 only on the WILDCARD address, so
+ * `127.0.0.1:443` fails with "bind: permission denied" while `*:443` works (measured: Errno 13 for
+ * 127.0.0.1 and ::1, ok for 0.0.0.0 and ::). A running Caddy kept its old config because every
+ * reload failed; a restart failed completely. `caddy validate` / `adapt` passed all along, since
+ * neither binds. Removed by {@link removeLegacyLoopbackBind} wherever lt writes the Caddyfile.
  */
-const LOOPBACK_BIND = 'default_bind 127.0.0.1 [::1]';
+const LEGACY_LOOPBACK_BIND = /^[ \t]*default_bind[ \t]+127\.0\.0\.1[ \t]+\[::1\][ \t]*\r?$/;
+
+/**
+ * Per-site guard that keeps a stack off the LAN instead: Caddy still listens on `*:443`/`*:80`,
+ * but answers only connections from this machine and aborts every other one (measured with a
+ * throwaway Caddy: 127.0.0.1 and [::1] get the response, the LAN address gets an aborted
+ * connection). Without it a running stack answers anyone on the network who sends the right Host
+ * header (`curl --resolve`), the `lt dev test` stack with its seeded admin included, whose
+ * password is in this public repository (`TEST_INITIAL_ADMIN_ENV`).
+ */
+const LOOPBACK_ONLY = ['  @lt_remote not remote_ip 127.0.0.0/8 ::1', '  abort @lt_remote'];
 
 /** Outcome of a Caddy command. */
 export interface CaddyResult {
@@ -47,6 +58,36 @@ export interface CaddyResult {
   ok: boolean;
   stderr: string;
   stdout: string;
+}
+
+/**
+ * Add the loopback guard ({@link LOOPBACK_ONLY}) to every site block inside lt's own markers
+ * (`# >>> lt-dev:<slug> >>>` … `# <<<`) that lacks it. Blocks outside the markers are the user's
+ * and stay untouched. Pure and idempotent. Exists so that one migration step protects EVERY
+ * project of a machine, not only the one whose `lt dev up` happens to run next: removing the
+ * 1.51.x `default_bind` without this would leave all other running stacks reachable from the LAN.
+ * @param content - Caddyfile content
+ * @returns Content in which every managed site block starts with the guard
+ */
+export function addLoopbackGuards(content: string): string {
+  const lines = content.split('\n');
+  const out: string[] = [];
+  let managed = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    out.push(line);
+    if (line.startsWith('# >>> lt-dev:')) managed = true;
+    else if (line.startsWith('# <<< lt-dev:')) managed = false;
+    else if (
+      managed &&
+      /^\S.*\{\s*$/.test(line) &&
+      !line.startsWith('#') &&
+      lines[i + 1]?.trim() !== LOOPBACK_ONLY[0].trim()
+    ) {
+      out.push(...LOOPBACK_ONLY);
+    }
+  }
+  return out.join('\n');
 }
 
 /** Detect whether `caddy` is on PATH. */
@@ -73,65 +114,28 @@ export async function caddyDaemonRunning(): Promise<boolean> {
 }
 
 /**
- * Make sure a Caddyfile binds to loopback only. Pure and idempotent.
- *
- * - No global options block: one is inserted after the leading comments (the global block
- *   must be the first block of a Caddyfile).
- * - A global block without `default_bind`: the option is added inside it, the rest is kept.
- * - A global block that already sets `default_bind`: unchanged, whatever it binds to. That is
- *   a deliberate choice of the user, not something to overwrite.
- * @param content - Caddyfile content
- * @returns Content with a loopback `default_bind`
- */
-export function ensureLoopbackBind(content: string): string {
-  const lines = content.split('\n');
-  const first = lines.findIndex((line) => line.trim() !== '' && !line.trim().startsWith('#'));
-
-  if (first !== -1 && lines[first].trim() === '{') {
-    let depth = 0;
-    let end = lines.length - 1;
-    for (let i = first; i < lines.length; i++) {
-      const code = lines[i].replace(/#.*$/, '');
-      depth += (code.match(/\{/g) || []).length - (code.match(/\}/g) || []).length;
-      if (depth === 0) {
-        end = i;
-        break;
-      }
-    }
-    if (lines.slice(first + 1, end).some((line) => /^\s*default_bind\b/.test(line))) {
-      return content;
-    }
-    return [...lines.slice(0, first + 1), `\t${LOOPBACK_BIND}`, ...lines.slice(first + 1)].join('\n');
-  }
-
-  // Insert before the first site block AND before the first project marker: a block placed
-  // between `# >>> lt-dev:<slug> >>>` and its site would be removed with that project.
-  const block = ['{', `\t${LOOPBACK_BIND}`, '}'];
-  const insertAt = lines.findIndex(
-    (line) => line.trim() !== '' && (!line.trim().startsWith('#') || line.trim().startsWith('# >>> lt-dev:')),
-  );
-  if (insertAt === -1) {
-    const body = content.replace(/\n+$/, '');
-    return body ? `${body}\n\n${block.join('\n')}\n` : `${block.join('\n')}\n`;
-  }
-  const head = lines.slice(0, insertAt);
-  while (head.length > 0 && head[head.length - 1].trim() === '') head.pop();
-  return [...head, ...(head.length > 0 ? [''] : []), ...block, '', ...lines.slice(insertAt)].join('\n');
-}
-
-/**
- * Add the loopback bind to an existing Caddyfile that lacks it. For paths that do not upsert a
- * project block, such as `lt dev up` on a stack that is already running: without this, a stack
- * started before the bind existed stays reachable from the LAN until its next restart.
+ * Apply {@link migrateCaddyfile} to the file on disk and write it back if that changed anything.
+ * For paths that write no project block, such as `lt dev up` on a stack that is already running
+ * when its ports are unknown.
  * @returns true if the Caddyfile was changed (the caller reloads Caddy)
  */
-export function healLoopbackBind(): boolean {
+export function healCaddyfile(): boolean {
   const current = readCaddyfile();
-  if (!current || ensureLoopbackBind(current) === current) {
+  if (!current || migrateCaddyfile(current) === current) {
     return false;
   }
   writeCaddyfile(current);
   return true;
+}
+
+/**
+ * Every repair lt applies to a Caddyfile it writes: drop the 1.51.x `default_bind` and give every
+ * managed block the loopback guard, in ONE step, so no write ever leaves a stack without either.
+ * @param content - Caddyfile content
+ * @returns The repaired content
+ */
+export function migrateCaddyfile(content: string): string {
+  return addLoopbackGuards(removeLegacyLoopbackBind(content));
 }
 
 /** Read the current Caddyfile (or empty string). */
@@ -146,6 +150,29 @@ export function readCaddyfile(): string {
  */
 export async function reloadCaddy(): Promise<CaddyResult> {
   return runCaddy(['reload', '--config', CADDYFILE_PATH, '--adapter', 'caddyfile']);
+}
+
+/**
+ * Undo what CLI 1.51.0/1.51.1 added to the global options block (see {@link LEGACY_LOOPBACK_BIND}).
+ * Removes exactly that `default_bind` line; a different `default_bind` the user set is kept. A
+ * global block left empty by the removal is dropped as well. Pure and idempotent.
+ * @param content - Caddyfile content
+ * @returns Content without lt's `default_bind 127.0.0.1 [::1]`
+ */
+export function removeLegacyLoopbackBind(content: string): string {
+  const lines = content.split('\n');
+  const at = lines.findIndex((line) => LEGACY_LOOPBACK_BIND.test(line));
+  if (at === -1) {
+    return content;
+  }
+  const next = [...lines.slice(0, at), ...lines.slice(at + 1)];
+  // Drop a global block that is now `{` + `}` only, plus one blank line after it.
+  const open = next.findIndex((line) => line.trim() !== '' && !line.trim().startsWith('#'));
+  if (open !== -1 && next[open].trim() === '{' && next[open + 1]?.trim() === '}') {
+    const removeBlank = next[open + 2]?.trim() === '' ? 1 : 0;
+    next.splice(open, 2 + removeBlank);
+  }
+  return next.join('\n');
 }
 
 /**
@@ -196,6 +223,7 @@ export function renderProjectBlock(slug: string, routes: CaddyRoute[]): string {
   const lines: string[] = [`# >>> lt-dev:${slug} >>>`];
   for (const route of routes) {
     lines.push(`${route.hostname} {`);
+    lines.push(...LOOPBACK_ONLY);
     lines.push(`  reverse_proxy 127.0.0.1:${route.upstreamPort} {`);
     lines.push('    transport http {');
     lines.push(`      max_conns_per_host ${UPSTREAM_MAX_CONNS}`);
@@ -230,9 +258,9 @@ export function upsertProjectBlock(slug: string, routes: CaddyRoute[]): boolean 
   } else {
     next = current.length > 0 ? `${current.replace(/\n+$/, '')}\n\n${block}` : block;
   }
-  // Also heals a Caddyfile written before the loopback bind existed: the reload that follows
-  // every upsert then moves the running Caddy off the LAN interfaces.
-  next = ensureLoopbackBind(next);
+  // Also removes the `default_bind` of CLI 1.51.0/1.51.1, which kept Caddy from binding on macOS;
+  // the reload that follows every upsert then applies the repaired file.
+  next = migrateCaddyfile(next);
   if (next.replace(/\s+$/, '') === current.replace(/\s+$/, '')) return false;
   writeCaddyfile(next);
   return true;
@@ -246,7 +274,7 @@ export async function validateCaddyfile(): Promise<CaddyResult> {
 /** Write the Caddyfile, ensuring the parent directory exists. */
 export function writeCaddyfile(content: string): void {
   mkdirSync(dirname(CADDYFILE_PATH), { recursive: true });
-  const next = ensureLoopbackBind(content.startsWith('#') ? content : `${HEADER}\n\n${content}`);
+  const next = migrateCaddyfile(content.startsWith('#') ? content : `${HEADER}\n\n${content}`);
   writeFileSync(CADDYFILE_PATH, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
 }
 

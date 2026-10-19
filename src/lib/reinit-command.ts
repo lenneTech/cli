@@ -9,8 +9,12 @@
  * files it is linking. A fresh resolution needs neither: deleting the lockfile is what
  * makes the package manager ask the registry again, and pnpm verifies store integrity
  * on every install.
+ *
+ * Run it with `{ cwd: <project dir> }`: the directory is never part of the string, because
+ * a shell would parse a directory name such as `app;touch x` (see exec-args.ts). Lockfile and
+ * install command come from the fixed package-manager table.
  */
-export function buildReinitCommand(opts: { dir: string; install: string; lockfile: string }): string {
-  const { dir, install, lockfile } = opts;
-  return `cd ${dir} && rimraf ${lockfile} && rimraf node_modules && ${install}`;
+export function buildReinitCommand(opts: { install: string; lockfile: string }): string {
+  const { install, lockfile } = opts;
+  return `rimraf ${lockfile} && rimraf node_modules && ${install}`;
 }

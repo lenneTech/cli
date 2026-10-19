@@ -7,7 +7,7 @@ import {
   caddyAvailable,
   caddyDaemonRunning,
   CaddyRoute,
-  healLoopbackBind,
+  healCaddyfile,
   reloadCaddy,
   upsertProjectBlock,
 } from '../../lib/caddy';
@@ -350,11 +350,25 @@ const UpCommand: GluegunCommand = {
         // that nothing listens on.
         dbName: identity.subdomains.api ? (existingEntry?.dbName ?? dbName) : undefined,
       });
-      // A Caddyfile from before the loopback bind would keep this running stack on the LAN until
-      // its next restart, because the upsert below is never reached on this path.
-      if (healLoopbackBind()) {
+      // The upsert below is never reached on this path, so a running stack would otherwise keep a
+      // block without the loopback guard (reachable from the LAN) and a Caddyfile that still has
+      // the `default_bind` of CLI 1.51.0/1.51.1, which makes every Caddy reload fail on macOS.
+      const runningRoutes: CaddyRoute[] = [];
+      if (identity.subdomains.api && existingEntry?.internalPorts.api)
+        runningRoutes.push({
+          hostname: identity.subdomains.api.hostname,
+          upstreamPort: existingEntry.internalPorts.api,
+        });
+      if (identity.subdomains.app && existingEntry?.internalPorts.app)
+        runningRoutes.push({
+          hostname: identity.subdomains.app.hostname,
+          upstreamPort: existingEntry.internalPorts.app,
+        });
+      const caddyfileChanged =
+        runningRoutes.length > 0 ? upsertProjectBlock(identity.slug, runningRoutes) : healCaddyfile();
+      if (caddyfileChanged) {
         const reload = await reloadCaddy();
-        if (reload.ok) info('Caddy now listens on this machine only (default_bind 127.0.0.1 [::1]).');
+        if (reload.ok) info('Caddy config refreshed: this stack answers requests from this machine only.');
         else warning(`caddy reload failed:\n${reload.stderr}`);
       }
       info('Run `lt dev down` first to force a full restart.');
