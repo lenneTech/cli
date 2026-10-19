@@ -4,19 +4,19 @@
  */
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
-import { join, posix, win32 } from 'path';
+import { join, posix, resolve, win32 } from 'path';
 
 import { CliLookupOptions, findExecutable, isWindows, spawnCmdSync, windowsAppData } from './platform';
 
 /**
  * Path to Claude plugins marketplaces directory
  */
-export const CLAUDE_MARKETPLACES_DIR = join(homedir(), '.claude', 'plugins', 'marketplaces');
+export const CLAUDE_MARKETPLACES_DIR = join(getClaudeConfigDir(), 'plugins', 'marketplaces');
 
 /**
  * Path to the Claude CLI's registry of known marketplaces (name → source).
  */
-export const CLAUDE_KNOWN_MARKETPLACES_PATH = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+export const CLAUDE_KNOWN_MARKETPLACES_PATH = join(getClaudeConfigDir(), 'plugins', 'known_marketplaces.json');
 
 /**
  * Result of a Claude CLI command execution
@@ -77,6 +77,20 @@ export function findClaudeCli(options: CliLookupOptions = {}): null | string {
     : [posix.join(home, '.claude', 'local', 'claude'), '/usr/local/bin/claude', '/usr/bin/claude'];
 
   return findExecutable('claude', { ...options, candidates, env, platform });
+}
+
+/**
+ * Claude Code's configuration directory: `CLAUDE_CONFIG_DIR` when set, else `~/.claude`.
+ * settings.json, the marketplace clones and the plugin cache all live below it, and the
+ * `claude` child processes this CLI starts inherit the variable, so every Claude path the
+ * CLI derives has to start here or it reads and writes a different installation.
+ * @param env - Environment to read (injectable for tests)
+ * @param home - Home directory (injectable for tests)
+ * @returns Absolute path of the configuration directory
+ */
+export function getClaudeConfigDir(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  const configured = env.CLAUDE_CONFIG_DIR?.trim();
+  return configured ? resolve(configured) : join(home, '.claude');
 }
 
 /**

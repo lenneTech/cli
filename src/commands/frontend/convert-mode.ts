@@ -1,7 +1,15 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { failRun } from '../../lib/fail-run';
 import { detectFrontendFrameworkMode, findAppDir } from '../../lib/frontend-framework-detection';
+import { findUnknownOptions, formatUnknownOptions } from '../../lib/unknown-options';
+
+/** The flag names `lt fullstack convert-mode` uses for the same thing, mapped to the real ones for the error message. */
+const RENAMED_FLAGS: Record<string, string> = {
+  'frontend-framework-upstream-branch': 'upstream-branch',
+  'frontend-framework-version': 'version',
+};
 
 /**
  * Convert an existing frontend project between npm mode and vendor mode.
@@ -66,6 +74,16 @@ const ConvertModeCommand: GluegunCommand = {
     // Handle --help-json flag
     if (toolbox.tools.helpJson(help)) {
       return;
+    }
+
+    // Refuse flags this command does not know: a misspelt --skip-* would otherwise be ignored
+    // and the conversion would touch what the caller asked to leave alone (see unknown-options.ts).
+    const declaredFlags = help.options.map((option) => option.flag);
+    const unknownFlags = findUnknownOptions(parameters.options, declaredFlags);
+    if (unknownFlags.length > 0) {
+      error(formatUnknownOptions(unknownFlags, declaredFlags, RENAMED_FLAGS));
+      failRun(toolbox);
+      return 'convert-mode: unknown option';
     }
 
     const targetMode = parameters.options.to as 'npm' | 'vendor' | undefined;

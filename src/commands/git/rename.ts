@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 
 /**
  * Rename branch
@@ -19,7 +20,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success, warning },
       prompt: { confirm },
-      system: { run, startTimer },
+      system: { startTimer },
     } = toolbox;
 
     // Load configuration
@@ -100,11 +101,11 @@ const NewCommand: GluegunCommand = {
 
     // Rename branch
     const renameSpin = spin(`Rename ${branch} into ${name}`);
-    await run(`git branch -m ${name}`);
+    await execArgs('git', ['branch', '-m', safeRef(name)]);
 
     // Ask to push branch
     if (remote && (noConfirm || (await confirm(`Push ${name} to remote?`)))) {
-      await run(`git push origin ${name}`);
+      await execArgs('git', ['push', 'origin', safeRef(name)]);
     }
     renameSpin.succeed();
 
@@ -118,7 +119,7 @@ const NewCommand: GluegunCommand = {
     ) {
       timer = startTimer();
       const deleteSpin = spin(`Delete remote branch ${branch}`);
-      await run(`git push origin :${branch}`);
+      await execArgs('git', ['push', 'origin', `:${safeRef(branch)}`]);
       deleteSpin.succeed();
       time += timer();
     }

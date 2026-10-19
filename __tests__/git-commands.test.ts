@@ -1,5 +1,5 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { filesystem, system } from 'gluegun';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -211,6 +211,77 @@ describe('Git Commands', () => {
     test('shows dry-run message', async () => {
       const output = await cli('git clean --dry-run', fx.work);
       expect(output).toContain('DRY-RUN MODE');
+    });
+  });
+
+  // Git forbids whitespace in ref names but allows `;`, `|`, `$` and `{}`, so a remote can offer a
+  // branch whose name is a command. lt used to interpolate branch names into `system.run` strings,
+  // i.e. into /bin/sh, where `x;touch${IFS}PWNED` runs `touch PWNED`. Single quotes below only
+  // protect the name from the TEST harness's own shell (`cli` uses system.run too).
+  describe('branch names are never shell syntax', () => {
+    test('lt git get checks out a remote branch named like a command without running it', async () => {
+      const evil = 'feature/x;touch${IFS}PWNED';
+      git(fx.upstream, 'checkout', '--quiet', '-b', evil);
+      git(fx.upstream, 'push', '--quiet', '--no-verify', 'origin', evil);
+
+      await cli('git get feature/x --noConfirm', fx.work);
+
+      expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
+      expect(git(fx.work, 'branch', '--show-current')).toBe(evil);
+    });
+
+    // `;#` ends the injected command and comments out what the old shell string appended.
+    const pushEvil = (name: string) => {
+      git(fx.upstream, 'checkout', '--quiet', 'main');
+      git(fx.upstream, 'checkout', '--quiet', '-b', name);
+      git(fx.upstream, 'push', '--quiet', '--no-verify', 'origin', name);
+      git(fx.work, 'fetch', '--quiet', 'origin');
+    };
+
+    test('lt git squash --dry-run uses a base named like a command literally', async () => {
+      const evil = 'x;touch${IFS}PWNED;#';
+      pushEvil(evil);
+
+      await cli(`git squash 'origin/${evil}' --dry-run`, fx.work);
+
+      expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
+    });
+
+    test('lt git reset resets a current branch named like a command without running it', async () => {
+      const evil = 'x;touch${IFS}PWNED;#';
+      pushEvil(evil);
+      git(fx.work, 'checkout', '--quiet', '-b', evil, '--track', `origin/${evil}`);
+
+      await cli('git reset --noConfirm', fx.work);
+
+      expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
+      expect(git(fx.work, 'branch', '--show-current')).toBe(evil);
+    });
+
+    test('lt git rebase rebases onto a base named like a command without running it', async () => {
+      const evil = 'x;touch${IFS}PWNED;#';
+      pushEvil(evil);
+      git(fx.work, 'branch', '--quiet', '--track', evil, `origin/${evil}`);
+
+      await cli(`git rebase '${evil}' --noConfirm`, fx.work);
+
+      expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
+      expect(git(fx.work, 'branch', '--show-current')).toBe('feature/demo');
+    });
+
+    test('lt git create accepts a digits-only branch name, which gluegun parses as a number', async () => {
+      await cli('git create 2314 main --noConfirm', fx.work);
+
+      expect(git(fx.work, 'branch', '--show-current')).toBe('2314');
+    });
+
+    test('lt git create takes a branch name literally', async () => {
+      const evil = 'feat;touch${IFS}PWNED';
+
+      await cli(`git create '${evil}' main --noConfirm`, fx.work);
+
+      expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
+      expect(git(fx.work, 'branch', '--show-current')).toBe(evil);
     });
   });
 });

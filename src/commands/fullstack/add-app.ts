@@ -293,7 +293,7 @@ const NewCommand: GluegunCommand = {
       const installSpinner = spin('Install workspace packages');
       try {
         const detectedPm = toolbox.pm.detect(workspaceDir);
-        await system.run(`cd ${workspaceDir} && ${toolbox.pm.install(detectedPm)}`);
+        await system.run(toolbox.pm.install(detectedPm), { cwd: workspaceDir });
         installSpinner.succeed('Successfully installed workspace packages');
       } catch (err) {
         installSpinner.fail(`Failed to install packages: ${(err as Error).message}`);

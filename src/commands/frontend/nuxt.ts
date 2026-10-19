@@ -246,7 +246,7 @@ const NewCommand: GluegunCommand = {
         // leaving pnpm-lock.yaml stale. Resync it — otherwise the first
         // `pnpm install --frozen-lockfile` (CI, Docker build) fails with
         // ERR_PNPM_OUTDATED_LOCKFILE and the project cannot be built/deployed.
-        await toolbox.system.run(`cd "./${projectDir}" && pnpm install --no-frozen-lockfile`);
+        await toolbox.system.run('pnpm install --no-frozen-lockfile', { cwd: projectDir });
         vendorSpinner.succeed('Frontend converted to vendor mode (app/core/)');
       } catch (err) {
         vendorSpinner.fail(`Frontend vendor conversion failed: ${(err as Error).message}`);

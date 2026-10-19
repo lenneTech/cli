@@ -426,6 +426,8 @@ lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 
 Start API + App behind Caddy. Allocates internal ports (4000+), spawns processes detached, persists PIDs to `<root>/.lt-dev/state.json`.
 
+Caddy listens on the loopback interfaces only (`default_bind 127.0.0.1 [::1]` in the global options block of `~/.lenneTech/Caddyfile`), so a running stack is not reachable from the local network. `lt dev up` adds the block to a Caddyfile written by an older CLI and reloads Caddy. A `default_bind` you set yourself is left as it is.
+
 **Usage:**
 ```bash
 lt dev up
@@ -1283,6 +1285,8 @@ lt fullstack convert-mode --to <vendor|npm> [options]
 | `--dry-run` | Show the resolved plan without making any changes |
 | `--noConfirm` | Skip confirmation prompt |
 
+Any other flag is refused with exit code 1 before anything is converted, and a known wrong name gets the right one in the message (`--skip-app` → `--skip-frontend`, `--api-version` → `--framework-version`, …). Before, an unknown flag was ignored, so a misspelt `--skip-*` together with `--noConfirm` converted the side it was meant to skip. `lt server convert-mode` and `lt frontend convert-mode` refuse unknown flags the same way.
+
 **Subproject Detection:**
 
 The command searches for subprojects in this order:
@@ -1993,6 +1997,14 @@ To list or uninstall installed plugins, use Claude Code's own `/plugin` menu.
 
 **Default Behavior:**
 When run without a plugin name, all lenne.Tech plugins plus recommended external plugins (like `typescript-lsp`) are installed automatically. Plugins from configured `autoInstall` marketplaces are added as well, but only for users who can access the underlying repository — everyone else silently skips them.
+
+**Permission rules:**
+A plugin's `permissions.json` is synced into Claude Code's user `settings.json` (`$CLAUDE_CONFIG_DIR/settings.json`, default `~/.claude/settings.json`). These rules apply in every project, so the sync goes both ways:
+
+- Rules the plugin ships are added, except rules that use `${CLAUDE_PLUGIN_ROOT}`. Claude Code does not expand that variable in permission rules, so such a rule never matches, and replacing it with the plugin's cache directory plus a wildcard for the version folder would allow any file on disk (a wildcard also matches `../`). lt therefore writes neither form and removes both if present; Claude asks before running those plugin scripts.
+- Rules lt wrote for a plugin that the plugin no longer ships are removed, and listed as `removed:` in the output. lt records the rules it wrote in `~/.lenneTech/claude-plugin-permissions.json`. Rules you added yourself are never removed.
+- Rules older lt versions installed before that record existed are named by the plugin itself, in an optional `formerPatterns` list of strings in its `permissions.json` (e.g. `"formerPatterns": ["Bash(curl:*)", "Bash(rm:*)"]`). lt removes each of them once, unless the plugin still ships it. Add one back by hand if you want it; lt leaves it alone after that.
+- If `settings.json` is not valid JSON, lt leaves it unchanged and reports an error.
 
 **Examples:**
 ```bash

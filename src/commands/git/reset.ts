@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 import { nonInteractiveGitEnv } from '../../lib/git-env';
 
 /**
@@ -74,7 +75,9 @@ const NewCommand: GluegunCommand = {
     // Check remote (use short SSH timeout so ls-remote doesn't hang in offline environments)
     let remoteBranch = '';
     try {
-      remoteBranch = await system.run(`git ls-remote --heads origin ${branch}`, { env: nonInteractiveGitEnv() });
+      remoteBranch = await execArgs('git', ['ls-remote', '--heads', 'origin', safeRef(branch)], {
+        env: nonInteractiveGitEnv(),
+      });
     } catch {
       // ignore - unreachable remote is reported as "no remote branch" below
     }
@@ -104,7 +107,7 @@ const NewCommand: GluegunCommand = {
       // Show commits that would be lost (none listed when the upstream ref is unknown locally)
       let localCommits = '';
       try {
-        localCommits = await system.run(`git log origin/${branch}..HEAD --oneline`);
+        localCommits = await execArgs('git', ['log', `origin/${safeRef(branch)}..HEAD`, '--oneline']);
       } catch {
         // ignore - no upstream ref, so nothing ahead to report
       }
@@ -136,16 +139,19 @@ const NewCommand: GluegunCommand = {
 
     // Reset
     const resetSpin = spin(`Reset ${branch}`);
-    await system.run(
-      'git clean -fd && ' +
-        'git reset HEAD --hard && ' +
-        'git checkout main && ' +
-        'git fetch && ' +
-        'git pull && ' +
-        `git branch -D ${branch} && ` +
-        `git checkout ${branch} && ` +
-        'git pull',
-    );
+    // Argument lists, no shell: the current branch name can come from a remote (see exec-args.ts).
+    for (const args of [
+      ['clean', '-fd'],
+      ['reset', 'HEAD', '--hard'],
+      ['checkout', 'main'],
+      ['fetch'],
+      ['pull'],
+      ['branch', '-D', safeRef(branch)],
+      ['checkout', safeRef(branch)],
+      ['pull'],
+    ]) {
+      await execArgs('git', args);
+    }
     resetSpin.succeed();
 
     // Install packages with correctly detected package manager (supports monorepo lockfiles)

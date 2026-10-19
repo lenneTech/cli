@@ -415,7 +415,7 @@ const NewCommand: GluegunCommand = {
     if (instanceExists) {
       const stopSpin = spin('Stopping existing containers');
       try {
-        await system.run(`cd ${directusDir} && docker-compose down`);
+        await system.run('docker-compose down', { cwd: directusDir });
         stopSpin.succeed();
       } catch (stopError) {
         stopSpin.fail('Failed to stop existing containers');
@@ -428,7 +428,7 @@ const NewCommand: GluegunCommand = {
     // Start Directus with docker-compose
     const startSpin = spin('Starting Directus instance');
     try {
-      await system.run(`cd ${directusDir} && docker-compose up -d`);
+      await system.run('docker-compose up -d', { cwd: directusDir });
       startSpin.succeed();
     } catch (startError) {
       startSpin.fail('Failed to start Directus');

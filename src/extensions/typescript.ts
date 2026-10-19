@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { execArgs } from '../lib/exec-args';
 
 /**
  * Common helper functions
@@ -48,7 +49,7 @@ export class Typescript {
 
     // Init gts
     fs.mkdirSync(dir);
-    await run(`cd ${dir} && npm init -y && npx gts init && npm install -D ts-node`);
+    await run('npm init -y && npx gts init && npm install -D ts-node', { cwd: dir });
 
     // Prepare package.json
     const { data, path } = await npm.getPackageJson({
@@ -126,7 +127,7 @@ export class Typescript {
     // Clone
     const repository = 'https://github.com/chinchang/web-maker.git';
     const cloneSpin = spin(`Cloning web-maker: ${repository}`);
-    await run(`git clone ${repository} ${dir}`);
+    await execArgs('git', ['clone', '--', repository, dir]);
     cloneSpin.succeed();
 
     // Install packages
@@ -135,7 +136,7 @@ export class Typescript {
     }
 
     // Start
-    await run(`cd ${dir} && npm start`);
+    await run('npm start', { cwd: dir });
   }
 }
 

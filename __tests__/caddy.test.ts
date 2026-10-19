@@ -1,11 +1,19 @@
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 const tmp = mkdtempSync(join(tmpdir(), 'lt-caddy-'));
 process.env.LT_DEV_CADDYFILE = join(tmp, 'Caddyfile');
 
-import { readCaddyfile, removeProjectBlock, renderProjectBlock, upsertProjectBlock, writeCaddyfile } from '../src/lib/caddy';
+import {
+  ensureLoopbackBind,
+  healLoopbackBind,
+  readCaddyfile,
+  removeProjectBlock,
+  renderProjectBlock,
+  upsertProjectBlock,
+  writeCaddyfile,
+} from '../src/lib/caddy';
 
 describe('caddy / Caddyfile management', () => {
   beforeEach(() => {
@@ -88,6 +96,66 @@ describe('caddy / Caddyfile management', () => {
       const c2 = upsertProjectBlock('crm', [{ hostname: 'crm.localhost', upstreamPort: 4011 }]);
       expect(c1).toBe(true);
       expect(c2).toBe(false);
+    });
+  });
+
+  // Without a bind every site block listens on *:443/*:80: a running stack answered anyone on the
+  // LAN who sent the right Host header, the `lt dev test` stack with its seeded admin included.
+  describe('loopback bind', () => {
+    const BIND = 'default_bind 127.0.0.1 [::1]';
+
+    test('every written Caddyfile starts with a global block that binds to loopback', () => {
+      writeCaddyfile('# lt dev — managed Caddyfile\n');
+      upsertProjectBlock('crm', [{ hostname: 'crm.localhost', upstreamPort: 4011 }]);
+      const content = readCaddyfile();
+      expect(content.indexOf('{\n\tdefault_bind 127.0.0.1 [::1]\n}')).toBeGreaterThan(-1);
+      expect(content.indexOf(BIND)).toBeLessThan(content.indexOf('crm.localhost {'));
+      expect(content.split(BIND)).toHaveLength(2);
+    });
+
+    test('lt dev up heals a Caddyfile written before the bind existed, even with unchanged routes', () => {
+      const routes = [{ hostname: 'crm.localhost', upstreamPort: 4011 }];
+      writeFileSync(process.env.LT_DEV_CADDYFILE as string, `# old file\n\n${renderProjectBlock('crm', routes)}\n`);
+
+      expect(upsertProjectBlock('crm', routes)).toBe(true);
+      expect(readCaddyfile()).toContain(BIND);
+      expect(upsertProjectBlock('crm', routes)).toBe(false);
+    });
+
+    test('healLoopbackBind fixes a running stack\'s Caddyfile without touching its routes, once', () => {
+      const legacy = `# old file\n\n${renderProjectBlock('crm', [{ hostname: 'crm.localhost', upstreamPort: 4011 }])}\n`;
+      writeFileSync(process.env.LT_DEV_CADDYFILE as string, legacy);
+
+      expect(healLoopbackBind()).toBe(true);
+      expect(readCaddyfile()).toContain(BIND);
+      expect(readCaddyfile()).toContain('reverse_proxy 127.0.0.1:4011');
+      expect(healLoopbackBind()).toBe(false);
+    });
+
+    test('adds the option to an existing global block and keeps its other options', () => {
+      const input = '# c\n{\n\temail me@example.com\n\tlog {\n\t\tlevel ERROR\n\t}\n}\n\na.localhost {\n}\n';
+      const out = ensureLoopbackBind(input);
+      expect(out).toBe('# c\n{\n\tdefault_bind 127.0.0.1 [::1]\n\temail me@example.com\n\tlog {\n\t\tlevel ERROR\n\t}\n}\n\na.localhost {\n}\n');
+      expect(ensureLoopbackBind(out)).toBe(out);
+    });
+
+    test('respects a default_bind the user set, whatever it binds to', () => {
+      const input = '{\n\tdefault_bind 0.0.0.0\n}\n';
+      expect(ensureLoopbackBind(input)).toBe(input);
+    });
+
+    test('the block goes before the first project marker, never inside a project region', () => {
+      const input = '# lt dev — managed Caddyfile\n\n# >>> lt-dev:kit >>>\nkit.localhost {\n}\n# <<< lt-dev:kit <<<\n';
+      expect(ensureLoopbackBind(input)).toBe(
+        '# lt dev — managed Caddyfile\n\n{\n\tdefault_bind 127.0.0.1 [::1]\n}\n\n# >>> lt-dev:kit >>>\nkit.localhost {\n}\n# <<< lt-dev:kit <<<\n',
+      );
+      writeCaddyfile(input);
+      removeProjectBlock('kit');
+      expect(readCaddyfile()).toContain('default_bind 127.0.0.1 [::1]');
+    });
+
+    test('a comment-only file gets the block after its comments', () => {
+      expect(ensureLoopbackBind('# a\n# b\n')).toBe('# a\n# b\n\n{\n\tdefault_bind 127.0.0.1 [::1]\n}\n');
     });
   });
 

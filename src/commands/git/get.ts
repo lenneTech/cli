@@ -2,6 +2,17 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
+
+/**
+ * Run git steps one after another, each without a shell; stops at the first failure like the
+ * former `a && b && c` chain did.
+ */
+async function gitSteps(...steps: string[][]): Promise<void> {
+  for (const args of steps) {
+    await execArgs('git', args);
+  }
+}
 
 /**
  * Checkout git branch
@@ -87,7 +98,8 @@ const NewCommand: GluegunCommand = {
     }
 
     // Checkout branch
-    await system.run(`git checkout ${(await git.getDefaultBranch()) || 'main'}`);
+    // Argument lists, no shell: branch names come from the user and from the remote (see exec-args.ts).
+    await execArgs('git', ['checkout', safeRef((await git.getDefaultBranch()) || 'main')]);
     let checkoutSpin;
 
     // Handling for remote
@@ -112,7 +124,7 @@ const NewCommand: GluegunCommand = {
         }
         if (mode === 'hard') {
           const prepareSpin = spin(`Refresh ${branch}`);
-          await system.run(`git branch -D ${branch}`);
+          await execArgs('git', ['branch', '-D', safeRef(branch)]);
           removed = true;
           prepareSpin.succeed();
         }
@@ -125,19 +137,23 @@ const NewCommand: GluegunCommand = {
 
       // Checkout remote if local branch not exists
       if (removed || !(await git.getBranch(branch, { local: true }))) {
-        await system.run(
-          `git fetch && git checkout --track origin/${branch} && git reset --hard && git clean -fd && git pull`,
+        await gitSteps(
+          ['fetch'],
+          ['checkout', '--track', `origin/${safeRef(branch)}`],
+          ['reset', '--hard'],
+          ['clean', '-fd'],
+          ['pull'],
         );
 
         // Checkout local branch
       } else {
-        await system.run(`git fetch && git checkout ${branch} && git reset --hard && git clean -fd && git pull`);
+        await gitSteps(['fetch'], ['checkout', safeRef(branch)], ['reset', '--hard'], ['clean', '-fd'], ['pull']);
       }
 
       // Handling for local only
     } else if (branch) {
       checkoutSpin = spin(`Checkout ${branch}`);
-      await system.run(`git fetch && git checkout ${branch} && git reset --hard && git clean -fd`);
+      await gitSteps(['fetch'], ['checkout', safeRef(branch)], ['reset', '--hard'], ['clean', '-fd']);
 
       // No branch found
     } else {
@@ -154,7 +170,7 @@ const NewCommand: GluegunCommand = {
       const projectDir = dirname(pkgPath);
       const detectedPm = toolbox.pm.detect(projectDir);
       const installSpin = spin(`Install packages using ${detectedPm}`);
-      await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+      await system.run(toolbox.pm.install(detectedPm), { cwd: projectDir });
       installSpin.succeed();
     }
 

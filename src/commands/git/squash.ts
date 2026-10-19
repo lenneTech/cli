@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 
 /**
  * Squash branch
@@ -82,7 +83,7 @@ const NewCommand: GluegunCommand = {
       }
 
       // Show commits that would be squashed
-      const commitsToSquash = await run(`git log ${mergeBase}..HEAD --oneline`);
+      const commitsToSquash = await execArgs('git', ['log', `${safeRef(mergeBase)}..HEAD`, '--oneline']);
       if (commitsToSquash?.trim()) {
         const commitCount = commitsToSquash.trim().split('\n').length;
         info(`Would squash ${commitCount} commit(s) on branch "${branch}" into base "${base}":`);
@@ -223,7 +224,8 @@ const NewCommand: GluegunCommand = {
     const commitSpin = spin('Commit');
 
     // Commit and push
-    await run(`git commit -am "${message}" --author="${author}"`);
+    // Argument list, no shell: message and author are free text from the user or lt.config.
+    await execArgs('git', ['commit', '-am', message, `--author=${author}`]);
     commitSpin.succeed();
 
     if (!noConfirm && !(await confirm('Push force?'))) {

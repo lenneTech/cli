@@ -1,10 +1,10 @@
-import { exec } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { isVendoredProject } from '../../lib/framework-detection';
+import { isPathInside, openFileWithDefaultApp } from '../../lib/safe-paths';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Interfaces (matching @lenne.tech/nest-server PermissionsReport)
@@ -261,15 +261,6 @@ async function loadScanner(projectPath: string): Promise<null | ScannerModule> {
 }
 
 /**
- * Open a file in the default browser/application
- */
-function openFile(filePath: string): void {
-  const platform = process.platform;
-  const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'start' : 'xdg-open';
-  exec(`${cmd} "${filePath}"`);
-}
-
-/**
  * Print console summary
  */
 function printConsoleSummary(print: any, report: PermissionsReport): void {
@@ -477,6 +468,12 @@ const PermissionsCommand: ExtendedGluegunCommand = {
       }) || defaultOutputName;
 
     const outputPath = join(projectPath, outputFile);
+    // --output and lt.config's `output` must not write outside the project (`../../x`).
+    if (!isPathInside(projectPath, outputPath)) {
+      error(`Output ${outputFile} lies outside the project ${projectPath}. Use a path inside the project.`);
+      if (!parameters.options.fromGluegunMenu) process.exit(1);
+      return 'permissions: output outside project';
+    }
 
     // Load scanner from project's @lenne.tech/nest-server
     const spinner = spin('Loading permissions scanner...');
@@ -546,7 +543,8 @@ const PermissionsCommand: ExtendedGluegunCommand = {
 
     // Open in browser
     if (shouldOpen && (format === 'html' || format === 'md')) {
-      openFile(outputPath);
+      // No shell: the file name comes from --output or lt.config (see safe-paths.ts).
+      openFileWithDefaultApp(outputPath);
       info(`Report opened in default application`);
     }
 

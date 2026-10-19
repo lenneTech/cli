@@ -76,23 +76,35 @@ async function installPlugin(
     info(`Warning: No skills or commands found for ${plugin.pluginName}. Plugin may not be installed correctly.`);
   }
 
-  // Step 3: Setup permissions
-  if (pluginContents.permissions.length > 0) {
-    const permSpinner = spin(`Configuring permissions for ${plugin.pluginName}`);
-    const permResult = setupPermissions(pluginContents.permissions, error);
+  // Step 3: Sync permissions. Also for a plugin that ships no rules (any more): rules an
+  // earlier run wrote for it, and the ones it names in formerPatterns, still have to go.
+  const permSpinner = spin(`Configuring permissions for ${plugin.pluginName}`);
+  const permResult = setupPermissions(plugin, pluginContents, error);
 
-    if (permResult.success) {
-      if (permResult.added.length > 0) {
-        permSpinner.succeed(`Permissions configured for ${plugin.pluginName} (${permResult.added.length} added)`);
-      } else {
-        permSpinner.succeed(`Permissions already configured for ${plugin.pluginName}`);
-      }
-    } else {
-      permSpinner.fail(`Failed to configure permissions for ${plugin.pluginName}`);
+  if (!permResult.success) {
+    permSpinner.fail(`Failed to configure permissions for ${plugin.pluginName}`);
+    if (permResult.written.length > 0) {
       info('');
-      info('Add manually to ~/.claude/settings.json:');
-      info(JSON.stringify({ permissions: { allow: pluginContents.permissions } }, null, 2));
+      info(`Add manually to ${permResult.settingsPath}:`);
+      info(JSON.stringify({ permissions: { allow: permResult.written } }, null, 2));
     }
+  } else if (permResult.added.length > 0 || permResult.removed.length > 0) {
+    const changes = [
+      permResult.added.length > 0 ? `${permResult.added.length} added` : '',
+      permResult.removed.length > 0 ? `${permResult.removed.length} removed` : '',
+    ].filter(Boolean);
+    permSpinner.succeed(`Permissions configured for ${plugin.pluginName} (${changes.join(', ')})`);
+    for (const rule of permResult.removed) {
+      info(`  removed: ${rule}`);
+    }
+  } else if (permResult.written.length > 0) {
+    permSpinner.succeed(`Permissions already configured for ${plugin.pluginName}`);
+  } else {
+    permSpinner.stop();
+  }
+  if (permResult.success && permResult.skipped.length > 0) {
+    // ${CLAUDE_PLUGIN_ROOT} cannot be scoped safely (see plugin-permissions.ts); Claude asks instead.
+    info(`  not written (uses \${CLAUDE_PLUGIN_ROOT}, Claude will ask): ${permResult.skipped.length} rule(s)`);
   }
 
   // Step 4: Process post-installation requirements (for LSP plugins, etc.)

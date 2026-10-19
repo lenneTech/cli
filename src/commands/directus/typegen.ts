@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { hasCmdShimHazard, spawnArgs } from '../../lib/exec-args';
 
 /**
  * Generate TypeScript types from Directus collections
@@ -135,14 +136,39 @@ const NewCommand: GluegunCommand = {
       }
     }
 
+    // url, token and output come from flags or lt.config, which a cloned repository can supply,
+    // and they used to sit in double quotes in a shell string, where `$(…)` ran. They are now an
+    // argument list (see exec-args.ts). On Windows the runner is a `.cmd` shim that re-parses its
+    // arguments through cmd.exe, so values that could break out there are refused first.
+    let directusUrl: string;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error(parsed.protocol);
+      }
+      // The value as given: `href` would append a "/" and change the URL the generator sees.
+      directusUrl = url;
+    } catch {
+      error(`Invalid Directus URL "${url}": expected http:// or https://.`);
+      return;
+    }
+    if (!/^[\w.~+/=-]+$/.test(token)) {
+      error('Invalid Directus token: only letters, digits and . _ ~ + / = - are allowed.');
+      return;
+    }
+    if ([directusUrl, output].some((value) => hasCmdShimHazard(value))) {
+      error('URL and output path must not contain ", % or line breaks on Windows.');
+      return;
+    }
+    const [runner, ...runnerArgs] = useGlobalTypegen
+      ? ['directus-sdk-typegen']
+      : toolbox.pm.exec('directus-sdk-typegen').split(' ');
+
     // Generate types
     const generateSpin = spin('Generating TypeScript types from Directus');
-    const command = useGlobalTypegen
-      ? `directus-sdk-typegen -u "${url}" -t "${token}" -o "${output}"`
-      : `${toolbox.pm.exec(`directus-sdk-typegen -u "${url}" -t "${token}" -o "${output}"`)}`;
-
     try {
-      await system.run(command);
+      // Asynchronous: a synchronous spawn under the spinner would block Ctrl+C until it exits.
+      await spawnArgs(runner, [...runnerArgs, '-u', directusUrl, '-t', token, '-o', output]);
       generateSpin.succeed();
       success(`TypeScript types generated successfully at ${output}`);
     } catch (err) {

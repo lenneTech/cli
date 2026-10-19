@@ -1,5 +1,6 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
+import { execArgs } from '../lib/exec-args';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
 import { stripVendorSchemaAugmentation } from '../lib/strip-vendor-schema-augmentation';
@@ -221,7 +222,8 @@ export class FrontendHelper {
     if (!skipInstall && result.method !== 'link') {
       try {
         const { pm } = this.toolbox;
-        await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
+        // `cwd` instead of `cd "<dest>" &&`: the directory name must not be shell syntax.
+        await system.run(pm.install(pm.detect(dest)), { cwd: dest });
       } catch {
         return { method: result.method, path: dest, success: false };
       }
@@ -272,7 +274,8 @@ export class FrontendHelper {
     if (!skipInstall) {
       try {
         const { pm } = this.toolbox;
-        await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
+        // `cwd` instead of `cd "<dest>" &&`: the directory name must not be shell syntax.
+        await system.run(pm.install(pm.detect(dest)), { cwd: dest });
       } catch (err) {
         return { method: result.method, path: dest, success: false };
       }
@@ -281,12 +284,13 @@ export class FrontendHelper {
     // Initialize git
     if (!skipGitInit) {
       try {
-        await system.run(`cd "${dest}" && git init --initial-branch=main`);
+        // Argument lists, no shell: gitLink comes from a CLI flag or lt.config (see exec-args.ts).
+        await execArgs('git', ['init', '--initial-branch=main'], { cwd: dest });
         if (gitLink) {
-          await system.run(`cd "${dest}" && git remote add origin ${gitLink}`);
-          await system.run(`cd "${dest}" && git add .`);
-          await system.run(`cd "${dest}" && git commit -m "Initial commit"`);
-          await system.run(`cd "${dest}" && git push -u origin main`);
+          await execArgs('git', ['remote', 'add', '--', 'origin', gitLink], { cwd: dest });
+          await execArgs('git', ['add', '.'], { cwd: dest });
+          await execArgs('git', ['commit', '-m', 'Initial commit'], { cwd: dest });
+          await execArgs('git', ['push', '-u', 'origin', 'main'], { cwd: dest });
         }
       } catch (err) {
         return { method: result.method, path: dest, success: false };
@@ -310,7 +314,7 @@ export class FrontendHelper {
     // Add localize
     if (localize) {
       try {
-        await system.run(`cd "${dest}" && ng add @angular/localize --skip-confirmation`);
+        await system.run('ng add @angular/localize --skip-confirmation', { cwd: dest });
       } catch {
         // Localize failure is not fatal
       }
@@ -320,7 +324,7 @@ export class FrontendHelper {
     if (!skipInstall) {
       try {
         const { pm: pmHelper } = this.toolbox;
-        await system.run(`cd "${dest}" && ${pmHelper.run('init', pmHelper.detect(dest))}`);
+        await system.run(pmHelper.run('init', pmHelper.detect(dest)), { cwd: dest });
       } catch {
         // Init script failure is not fatal
       }
@@ -498,14 +502,22 @@ export class FrontendHelper {
     const { dest, upstreamBranch, upstreamRepoUrl = 'https://github.com/lenneTech/nuxt-extensions.git' } = options;
 
     const path = require('node:path');
-    const { filesystem, system } = this.toolbox;
+    const { filesystem } = this.toolbox;
     const coreDir = path.join(dest, 'app', 'core');
 
     // ── 1. Clone @lenne.tech/nuxt-extensions into temp dir ──────────────
     const tmpClone = path.join(require('os').tmpdir(), `lt-vendor-nuxt-ext-${Date.now()}`);
-    const branchArg = upstreamBranch ? `--branch ${upstreamBranch} ` : '';
     try {
-      await system.run(`git clone --depth 1 ${branchArg}${upstreamRepoUrl} ${tmpClone}`);
+      // Argument list, no shell: the branch comes from a CLI flag or lt.config (see exec-args.ts).
+      await execArgs('git', [
+        'clone',
+        '--depth',
+        '1',
+        ...(upstreamBranch ? ['--branch', upstreamBranch] : []),
+        '--',
+        upstreamRepoUrl,
+        tmpClone,
+      ]);
     } catch (err) {
       const raw = (err as Error).message || '';
       const hints: string[] = [];
@@ -557,7 +569,7 @@ export class FrontendHelper {
 
     let upstreamCommit = '';
     try {
-      const sha = await system.run(`git -C ${tmpClone} rev-parse HEAD`);
+      const sha = await execArgs('git', ['-C', tmpClone, 'rev-parse', 'HEAD']);
       upstreamCommit = (sha || '').trim();
     } catch {
       // Non-fatal

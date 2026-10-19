@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { hasCmdShimHazard, spawnArgs } from '../../lib/exec-args';
 
 /**
  * Rename current CLI
@@ -17,7 +18,6 @@ const NewCommand: GluegunCommand = {
       npm,
       parameters,
       print: { error, info },
-      system,
     } = toolbox;
 
     // Info
@@ -36,9 +36,14 @@ const NewCommand: GluegunCommand = {
     }
 
     // Run rename script
-    await system.run(
-      `cd ${rootPath} && ${toolbox.pm.run('rename', toolbox.pm.detect(rootPath))} -- ${parameters.string}`,
-    );
+    // Argument list, no shell: the arguments are passed through from the command line (see exec-args.ts).
+    const renameArgs = (parameters.array || []).map(String);
+    if (renameArgs.some((value) => hasCmdShimHazard(value))) {
+      error('Arguments must not contain ", % or line breaks on Windows.');
+      return;
+    }
+    const [runner, ...runArgs] = toolbox.pm.run('rename', toolbox.pm.detect(rootPath)).split(' ');
+    await spawnArgs(runner, [...runArgs, '--', ...renameArgs], { cwd: rootPath });
 
     // Exit if not running from menu
     if (!toolbox.parameters.options.fromGluegunMenu) {

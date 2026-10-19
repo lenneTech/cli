@@ -4,6 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { caddyAvailable } from '../../lib/caddy';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
+import { execArgs, spawnArgs } from '../../lib/exec-args';
 import { failRun } from '../../lib/fail-run';
 import { setPackageName } from '../../lib/package-name';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
@@ -455,7 +456,7 @@ const NewCommand: GluegunCommand = {
 
     // Clone monorepo
     try {
-      await system.run(`git clone https://github.com/lenneTech/lt-monorepo.git ${projectDir}`);
+      await execArgs('git', ['clone', '--', 'https://github.com/lenneTech/lt-monorepo.git', projectDir]);
     } catch (err) {
       workspaceSpinner.fail(`Failed to clone monorepo: ${err.message}`);
       failRun(toolbox);
@@ -529,7 +530,8 @@ const NewCommand: GluegunCommand = {
 
     // Always initialize git
     try {
-      await system.run(`cd ${projectDir} && git init --initial-branch=dev`);
+      // Argument lists, no shell: projectDir comes from --name, gitLink from a flag or lt.config.
+      await execArgs('git', ['init', '--initial-branch=dev'], { cwd: projectDir });
     } catch (err) {
       ngBaseSpinner.fail(`Failed to initialize git: ${err.message}`);
       failRun(toolbox);
@@ -539,7 +541,7 @@ const NewCommand: GluegunCommand = {
     // Add remote if push is configured
     if (pushToRemote && gitLink) {
       try {
-        await system.run(`cd ${projectDir} && git remote add origin ${gitLink}`);
+        await execArgs('git', ['remote', 'add', '--', 'origin', gitLink], { cwd: projectDir });
       } catch (err) {
         ngBaseSpinner.fail(`Failed to add remote: ${err.message}`);
         failRun(toolbox);
@@ -655,7 +657,7 @@ const NewCommand: GluegunCommand = {
 
         const renameSpinner = spin(`Rename nest-base → ${projectDir}`);
         try {
-          await system.run(`cd ${apiDest} && bun run rename ${projectDir}`);
+          await spawnArgs('bun', ['run', 'rename', projectDir], { cwd: apiDest });
           renameSpinner.succeed(`Renamed nest-base → ${projectDir} in projects/api`);
         } catch (err) {
           renameSpinner.warn(
@@ -768,7 +770,8 @@ const NewCommand: GluegunCommand = {
 
       // Create initial commit after everything is set up
       try {
-        await system.run(`cd ${projectDir} && git add . && git commit -m "Initial commit"`);
+        await execArgs('git', ['add', '.'], { cwd: projectDir });
+        await execArgs('git', ['commit', '-m', 'Initial commit'], { cwd: projectDir });
       } catch (err) {
         error(`Failed to create initial commit: ${err.message}`);
         failRun(toolbox);
@@ -778,7 +781,7 @@ const NewCommand: GluegunCommand = {
       // Push to remote if configured
       if (pushToRemote) {
         try {
-          await system.run(`cd ${projectDir} && git push -u origin dev`);
+          await execArgs('git', ['push', '-u', 'origin', 'dev'], { cwd: projectDir });
         } catch (err) {
           error(`Failed to push to remote: ${err.message}`);
           failRun(toolbox);

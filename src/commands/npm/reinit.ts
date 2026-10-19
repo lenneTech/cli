@@ -83,7 +83,7 @@ const NewCommand: GluegunCommand = {
     const detectedPm = pm.detect(dirname(path));
     if (data.scripts && data.scripts.reinit) {
       const ownReinitSpin = spin('Reinitialize packages');
-      await system.run(`cd ${dirname(path)} && ${pm.run('reinit', detectedPm)}`);
+      await system.run(pm.run('reinit', detectedPm), { cwd: dirname(path) });
       ownReinitSpin.succeed();
     } else {
       const reinitSpin = spin('Reinitialize packages');
@@ -100,11 +100,11 @@ const NewCommand: GluegunCommand = {
       reinitSpin.succeed();
       if (data.scripts && data.scripts['test:e2e']) {
         const testE2eSpin = spin('Run tests');
-        await system.run(`cd ${dirname(path)} && ${pm.run('test:e2e', detectedPm)}`);
+        await system.run(pm.run('test:e2e', detectedPm), { cwd: dirname(path) });
         testE2eSpin.succeed();
       } else if (data.scripts && data.scripts && data.scripts.test) {
         const testSpin = spin('Run tests');
-        await system.run(`cd ${dirname(path)} && ${pm.run('test', detectedPm)}`);
+        await system.run(pm.run('test', detectedPm), { cwd: dirname(path) });
         testSpin.succeed();
       }
     }

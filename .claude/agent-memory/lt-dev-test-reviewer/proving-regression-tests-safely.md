@@ -47,3 +47,17 @@ source by ABSOLUTE path and requires `js-yaml` / `gluegun` by absolute
 `node_modules/...` path (bare specifiers do not resolve from the scratchpad), then
 `npx ts-node --compiler-options '{"module":"commonjs","target":"ES2020","esModuleInterop":true,"skipLibCheck":true,"strict":false}' "$SP/probe.ts"`.
 Nothing under `src/` or `__tests__/` is touched, so a concurrent `npm run check` is safe.
+
+**Whole-command A/B (2026-10-19).** `bin/lt` runs `src/` through ts-node whenever `src/`
+exists next to it, so a full `lt …` command can be A/B'd without building: export HEAD with
+`git archive HEAD | tar -x -C "$SP/head"`, symlink the repo's `node_modules` into it, build a
+throwaway bare-origin + clone fixture in the scratchpad, then run
+`node <repo>/bin/lt …` vs `node $SP/head/bin/lt …` there with `env -u GIT_DIR HOME=$SP/home`.
+Copying a new test file (plus any new `src/lib` it imports) into the export answers "does it
+fail on HEAD" for spawn-based tests too.
+
+**Always probe CLI validators with the argv shape gluegun produces.** yargs-parser turns a
+digit-only POSITIONAL into a number too (`lt git create 2314` → `parameters.first === 2314`),
+not only flag values. A new string guard that calls `.trim()` on raw input (`safeRef`, 2026-10-19)
+crashed `lt git create 2314` / `lt git rebase --base 77`, which worked on HEAD. The unit tests
+only fed string literals, so nothing caught it.

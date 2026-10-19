@@ -99,7 +99,7 @@ export class ApiMode {
     const { pm, system } = this.toolbox;
     const runner = pm?.run?.(formatScript, pm.detect(projectPath)) ?? `pnpm run ${formatScript}`;
     try {
-      await system.run(`cd "${projectPath}" && ${runner}`);
+      await system.run(runner, { cwd: projectPath });
     } catch {
       // Non-fatal: the user can run format manually if this misbehaves.
     }

@@ -11,6 +11,7 @@ import { ServerProps } from '../interfaces/ServerProps.interface';
 import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { ensureCrossEnvDependency } from '../lib/cross-env';
+import { execArgs } from '../lib/exec-args';
 import { rewriteExpressImportsToTypeOnly } from '../lib/express-type-imports';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
@@ -868,7 +869,7 @@ export class Server {
     if (!skipInstall && !experimental) {
       try {
         const { pm } = this.toolbox;
-        await system.run(`cd "${dest}" && ${pm.install(pm.detect(dest))}`);
+        await system.run(pm.install(pm.detect(dest)), { cwd: dest });
       } catch (err) {
         return { method: result.method, path: dest, success: false };
       }
@@ -1111,7 +1112,6 @@ export class Server {
     const { dest, upstreamBranch, upstreamRepoUrl = 'https://github.com/lenneTech/nest-server.git' } = options;
 
     const filesystem = this.filesystem;
-    const { system } = this.toolbox;
     const os = require('os');
     const path = require('path');
     const { Project, SyntaxKind } = require('ts-morph');
@@ -1125,9 +1125,18 @@ export class Server {
     // `bin/migrate.js`, and associated meta files. The clone lives in a
     // throw-away tmp dir that gets cleaned up at the end.
     const tmpClone = path.join(os.tmpdir(), `lt-vendor-nest-server-${Date.now()}`);
-    const branchArg = upstreamBranch ? `--branch ${upstreamBranch} ` : '';
     try {
-      await system.run(`git clone --depth 1 ${branchArg}${upstreamRepoUrl} ${tmpClone}`);
+      // Argument list, no shell: the branch comes from --framework-upstream-branch or
+      // lt.config (see exec-args.ts).
+      await execArgs('git', [
+        'clone',
+        '--depth',
+        '1',
+        ...(upstreamBranch ? ['--branch', upstreamBranch] : []),
+        '--',
+        upstreamRepoUrl,
+        tmpClone,
+      ]);
     } catch (err) {
       // Clone failures usually boil down to one of four causes — network,
       // auth, unknown ref, or a pre-existing tmp dir. Give the user a
@@ -1228,7 +1237,7 @@ export class Server {
     // Snapshot the upstream commit SHA for traceability in VENDOR.md.
     let upstreamCommit = '';
     try {
-      const sha = await system.run(`git -C ${tmpClone} rev-parse HEAD`);
+      const sha = await execArgs('git', ['-C', tmpClone, 'rev-parse', 'HEAD']);
       upstreamCommit = (sha || '').trim();
     } catch {
       // Non-fatal — VENDOR.md will just show an empty SHA.

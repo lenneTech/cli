@@ -1,4 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { execArgs } from '../lib/exec-args';
 
 /**
  * Result of template setup operation
@@ -100,7 +101,6 @@ export class TemplateHelper {
     const {
       filesystem,
       print: { error, info },
-      system,
     } = this.toolbox;
     const opts = { showInfo: true, showWarning: true, ...options };
 
@@ -112,7 +112,8 @@ export class TemplateHelper {
     }
 
     try {
-      await system.run(`ln -s "${templatePath}" "${dest}"`);
+      // No shell: the template path comes from a --*-link flag or lt.config (see exec-args.ts).
+      await execArgs('ln', ['-s', '--', templatePath, dest]);
 
       if (opts.showInfo) {
         info(`Symlinked to: ${templatePath}`);
@@ -144,14 +145,13 @@ export class TemplateHelper {
     const {
       filesystem,
       print: { error, info },
-      system,
     } = this.toolbox;
     const opts = { removeGit: true, showInfo: true, ...options };
 
-    const branchArg = opts.branch ? ` -b ${opts.branch}` : '';
-
     try {
-      await system.run(`git clone${branchArg} ${repoUrl} "${dest}"`);
+      // Argument list, no shell: branch and URL come from CLI flags and lt.config files (see
+      // exec-args.ts). `--` keeps a URL that starts with `-` from being read as an option.
+      await execArgs('git', ['clone', ...(opts.branch ? ['-b', opts.branch] : []), '--', repoUrl, dest]);
 
       if (opts.removeGit && filesystem.exists(`${dest}/.git`)) {
         filesystem.remove(`${dest}/.git`);

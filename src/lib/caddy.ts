@@ -32,6 +32,14 @@ const CADDYFILE_PATH = process.env.LT_DEV_CADDYFILE || join(homedir(), '.lenneTe
 /** Upstream connection cap per route — well below the 128 of macOS `somaxconn` (see `renderProjectBlock`). */
 const UPSTREAM_MAX_CONNS = 32;
 const HEADER = '# Managed by `lt dev`. Per-project blocks are bounded by `# >>> lt-dev:<slug> >>>` markers.';
+/**
+ * Global options block that keeps Caddy on the loopback interfaces. Without it every site block
+ * listens on `*:443`/`*:80`, so a running stack answers anyone on the same network who sends
+ * the right Host header (`curl --resolve`), including the `lt dev test` stack with its seeded
+ * admin, whose password is in this public repository (`TEST_INITIAL_ADMIN_ENV`). `*.localhost`
+ * does not resolve on other machines anyway, so nothing legitimate is lost.
+ */
+const LOOPBACK_BIND = 'default_bind 127.0.0.1 [::1]';
 
 /** Outcome of a Caddy command. */
 export interface CaddyResult {
@@ -62,6 +70,68 @@ export async function caddyAvailable(): Promise<boolean> {
  */
 export async function caddyDaemonRunning(): Promise<boolean> {
   return (await httpStatus('http://127.0.0.1:2019/config/', 2000)) !== null;
+}
+
+/**
+ * Make sure a Caddyfile binds to loopback only. Pure and idempotent.
+ *
+ * - No global options block: one is inserted after the leading comments (the global block
+ *   must be the first block of a Caddyfile).
+ * - A global block without `default_bind`: the option is added inside it, the rest is kept.
+ * - A global block that already sets `default_bind`: unchanged, whatever it binds to. That is
+ *   a deliberate choice of the user, not something to overwrite.
+ * @param content - Caddyfile content
+ * @returns Content with a loopback `default_bind`
+ */
+export function ensureLoopbackBind(content: string): string {
+  const lines = content.split('\n');
+  const first = lines.findIndex((line) => line.trim() !== '' && !line.trim().startsWith('#'));
+
+  if (first !== -1 && lines[first].trim() === '{') {
+    let depth = 0;
+    let end = lines.length - 1;
+    for (let i = first; i < lines.length; i++) {
+      const code = lines[i].replace(/#.*$/, '');
+      depth += (code.match(/\{/g) || []).length - (code.match(/\}/g) || []).length;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+    if (lines.slice(first + 1, end).some((line) => /^\s*default_bind\b/.test(line))) {
+      return content;
+    }
+    return [...lines.slice(0, first + 1), `\t${LOOPBACK_BIND}`, ...lines.slice(first + 1)].join('\n');
+  }
+
+  // Insert before the first site block AND before the first project marker: a block placed
+  // between `# >>> lt-dev:<slug> >>>` and its site would be removed with that project.
+  const block = ['{', `\t${LOOPBACK_BIND}`, '}'];
+  const insertAt = lines.findIndex(
+    (line) => line.trim() !== '' && (!line.trim().startsWith('#') || line.trim().startsWith('# >>> lt-dev:')),
+  );
+  if (insertAt === -1) {
+    const body = content.replace(/\n+$/, '');
+    return body ? `${body}\n\n${block.join('\n')}\n` : `${block.join('\n')}\n`;
+  }
+  const head = lines.slice(0, insertAt);
+  while (head.length > 0 && head[head.length - 1].trim() === '') head.pop();
+  return [...head, ...(head.length > 0 ? [''] : []), ...block, '', ...lines.slice(insertAt)].join('\n');
+}
+
+/**
+ * Add the loopback bind to an existing Caddyfile that lacks it. For paths that do not upsert a
+ * project block, such as `lt dev up` on a stack that is already running: without this, a stack
+ * started before the bind existed stays reachable from the LAN until its next restart.
+ * @returns true if the Caddyfile was changed (the caller reloads Caddy)
+ */
+export function healLoopbackBind(): boolean {
+  const current = readCaddyfile();
+  if (!current || ensureLoopbackBind(current) === current) {
+    return false;
+  }
+  writeCaddyfile(current);
+  return true;
 }
 
 /** Read the current Caddyfile (or empty string). */
@@ -160,7 +230,10 @@ export function upsertProjectBlock(slug: string, routes: CaddyRoute[]): boolean 
   } else {
     next = current.length > 0 ? `${current.replace(/\n+$/, '')}\n\n${block}` : block;
   }
-  if (next === current.replace(/\s+$/, '')) return false;
+  // Also heals a Caddyfile written before the loopback bind existed: the reload that follows
+  // every upsert then moves the running Caddy off the LAN interfaces.
+  next = ensureLoopbackBind(next);
+  if (next.replace(/\s+$/, '') === current.replace(/\s+$/, '')) return false;
   writeCaddyfile(next);
   return true;
 }
@@ -173,7 +246,7 @@ export async function validateCaddyfile(): Promise<CaddyResult> {
 /** Write the Caddyfile, ensuring the parent directory exists. */
 export function writeCaddyfile(content: string): void {
   mkdirSync(dirname(CADDYFILE_PATH), { recursive: true });
-  const next = content.startsWith('#') ? content : `${HEADER}\n\n${content}`;
+  const next = ensureLoopbackBind(content.startsWith('#') ? content : `${HEADER}\n\n${content}`);
   writeFileSync(CADDYFILE_PATH, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
 }
 

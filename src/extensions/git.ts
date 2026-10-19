@@ -1,4 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { execArgs, isSafeRef, safeRef } from '../lib/exec-args';
 import { nonInteractiveGitEnv } from '../lib/git-env';
 
 /**
@@ -116,12 +117,19 @@ export class Git {
     // Toolbox features
     const {
       print: { warning },
-      system,
     } = this.toolbox;
 
     // Get diff
     try {
-      const diff = await system.run(`git --no-pager diff --name-only ${branch} ${opts.otherBranch}`);
+      // Every git call in this file that carries a value runs as an argument list, no shell:
+      // branch names come from the user, from lt.config and from the remote (see exec-args.ts).
+      const diff = await execArgs('git', [
+        '--no-pager',
+        'diff',
+        '--name-only',
+        safeRef(branch),
+        safeRef(opts.otherBranch),
+      ]);
       // Return relative file paths as array
       return diff.split(/\r?\n/).filter((item) => item);
     } catch (error) {
@@ -170,10 +178,9 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      system: { run },
     } = this.toolbox;
 
-    return trim(await run(`git merge-base HEAD ${baseBranch}`));
+    return trim(await execArgs('git', ['merge-base', 'HEAD', safeRef(baseBranch)]));
   }
 
   /**
@@ -190,12 +197,10 @@ export class Git {
     // Toolbox features
     const {
       helper: { trim },
-      system: { run },
     } = this.toolbox;
 
     try {
-      const logCommand = `git log ${baseBranch}..${branch} --oneline`;
-      const output = await run(logCommand);
+      const output = await execArgs('git', ['log', `${safeRef(baseBranch)}..${safeRef(branch)}`, '--oneline']);
 
       if (!output) {
         throw new Error('No commits found');
@@ -345,13 +350,16 @@ export class Git {
 
     // Search branch
     if (opts.exact) {
-      if (opts.remote) {
-        if (!(await system.run(`git ls-remote --heads origin ${branch}`))) {
+      if (!isSafeRef(branch)) {
+        // Cannot be a branch name; report it as not found instead of handing it to git.
+        branch = null;
+      } else if (opts.remote) {
+        if (!(await execArgs('git', ['ls-remote', '--heads', 'origin', safeRef(branch)]))) {
           branch = null;
         }
       } else {
         try {
-          await system.run(`git rev-parse --verify ${branch}`);
+          await execArgs('git', ['rev-parse', '--verify', safeRef(branch)]);
         } catch (e) {
           branch = null;
         }
@@ -381,7 +389,7 @@ export class Git {
 
     // Check remote, if not done before
     if (opts.remote && !opts.exact) {
-      const remoteBranch = trim(await system.run(`git ls-remote --heads origin ${branch}`));
+      const remoteBranch = trim(await execArgs('git', ['ls-remote', '--heads', 'origin', safeRef(branch)]));
       if (!remoteBranch) {
         if (opts.spin) {
           searchSpin.fail();
@@ -395,7 +403,7 @@ export class Git {
 
     // Check local
     if (opts.local) {
-      const remoteBranch = trim(await system.run(`git rev-parse --verify --quiet ${branch}`));
+      const remoteBranch = trim(await execArgs('git', ['rev-parse', '--verify', '--quiet', safeRef(branch)]));
       if (!remoteBranch) {
         if (opts.spin) {
           searchSpin.fail();
@@ -434,10 +442,7 @@ export class Git {
    */
   public reset(mergeBase: string, soft = false) {
     // Toolbox features
-    const {
-      system: { run },
-    } = this.toolbox;
-    return run(soft ? `git reset --soft ${mergeBase}` : `git reset ${mergeBase}`);
+    return execArgs('git', soft ? ['reset', '--soft', safeRef(mergeBase)] : ['reset', safeRef(mergeBase)]);
   }
 
   /**

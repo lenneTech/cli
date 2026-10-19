@@ -83,3 +83,10 @@ gets ignored with it.
   swaps `process.stderr.write` and runs `git rev-parse` in a non-repo tmp dir, once with the old
   options and once with the new, proves both halves; a test asserting only on the message proves
   nothing.
+- **Plugin-permission claims (`lt claude plugins`) are checkable offline (2026-10-18).** A new
+  field in a plugin's `permissions.json` must also exist in each plugin's
+  `permissions.schema.json` in `~/code/lenneTech/claude-code/plugins/*/` (and
+  `claude-code-internal`), which sets `additionalProperties: false`; compare the docs example with
+  the real upstream values there. "`CLAUDE_PLUGIN_ROOT` is not set for Bash tool commands" is
+  verified by `echo ${CLAUDE_PLUGIN_ROOT-unset}` in your own Bash tool. For a "`CLAUDE_CONFIG_DIR`
+  counts everywhere" claim, grep `src` for `homedir`, `'.claude'` and `.claude/` together.

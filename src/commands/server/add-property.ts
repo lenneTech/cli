@@ -10,7 +10,9 @@ import {
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { failRun } from '../../lib/fail-run';
 import { getFrameworkImportSpecifier, isVendoredProject } from '../../lib/framework-detection';
+import { isSafePathSegment } from '../../lib/safe-paths';
 import genModule from './module';
 import genObject from './object';
 
@@ -151,6 +153,15 @@ const NewCommand: ExtendedGluegunCommand = {
     if (!filesystem.exists(join(path, 'src'))) {
       info('');
       error(`No src directory in "${path}".`);
+      return;
+    }
+
+    // One directory name, nothing else: `--element ../../../other-project/src/server/modules/x`
+    // passed the existence check below and edited another project.
+    if (!isSafePathSegment(String(elementToEdit))) {
+      info('');
+      error(`"${elementToEdit}" is not a ${String(objectOrModule).toLowerCase()} name: no "/", "\\" or "..".`);
+      failRun(toolbox);
       return;
     }
 

@@ -1,6 +1,7 @@
 import { GluegunCommand, system } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 
 /**
  * Removed local merged branches
@@ -103,7 +104,7 @@ const NewCommand: GluegunCommand = {
         });
       }
 
-      await run(`git checkout ${branch}`);
+      await execArgs('git', ['checkout', safeRef(branch)]);
       info(`Changed Branch to ${branch}`);
     }
 
@@ -137,7 +138,7 @@ const NewCommand: GluegunCommand = {
 
     // Delete branches
     for (const branchToDelete of branches) {
-      await system.run(`git branch -d ${branchToDelete}`);
+      await execArgs('git', ['branch', '-d', safeRef(branchToDelete)]);
       success(`Deleted branch: ${branchToDelete}`);
     }
 

@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 
 /**
  * Create a new branch
@@ -149,7 +150,11 @@ const NewCommand: GluegunCommand = {
 
     // Checkout
     const createSpin = spin(`Create ${branch}`);
-    await system.run('git fetch &&' + `git checkout ${baseBranch} &&` + 'git pull && ' + `git checkout -b ${branch}`);
+    // Argument lists, no shell: both branch names come from the user or lt.config (see exec-args.ts).
+    await execArgs('git', ['fetch']);
+    await execArgs('git', ['checkout', safeRef(baseBranch)]);
+    await execArgs('git', ['pull']);
+    await execArgs('git', ['checkout', '-b', safeRef(branch)]);
     createSpin.succeed();
 
     // Install packages with correctly detected package manager (supports monorepo lockfiles)
@@ -158,7 +163,7 @@ const NewCommand: GluegunCommand = {
       const projectDir = dirname(pkgPath);
       const detectedPm = toolbox.pm.detect(projectDir);
       const installSpin = spin(`Install packages using ${detectedPm}`);
-      await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+      await system.run(toolbox.pm.install(detectedPm), { cwd: projectDir });
       installSpin.succeed();
     }
 

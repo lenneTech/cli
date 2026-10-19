@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 
 /**
  * Pull branch with losing changes
@@ -68,7 +69,7 @@ const NewCommand: GluegunCommand = {
       // silently claimed there was nothing ahead. try/catch behaves the same on every platform.
       let localCommits = '';
       try {
-        localCommits = await run(`git log origin/${branch}..HEAD --oneline`);
+        localCommits = await execArgs('git', ['log', `origin/${safeRef(branch)}..HEAD`, '--oneline']);
       } catch {
         // ignore - no upstream ref, so nothing ahead to report
       }
@@ -94,7 +95,8 @@ const NewCommand: GluegunCommand = {
 
     // Reset soft
     const pullSpinner = spin(`Fetch and pull ${branch}`);
-    await run(`git fetch && git reset origin/${branch} --hard`);
+    await execArgs('git', ['fetch']);
+    await execArgs('git', ['reset', `origin/${safeRef(branch)}`, '--hard']);
     pullSpinner.succeed();
 
     // Success

@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs } from '../../lib/exec-args';
 
 /**
  * Create a new TypeScript project
@@ -56,7 +57,12 @@ const NewCommand: GluegunCommand = {
 
     // Clone git repository
     const cloneSpinner = spin('Clone https://github.com/lenneTech/chrome-extension-angular-starter.git');
-    await system.run(`git clone https://github.com/lenneTech/chrome-extension-angular-starter.git ${projectDir}`);
+    await execArgs('git', [
+      'clone',
+      '--',
+      'https://github.com/lenneTech/chrome-extension-angular-starter.git',
+      projectDir,
+    ]);
     if (filesystem.isDirectory(`./${projectDir}`)) {
       filesystem.remove(`./${projectDir}/.git`);
       cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/chrome-extension-angular-starter.git');
@@ -127,7 +133,7 @@ const NewCommand: GluegunCommand = {
 
     // Install packages
     const installSpinner = spin('Install packages');
-    await system.run(`cd ${projectDir} && ${toolbox.pm.install(toolbox.pm.detect(projectDir))}`);
+    await system.run(toolbox.pm.install(toolbox.pm.detect(projectDir)), { cwd: projectDir });
     installSpinner.succeed('Packages installed');
 
     // Init git

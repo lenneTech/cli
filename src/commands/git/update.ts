@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { dirname } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 import { nonInteractiveGitEnv } from '../../lib/git-env';
 
 /**
@@ -81,7 +82,7 @@ const NewCommand: GluegunCommand = {
       // Check for incoming commits (none yet when the upstream ref is unknown locally)
       let incomingCommits = '';
       try {
-        incomingCommits = await run(`git log ${branch}..origin/${branch} --oneline`);
+        incomingCommits = await execArgs('git', ['log', `${safeRef(branch)}..origin/${branch}`, '--oneline']);
       } catch {
         // ignore - no upstream ref, so nothing incoming to report
       }

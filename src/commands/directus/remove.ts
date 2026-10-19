@@ -105,7 +105,7 @@ const NewCommand: GluegunCommand = {
     if (filesystem.exists(composePath)) {
       const stopSpin = spin('Stopping and removing containers');
       try {
-        await system.run(`cd ${instanceDir} && docker-compose down -v`);
+        await system.run('docker-compose down -v', { cwd: instanceDir });
         stopSpin.succeed();
       } catch (stopError) {
         stopSpin.fail('Failed to stop containers');

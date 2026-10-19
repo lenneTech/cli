@@ -8,3 +8,5 @@
 - [npm reinit shell string is SAFE](reference_npm-reinit-shell-string-safe.md) — only `dir` varies, from find-file-up walking UP from cwd; pm literals fixed; do not re-flag
 - [Regex lexing decides destruction](reference_regex-lexing-decides-destruction.md) — regex "is this code safe?" detectors gating an overwrite: guard vocabulary is a closed list, comment-stripping is not lexing
 - [Bridge normaliser is not a boundary](reference_bridge-normaliser-not-a-boundary.md) — normaliseBridgeBlock leniency probed; only regex-literal edits slip through, committer-only; do not re-flag
+- [Claude Code Bash rule matching](reference_claude-code-bash-rule-matching.md) — `*` = `.*` crossing `../`; `:*` literal prefix; auto mode keeps `node /abs/*` rules
+- [Shell-sink facts](reference_shell-sink-facts.md) — git refs allow `;|&$()`; safeRef is option-guard only; cross-spawn double-escapes only node_modules\.bin shims

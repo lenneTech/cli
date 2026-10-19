@@ -2,13 +2,22 @@
  * Plugin utilities for Claude Code plugin management
  * Handles reading plugin contents, permissions, and post-installation setup
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs';
+import { dirname, join } from 'path';
 
-import { checkCommandExists } from './claude-cli';
+import { checkCommandExists, getClaudeConfigDir } from './claude-cli';
 import { safeJsonParse } from './json-utils';
 import { findExecutable, spawnCmdSync } from './platform';
+import {
+  getPermissionLedgerPath,
+  hasPluginRootVariable,
+  planPermissionSync,
+  pluginCacheRootPattern,
+  pluginPermissionKey,
+  readLedgerEntries,
+  recordLedgerEntry,
+  resolvePluginRootVariable,
+} from './plugin-permissions';
 import { addEnvVarToShellConfig, checkEnvVarInFile, getPreferredShellConfig } from './shell-config';
 
 /**
@@ -22,11 +31,32 @@ export interface EnvVarsHandlingResult {
 }
 
 /**
+ * Result of {@link setupPermissions}
+ */
+export interface PermissionSetupResult {
+  /** Rules added to settings.json */
+  added: string[];
+  /** Rules settings.json already contained */
+  existing: string[];
+  /** Rules lt wrote earlier that the plugin no longer ships, removed from settings.json */
+  removed: string[];
+  /** settings.json the rules belong in */
+  settingsPath: string;
+  /** Rules with `${CLAUDE_PLUGIN_ROOT}`, never written (see `withdrawnRules` in plugin-permissions.ts) */
+  skipped: string[];
+  success: boolean;
+  /** The rules lt writes for the plugin */
+  written: string[];
+}
+
+/**
  * Plugin contents (skills, commands, hooks, agents, permissions, mcpServers)
  */
 export interface PluginContents {
   agents: string[];
   commands: string[];
+  /** Rules earlier releases shipped (`formerPatterns` in permissions.json), removed once if present */
+  formerPermissions: string[];
   hooks: number;
   mcpServers: string[];
   permissions: string[];
@@ -84,6 +114,8 @@ export interface PostInstallResult {
  */
 interface PluginPermissions {
   description?: string;
+  /** Rules earlier releases shipped and this one does not. Read only by the installer. */
+  formerPatterns?: unknown;
   permissions: Array<{
     description?: string;
     pattern: string;
@@ -97,6 +129,7 @@ interface PluginPermissions {
 export const EMPTY_PLUGIN_CONTENTS: PluginContents = {
   agents: [],
   commands: [],
+  formerPermissions: [],
   hooks: 0,
   mcpServers: [],
   permissions: [],
@@ -423,11 +456,12 @@ export function processPostInstall(
  * @returns Plugin contents with skills, commands, agents, hooks, etc.
  */
 export function readPluginContents(marketplaceName: string, pluginName: string): PluginContents {
-  const pluginDir = join(homedir(), '.claude', 'plugins', 'marketplaces', marketplaceName, 'plugins', pluginName);
+  const pluginDir = join(getClaudeConfigDir(), 'plugins', 'marketplaces', marketplaceName, 'plugins', pluginName);
 
   const result: PluginContents = {
     agents: [],
     commands: [],
+    formerPermissions: [],
     hooks: 0,
     mcpServers: [],
     permissions: [],
@@ -491,6 +525,9 @@ export function readPluginContents(marketplaceName: string, pluginName: string):
   if (pluginPerms?.permissions) {
     result.permissions = pluginPerms.permissions.map((p) => p.pattern);
   }
+  if (Array.isArray(pluginPerms?.formerPatterns)) {
+    result.formerPermissions = pluginPerms.formerPatterns.filter((p): p is string => typeof p === 'string');
+  }
 
   return result;
 }
@@ -510,64 +547,124 @@ export function safeExecCommand(command: string): void {
 }
 
 /**
- * Setup permissions in settings.json
- * Only adds new permissions, does not remove existing ones
- * (User may have customized permissions that should be preserved)
- * @param requiredPermissions - Array of permission patterns to add
+ * Sync a plugin's permission rules into Claude Code's user settings.json.
+ *
+ * Adds the rules the plugin ships and removes the rules lt wrote for the plugin that it no
+ * longer ships. Rules the user wrote stay untouched. How the two are told apart:
+ * plugin-permissions.ts. Rules with `${CLAUDE_PLUGIN_ROOT}` are never written.
+ * @param plugin - Marketplace and name of the plugin
+ * @param rules - `permissions` and `formerPermissions` from the plugin's permissions.json, may be empty
  * @param error - Error print function from toolbox
- * @returns Result with added and existing permissions
+ * @param options - Overrides for the Claude config directory and the ledger (tests)
+ * @returns Added, existing and removed rules
  */
 export function setupPermissions(
-  requiredPermissions: string[],
+  plugin: { marketplaceName: string; pluginName: string },
+  rules: Pick<PluginContents, 'formerPermissions' | 'permissions'>,
   error: (msg: string) => void,
-): { added: string[]; existing: string[]; success: boolean } {
-  const settingsPath = join(homedir(), '.claude', 'settings.json');
+  options: { claudeConfigDir?: string; ledgerPath?: string } = {},
+): PermissionSetupResult {
+  const claudeConfigDir = options.claudeConfigDir ?? getClaudeConfigDir();
+  const ledgerPath = options.ledgerPath ?? getPermissionLedgerPath();
+  const settingsPath = join(claudeConfigDir, 'settings.json');
+  const pluginKey = pluginPermissionKey(plugin.marketplaceName, plugin.pluginName);
+  const pluginRoot = pluginCacheRootPattern(claudeConfigDir, plugin.marketplaceName, plugin.pluginName);
+  const resolve = (rule: string) => resolvePluginRootVariable(rule, pluginRoot);
+  const skipped = [...new Set(rules.permissions.filter(hasPluginRootVariable))];
+  const written = [...new Set(rules.permissions.filter((rule) => !hasPluginRootVariable(rule)))];
+  const failed: PermissionSetupResult = {
+    added: [],
+    existing: [],
+    removed: [],
+    settingsPath,
+    skipped,
+    success: false,
+    written,
+  };
 
   try {
-    // Read existing settings
     let settings: Record<string, unknown> = {};
     if (existsSync(settingsPath)) {
-      const content = readFileSync(settingsPath, 'utf-8');
-      const parsed = safeJsonParse<Record<string, unknown>>(content);
-      if (parsed) {
-        settings = parsed;
+      const parsed = safeJsonParse<unknown>(readFileSync(settingsPath, 'utf-8'));
+      if (!isPlainObject(parsed)) {
+        // Writing now would replace every other setting in the file with an empty object.
+        error(`Could not configure permissions: ${settingsPath} is not a valid JSON object, left unchanged`);
+        return failed;
       }
+      settings = parsed;
     }
 
-    // Ensure permissions.allow exists
-    if (!settings.permissions) {
-      settings.permissions = {};
+    const perms = settings.permissions ?? {};
+    if (!isPlainObject(perms)) {
+      error(`Could not configure permissions: "permissions" in ${settingsPath} is not an object, left unchanged`);
+      return failed;
     }
-    const perms = settings.permissions as Record<string, unknown>;
-    if (!perms.allow) {
-      perms.allow = [];
+    const allow = perms.allow ?? [];
+    if (!Array.isArray(allow) || !allow.every((rule) => typeof rule === 'string')) {
+      error(
+        `Could not configure permissions: "permissions.allow" in ${settingsPath} is not a list of rules, left unchanged`,
+      );
+      return failed;
     }
 
-    const currentAllowList = perms.allow as string[];
-
-    // Determine what to add
-    const added: string[] = [];
-    const existing: string[] = [];
-
-    requiredPermissions.forEach((perm) => {
-      if (currentAllowList.includes(perm)) {
-        existing.push(perm);
-      } else {
-        added.push(perm);
-      }
+    const ledgerEntries = readLedgerEntries(ledgerPath, settingsPath);
+    const entry = ledgerEntries[pluginKey] ?? null;
+    const plan = planPermissionSync({
+      allow,
+      formerApplied: entry?.formerApplied ?? [],
+      // A former rule with the variable may sit in settings.json in either spelling.
+      formerRules: [...new Set([...rules.formerPermissions, ...rules.formerPermissions.map(resolve)])],
+      listed: written,
+      owned: entry?.owned ?? null,
+      ownedByOthers: Object.entries(ledgerEntries)
+        .filter(([key]) => key !== pluginKey)
+        .flatMap(([, other]) => other.owned),
+      withdrawnRules: [...skipped, ...skipped.map(resolve)],
     });
 
-    // Add new permissions
-    if (added.length > 0) {
-      perms.allow = [...currentAllowList, ...added];
+    if (plan.added.length > 0 || plan.removed.length > 0) {
+      perms.allow = plan.allow;
+      settings.permissions = perms;
+      mkdirSync(dirname(settingsPath), { recursive: true });
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     }
 
-    return { added, existing, success: true };
+    // Only after settings.json: a ledger entry must never claim a write that did not happen.
+    // If this write fails, the rules added in this run stay unrecorded, and a later run
+    // will not remove them when the plugin drops them. The message says so.
+    if (JSON.stringify(entry) !== JSON.stringify(plan.ledger)) {
+      try {
+        recordLedgerEntry(ledgerPath, settingsPath, pluginKey, plan.ledger);
+      } catch (err) {
+        error(
+          `Could not record lt's permission rules in ${ledgerPath}: ${(err as Error).message}. ` +
+            'Rules added in this run will not be removed automatically when the plugin drops them.',
+        );
+      }
+    }
+
+    return {
+      added: plan.added,
+      existing: plan.existing,
+      removed: plan.removed,
+      settingsPath,
+      skipped,
+      success: true,
+      written,
+    };
   } catch (err) {
     error(`Could not configure permissions: ${(err as Error).message}`);
-    return { added: [], existing: [], success: false };
+    return failed;
   }
+}
+
+/**
+ * Whether a parsed JSON value is an object (not an array, not null)
+ * @param value - Parsed JSON value
+ * @returns true for a plain object
+ */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

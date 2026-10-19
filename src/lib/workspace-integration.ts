@@ -32,6 +32,7 @@ import * as yaml from 'js-yaml';
 import { sep } from 'path';
 
 import { ensureRootDockerignore } from './ensure-root-dockerignore';
+import { spawnArgs } from './exec-args';
 import { hoistPackageManager, hoistWorkspacePnpmConfig } from './hoist-workspace-pnpm-config';
 import { removeNestedLockfiles } from './remove-nested-lockfiles';
 
@@ -367,10 +368,10 @@ export async function runExperimentalNestBaseRename(options: {
   apiDir: string;
   patching: GluegunPatching;
   projectDir: string;
-  /** Same shape as gluegun's `system` toolbox member. */
-  system: { run: (cmd: string) => Promise<string> };
+  /** Runs a program with an argument list and no shell; defaults to {@link spawnArgs} (bun can be an npm `.cmd` shim on Windows). Injectable for tests. */
+  run?: (command: string, args: readonly string[], options: { cwd: string }) => Promise<string>;
 }): Promise<{ attempted: boolean; error?: Error }> {
-  const { apiDir, patching, projectDir, system } = options;
+  const { apiDir, patching, projectDir, run = spawnArgs } = options;
 
   // setupServerForFullstack already patched package.json to set
   // `name = projectDir`. The rename planner reads that name as the
@@ -384,7 +385,8 @@ export async function runExperimentalNestBaseRename(options: {
   });
 
   try {
-    await system.run(`cd ${apiDir} && bun run rename ${projectDir}`);
+    // No shell: projectDir can come from --name or the directory name (see exec-args.ts).
+    await run('bun', ['run', 'rename', projectDir], { cwd: apiDir });
     return { attempted: true };
   } catch (err) {
     return { attempted: true, error: err as Error };

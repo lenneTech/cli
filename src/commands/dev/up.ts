@@ -3,7 +3,14 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, caddyDaemonRunning, CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
+import {
+  caddyAvailable,
+  caddyDaemonRunning,
+  CaddyRoute,
+  healLoopbackBind,
+  reloadCaddy,
+  upsertProjectBlock,
+} from '../../lib/caddy';
 import { CommandHelp } from '../../lib/command-help';
 import { isApiCompiledRequested, startCompiledApi } from '../../lib/dev-api-launch';
 import { buildDevEnv } from '../../lib/dev-env';
@@ -343,6 +350,13 @@ const UpCommand: GluegunCommand = {
         // that nothing listens on.
         dbName: identity.subdomains.api ? (existingEntry?.dbName ?? dbName) : undefined,
       });
+      // A Caddyfile from before the loopback bind would keep this running stack on the LAN until
+      // its next restart, because the upsert below is never reached on this path.
+      if (healLoopbackBind()) {
+        const reload = await reloadCaddy();
+        if (reload.ok) info('Caddy now listens on this machine only (default_bind 127.0.0.1 [::1]).');
+        else warning(`caddy reload failed:\n${reload.stderr}`);
+      }
       info('Run `lt dev down` first to force a full restart.');
       if (!parameters.options.fromGluegunMenu) process.exit();
       return 'dev up: already running';

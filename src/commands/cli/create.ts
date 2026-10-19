@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, hasCmdShimHazard, spawnArgs } from '../../lib/exec-args';
 
 /**
  * Create a new CLI
@@ -115,7 +116,7 @@ const NewCommand: GluegunCommand = {
     // Clone git repository
     const cloneSpinner = spin('Clone https://github.com/lenneTech/cli-starter.git');
     try {
-      await system.run(`git clone https://github.com/lenneTech/cli-starter.git ${projectDir}`);
+      await execArgs('git', ['clone', '--', 'https://github.com/lenneTech/cli-starter.git', projectDir]);
       if (filesystem.isDirectory(`./${projectDir}`)) {
         filesystem.remove(`./${projectDir}/.git`);
         cloneSpinner.succeed('Repository cloned from https://github.com/lenneTech/cli-starter.git');
@@ -132,7 +133,7 @@ const NewCommand: GluegunCommand = {
     const detectedPm = toolbox.pm.detect(projectDir);
     const installSpinner = spin('Install packages');
     try {
-      await system.run(`cd ${projectDir} && ${toolbox.pm.install(detectedPm)}`);
+      await system.run(toolbox.pm.install(detectedPm), { cwd: projectDir });
       installSpinner.succeed('Packages installed');
     } catch (err) {
       installSpinner.fail(`Failed to install packages: ${err.message}`);
@@ -142,8 +143,17 @@ const NewCommand: GluegunCommand = {
     // Rename files and data
     const renameSpinner = spin(`Rename files & data ${link ? ' and link' : ''}`);
     try {
-      await system.run(
-        `cd ${projectDir} && ${toolbox.pm.run('rename', detectedPm)} -- "${name}" --author "${author}" --${link ? 'link' : 'nolink'}`,
+      // Argument list, no shell: name and author come from flags and lt.config (see exec-args.ts).
+      if ([name, author].some((value) => hasCmdShimHazard(String(value)))) {
+        throw new Error('name and author must not contain ", % or line breaks on Windows');
+      }
+      const [runner, ...runArgs] = toolbox.pm.run('rename', detectedPm).split(' ');
+      await spawnArgs(
+        runner,
+        [...runArgs, '--', String(name), '--author', String(author), `--${link ? 'link' : 'nolink'}`],
+        {
+          cwd: projectDir,
+        },
       );
       renameSpinner.succeed(`Files & data renamed${link ? ' and linked' : ''}`);
     } catch (err) {

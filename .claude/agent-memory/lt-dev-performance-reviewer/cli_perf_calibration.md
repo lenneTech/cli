@@ -61,3 +61,24 @@ Over 23 real consumer `playwright.config.ts` files under `~/code` carrying the b
 `/\s+([)\]}])/g` (added 2026-10-06, uncommitted at the time) is **quadratic in the length of ONE contiguous whitespace run that is not followed by a closer**: 8 K → 41 ms, 16 K → 177 ms, 32 K → 667 ms, 64 K → 6.9 s, 256 K → 99.5 s. Many short runs that add up to 1 MB stay linear (2-25 ms). `/,\s*closer/` and `/opener\s+/` are linear: under 20 ms on 1 MB in every shape, because each attempt is anchored on a literal punctuation char.
 
 **How to apply:** a regex shaped `\s+X` is quadratic only when a single long run has no X after it. Check the longest run real input can contain, not the total input length. For the bridge span that run is 1 char, and even a 12 KB file made entirely of whitespace costs about 100 ms, so this is not a finding unless the input source changes.
+
+## `lt claude plugins` permission sync (measured 2026-10-18, reviewing `plugin-permissions.ts`)
+
+Real input on Kai's machine: 8 plugins across 2 marketplaces, largest `permissions.json` = lt-dev with 165 rules, `~/.claude/settings.json` allow list = 257 rules.
+
+| Thing | Cost |
+|---|---|
+| `planPermissionSync` (Set-based), allow 500 / others 1000 | ~0.15 ms; 10x input → ~1.45 ms (linear) |
+| Full `setupPermissions` x 10 plugins x 200 rules, steady state (no writes) | ~8-9 ms total |
+| same, first run (settings + ledger writes) | ~40-55 ms total |
+| `getClaudeConfigDir()` | ~1 us; module-level use in `claude-cli.ts` is free |
+| own load of a small `src/lib` module with internal imports only | ~0.5 ms |
+
+Each plugin also spawns `claude plugin install` + `claude plugin update` (seconds), so file I/O in the sync is noise. **How to apply:** for this command, check idempotence (no settings/ledger rewrite on a steady run) instead of CPU; measure by compiling with `npx tsc --outDir <scratchpad>/build` and running with `NODE_PATH=<repo>/node_modules`.
+
+## Shell strings → `execArgs` + Caddyfile `ensureLoopbackBind` (measured 2026-10-19)
+
+- gluegun 5.2.2 `system.run` is `child_process.exec(cmd, opts)` with NO `maxBuffer`, i.e. Node's default 1 MiB per stream (same as `execFile`; verified on Node 24, both throw `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` past 1 MiB). So `execArgs` (`execFile`, `maxBuffer: 1 MiB`) is buffer-neutral, and splitting an `a && b && c` chain gives each step its OWN buffer, which is strictly safer. Only a removed shell string that redirected/piped output away (`> /dev/null`, `| head`) would make the new form buffer more; grep the `-` lines for that.
+- Own load of `exec-args` + `safe-paths` + `unknown-options` + `plugin-permissions` together: ~2.4 ms (builtins + internal only).
+- `ensureLoopbackBind` on a 500-project, 132 KB Caddyfile: 0.16 ms (global block present) / 0.47 ms (inserting) / 1.6 ms (unbalanced braces, worst case). Idempotent across upsert/remove/legacy-heal sequences; `reloadCaddy()` after upsert is unconditional anyway (pre-existing).
+- Measure Caddy code against a scratch file via `LT_DEV_CADDYFILE=<scratch>/Caddyfile` (read at module load), never the live `~/.lenneTech/Caddyfile`.

@@ -185,18 +185,24 @@ describe('runExperimentalNestBaseRename', () => {
   });
 
   test('restores name = "nest-base" in package.json before invoking rename', async () => {
+    const calls: Array<{ args: string[]; command: string; cwd: string }> = [];
     const result = await runExperimentalNestBaseRename({
       apiDir: tempDir,
       // Cast through unknown to satisfy the GluegunPatching slot — we
       // only exercise `update`.
       patching: stubPatching as unknown as Parameters<typeof runExperimentalNestBaseRename>[0]['patching'],
       projectDir: 'my-project',
-      system: { run: async () => 'ok' },
+      run: async (command, args, options) => {
+        calls.push({ args: [...args], command, cwd: options.cwd });
+        return 'ok';
+      },
     });
     expect(result.attempted).toBe(true);
     expect(result.error).toBeUndefined();
     const pkg = filesystem.read(filesystem.path(tempDir, 'package.json'), 'json') as Record<string, unknown>;
     expect(pkg.name).toBe('nest-base');
+    // Argument list, not a shell string: the project name is never parsed by a shell.
+    expect(calls).toEqual([{ args: ['run', 'rename', 'my-project'], command: 'bun', cwd: tempDir }]);
   });
 
   test('returns the error non-fatally when the rename script fails', async () => {
@@ -205,10 +211,8 @@ describe('runExperimentalNestBaseRename', () => {
       apiDir: tempDir,
       patching: stubPatching as unknown as Parameters<typeof runExperimentalNestBaseRename>[0]['patching'],
       projectDir: 'my-project',
-      system: {
-        run: async () => {
-          throw boom;
-        },
+      run: async () => {
+        throw boom;
       },
     });
     expect(result.attempted).toBe(true);

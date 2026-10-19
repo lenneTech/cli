@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { execArgs, safeRef } from '../../lib/exec-args';
 
 /**
  * Rebase branch
@@ -19,7 +20,7 @@ const NewCommand: GluegunCommand = {
       parameters,
       print: { error, info, spin, success, warning },
       prompt: { confirm },
-      system: { run, startTimer },
+      system: { startTimer },
     } = toolbox;
 
     // Load configuration
@@ -70,7 +71,7 @@ const NewCommand: GluegunCommand = {
       // what the real command will do.
       let commitsToRebase = '';
       try {
-        commitsToRebase = await run(`git log ${baseBranchPreview}..HEAD --oneline`);
+        commitsToRebase = await execArgs('git', ['log', `${safeRef(baseBranchPreview)}..HEAD`, '--oneline']);
       } catch {
         // Unknown base ref — nothing to preview, which the check below handles.
       }
@@ -154,9 +155,16 @@ const NewCommand: GluegunCommand = {
 
     // Rebase
     const rebaseSpin = spin(`Set ${baseBranch} as base of ${branch}`);
-    await run(
-      `git fetch && git checkout ${baseBranch} && git pull && git checkout ${branch} && git rebase ${baseBranch}`,
-    );
+    // Argument lists, no shell: both names come from flags, lt.config and the remote (see exec-args.ts).
+    for (const args of [
+      ['fetch'],
+      ['checkout', safeRef(baseBranch)],
+      ['pull'],
+      ['checkout', safeRef(branch)],
+      ['rebase', safeRef(baseBranch)],
+    ]) {
+      await execArgs('git', args);
+    }
     rebaseSpin.succeed();
 
     // Success
