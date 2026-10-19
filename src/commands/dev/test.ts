@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, caddyDaemonRunning } from '../../lib/caddy';
+import { caddyAvailable, prepareCaddy } from '../../lib/caddy';
 import { envBridgePath } from '../../lib/dev-env-bridge';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { runChildInherit } from '../../lib/dev-process';
@@ -129,7 +129,8 @@ const TestCommand: GluegunCommand = {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev test: caddy missing';
     }
-    if (!(await caddyDaemonRunning())) {
+    // Repairs the Caddyfile before asking whether Caddy runs (see prepareCaddy).
+    if (!(await prepareCaddy()).running) {
       error('caddy daemon not running. Run `lt dev install` first.');
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev test: caddy daemon down';

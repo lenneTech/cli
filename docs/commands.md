@@ -426,7 +426,7 @@ lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 
 Start API + App behind Caddy. Allocates internal ports (4000+), spawns processes detached, persists PIDs to `<root>/.lt-dev/state.json`.
 
-A running stack answers only requests from this machine: every site block in `~/.lenneTech/Caddyfile` aborts connections from other addresses (`@lt_remote not remote_ip 127.0.0.0/8 ::1` + `abort @lt_remote`). Caddy itself still listens on all interfaces, because macOS lets an unprivileged process bind ports below 1024 only on the wildcard address. `lt dev up` rewrites the project's block, also when the stack is already running, and removes the `default_bind 127.0.0.1 [::1]` that CLI 1.51.0/1.51.1 wrote: with it, Caddy could not bind port 443 on macOS and every reload failed.
+A running stack answers only requests from this machine: every site block in `~/.lenneTech/Caddyfile` aborts connections from other addresses (`@lt_remote not remote_ip 127.0.0.0/8 ::1` + `abort @lt_remote`). Caddy itself still listens on all interfaces, because macOS lets an unprivileged process bind ports below 1024 only on the wildcard address. `lt dev up` rewrites the project's block, also when the stack is already running, and removes the `default_bind 127.0.0.1 [::1]` that CLI 1.51.0/1.51.1 wrote: with it, Caddy could not bind port 443 on macOS and every reload failed. If Caddy did not even start because of that line (after a reboot, for example), `lt dev up`, `lt dev test` and `lt dev tunnel` repair the file first and wait for the service to restart Caddy.
 
 **Usage:**
 ```bash

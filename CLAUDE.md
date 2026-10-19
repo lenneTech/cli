@@ -1535,6 +1535,12 @@ outright. The change had been "verified" with `caddy validate` and `caddy adapt`
   the guard at once. The first fix only removed the line and guarded the block of the project
   being started, which left every other running stack reachable from the LAN until its own next
   `lt dev up` (found by a peer review: 0 guards in 18 blocks after the heal).
+- Repair BEFORE checking the daemon (`prepareCaddy` in `lt dev up/test/tunnel`). A Caddy that the
+  bad line kept from starting at all (reboot) made `caddyDaemonRunning` fail first, so the command
+  stopped before it could heal anything. The service manager restarts Caddy once the file is
+  fixed (`KeepAlive` / `Restart=on-failure`); `prepareCaddy` waits for that.
+- `lt dev install` writes the stub only if the Caddyfile is absent (`ensureCaddyfile`). It used to
+  overwrite the file on every run, dropping every project's routes, contrary to its own docs.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

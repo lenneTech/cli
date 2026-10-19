@@ -5,9 +5,9 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import {
   caddyAvailable,
-  caddyDaemonRunning,
   CaddyRoute,
   healCaddyfile,
+  prepareCaddy,
   reloadCaddy,
   upsertProjectBlock,
 } from '../../lib/caddy';
@@ -130,7 +130,9 @@ const UpCommand: GluegunCommand = {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: caddy missing';
     }
-    if (!(await caddyDaemonRunning())) {
+    // Repairs the Caddyfile before asking whether Caddy runs (see prepareCaddy).
+    const caddyState = await prepareCaddy();
+    if (!caddyState.running) {
       error('caddy daemon is not running. Run `lt dev install` to start the lt-dev service.');
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: caddy daemon down';
@@ -366,7 +368,7 @@ const UpCommand: GluegunCommand = {
         });
       const caddyfileChanged =
         runningRoutes.length > 0 ? upsertProjectBlock(identity.slug, runningRoutes) : healCaddyfile();
-      if (caddyfileChanged) {
+      if (caddyfileChanged || caddyState.healed) {
         const reload = await reloadCaddy();
         if (reload.ok) info('Caddy config refreshed: this stack answers requests from this machine only.');
         else warning(`caddy reload failed:\n${reload.stderr}`);

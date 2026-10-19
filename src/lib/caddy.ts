@@ -114,6 +114,22 @@ export async function caddyDaemonRunning(): Promise<boolean> {
 }
 
 /**
+ * Create the Caddyfile with `stub` when it is missing; otherwise repair it with
+ * {@link migrateCaddyfile}. Never replaces an existing file: `lt dev install` used to write the
+ * stub on every run, which dropped the routes of every registered project, although its own
+ * docs said "if absent".
+ * @param stub - Content for a new Caddyfile
+ * @returns true if the file was created or changed
+ */
+export function ensureCaddyfile(stub: string): boolean {
+  if (!existsSync(CADDYFILE_PATH)) {
+    writeCaddyfile(stub);
+    return true;
+  }
+  return healCaddyfile();
+}
+
+/**
  * Apply {@link migrateCaddyfile} to the file on disk and write it back if that changed anything.
  * For paths that write no project block, such as `lt dev up` on a stack that is already running
  * when its ports are unknown.
@@ -136,6 +152,33 @@ export function healCaddyfile(): boolean {
  */
 export function migrateCaddyfile(content: string): string {
   return addLoopbackGuards(removeLegacyLoopbackBind(content));
+}
+
+/**
+ * Make Caddy usable for an `lt dev` command: repair the Caddyfile first, then check the daemon.
+ * The order matters. With the `default_bind` of CLI 1.51.0/1.51.1 Caddy cannot start on macOS at
+ * all (after a reboot, say); checking the daemon first would stop the command before the repair,
+ * so the machine could never heal itself. The service manager restarts Caddy once the file is
+ * fixed (LaunchAgent `KeepAlive`, systemd `Restart=on-failure`), which this waits for.
+ * @param timeoutMs - How long to wait for the restarted daemon after a repair
+ * @returns Whether the daemon answers, and whether the Caddyfile was repaired (the caller reloads)
+ */
+export async function prepareCaddy(timeoutMs = 20000): Promise<{ healed: boolean; running: boolean }> {
+  const healed = healCaddyfile();
+  if (await caddyDaemonRunning()) {
+    return { healed, running: true };
+  }
+  if (!healed) {
+    return { healed, running: false };
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    if (await caddyDaemonRunning()) {
+      return { healed, running: true };
+    }
+  }
+  return { healed, running: false };
 }
 
 /** Read the current Caddyfile (or empty string). */

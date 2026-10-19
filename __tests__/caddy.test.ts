@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -7,6 +7,7 @@ process.env.LT_DEV_CADDYFILE = join(tmp, 'Caddyfile');
 
 import {
   addLoopbackGuards,
+  ensureCaddyfile,
   healCaddyfile,
   migrateCaddyfile,
   readCaddyfile,
@@ -180,6 +181,23 @@ describe('caddy / Caddyfile management', () => {
     test('a freshly rendered block is not guarded twice', () => {
       const block = renderProjectBlock('crm', routes);
       expect(addLoopbackGuards(block)).toBe(block);
+    });
+
+    test('lt dev install creates the stub only when the Caddyfile is missing', () => {
+      rmSync(process.env.LT_DEV_CADDYFILE as string, { force: true });
+      expect(ensureCaddyfile('# stub\n')).toBe(true);
+      expect(readCaddyfile()).toBe('# stub\n');
+    });
+
+    test('lt dev install keeps the projects of an existing Caddyfile and repairs the 1.51.x line', () => {
+      const existing = `# lt dev\n\n{\n\t${LEGACY}\n}\n\n${renderProjectBlock('crm', routes)}\n`;
+      writeFileSync(process.env.LT_DEV_CADDYFILE as string, existing);
+
+      expect(ensureCaddyfile('# stub\n')).toBe(true);
+      expect(readCaddyfile()).toContain('reverse_proxy 127.0.0.1:4011');
+      expect(readCaddyfile()).not.toMatch(/default_bind/);
+      expect(existsSync(process.env.LT_DEV_CADDYFILE as string)).toBe(true);
+      expect(ensureCaddyfile('# stub\n')).toBe(false);
     });
 
     test('keeps the other global options and a default_bind the user set', () => {

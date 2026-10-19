@@ -1,7 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { caddyDaemonRunning } from '../../lib/caddy';
+import { prepareCaddy } from '../../lib/caddy';
 import { cloudflaredAvailable, spawnQuickTunnel } from '../../lib/cloudflared';
 import { buildIdentity } from '../../lib/dev-identity';
 import { resolveLayout } from '../../lib/dev-project';
@@ -74,7 +74,8 @@ const TunnelCommand: GluegunCommand = {
 
     // Pre-flight: Caddy must be up — without it cloudflared would forward
     // to a dead upstream and the public URL would 502.
-    if (!(await caddyDaemonRunning())) {
+    // Repairs the Caddyfile before asking whether Caddy runs (see prepareCaddy).
+    if (!(await prepareCaddy()).running) {
       error('Caddy daemon is not running — run `lt dev install` first.');
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev tunnel: caddy down';

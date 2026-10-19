@@ -10,7 +10,7 @@
  * caller decides the exit code from the returned result.
  */
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, paths as caddyPaths, validateCaddyfile, writeCaddyfile } from './caddy';
+import { caddyAvailable, paths as caddyPaths, ensureCaddyfile, validateCaddyfile } from './caddy';
 import {
   getServicePaths,
   getServiceStatus,
@@ -72,8 +72,9 @@ export async function runInstall(
     blocked = true;
   }
 
-  // 2. Caddyfile stub
-  writeCaddyfile('# lt dev — managed Caddyfile\n# Add per-project blocks via `lt dev up`.\n');
+  // 2. Caddyfile stub, only if absent. An existing file is repaired, never replaced: it holds the
+  // routes of every registered project.
+  ensureCaddyfile('# lt dev — managed Caddyfile\n# Add per-project blocks via `lt dev up`.\n');
   success(`Caddyfile present at ${caddyPaths.caddyfile}`);
 
   if (!hasCaddy) {
