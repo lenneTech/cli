@@ -46,6 +46,18 @@ const isolatedEnv = (): NodeJS.ProcessEnv => {
   return env;
 };
 
+/**
+ * Run `lt` with an argument list, no shell. For names like `x;touch${IFS}PWNED`: `cli` goes
+ * through cmd.exe on Windows, which keeps single quotes as part of the argument.
+ */
+const cliArgs = (args: string[], cwd: string) =>
+  execFileSync(process.execPath, [filesystem.path(src, 'bin', 'lt'), ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: isolatedEnv(),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
 /** Run `lt <cmd>` inside `cwd` — always a fixture clone, never this repository. */
 const cli = async (cmd: string, cwd: string) =>
   system.run(`node ${filesystem.path(src, 'bin', 'lt')} ${cmd}`, { cwd, env: isolatedEnv() });
@@ -216,8 +228,8 @@ describe('Git Commands', () => {
 
   // Git forbids whitespace in ref names but allows `;`, `|`, `$` and `{}`, so a remote can offer a
   // branch whose name is a command. lt used to interpolate branch names into `system.run` strings,
-  // i.e. into /bin/sh, where `x;touch${IFS}PWNED` runs `touch PWNED`. Single quotes below only
-  // protect the name from the TEST harness's own shell (`cli` uses system.run too).
+  // i.e. into /bin/sh, where `x;touch${IFS}PWNED` runs `touch PWNED`. Names are passed with
+  // `cliArgs` (no shell), so they reach lt verbatim on every OS, Windows included.
   describe('branch names are never shell syntax', () => {
     test('lt git get checks out a remote branch named like a command without running it', async () => {
       const evil = 'feature/x;touch${IFS}PWNED';
@@ -242,7 +254,7 @@ describe('Git Commands', () => {
       const evil = 'x;touch${IFS}PWNED;#';
       pushEvil(evil);
 
-      await cli(`git squash 'origin/${evil}' --dry-run`, fx.work);
+      cliArgs(['git', 'squash', `origin/${evil}`, '--dry-run'], fx.work);
 
       expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
     });
@@ -263,7 +275,7 @@ describe('Git Commands', () => {
       pushEvil(evil);
       git(fx.work, 'branch', '--quiet', '--track', evil, `origin/${evil}`);
 
-      await cli(`git rebase '${evil}' --noConfirm`, fx.work);
+      cliArgs(['git', 'rebase', evil, '--noConfirm'], fx.work);
 
       expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
       expect(git(fx.work, 'branch', '--show-current')).toBe('feature/demo');
@@ -278,7 +290,7 @@ describe('Git Commands', () => {
     test('lt git create takes a branch name literally', async () => {
       const evil = 'feat;touch${IFS}PWNED';
 
-      await cli(`git create '${evil}' main --noConfirm`, fx.work);
+      cliArgs(['git', 'create', evil, 'main', '--noConfirm'], fx.work);
 
       expect(existsSync(join(fx.work, 'PWNED'))).toBe(false);
       expect(git(fx.work, 'branch', '--show-current')).toBe(evil);

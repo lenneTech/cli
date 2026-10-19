@@ -217,15 +217,17 @@ export class Git {
   }
 
   /**
-   * Get default branch
+   * Get the default branch (where `origin/HEAD` points), or `''` when it is not set, so the
+   * callers' fallback (`|| 'main'`) applies instead of an exception.
    */
-  public getDefaultBranch(): Promise<string> {
-    // Toolbox features
-    const {
-      system: { run },
-    } = this.toolbox;
-
-    return run('basename $(git symbolic-ref --short refs/remotes/origin/HEAD)');
+  public async getDefaultBranch(): Promise<string> {
+    // No shell: `basename $(…)` is POSIX syntax, so `lt git get` failed under cmd.exe on Windows.
+    try {
+      const ref = await execArgs('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { trim: true });
+      return ref.slice(ref.lastIndexOf('/') + 1);
+    } catch {
+      return '';
+    }
   }
 
   /**
