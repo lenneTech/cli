@@ -1500,13 +1500,18 @@ first conversion pass missed four more (`rebase`/`reset` chains, `getFirstBranch
   the binary of the globally installed `npm-check-updates` (the command installs that package
   when `ncu` is missing). Never call it as `npx ncu`: without that global install it resolves
   the unrelated npm package named `ncu`.
-- **Remaining known gaps:** `lt mongodb collection-export` and `lt mongodb s3-restore` build
-  `mongosh` / `mongoexport` / `mongorestore` / `tar` / `find` strings for `child_process.exec`
-  DIRECTLY (a promisified `exec`, not `system.run`), with `--mongoUri`, `--output`,
-  `--database` and, in `s3-restore`, directory names read from the downloaded backup archive
-  inside double quotes, where `$(…)` and backticks still expand. A search for `run(` misses
-  such sites: audit every file that imports `child_process`, and treat a command assembled in
-  a variable first like an inline one.
+- `lt mongodb collection-export` and `lt mongodb s3-restore` were the last sites (closed after
+  1.51.2). They called a promisified `child_process.exec` DIRECTLY, not `system.run`, with
+  `--mongoUri`, `--output`, `--database` and, in `s3-restore`, directory names read from the
+  downloaded backup archive inside double quotes, where `$(…)` and backticks expand. Now
+  `execFile` with argument lists, `find … | sort -u` became `findBsonDirectories`, and the
+  collection name reaches mongosh's `--eval` as a JSON string literal, never as code.
+  A search for `run(` misses such sites, and that miss let a "last gap" claim in this file be
+  wrong once. How the current state was established (2026-10-19): every file that imports
+  `child_process` was checked for `exec`/`execSync`/`execAsync` calls whose command contains an
+  interpolation or is assembled in a variable; the only survivor is `src/lib/marker.ts`, which
+  interpolates fixed paths under the user's own home. Repeat that audit before claiming the
+  class is closed again.
 
 ### A command that changes a project refuses flags it does not know <!-- Added: 2026-10-19 -->
 gluegun/yargs-parser accepts any flag and the command never sees the typo. Plugin docs told

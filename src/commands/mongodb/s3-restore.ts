@@ -6,7 +6,14 @@ import { promisify } from 'util';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
-const execAsync = promisify(require('child_process').exec);
+/**
+ * Argument list, no shell: `--mongoUri` and `--database` come from flags and lt.config, and
+ * `sourceDbName` / `backupRootDir` from directory names INSIDE the downloaded archive. In the
+ * former shell strings a crafted backup in S3 could run commands through its folder names (see
+ * src/lib/exec-args.ts). tar and mongorestore are native binaries, so `execFile` starts them on
+ * every platform. Resolves with `{ stdout, stderr }`.
+ */
+const execFileAsync = promisify(require('child_process').execFile);
 
 interface S3BackupFile {
   key: string;
@@ -18,6 +25,26 @@ interface S3BackupFile {
 /**
  * Restore MongoDB database from S3 backup
  */
+/**
+ * Directories below `root` that contain at least one `.bson` file, sorted and unique: what
+ * `find <root> -name "*.bson" -exec dirname {} \; | sort -u` printed, without a shell and on
+ * every platform.
+ * @param root - Directory to search
+ * @returns Absolute directory paths
+ */
+export function findBsonDirectories(root: string): string[] {
+  const found = new Set<string>();
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.endsWith('.bson')) found.add(dir);
+    }
+  };
+  walk(root);
+  return [...found].sort();
+}
+
 const command: GluegunCommand = {
   alias: ['s3r'],
   description: 'Restore database from S3',
@@ -264,8 +291,7 @@ const command: GluegunCommand = {
       await fs.promises.mkdir(extractDir, { recursive: true });
 
       const extractSpin = spin('Extracting backup archive');
-      const extractCommand = `tar -xzf "${backupFile}" -C "${extractDir}"`;
-      await execAsync(extractCommand);
+      await execFileAsync('tar', ['-xzf', backupFile, '-C', extractDir]);
       extractSpin.succeed('Backup extracted');
     } catch (err: any) {
       error(`Failed to extract backup: ${err.message}`);
@@ -293,13 +319,8 @@ const command: GluegunCommand = {
     try {
       const findDbSpin = spin('Searching for database files');
 
-      // Find all directories containing BSON files
-      const findBsonCommand = `find "${extractDir}" -name "*.bson" -exec dirname {} \\; | sort -u`;
-      const { stdout } = await execAsync(findBsonCommand);
-      const dbPaths = stdout
-        .trim()
-        .split('\n')
-        .filter((p) => p);
+      // All directories that contain BSON files (was `find … | sort -u`, POSIX-only and a shell string)
+      const dbPaths = findBsonDirectories(extractDir);
 
       if (dbPaths.length === 0) {
         throw new Error('No database files found in backup');
@@ -458,18 +479,22 @@ const command: GluegunCommand = {
 
       // Build mongorestore command
       // If source and target names are the same, use simpler command
-      let restoreCommand: string;
-      if (sourceDbName === targetDbName) {
-        // Restore without renaming
-        const fullMongoUri = `${mongoUri}/${targetDbName}`;
-        restoreCommand = `mongorestore --uri="${fullMongoUri}" --nsInclude="${sourceDbName}.*" "${backupRootDir}"`;
-      } else {
-        // Restore with renaming using --nsFrom and --nsTo
-        restoreCommand = `mongorestore --uri="${mongoUri}" --nsFrom="${sourceDbName}.*" --nsTo="${targetDbName}.*" --nsInclude="${sourceDbName}.*" "${backupRootDir}"`;
-      }
+      const restoreArgs =
+        sourceDbName === targetDbName
+          ? // Restore without renaming
+            [`--uri=${mongoUri}/${targetDbName}`, `--nsInclude=${sourceDbName}.*`, '--', backupRootDir]
+          : // Restore with renaming using --nsFrom and --nsTo
+            [
+              `--uri=${mongoUri}`,
+              `--nsFrom=${sourceDbName}.*`,
+              `--nsTo=${targetDbName}.*`,
+              `--nsInclude=${sourceDbName}.*`,
+              '--',
+              backupRootDir,
+            ];
 
       info('Running: mongorestore ...');
-      const { stderr } = await execAsync(restoreCommand, {
+      const { stderr } = await execFileAsync('mongorestore', restoreArgs, {
         maxBuffer: 1024 * 1024 * 50, // 50MB buffer for large outputs
       });
 

@@ -5,7 +5,13 @@ import { promisify } from 'util';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 
-const execAsync = promisify(require('child_process').exec);
+/**
+ * Argument list, no shell: `--mongoUri`, `--database`, `--collection` and `--output` come from
+ * flags, lt.config and the database itself, and used to sit in double quotes in shell strings,
+ * where `$(…)` and backticks ran (see src/lib/exec-args.ts). mongosh and mongoexport are native
+ * binaries, so `execFile` starts them on every platform. Resolves with `{ stdout, stderr }`.
+ */
+const execFileAsync = promisify(require('child_process').execFile);
 
 /**
  * Export MongoDB collection to JSON file
@@ -64,8 +70,12 @@ const command: GluegunCommand = {
       const listDbSpin = spin('Listing databases');
 
       // Use mongo shell to list databases
-      const listDbCommand = `mongosh "${mongoUri}" --quiet --eval "JSON.stringify(db.adminCommand('listDatabases').databases.map(d => d.name))"`;
-      const { stdout } = await execAsync(listDbCommand);
+      const { stdout } = await execFileAsync('mongosh', [
+        mongoUri,
+        '--quiet',
+        '--eval',
+        "JSON.stringify(db.adminCommand('listDatabases').databases.map(d => d.name))",
+      ]);
 
       const allDatabases = JSON.parse(stdout.trim());
       // Filter out system databases
@@ -137,8 +147,12 @@ const command: GluegunCommand = {
       const listCollSpin = spin('Listing collections');
 
       // Use mongo shell to list collections
-      const listCollCommand = `mongosh "${mongoUri}/${selectedDatabase}" --quiet --eval "JSON.stringify(db.getCollectionNames())"`;
-      const { stdout } = await execAsync(listCollCommand);
+      const { stdout } = await execFileAsync('mongosh', [
+        `${mongoUri}/${selectedDatabase}`,
+        '--quiet',
+        '--eval',
+        'JSON.stringify(db.getCollectionNames())',
+      ]);
 
       collections = JSON.parse(stdout.trim());
 
@@ -190,8 +204,13 @@ const command: GluegunCommand = {
 
     // Get document count
     try {
-      const countCommand = `mongosh "${mongoUri}/${selectedDatabase}" --quiet --eval "db.${selectedCollection}.countDocuments()"`;
-      const { stdout } = await execAsync(countCommand);
+      // The collection name goes into mongosh's JavaScript as a JSON string literal, never as code.
+      const { stdout } = await execFileAsync('mongosh', [
+        `${mongoUri}/${selectedDatabase}`,
+        '--quiet',
+        '--eval',
+        `db.getCollection(${JSON.stringify(selectedCollection)}).countDocuments()`,
+      ]);
       const count = parseInt(stdout.trim(), 10);
       info(`Collection contains ${count} document(s)`);
     } catch (err: any) {
@@ -256,11 +275,18 @@ const command: GluegunCommand = {
       const exportSpin = spin(`Exporting ${selectedDatabase}.${selectedCollection}`);
 
       // Use mongoexport to export collection
-      const exportCommand = `mongoexport --uri="${mongoUri}/${selectedDatabase}" --collection="${selectedCollection}" --out="${outputPath}" --jsonArray`;
-
-      const { stderr } = await execAsync(exportCommand, {
-        maxBuffer: 1024 * 1024 * 100, // 100MB buffer
-      });
+      const { stderr } = await execFileAsync(
+        'mongoexport',
+        [
+          `--uri=${mongoUri}/${selectedDatabase}`,
+          `--collection=${selectedCollection}`,
+          `--out=${outputPath}`,
+          '--jsonArray',
+        ],
+        {
+          maxBuffer: 1024 * 1024 * 100, // 100MB buffer
+        },
+      );
 
       // mongoexport outputs progress to stderr, check for actual errors
       if (stderr && stderr.toLowerCase().includes('error') && !stderr.includes('exported')) {
