@@ -56,6 +56,17 @@ throwaway bare-origin + clone fixture in the scratchpad, then run
 Copying a new test file (plus any new `src/lib` it imports) into the export answers "does it
 fail on HEAD" for spawn-based tests too.
 
+**Mutation-testing the REAL jest file (2026-10-20, caddy.test.ts).** To answer "would this test
+go red if X were broken", copy `src/`, the one `__tests__/<x>.test.ts`, `__tests__/support/`,
+`package.json` and both `tsconfig*.json` into `$SP`, symlink `node_modules`, then
+`cd $SP && npx jest __tests__/<x>.test.ts`: it picks up `$SP/package.json#jest`, so the repo's
+own config, setup file and ts-jest run unchanged. Generate mutants with a node string-replace
+script that aborts on a non-matching pattern, swap each into `$SP/src/lib/<x>.ts`, and read the
+`Tests:` line. Keep mutants TYPE-correct: ts-jest diagnostics turn a type error into a suite
+failure, which reads as "killed" without proving anything. A survivor is only a finding once you
+show it is NOT equivalent. Settle that against the real tool: a failing `caddy adapt` writes 0
+bytes to stdout, so removing an `ok` guard in front of `JSON.parse(stdout)` changed nothing.
+
 **Always probe CLI validators with the argv shape gluegun produces.** yargs-parser turns a
 digit-only POSITIONAL into a number too (`lt git create 2314` → `parameters.first === 2314`),
 not only flag values. A new string guard that calls `.trim()` on raw input (`safeRef`, 2026-10-19)

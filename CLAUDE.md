@@ -1535,6 +1535,14 @@ outright. The change had been "verified" with `caddy validate` and `caddy adapt`
   high port: 127.0.0.1 and [::1] get the response, the LAN address an aborted connection.
 - Verify a listener change by RELOADING a real Caddy, not by validating its config. The channel
   that failed was the bind; a check that never binds cannot see it.
+- `lt dev doctor` said "all checks passed" through all of it: the old Caddy kept running, held
+  :443 and answered on :2019, and its only config check was `caddy validate`. It now compares the
+  daemon's loaded config (`GET :2019/config/`) with `caddy adapt` of the file
+  (`compareLoadedConfig`) and FAILs on a difference, so any failed reload shows, whatever its cause.
+  Keys are compared sorted (Caddy re-marshals what it stores, measured: only the key order
+  differs), array order counts. It stays read-only, never "fix" it into a reload: that would apply
+  a file the user may not want applied, and hide the error doctor is there to show. It also names
+  a leftover 1.51.x `default_bind` line (`hasLegacyLoopbackBind`) as the cause.
 - `migrateCaddyfile` (= `removeLegacyLoopbackBind` + `addLoopbackGuards`) runs on every
   Caddyfile write, so a broken machine heals with any `lt dev` command, and ALL managed blocks get
   the guard at once. The first fix only removed the line and guarded the block of the project

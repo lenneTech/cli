@@ -617,9 +617,11 @@ lt dev doctor
 1. `caddy` on PATH
 2. Caddy daemon running (admin endpoint `:2019` reachable)
 3. Caddyfile validates
-4. Ports 80 + 443 free or held by Caddy
-5. `*.localhost` resolves to `127.0.0.1` (RFC 6761)
-6. Registry status
+4. Caddyfile is free of the `default_bind 127.0.0.1 [::1]` that CLI 1.51.0/1.51.1 wrote (macOS refuses that bind; any `lt dev up` removes it)
+5. Caddy serves the current Caddyfile: the config loaded in the daemon (`GET :2019/config/`) matches `caddy adapt` of the file. A failed reload, such as a bind error, leaves Caddy on its old routes while checks 2, 3 and 6 stay green, because `caddy validate` never binds. Read-only, doctor never reloads.
+6. Ports 80 + 443 free or held by Caddy
+7. `*.localhost` resolves to `127.0.0.1` (RFC 6761)
+8. Registry status
 
 ---
 

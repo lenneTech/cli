@@ -16,6 +16,7 @@
  * `lt dev up`/`lt dev down` (per-project block management).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { get as httpGet } from 'http';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
@@ -59,6 +60,9 @@ export interface CaddyResult {
   stderr: string;
   stdout: string;
 }
+
+/** How the config the running Caddy serves relates to the Caddyfile on disk. */
+export type LoadedConfigState = 'differs' | 'matches' | 'unknown';
 
 /**
  * Add the loopback guard ({@link LOOPBACK_ONLY}) to every site block inside lt's own markers
@@ -114,6 +118,42 @@ export async function caddyDaemonRunning(): Promise<boolean> {
 }
 
 /**
+ * Whether the running Caddy serves the current Caddyfile.
+ *
+ * A failed reload leaves Caddy on its previous config, and no other check sees it: the admin
+ * endpoint answers, port 443 is held by Caddy, and `caddy validate` passes because validating
+ * never binds. That was the state of CLI 1.51.0 on macOS: every reload died on
+ * `listen tcp 127.0.0.1:443: bind: permission denied`, the old Caddy kept serving the old routes,
+ * and `lt dev doctor` reported "all checks passed". So this compares what Caddy has loaded
+ * (`GET /config/`) with what the file adapts to. Read-only: it neither reloads nor writes.
+ *
+ * Measured against a live daemon: both sides are equal once keys are sorted (Caddy re-marshals
+ * the stored config, so only the key order differs), a changed upstream port or the 1.51.x
+ * `default_bind` reads as `differs`, and a Caddyfile without project blocks is `{}` on both sides.
+ * @param adapt - Adapts the Caddyfile to JSON (injectable for tests)
+ * @param loaded - The JSON the daemon serves, or null when it cannot be read (injectable for tests)
+ * @returns `unknown` when either side cannot be read or parsed
+ */
+export async function compareLoadedConfig(
+  adapt: () => Promise<CaddyResult> = () => runCaddy(['adapt', '--config', CADDYFILE_PATH, '--adapter', 'caddyfile']),
+  loaded: () => Promise<null | string> = loadedCaddyConfig,
+): Promise<LoadedConfigState> {
+  const adapted = await adapt();
+  if (!adapted.ok) {
+    return 'unknown';
+  }
+  const served = await loaded();
+  if (served === null) {
+    return 'unknown';
+  }
+  try {
+    return sameCaddyConfig(JSON.parse(adapted.stdout), JSON.parse(served)) ? 'matches' : 'differs';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Create the Caddyfile with `stub` when it is missing; otherwise repair it with
  * {@link migrateCaddyfile}. Never replaces an existing file: `lt dev install` used to write the
  * stub on every run, which dropped the routes of every registered project, although its own
@@ -130,6 +170,16 @@ export function ensureCaddyfile(stub: string): boolean {
 }
 
 /**
+ * Whether the Caddyfile still carries the `default_bind` of CLI 1.51.0/1.51.1 (see
+ * {@link LEGACY_LOOPBACK_BIND}). Every lt write removes it; this only names it as the cause when
+ * nothing has written the file since.
+ * @param content - Caddyfile content
+ */
+export function hasLegacyLoopbackBind(content: string): boolean {
+  return content.split('\n').some((line) => LEGACY_LOOPBACK_BIND.test(line));
+}
+
+/**
  * Apply {@link migrateCaddyfile} to the file on disk and write it back if that changed anything.
  * For paths that write no project block, such as `lt dev up` on a stack that is already running
  * when its ports are unknown.
@@ -142,6 +192,35 @@ export function healCaddyfile(): boolean {
   }
   writeCaddyfile(current);
   return true;
+}
+
+/** The config the running Caddy serves (`GET /config/`), or null when the admin API does not answer 200. */
+export function loadedCaddyConfig(timeoutMs = 2000): Promise<null | string> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: null | string): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const request = httpGet('http://127.0.0.1:2019/config/', { timeout: timeoutMs }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        done(null);
+        return;
+      }
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => (body += chunk));
+      response.on('end', () => done(body));
+      response.on('error', () => done(null));
+    });
+    request.on('timeout', () => {
+      request.destroy();
+      done(null);
+    });
+    request.on('error', () => done(null));
+  });
 }
 
 /**
@@ -276,6 +355,30 @@ export function renderProjectBlock(slug: string, routes: CaddyRoute[]): string {
   }
   lines.push(`# <<< lt-dev:${slug} <<<`);
   return lines.join('\n');
+}
+
+/**
+ * Compare two Caddy JSON configs by content. Object key order is ignored, because Caddy
+ * re-marshals the config it stores and `GET /config/` returns its keys in a different order than
+ * `caddy adapt` writes them. Array order counts: routes and handlers run in that order.
+ * @param a - A Caddy JSON config
+ * @param b - Another Caddy JSON config
+ */
+export function sameCaddyConfig(a: unknown, b: unknown): boolean {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) {
+      return value.map(canonical);
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort()
+          .map((key) => [key, canonical((value as Record<string, unknown>)[key])]),
+      );
+    }
+    return value;
+  };
+  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
 /**

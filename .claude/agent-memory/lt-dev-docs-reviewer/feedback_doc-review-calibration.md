@@ -98,3 +98,10 @@ gets ignored with it.
   from a scratchpad dir creates `PWNED` (runs the compiled `build/`; check the build copy still
   matches the source first). `npx <bin>` claims: libnpmexec runs a local or GLOBAL bin of that
   name before fetching the same-named package (npm's `libnpmexec/lib/index.js`, `globalBin`).
+- **Claims about what a RUNNING Caddy has loaded are checkable without touching the user's daemon
+  (2026-10-20).** `GET http://127.0.0.1:2019/config/` is read-only; for a scratch daemon run
+  `CADDY_ADMIN=127.0.0.1:29019 XDG_DATA_HOME=<scratch> XDG_CONFIG_HOME=<scratch> caddy run --config <file> --adapter caddyfile`
+  in the background, curl `:29019/config/`, then `pkill -f` it. Verified that way: live `/config/` and
+  `caddy adapt` differ in bytes but match after key sort; a comments-only Caddyfile is `{}` on both
+  sides. Doc check-list numbering ("checks 2, 3 and 6 stay green") must be checked against the
+  DOCS' numbering, not the code comments' — `doctor.ts` reuses "4." twice, so the two disagree.

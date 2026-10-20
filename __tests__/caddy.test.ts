@@ -7,13 +7,16 @@ process.env.LT_DEV_CADDYFILE = join(tmp, 'Caddyfile');
 
 import {
   addLoopbackGuards,
+  compareLoadedConfig,
   ensureCaddyfile,
+  hasLegacyLoopbackBind,
   healCaddyfile,
   migrateCaddyfile,
   readCaddyfile,
   removeLegacyLoopbackBind,
   removeProjectBlock,
   renderProjectBlock,
+  sameCaddyConfig,
   upsertProjectBlock,
   writeCaddyfile,
 } from '../src/lib/caddy';
@@ -23,7 +26,7 @@ describe('caddy / Caddyfile management', () => {
     writeCaddyfile('# clean slate\n');
   });
   afterAll(() => {
-    rmSync(tmp, { recursive: true, force: true });
+    rmSync(tmp, { force: true, recursive: true });
   });
 
   describe('renderProjectBlock', () => {
@@ -233,6 +236,66 @@ describe('caddy / Caddyfile management', () => {
       const out = readCaddyfile();
       expect(out).not.toContain('# >>> lt-dev:crm >>>');
       expect(out).toContain('# >>> lt-dev:shop >>>');
+    });
+  });
+
+  // `lt dev doctor` reported "all checks passed" while every reload failed on macOS (CLI 1.51.0):
+  // the old Caddy kept running, held port 443 and answered on :2019, and `caddy validate` never
+  // binds. Only comparing what Caddy serves with what the file says shows a failed reload.
+  describe('loaded config vs Caddyfile', () => {
+    // As measured on a live daemon: `GET /config/` returns the config `caddy adapt` produced with
+    // its keys in another order (Caddy re-marshals what it stores). Reversed here, so the order
+    // differs for sure.
+    const route = (host: string, port: number) => ({
+      handle: [{ handler: 'subroute', routes: [{ handle: [{ handler: 'reverse_proxy', upstreams: [{ dial: `127.0.0.1:${port}` }] }] }] }],
+      match: [{ host: [host] }],
+      terminal: true,
+    });
+    const adapted = (port: number) => ({
+      apps: { http: { servers: { srv0: { listen: [':443'], routes: [route('crm.localhost', port), route('api.crm.localhost', 4010)] } } } },
+    });
+    const served = (port: number): string =>
+      JSON.stringify(adapted(port), (_key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.keys(value).sort().reverse().map((k) => [k, value[k]]))
+          : value,
+      );
+    const ok = (stdout: string) => async () => ({ exitCode: 0, ok: true, stderr: '', stdout });
+
+    test('key order does not count, content does', () => {
+      expect(served(4011)).not.toBe(JSON.stringify(adapted(4011)));
+      expect(sameCaddyConfig(adapted(4011), JSON.parse(served(4011)))).toBe(true);
+      expect(sameCaddyConfig(adapted(4011), JSON.parse(served(4999)))).toBe(false);
+      expect(sameCaddyConfig({}, {})).toBe(true);
+    });
+
+    test('route order counts: Caddy runs routes in array order', () => {
+      const swapped = adapted(4011);
+      swapped.apps.http.servers.srv0.routes.reverse();
+      expect(sameCaddyConfig(adapted(4011), swapped)).toBe(false);
+    });
+
+    test('a daemon still on its old routes reads as differs', async () => {
+      const state = await compareLoadedConfig(ok(JSON.stringify(adapted(4011))), async () => served(4999));
+      expect(state).toBe('differs');
+    });
+
+    test('a daemon serving the file reads as matches', async () => {
+      const state = await compareLoadedConfig(ok(JSON.stringify(adapted(4011))), async () => served(4011));
+      expect(state).toBe('matches');
+    });
+
+    test('unknown, never matches, when a side cannot be read', async () => {
+      const failed = async () => ({ exitCode: 1, ok: false, stderr: 'adapt: bad', stdout: '' });
+      expect(await compareLoadedConfig(failed, async () => '{}')).toBe('unknown');
+      expect(await compareLoadedConfig(ok('{}'), async () => null)).toBe('unknown');
+      expect(await compareLoadedConfig(ok('{}'), async () => 'not json')).toBe('unknown');
+    });
+
+    test('hasLegacyLoopbackBind finds only the 1.51.x line', () => {
+      expect(hasLegacyLoopbackBind('{\n\tdefault_bind 127.0.0.1 [::1]\n}\n')).toBe(true);
+      expect(hasLegacyLoopbackBind('{\n\tdefault_bind 192.168.1.10\n}\n')).toBe(false);
+      expect(hasLegacyLoopbackBind(migrateCaddyfile('{\n\tdefault_bind 127.0.0.1 [::1]\n}\n'))).toBe(false);
     });
   });
 });

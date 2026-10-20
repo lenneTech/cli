@@ -82,3 +82,15 @@ Each plugin also spawns `claude plugin install` + `claude plugin update` (second
 - Own load of `exec-args` + `safe-paths` + `unknown-options` + `plugin-permissions` together: ~2.4 ms (builtins + internal only).
 - `ensureLoopbackBind` on a 500-project, 132 KB Caddyfile: 0.16 ms (global block present) / 0.47 ms (inserting) / 1.6 ms (unbalanced braces, worst case). Idempotent across upsert/remove/legacy-heal sequences; `reloadCaddy()` after upsert is unconditional anyway (pre-existing).
 - Measure Caddy code against a scratch file via `LT_DEV_CADDYFILE=<scratch>/Caddyfile` (read at module load), never the live `~/.lenneTech/Caddyfile`.
+
+## `lt dev doctor` loaded-config check (measured 2026-10-20, reviewing `caddy.ts#compareLoadedConfig`)
+
+| Thing | Cost |
+|---|---|
+| `GET 127.0.0.1:2019/config/` (5.2 KB, 9 projects) | ~12 ms |
+| `compareLoadedConfig` incl. `caddy adapt` spawn + deep key-sorted compare | ~120 ms |
+| Process exit after a keep-alive `http.get` resolves (Node 24 globalAgent) | 0 ms: free sockets are unref'd, no loop hold |
+
+Hang matrix for a `{ timeout }` `http.get` with `on('timeout') → destroy`: no response → null at 2.0 s; 200 + stalled body → null at 2.0 s (the socket timeout also covers the body); socket reset mid-body → null; non-200 → null. Only a trickle faster than the timeout never settles, which a local Caddy does not do.
+
+**How to test such a helper without touching port 2019:** TS compiles `import { get as httpGet } from 'http'` to `(0, http_1.get)(…)`, so replace `require('http').get` (plain `require`, not `import *`, whose namespace is getter-only) before requiring the module, and point it at a scratch server.
