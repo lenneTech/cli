@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'path';
+import { posix } from 'path';
 import { Node, SourceFile, SyntaxKind } from 'ts-morph';
 
 /**
@@ -50,7 +50,7 @@ export interface SpecifierResult {
  */
 export function addJsExtensions(sourceFile: SourceFile, exists: (absolutePath: string) => boolean): SpecifierResult {
   const result: SpecifierResult = { changed: [], unresolved: [] };
-  const fromDir = dirname(sourceFile.getFilePath());
+  const fromDir = posix.dirname(sourceFile.getFilePath());
 
   const visit = (literal: Node, specifier: string, apply: (next: string) => void) => {
     if (!isRelative(specifier) || HAS_RUNTIME_EXTENSION.test(specifier)) return;
@@ -94,18 +94,22 @@ export function addJsExtensions(sourceFile: SourceFile, exists: (absolutePath: s
 /**
  * The specifier Node needs for `specifier`, seen from `fromDir`, or `undefined` when nothing on
  * disk matches. A file wins over a directory of the same name, as in TypeScript's resolution.
+ *
+ * Paths are joined with `/` on every platform: ts-morph reports `C:/x/src/a.ts` on Windows, and
+ * `path.resolve` there would answer `C:\x\src\b.ts`, which an in-memory file system never has.
+ * Node's own file functions accept `/` on Windows.
  */
 export function resolveRuntimeSpecifier(
   fromDir: string,
   specifier: string,
   exists: (absolutePath: string) => boolean,
 ): string | undefined {
-  const base = resolve(fromDir, specifier);
+  const base = posix.join(fromDir.replace(/\\/g, '/'), specifier);
   for (const [sourceExtension, runtimeExtension] of SOURCE_EXTENSIONS) {
     if (exists(`${base}${sourceExtension}`)) return `${specifier}${runtimeExtension}`;
   }
   for (const [sourceExtension, runtimeExtension] of SOURCE_EXTENSIONS) {
-    if (exists(resolve(base, `index${sourceExtension}`))) {
+    if (exists(posix.join(base, `index${sourceExtension}`))) {
       return `${specifier.replace(/\/$/, '')}/index${runtimeExtension}`;
     }
   }

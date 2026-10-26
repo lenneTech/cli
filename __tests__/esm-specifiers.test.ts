@@ -98,4 +98,14 @@ describe('resolveRuntimeSpecifier', () => {
       '../../../core/index.js',
     );
   });
+
+  it('resolves Windows paths on any host: ts-morph reports C:/…, path.join C:\\…', () => {
+    // path.resolve on Windows turned ts-morph's `C:/app/src` into `C:\app\src\b.ts`, which the
+    // in-memory file system never has, so nothing resolved there (windows-latest, 1.52.0).
+    const files = new Set(['C:/app/src/b.ts', 'C:/app/top.ts', 'C:/app/core/index.ts']);
+    const exists = (path: string) => files.has(path);
+    expect(resolveRuntimeSpecifier('C:/app/src', './b', exists)).toBe('./b.js');
+    expect(resolveRuntimeSpecifier('C:\\app\\src', '../top', exists)).toBe('../top.js');
+    expect(resolveRuntimeSpecifier('C:\\app\\src', '../core', exists)).toBe('../core/index.js');
+  });
 });

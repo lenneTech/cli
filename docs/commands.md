@@ -362,7 +362,7 @@ lt server convert-esm [--dry-run] [--noConfirm] [--force] [--skip-verify]
 - Decorated declarations typed with a class from the same import cycle. ESM throws `Cannot access 'X' before initialization` at start-up; type them as `WrapperType<X>`.
 - Leftover `require()`, `module.exports`, unresolved relative imports, `compilerOptions.paths`.
 
-**Verification:** builds the project, starts the BUILT server (`/health-check`), runs `migrate:list` and starts the dev server. Both traps above pass the test suite, so only a real start shows them. Run the command again after fixing the findings: on an ESM project it re-applies the exact rewrites (idempotent) and checks again, without the clean-tree requirement.
+**Verification:** builds the project, starts the BUILT server (`/health-check`), runs `migrate:list` and starts the dev server. Both traps above pass the test suite, so only a real start shows them. Run the command again after fixing the findings: on an ESM project it re-applies the exact rewrites (idempotent) and checks again, without the clean-tree requirement. The verification runs on macOS and Linux; on Windows the command converts and reports as everywhere, then says which four checks to run by hand.
 
 Requires nest-server 12+: in npm mode the installed package, in vendor mode a core with `modules/migrate/helpers/package.json`.
 

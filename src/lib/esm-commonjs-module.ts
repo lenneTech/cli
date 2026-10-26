@@ -1,4 +1,4 @@
-import { dirname } from 'path';
+import { posix } from 'path';
 import { Node, SourceFile, SyntaxKind } from 'ts-morph';
 
 import { resolveRuntimeSpecifier } from './esm-specifiers';
@@ -34,7 +34,7 @@ export function convertCommonJsModule(
       .getDescendantsOfKind(SyntaxKind.VariableDeclaration)
       .some((declaration) => declaration.getName() === 'require');
   if (isEsm) return { changed: false, reported };
-  const fromDir = dirname(sourceFile.getFilePath());
+  const fromDir = posix.dirname(sourceFile.getFilePath());
   const esmSpecifier = (specifier: string) =>
     specifier.startsWith('.') ? (resolveRuntimeSpecifier(fromDir, specifier, exists) ?? specifier) : specifier;
   let changed = false;

@@ -157,7 +157,14 @@ const ConvertEsmCommand: GluegunCommand = {
     printFindings(result.findings, warning, info);
 
     let failedSteps = 0;
-    if (!isSet(parameters.options['skip-verify']) && !isSet(parameters.options.skipVerify)) {
+    const verify = !isSet(parameters.options['skip-verify']) && !isSet(parameters.options.skipVerify);
+    if (verify && process.platform === 'win32') {
+      // esm-verify spawns pnpm without its .cmd shim and the dev command through /bin/sh, so
+      // every step would fail on Windows for reasons unrelated to the project.
+      info('');
+      warning('Verification runs on macOS and Linux only: build, start the built server, migrate:list');
+      warning('and start the dev server by hand, or run the command there.');
+    } else if (verify) {
       info('');
       info('Verifying: the test suite does not show the ESM start-up errors, so the project is run.');
       const verifySpinner = spin('build');

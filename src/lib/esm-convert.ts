@@ -17,6 +17,7 @@ import { findDecoratedCycleUses } from './esm-import-cycles';
 import { addJsExtensions } from './esm-specifiers';
 import { moveDecoratedTypesToTypeImports } from './esm-type-imports';
 import { LEGACY_VENDOR_TS_COMPILER } from './heal-vendor-migrate-store';
+import { isPathInside } from './safe-paths';
 
 /**
  * Converts a nest-server 12 API project from CommonJS to an ES module project, the steps of the
@@ -94,7 +95,8 @@ export function convertProjectToEsm(options: EsmConversionOptions): EsmConversio
   const { apiDir, dryRun, mode } = options;
   const changes: string[] = [];
   const findings: EsmFinding[] = [];
-  const rel = (file: string) => relative(apiDir, file) || basename(file);
+  // Reported paths use `/` on every platform, as in the docs and the scripts they refer to.
+  const rel = (file: string) => (relative(apiDir, file) || basename(file)).replace(/\\/g, '/');
   const loader = mode === 'vendor' ? VENDOR_CORE_LOADER : NPM_CORE_LOADER;
   // Every write waits until all in-memory rewrites succeeded: a rewrite that throws must not leave
   // a project with "type": "module" and nodenext configs over unconverted sources, which builds
@@ -182,7 +184,8 @@ export function convertProjectToEsm(options: EsmConversionOptions): EsmConversio
     skipFileDependencyResolution: true,
   });
   const coreDir = join(apiDir, 'src', 'core');
-  const isOwnFile = (file: string) => !(mode === 'vendor' && (file === coreDir || file.startsWith(`${coreDir}/`)));
+  // isPathInside, not startsWith(`${dir}/`): ts-morph reports `C:/x/…` on Windows, path.join `C:\x\…`.
+  const isOwnFile = (file: string) => !(mode === 'vendor' && isPathInside(coreDir, file));
   for (const file of collectFiles(apiDir, /\.(?:[cm]?ts)$/, isOwnFile)) {
     if (file.endsWith('.d.ts')) continue;
     const sourceFile = sources.addSourceFileAtPath(file);
@@ -296,15 +299,10 @@ export function convertProjectToEsm(options: EsmConversionOptions): EsmConversio
   // Anything else under allowJs (a k6 script, a tool config) never runs as part of the app.
   const ownSource = (file: SourceFile) => {
     const path = file.getFilePath();
-    if (
-      !path.startsWith(`${apiDir}/`) ||
-      path.includes('/node_modules/') ||
-      path.includes('/dist/') ||
-      !isOwnFile(path)
-    ) {
+    if (!isPathInside(apiDir, path) || path.includes('/node_modules/') || path.includes('/dist/') || !isOwnFile(path)) {
       return false;
     }
-    return /\.[cm]?ts$/.test(path) || path.startsWith(`${utilsDir}/`);
+    return /\.[cm]?ts$/.test(path) || isPathInside(utilsDir, path);
   };
   for (const cycle of findDecoratedCycleUses(typed1272, ownSource)) {
     findings.push({
