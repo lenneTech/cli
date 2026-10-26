@@ -105,3 +105,25 @@ gets ignored with it.
   `caddy adapt` differ in bytes but match after key sort; a comments-only Caddyfile is `{}` on both
   sides. Doc check-list numbering ("checks 2, 3 and 6 stay green") must be checked against the
   DOCS' numbering, not the code comments' — `doctor.ts` reuses "4." twice, so the two disagree.
+- **Recipes that worked for the nest-server-12 prep review (2026-10-25):**
+  - "Exactly one version was ever generated" claims (heal exact-match constants): loop
+    `git log --format=%h -- <file>` in `bash -c`, extract the generator block per commit with
+    awk and `md5`; then `eval` the array literal from HEAD and from the constant and compare.
+  - Unreleased cross-repo work (nest-server 12, starter) sits UNCOMMITTED in the sibling repo's
+    working tree: check claims against the working tree, and `git show HEAD:<path>` for the
+    "older core" half.
+  - js-yaml 4 vs 5 differentials: a 4.x copy lives in another repo's
+    `node_modules/.pnpm/js-yaml@4.*`; scratchpad scripts must `require` ts-node by absolute path.
+    Measured: whitespace-only input is `undefined` in 4.x but `null` from `loadYaml` (the
+    comment says null) — harmless, every caller treats both as empty.
+  - TS-option claims: CLI's `node_modules/.bin/tsc` is 6.0.3 (needs `--ignoreConfig` in the
+    scratchpad), `nest-server-starter/node_modules/typescript` is 5.9.3.
+- **Recipes from the ESM / pinned-vendor review (2026-10-26), result: 0 High findings:**
+  - "Falls back to the default branch when the tag is missing": check that the error regex sees
+    git's stderr through `execFile` by running `git clone --depth 1 --branch 99.99.99 --
+    file:///…/nest-server dst` from a `node -e` and testing `isMissingCloneRef` against
+    `err.message` (Node puts stderr into the message). It matched.
+  - "Migration guide §N" claims: `grep '^## '` in `nest-server/migration-guides/11.43.x-to-12.0.x.md`.
+  - "Version X lacks helper Y": `git grep -l Y <tag> -- src` in the nest-server checkout.
+  - Probe a new command's flag allow-list without a project: run `node bin/lt <cmd> --dry-run …`
+    in an empty scratch dir. It should fail with "no project", not with "unknown option".

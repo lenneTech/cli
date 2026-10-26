@@ -2,7 +2,8 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { getFrameworkImportSpecifier } from '../../lib/framework-detection';
+import { finishGeneratedImports } from '../../lib/esm-generated-files';
+import { getFrameworkImportSpecifier, withFrameworkImportSpecifier } from '../../lib/framework-detection';
 import genModule from './module';
 
 /**
@@ -171,7 +172,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         frameworkImport: importFor(inputTarget),
-        imports: inputTemplate.imports,
+        imports: withFrameworkImportSpecifier(inputTemplate.imports, importFor(inputTarget)),
         nameCamel,
         nameKebab,
         namePascal,
@@ -186,7 +187,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         frameworkImport: importFor(createInputTarget),
-        imports: createTemplate.imports,
+        imports: withFrameworkImportSpecifier(createTemplate.imports, importFor(createInputTarget)),
         nameCamel,
         nameKebab,
         namePascal,
@@ -201,7 +202,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         frameworkImport: importFor(objectTarget),
-        imports: objectTemplate.imports,
+        imports: withFrameworkImportSpecifier(objectTemplate.imports, importFor(objectTarget)),
         mappings: objectTemplate.mappings,
         nameCamel,
         nameKebab,
@@ -244,6 +245,9 @@ const NewCommand: ExtendedGluegunCommand = {
     summaryLines.push('---');
     info(summaryLines.join('\n'));
     info('');
+
+    // An ES module project needs `./x.js` specifiers; the templates write them extensionless.
+    finishGeneratedImports(path, [directory]);
 
     // Lint fix with priority: CLI > config > global > default (false)
     const skipLint = config.getSkipLint({

@@ -1,9 +1,10 @@
 import type { GluegunFilesystem } from 'gluegun';
 
-import { dump, load } from 'js-yaml';
+import { dump } from 'js-yaml';
 
 import { isSymlink } from './fs-utils';
 import { extractKeyComments, reattachKeyComments } from './hoist-workspace-pnpm-config';
+import { loadYaml } from './yaml';
 
 /**
  * Carry the framework's build-script allowlist into a project that has just
@@ -69,7 +70,7 @@ export function adoptUpstreamBuildAllowlist(options: {
   if (!destWs) return [];
 
   // The project's map is read RAW, not through `asStringBoolMap`. Narrowing it to
-  // booleans first was a live deny-bypass with no attacker involved: js-yaml 4
+  // booleans first was a live deny-bypass with no attacker involved: `loadYaml`
   // uses the YAML 1.2 core schema, so `esbuild: no` and `esbuild: off` parse as
   // STRINGS. A maintainer writing `no` to mean "deny" was read as "no opinion",
   // upstream's `true` was adopted, and the original entry was dropped from the
@@ -132,7 +133,7 @@ function parseYamlObject(raw: string): null | Record<string, unknown> {
   if (!raw) return null;
   let parsed: unknown;
   try {
-    parsed = load(raw);
+    parsed = loadYaml(raw);
   } catch {
     // Malformed upstream YAML must not take the conversion down with it — the
     // vendored project is still usable, it just does not inherit the allowlist.

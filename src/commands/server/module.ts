@@ -2,7 +2,8 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { getFrameworkImportSpecifier } from '../../lib/framework-detection';
+import { finishGeneratedImports } from '../../lib/esm-generated-files';
+import { getFrameworkImportSpecifier, withFrameworkImportSpecifier } from '../../lib/framework-detection';
 import genObject from './object';
 
 /**
@@ -337,7 +338,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         frameworkImport: importFor(inputTarget),
-        imports: inputTemplate.imports,
+        imports: withFrameworkImportSpecifier(inputTemplate.imports, importFor(inputTarget)),
         nameCamel,
         nameKebab,
         namePascal,
@@ -367,7 +368,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         frameworkImport: importFor(createInputTarget),
-        imports: createTemplate.imports,
+        imports: withFrameworkImportSpecifier(createTemplate.imports, importFor(createInputTarget)),
         isGql: controller === 'GraphQL' || controller === 'Both',
         nameCamel,
         nameKebab,
@@ -397,7 +398,7 @@ const NewCommand: ExtendedGluegunCommand = {
     await template.generate({
       props: {
         frameworkImport: importFor(modelTarget),
-        imports: modelTemplate.imports,
+        imports: withFrameworkImportSpecifier(modelTemplate.imports, importFor(modelTarget)),
         isGql: controller === 'GraphQL' || controller === 'Both',
         mappings: modelTemplate.mappings,
         nameCamel,
@@ -496,6 +497,9 @@ const NewCommand: ExtendedGluegunCommand = {
     } else {
       info("Don't forget to include the module into your main module.");
     }
+
+    // An ES module project needs `./x.js` specifiers; the templates write them extensionless.
+    finishGeneratedImports(path, [directory, serverModule]);
 
     // We're done, so show what to do next
     info('');

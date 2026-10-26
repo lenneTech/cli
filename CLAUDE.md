@@ -99,7 +99,11 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   starter's `migrations-utils/mongo-uri.js`) — and which
   `healVendorMigrateStore` (`src/lib/heal-vendor-migrate-store.ts`, run from
   `lt fullstack update`) re-writes for older projects still carrying an
-  unguarded top-level ts-node require. It is **NOT** linted by the CLI's own
+  unguarded top-level ts-node require. Next to it, `ts-compiler.js` becomes the
+  project's `migrations-utils/ts-compiler.js` (hands over to the vendored core's SWC
+  loader from nest-server 12 on, else ts-node with `skipProject`, see the Gotcha "A
+  file the CLI writes into a TypeScript project must not inherit its tsconfig"); `healVendorTsCompiler` replaces the one version earlier CLIs
+  generated. Both are **NOT** linted by the CLI's own
   ESLint (the whole `src/templates/**` tree is ignored — see
   `eslint.config.mjs`). The former three maintenance scripts
   (`check-vendor-freshness.mjs`, `sync-from-upstream.ts`,
@@ -159,7 +163,7 @@ source code must be mode-aware:
 | Detection | `src/lib/framework-detection.ts` | `isVendoredProject()`, `detectFrameworkMode()`, `getFrameworkImportSpecifier()`, `getFrameworkRootPath()`, `findProjectDir()` |
 | Init (fullstack) | `src/commands/fullstack/init.ts` | `--framework-mode npm\|vendor`, `--framework-upstream-branch`, `--dry-run`; resolves mode and plumbs to `setupServerForFullstack` |
 | Init (standalone) | `src/commands/server/create.ts` | Same flags; plumbs to `setupServer` |
-| Vendor transform | `src/extensions/server.ts#convertCloneToVendored` | Clones upstream nest-server, flatten-fixes core, rewrites consumer imports (ts-morph), merges deps dynamically, writes VENDOR.md, copies vendor scripts, hooks check:vendor-freshness |
+| Vendor transform | `src/extensions/server.ts#convertCloneToVendored` | Clones upstream nest-server, flatten-fixes core, rewrites consumer imports (ts-morph), merges deps dynamically and raises the pins the project shares with the core (`src/lib/align-framework-pins.ts`, the starter's `pnpm run update` rule), writes VENDOR.md, copies vendor scripts, hooks check:vendor-freshness |
 | Vendor core essentials | `src/extensions/server.ts#restoreVendorCoreEssentials` | Restores graphql-* deps after processApiMode REST strips them |
 | Runtime-helper config | `src/config/vendor-runtime-deps.json` | Upstream devDeps that must be promoted to dependencies (e.g. the better-auth trio) |
 | Vendor E-Mail templates | `src/extensions/server.ts#convertCloneToVendored` (copy mapping) | Upstream `src/templates/` is placed at `<project>/src/templates/` — deliberately **outside** `src/core/` — because the runtime resolver in `src/core/modules/better-auth/core-better-auth-email-verification.service.ts` uses `__dirname + '../../../templates'` and must match the relative layout of npm mode. Also keeps project-specific E-Mail customization outside the vendored framework tree. Never move these under `src/core/templates/`. |
@@ -685,26 +689,35 @@ reaches it reliably — args appended to an `&&` chain only hit the LAST command
 human-readable reason into the sibling `//overrides` doc object), e.g. `form-data`
 4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core` 7.29.7 (GHSA-4x5r-pxfx-6jf8).
 
-`js-yaml` is at **4.3.2** (GHSA-5p4m-2wfm-xmqj, quadratic CPU in `!!omap`, fixed 4.3.1 /
-3.15.1; GHSA-2883-xcg3-v3hh, `maxTotalMergeKeys` does not limit CPU for empty merge
-sources, fixed 4.3.2 / 3.15.2). It is a direct production dependency of this CLI
-(`src/extensions/config.ts`, `src/lib/hoist-workspace-pnpm-config.ts`).
+`js-yaml` is at **5.5.0** (raised from 4.3.2 on 2026-10-24; 4.3.2 had fixed GHSA-5p4m-2wfm-xmqj
+and GHSA-2883-xcg3-v3hh). It is a direct production dependency of this CLI. **Load YAML only
+through `src/lib/yaml.ts#loadYaml`, never with js-yaml's `load()`.** 5.x `load()` throws on
+a source without a document (empty file, comments only), where 4.x returned
+`undefined`/`null` and every call site reads that as "no content"; and 5.x's core schema
+has no `!!merge`, so `<<: *defaults` arrived as a literal `'<<'` key. `loadYaml` restores
+both (`loadAll` + `CORE_SCHEMA.withTags(mergeTag)`). It stays on the 1.2 core schema on
+purpose: `no`/`off` must remain STRINGS for the allowBuilds deny logic, so `YAML11_SCHEMA`
+is not a shortcut. Dates now stay strings (4.x built a `Date`, and a dump-back wrote
+`…T00:00:00.000Z`); `!!omap`/`!!pairs`/`!!set` throw. `dump()` is used directly; the test
+suite showed no output difference for the files the CLI writes. 5.x ships its own types, so
+`@types/js-yaml` is gone.
 
 The dev-only 3.x path (ts-jest > @jest/transform > babel-plugin-istanbul >
-@istanbuljs/load-nyc-config, which requests `^3.13.1`) is forced onto 4.x again, by
+@istanbuljs/load-nyc-config, which requests `^3.13.1`) is forced onto the direct version by
 the consumer-scoped override `"@istanbuljs/load-nyc-config": { "js-yaml": "$js-yaml" }`
 (`$js-yaml` = this project's own direct js-yaml, so the two cannot drift). History:
 until 2026-09-14 the same override existed for the `!!omap` advisory; it was dropped
 when js-yaml backported that fix to 3.15.1/3.15.2. On 2026-10-06 GHSA-hp3w-g68c-fv3c
 (sprintf-js, DoS, advisory range ALL versions) brought it back: js-yaml 3.x needs
 argparse 1.x, argparse 1.x needs sprintf-js, and every link is at its latest release.
-Only js-yaml 4.x leaves the chain (argparse ^2 has no sprintf-js). Two facts that cost
+Only js-yaml 4+ leaves the chain (argparse ^2 / ^3 have no sprintf-js). Two facts that cost
 time: a top-level `js-yaml@<x` selector does **not** reach that nested path in npm,
 only the consumer-scoped form does; and `npm install` does **not** re-resolve a nested
 node already in the lockfile when you add an override for it (`npm ls` then reports it
 `invalid`): delete that node's `packages` entries (here `…/load-nyc-config/node_modules/{js-yaml,argparse}`)
 and the matching `node_modules` dirs, then install. The export-shape check still holds
-(`index.js:80` calls `.load`, which 4.x has; 4.x `load` behaves like 3.x `safeLoad`).
+(`index.js:80` calls `.load`, which 5.x still has and which behaves like 3.x `safeLoad`; it
+only runs for a `.nycrc.yaml`, which this repo does not have).
 
 ### `lt fullstack init` used to exit 0 on EVERY error path <!-- Added: 2026-08-23 -->
 A gluegun command that `return`s leaves the process at exit code 0. Until 1.43.0 every
@@ -731,7 +744,7 @@ become the generated project's own. pnpm 11 does not treat an unlisted build scr
 installed at all. nest-server's `pnpm-workspace.yaml` is not in its npm tarball, so the
 clone during conversion is the only moment it can be read;
 `adoptUpstreamBuildAllowlist` snapshots it there. **Additive only** — and "already
-decided" is judged on the RAW key, never on a boolean-narrowed copy: js-yaml 4 uses the
+decided" is judged on the RAW key, never on a boolean-narrowed copy: `loadYaml` uses the
 YAML 1.2 core schema, so `esbuild: no` / `off` are STRINGS, and narrowing first turned
 a maintainer's deny into "no opinion" and adopted upstream's `true`.
 
@@ -1100,7 +1113,7 @@ Three related rules in the same file, each with a test:
   end-to-end run against the compiled `build/` surfaced that — the unit tests asserted the
   merge result and the message separately, and each was right on its own.
 - **Compare what the field's own normalisation will use** (`canonicaliseForCompare`):
-  js-yaml 4 parses `esbuild: no` as the STRING `'no'` while `package.json#pnpm` carries
+  `loadYaml` parses `esbuild: no` as the STRING `'no'` while `package.json#pnpm` carries
   the BOOLEAN `false`, and `syncBuildAllowlists` narrows both to `false` — reporting them
   sends someone through two repositories over two spellings of "deny".
 
@@ -1274,18 +1287,26 @@ be spawned without a shell.
 
 ### A hook in a linked worktree inherits GIT_DIR — and hands it to the test suite <!-- Added: 2026-09-14 -->
 In a linked worktree (`git worktree add`) git exports `GIT_DIR=<repo>/.git/worktrees/<name>`
-to hooks; in the main checkout it does not. `.husky/pre-push` runs `npm run test`, and many
+to hooks; in the main checkout it does not. The former `.husky/pre-push` ran `npm run test`, and many
 tests spawn git in temporary repos (`git init`, `git config`, `git branch -m`, `git commit`).
 With `GIT_DIR` inherited, every one of those calls hit the real repository instead. One push
 renamed the branch being pushed to `dev`, committed 14 fixture commits onto it, created
 `feat/DEV-2381`/`feat/slot-2`/`release/1.0`, and wrote `core.bare=true` plus a `Test` user into
 the shared `.git/config` — which every worktree reads. The push itself failed on the resulting
 test errors, so nothing left the machine. It surfaced only once the hook was repaired: before,
-it died on the missing `husky.sh` before running anything in a worktree. **Rules:** a hook
-that runs tests first `unset`s `GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE`
-(`__tests__/husky-hooks.test.ts` guards it). A test that spawns git must not rely on the ambient
-environment being clean. After an unexpected hook failure, check `git config --local --list`
-and `git for-each-ref --sort=-committerdate` before anything else.
+it died on the missing `husky.sh` before running anything in a worktree. **The repo ships no
+git hooks since 2026-10-25:** husky had been inactive for a long time (no `prepare` script, no
+`core.hooksPath`), so it went together with `.husky/`, its guard test, `extras/sync-version.*`
+and `@lenne.tech/npm-package-helper`, which only the pre-commit hook used. Pushes are guarded by
+the CI and by the lt-dev ship workflows, which run `check` in blocking mode. Since 2026-10-26 the
+CI runs what `check` runs (the user's decision): `build.yml` does lint, tests, compile and
+`check:start` (the COMPILED build reaches the menu; `--compiled-build`, because with `src/` present
+`bin/lt` would otherwise run the TypeScript sources) on every push, and the `npm audit` gate in a
+job of its own, so a fresh advisory does not hide the build results. `publish.yml` installs with
+`npm ci` and runs the audit gate, the build and `check:start` before `npm publish`. **Rules, if a hook ever comes back:** a hook that runs tests first
+`unset`s `GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE`, and gets a test that pins it. A test that spawns
+git must not rely on the ambient environment being clean. After an unexpected hook failure,
+check `git config --local --list` and `git for-each-ref --sort=-committerdate` before anything else.
 
 ### Find binaries with `findExecutable`, spawn third-party tools with `spawnCmdSync` <!-- Added: 2026-09-14 -->
 Two habits that work on macOS/Linux fail on native Windows. `spawnSync('which', [x])`
@@ -1554,6 +1575,205 @@ outright. The change had been "verified" with `caddy validate` and `caddy adapt`
   fixed (`KeepAlive` / `Restart=on-failure`); `prepareCaddy` waits for that.
 - `lt dev install` writes the stub only if the Caddyfile is absent (`ensureCaddyfile`). It used to
   overwrite the file on every run, dropping every project's routes, contrary to its own docs.
+
+### A file the CLI writes into a TypeScript project must not inherit its tsconfig <!-- Added: 2026-10-24 -->
+nest-server 12 moves projects to TypeScript 6 and recommends `module`/`moduleResolution:
+nodenext`. The vendor-mode `migrations-utils/ts-compiler.js` used to call `tsNode.register`
+with only `module: 'commonjs'` on top of the project's tsconfig. Against a nodenext tsconfig
+that is TS5110, and ts-node reports option errors even with `transpileOnly`: every
+`migrate:*` run failed, including the first step of `pnpm start`. Two more TypeScript 6 option
+errors hit the same path: TS5011 (`outDir` without `rootDir`) and TS5107 (`moduleResolution:
+node`, which ts-node's bundled defaults set once `skipProject` drops the project config).
+**Rules:**
+- A bootstrap that only strips types uses `skipProject: true` and sets every option it needs.
+  `moduleResolution` depends on the TypeScript major: `bundler` from 6 (the 6 default for
+  CommonJS), `node` below (5 accepts `bundler` only with ES output). Measured over TS 5.9.3 /
+  6.0.3 x no / commonjs / nodenext tsconfig: all six load a decorated migration.
+- Verify such a file by RUNNING it under the real compiler pair, never by reading it:
+  `__tests__/vendor-ts-compiler.test.ts` loads the template under the CLI's own ts-node +
+  TypeScript, with the old version as a counter-check that must fail with TS5110.
+- **The vendored core runs from source** (nodemon dev server, `bin/migrate.js` before the
+  first build): under ts-node up to nest-server 11, under the core's own SWC loader from 12. ts-node maps `./x.js` to `./x.ts` only with `experimentalResolver` and only
+  through `require()`. A relative dynamic `import('./x.js')` in the core, which `nodenext`
+  demands, therefore fails in every vendored project while nest-server's own vitest and tsc
+  stay green. nest-server 12 dropped its two such imports and guards against new ones
+  (`tests/unit/module-format-invariants.spec.ts`).
+- **A vendored core is compiled with whatever `module` the project picked.** The nest-server
+  12 pre-release failed under `module: commonjs` (2026-10-24): two `resolution-mode: 'import'`
+  type imports described the ESM build, while commonjs emits their `import()` as `require()`
+  and types it as the CJS build (TS2322 in `brevo.service.ts` and
+  `core-ai-mcp-oauth.service.ts`). Fixed upstream before the release by deriving the types
+  from the `import()` expression itself, and guarded there by `pnpm run typecheck:vendor`.
+  That first fix then failed in a GENERATED project with TS2883: the starter emits
+  declarations, the loader's inferred type had to be named in the `.d.ts`, and in a pnpm
+  consumer (isolated `.pnpm/…` paths, unlike the framework repo's own tree) the only path to
+  it was the exports-blocked `dist/cjs/…`. The check that counts is `pnpm run build` in a
+  project `lt fullstack init` produced, not `tsc --noEmit` in the framework repo. When the
+  CLI's vendor init fails to build, type-check the core under the project's tsconfig and
+  BOTH module variants before suspecting the conversion.
+- **From nest-server 12 the core brings its own loader** (`src/core/modules/migrate/helpers/ts-compiler.js`,
+  SWC, migration guide §14) and ts-node may leave the project. The generated
+  `ts-compiler.js` requires it and keeps it when the hook carries the
+  `Symbol.for('lenne.tech/nest-server/ts-compiler')` marker: decided at runtime, not by
+  version, so a later core update needs no heal. Only an older core, whose file at the same
+  path merely re-exports `tsNode.register`, gets ts-node. `src/lib/framework-loader-path.ts`
+  translates `node -r …/ts-compiler.js` in `nodemon*.json` and scripts between the npm and
+  the vendor path, in both conversion directions.
+- **Pre-release test without touching the CLI:** git rewrites clone URLs from the
+  environment, so `scripts/test-vendor-init.sh` runs against local snapshots of unpushed
+  base-repo work (commit the working tree into a scratch clone first; git clones commits,
+  not working trees):
+  `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.file:///path/nest-server-snap.insteadOf"
+  GIT_CONFIG_VALUE_0="https://github.com/lenneTech/nest-server.git" LT_IT_FRAMEWORK_UPSTREAM_BRANCH=develop
+  bash scripts/test-vendor-init.sh vendor-both --keep`. Without the branch variable the conversion
+  vendors the tag the starter pins, and a snapshot cloned from a local repository carries its tags,
+  so it would silently vendor that old tag instead of the snapshot.
+  `lt fullstack init` clones the starter WITHOUT a `.git` suffix
+  (`https://github.com/lenneTech/nest-server-starter`), `lt server create` WITH one; insteadOf is a
+  prefix match, so map both spellings, or the `.git` form becomes `<snapshot>.git`. nest-server
+  itself is always cloned as `…/nest-server.git`: map exactly that. A rule for the bare
+  `…/nest-server` also matches `…/nest-server-starter` and turns the starter clone into
+  `<snapshot>-starter` (cost one run on 2026-10-26: "does not appear to be a git repository").
+
+### Merging the framework's dependencies must also RAISE the shared pins <!-- Added: 2026-10-24 -->
+`convertCloneToVendored` merged nest-server's dependencies into the starter's package.json with
+`if (!(depName in deps))`: it added what was missing and left every shared pin on the starter's
+version. The core is cloned from nest-server's GitHub default branch (`develop`), the starter
+follows only after an npm publish, so the core is ahead after every framework push, and the
+first vendor project after a major paired a core for NestJS 12 with `@nestjs/common` 11.2.7,
+TypeScript 5.9 and vitest 4: 19 pins had to be raised by hand before `lt dev up`, `lt dev test`
+or `pnpm run check` ran (smoke test, 2026-10-24).
+**Rules:**
+- `alignFrameworkPins` (`src/lib/align-framework-pins.ts`) applies the starter's `pnpm run
+  update` rule (`extras/align-package-versions.mjs`), which vendor mode replaces with a stub, and
+  nest-server's consumer gate (`scripts/check-consumer.mjs#alignConsumerPins`). Keep the three
+  identical. Raise only, never lower, never add, never move. A framework `dependency` raises
+  either section, a framework `devDependency` only the project's devDependencies: the project
+  owns the better-auth pin, because api and app must resolve the same version.
+- Raising a pin across a major takes that major's defaults with it. TypeScript 6 turns `strict`
+  on, so `withExplicitStrictForTs6` adds `"strict": false` when TypeScript reaches 6 and
+  `tsconfig.json` sets no `strict` (migration guide 11.43.x → 12.0.x, §2). An explicit value stays.
+- **Which core is vendored (since 2026-10-25, the user's decision):** without
+  `--framework-upstream-branch`, the `@lenne.tech/nest-server` version the cloned starter pins
+  (`src/lib/vendor-upstream-ref.ts`), i.e. the combination the starter was released and tested
+  with, and the version npm mode installs. Before, it was nest-server's GitHub default branch
+  `develop`, i.e. pushed but unpublished work. A pin without an upstream tag (the starter already
+  names an unreleased version) falls back to the default branch with a warning; an explicit ref
+  never falls back. Testing unreleased framework work (the smoke test, a local snapshot) therefore
+  needs `--framework-upstream-branch develop` (`LT_IT_FRAMEWORK_UPSTREAM_BRANCH` in
+  `scripts/test-vendor-init.sh` and `scripts/test-frontend-vendor-init.sh`). Do not pin a version
+  in a test script instead: `init-both-vendor` pinned `11.24.3` from 1.11.0 until 2026-10-26, so it
+  paired a half-year-old core with the current starter, whose `config.env.ts` imports
+  `resolveSmtpSecure`. That produced 21 red tests in `config.env.spec.ts`, and since the step is soft,
+  nobody noticed. A version that was current when it was written turns into exactly this mismatch.
+
+### The CLI serves nest-server 11.x AND 12.x — decide by what the framework ships <!-- Added: 2026-10-24 -->
+Kai's requirement: every command keeps working for projects on nest-server 11.x and on 12.x.
+Never assume the newest framework; detect the feature in the project's framework root
+(`getFrameworkRootPath`: `node_modules/@lenne.tech/nest-server` in npm mode, `src/core` in vendor
+mode, which has no package version to read). Current switches, each tested on both majors:
+- `migrations-utils/ts-compiler.js`: the core's SWC loader when its hook carries the marker, else
+  ts-node (see "A file the CLI writes into a TypeScript project must not inherit its tsconfig").
+- `Server#importLine('GraphQLUpload')`: `import { GraphQLUpload } from '<framework>'` when
+  `common/scalars/upload.scalar` exists (12+, keeps scalar and multipart middleware on one
+  graphql-upload copy), else `import GraphQLUpload = require('graphql-upload/GraphQLUpload.js')`.
+  Never `import * as GraphQLUpload`: TypeScript 6 cannot switch esModuleInterop off, the
+  namespace import becomes an `__importStar` copy that is no `GraphQLScalarType`, `tsc` stays
+  green and the GraphQL boot fails with `Cannot determine a GraphQL input type`.
+- `withExplicitStrictForTs6`: only when the project's TypeScript is >= 6.
+- Flatten-fix (`src/lib/vendor-flatten.ts#flattenRootIndexSpecifier`): nest-server 12 writes every
+  relative specifier with its extension (`'../../../index.js'`), 11 the directory form (`'../../..'`).
+  The old exact match missed the 12 spelling: TS2307 in `core-persistence-model.interface.ts` and a
+  failing `pnpm run build` in every 12 vendor project (2026-10-26). The `./core/` prefix strips
+  never had that problem.
+- Dev start (`src/lib/dev-start-loader.ts#toCoreLoaderCommand`): the same `./x.js` specifiers make
+  the starter's `ts-node -r tsconfig-paths/register src/main.ts` die with `Cannot find module
+  './core.module.js'` on a vendored 12 core. ts-node never runs in build, `migrate:*` (SWC loader
+  via `ts-compiler.js`) or vitest, so every other check stayed green. When the vendored core ships
+  `ts-compiler.cjs` (12+), the conversion moves `nodemon*.json#exec` and the ts-node scripts to
+  `node -r ./src/core/modules/migrate/helpers/ts-compiler.js`; an 11 core keeps ts-node, which works
+  there. Step 8c of `scripts/test-vendor-init.sh` starts the dev server and requires an answer on
+  `/health-check`, because that was the only path no step exercised (found by the nest-server
+  session's review, 2026-10-26).
+
+**Generated relative imports stay extensionless while a project is CommonJS.** nest-server 12's
+core is valid as CommonJS and ESM and carries `.js` on every relative specifier, and the question
+came up whether the generators could simply always write `.js` too. Measured 2026-10-26: `tsc`
+(`module: commonjs`, `moduleResolution: bundler`) accepts `import … from './b.js'` for a `b.ts`,
+but ts-node 10.9.2 fails at runtime with `Cannot find module './b.js'`, with and without the
+experimental resolver env var. nest-server-starter 11.x runs its dev server as
+`ts-node -r tsconfig-paths/register src/main.ts`, so an always-`.js` generator would break every
+11.x project while `tsc` stays green. `.js` belongs only in projects that need it
+(`"type": "module"`).
+
+Generated file properties (`File`/`FileInfo`/`Upload`) are `GraphQLUpload` in inputs and
+`CoreFileInfo` in the model. `getInputFieldType` used to force the model type onto inputs too,
+and `CoreFileInfo` is an `@ObjectType()`: every GraphQL/Both project with a file property failed
+at boot. Measured 2026-10-24 on npm and vendor x 11.43.3 and 12.0.0 (12 from a packed snapshot):
+`tsc` 0 errors and a booting server in all four, REST projects included.
+
+### ES modules: `lt server convert-esm`, ESM-aware generators and vendoring <!-- Added: 2026-10-26 -->
+nest-server 12.0.0 is an ES module package, and nest-server-starter switches to ESM after the
+12.0.0 publish (the user's decisions). CommonJS projects keep working through `require(esm)`. The
+CLI therefore serves both formats, decided per project by `package.json#type`
+(`src/lib/esm-generated-files.ts#isEsmProject`):
+- **`lt server convert-esm`** (`src/commands/server/convert-esm.ts`, orchestration in
+  `src/lib/esm-convert.ts`) applies the migration guide's §17 steps, built from single
+  ts-morph/jsonc transforms, each with its own suite: `esm-specifiers`, `esm-commonjs-syntax`,
+  `esm-type-imports` (TS1272), `esm-commonjs-module` (migrations-utils), `esm-config`. Exact
+  rewrites only (the user chose "own ts-morph logic" over ts2esm). What has no exact rewrite is
+  REPORTED with file:line and exit 1 (the user's decision): `esm-import-cycles` (a decorated
+  declaration typed with a class from the same cycle, which throws `Cannot access 'X' before
+  initialization`) and `esm-cjs-named-imports`. The latter does not guess which names a CommonJS
+  package exposes. It emits each file with the ESM settings, so only imports that survive TS
+  elision count, and then asks Node by importing the package from the project dir. Measured:
+  `import { Connection } from 'mongoose'` in the starter's `file.service.ts`, invisible to every
+  test, fatal at start. `esm-verify` ends every run with build, start of the BUILT server,
+  `migrate:list` and dev start. All steps are idempotent, so a second run after hand fixes
+  re-checks the project. Measured 2026-10-26 on the starter + a nest-server 12 tarball, npm and
+  vendor: one finding (`Connection`), after the fix all four checks green, and the project's own
+  358 unit + 125 e2e tests and `typecheck:tests` green.
+- **The vendor migration store in ESM** loads the helper through `createRequire`, never `import`:
+  the migrate CLI loads the store with `require()`, and `require(esm)` skips the loader's ESM
+  hooks. An `import` of the vendored TypeScript failed with `Cannot find module
+  …/src/core/index.js`; the loader's require hook compiles it, and in the image `require(esm)`
+  loads the compiled helper. `migrations-utils/ts-compiler.js` (CommonJS) is removed in ESM
+  vendor projects, and the scripts name `./src/core/modules/migrate/helpers/ts-compiler.js`,
+  which nest-server keeps CommonJS through `helpers/package.json`. `healVendorTsCompiler` skips ESM
+  projects for the same reason. Both files are replaced/removed only when they are BYTE-EXACT lt's
+  templates (`isLtVendorFile`). The first version matched on `require('./ts-compiler')` alone, and
+  the review found 20 real vendored stores with that line, 4 of them without a `mongo-uri.js` (own
+  URI logic, own helper resolution). The replacement dropped their logic and imported a file they do
+  not have: `migrate:*` dead, and with `--skip-verify` the command even reported success. A
+  project's own store is now left alone and reported.
+- **`esm-commonjs-module` leaves a file alone that already has ESM syntax or its own `require`.**
+  The first version turned the deliberate `createRequire` require of that very store back into
+  an `import` on the second run (caught by the re-run, not by a test, so now pinned by one).
+- **Generators** call `finishGeneratedImports` after writing, which gives relative imports in an
+  ESM project their extension (`../../../core/index.js` in vendor mode). `ensureImportLine` treats
+  `X` and `X/index.js` as one module (`sameModule`), or `addProp` would add a second declaration.
+  The resolver template imports `type ServiceOptions` inline. TS1272 accepts the inline form under
+  `isolatedModules` (measured), it is correct in CommonJS too, and `splitTypeImports` uses it as well.
+- **Vendoring an ESM starter** (`convertCloneToVendored`) ends with the file-level ESM steps
+  (`analyze: false`; the starter is valid ESM, only the CLI's own rewrites need them): measured on
+  a self-built ESM starter, `convert-esm --dry-run` afterwards finds 0 changes and the project
+  builds, starts, migrates (also compiled, as in the image) and passes its suites, generators
+  included.
+- `bin/package.json` (`{ "type": "commonjs" }`) is copied next to `bin/migrate.js`. `convert-mode
+  --to npm` removes it only in exactly that shape (`isCommonJsScopeMarker`).
+
+### A generated test has to RUN, not only compile <!-- Added: 2026-10-25 -->
+`lt server test` wrote a test that signed users up through the GraphQL `signUp` mutation and
+deleted them through `deleteUser`. No project the CLI creates today has either path: sign-up
+runs through Better Auth, and a REST project has no GraphQL at all. `tsc` stayed green, because
+`testHelper.graphQl({ name: 'signUp' })` type-checks against any schema. So
+`scripts/test-vendor-init.sh` passed, and only its soft `pnpm test` step printed a warning nobody
+acted on. The template (`src/templates/nest-server-tests/tests.e2e-spec.ts.ejs`) now mirrors
+nest-server-starter's `tests/project.e2e-spec.ts`: IAM REST sign-up and sign-in, the
+`TestHelper`, and cleanup through the database. Step 8b of the integration script RUNS the
+generated spec and fails the scenario when it fails. `serverTestModuleImports` reads
+`server.module.ts` from the AST and falls back to `[ServerModule]` when the project does not
+export `imports`. When the starter changes its test pattern, the template follows.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

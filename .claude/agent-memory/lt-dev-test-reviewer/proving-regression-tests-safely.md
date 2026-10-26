@@ -45,7 +45,9 @@ created yourself.
 branch fire at all?") is cheaper: put a `probe.ts` in the scratchpad that imports the
 source by ABSOLUTE path and requires `js-yaml` / `gluegun` by absolute
 `node_modules/...` path (bare specifiers do not resolve from the scratchpad), then
-`npx ts-node --compiler-options '{"module":"commonjs","target":"ES2020","esModuleInterop":true,"skipLibCheck":true,"strict":false}' "$SP/probe.ts"`.
+`npx ts-node --skipProject --transpile-only --compiler-options '{"module":"commonjs","target":"ES2020","esModuleInterop":true,"moduleResolution":"bundler"}' "$SP/probe.ts"`.
+`--skipProject` is required since the repo moved to TypeScript 6 (2026-10-24): without it ts-node
+loads the repo tsconfig (`rootDir: src`, `outDir: build`) and a scratchpad file dies with TS5011.
 Nothing under `src/` or `__tests__/` is touched, so a concurrent `npm run check` is safe.
 
 **Whole-command A/B (2026-10-19).** `bin/lt` runs `src/` through ts-node whenever `src/`
@@ -63,7 +65,10 @@ go red if X were broken", copy `src/`, the one `__tests__/<x>.test.ts`, `__tests
 own config, setup file and ts-jest run unchanged. Generate mutants with a node string-replace
 script that aborts on a non-matching pattern, swap each into `$SP/src/lib/<x>.ts`, and read the
 `Tests:` line. Keep mutants TYPE-correct: ts-jest diagnostics turn a type error into a suite
-failure, which reads as "killed" without proving anything. A survivor is only a finding once you
+failure, which reads as "killed" without proving anything. Two traps seen 2026-10-26: replacing a
+condition with `true` can leave a local unused (noUnusedLocals), and `X === ""` against a string
+constant is TS2367. Widen instead: `(original || text.length >= 0)`. A suite that reports
+`Tests: 0 total` was a compile failure, not a kill. A survivor is only a finding once you
 show it is NOT equivalent. Settle that against the real tool: a failing `caddy adapt` writes 0
 bytes to stdout, so removing an `ok` guard in front of `JSON.parse(stdout)` changed nothing.
 

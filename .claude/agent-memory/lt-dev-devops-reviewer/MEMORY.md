@@ -1,0 +1,1 @@
+- [CI toolchain: npm 12 via npm@latest](project_ci-toolchain-npm12.md) — publish runs npm 12 (blocks dep install scripts); verify lockfile/audit in scratch + Docker

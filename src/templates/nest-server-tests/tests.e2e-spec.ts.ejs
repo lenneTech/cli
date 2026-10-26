@@ -1,13 +1,24 @@
-import { RoleEnum, TestGraphQLType, TestHelper } from '<%= props.frameworkImport %>';
+import { HttpExceptionLogFilter, RoleEnum, TestHelper } from '<%= props.frameworkImport %>';
 import { Test, TestingModule } from '@nestjs/testing';
-import { PubSub } from 'graphql-subscriptions';
-import envConfig from '../src/config.env';
-import { User } from '../src/server/modules/user/user.model';
-import { UserService } from '../src/server/modules/user/user.service';
-import { ServerModule } from '../src/server/server.module';
+import { createHash } from 'crypto';
 import { MongoClient, ObjectId } from 'mongodb';
 
+import envConfig from '../src/config.env';
+import { User } from '../src/server/modules/user/user.model';
+import { <%= props.serverModuleImports %> } from '../src/server/server.module';
+
+/**
+ * Helper to hash password with SHA256 if enabled in config
+ */
+function hashPassword(password: string): string {
+  if (!envConfig.sha256) {
+    return password;
+  }
+  return createHash('sha256').update(password).digest('hex');
+}
+
 describe('<%= props.namePascal %> (e2e)', () => {
+  // Test environment properties
   let app;
   let testHelper: TestHelper;
 
@@ -16,7 +27,6 @@ describe('<%= props.namePascal %> (e2e)', () => {
   let db;
 
   // Global vars
-  let userService: UserService;
   const users: Partial<User & { token: string }>[] = [];
 
   // ===================================================================================================================
@@ -29,27 +39,26 @@ describe('<%= props.namePascal %> (e2e)', () => {
   beforeAll(async () => {
     try {
       const moduleFixture: TestingModule = await Test.createTestingModule({
-        imports: [ServerModule],
+        imports: [<%= props.testingModuleImports %>],
         providers: [
-          UserService,
           {
             provide: 'PUB_SUB',
-            useValue: new PubSub(),
+            useValue: { publish: async () => {} },
           },
         ],
       }).compile();
       app = moduleFixture.createNestApplication();
+      app.useGlobalFilters(new HttpExceptionLogFilter());
       app.setBaseViewsDir(envConfig.templates.path);
       app.setViewEngine(envConfig.templates.engine);
       await app.init();
       testHelper = new TestHelper(app);
-      userService = moduleFixture.get<UserService>(UserService);
 
       // Connection to database
       connection = await MongoClient.connect(envConfig.mongoose.uri);
       db = await connection.db();
     } catch (e) {
-      console.log('beforeAllError', e);
+      console.error('beforeAllError', e);
     }
   });
 
@@ -66,53 +75,63 @@ describe('<%= props.namePascal %> (e2e)', () => {
   // ===================================================================================================================
 
   /**
-   * Create and verify users for testing
+   * Create and verify users for testing via IAM
    */
   it('createAndVerifyUsers', async () => {
     const userCount = 2;
+    const random = Math.random().toString(36).substring(7);
     for (let i = 0; i < userCount; i++) {
-      const random = Math.random().toString(36).substring(7);
+      const password = `${random + i}P1!`;
       const input = {
-        password: random,
-        email: random + '@testusers.com',
-        firstName: 'Test' + random,
-        lastName: 'User' + random,
+        email: `${random + i}@testusers.com`,
+        name: `Test${i}${random}`,
+        password: hashPassword(password),
+        termsAndPrivacyAccepted: true,
       };
 
-      // Sign up user
-      const res: any = await testHelper.graphQl({
-        name: 'signUp',
-        type: TestGraphQLType.MUTATION,
-        arguments: { input },
-        fields: [{ user: ['id', 'email', 'firstName', 'lastName'] }],
+      // Sign up user via IAM REST
+      const res = await testHelper.rest('/iam/sign-up/email', {
+        method: 'POST',
+        payload: input,
+        statusCode: 201,
       });
-      res.user.password = input.password;
-      users.push(res.user);
+      expect(res).toBeDefined();
 
-      // Verify user
-      await db.collection('users').updateOne({ _id: new ObjectId(res.id) }, { $set: { verified: true } });
+      // Get user from database
+      const user = await db.collection('users').findOne({ email: input.email });
+      expect(user).toBeDefined();
+
+      users.push({
+        email: input.email,
+        id: user._id.toString(),
+        password,
+      });
+
+      // Verify user in database
+      await db
+        .collection('users')
+        .updateOne({ _id: new ObjectId(user._id) }, { $set: { emailVerified: true, verified: true } });
     }
     expect(users.length).toBeGreaterThanOrEqual(userCount);
   });
 
   /**
-   * Sign in users
+   * Sign in users via IAM
    */
   it('signInUsers', async () => {
     for (const user of users) {
-      const res: any = await testHelper.graphQl({
-        name: 'signIn',
-        arguments: {
-          input: {
-            email: user.email,
-            password: user.password,
-          },
+      const res = await testHelper.rest('/iam/sign-in/email', {
+        method: 'POST',
+        payload: {
+          email: user.email,
+          password: hashPassword(user.password),
         },
-        fields: ['token', { user: ['id', 'email'] }],
+        returnResponse: true,
+        statusCode: 200,
       });
-      expect(res.user.id).toEqual(user.id);
-      expect(res.user.email).toEqual(user.email);
-      user.token = res.token;
+      expect(res).toBeDefined();
+      user.token = TestHelper.extractSessionToken(res);
+      expect(user.token).toBeDefined();
     }
   });
 
@@ -133,7 +152,7 @@ describe('<%= props.namePascal %> (e2e)', () => {
    * Test
    */
   it('test', async () => {
-    console.log('Implement <%= props.namePascal %> test here');
+    console.info('Implement <%= props.namePascal %> test here');
   });
 
   // ===================================================================================================================
@@ -144,22 +163,10 @@ describe('<%= props.namePascal %> (e2e)', () => {
    * Delete users
    */
   it('deleteUsers', async () => {
-    // Add admin role to user 2
-    await userService.setRoles(users[1].id, ['admin']);
-
     for (const user of users) {
-      const res: any = await testHelper.graphQl(
-        {
-          name: 'deleteUser',
-          type: TestGraphQLType.MUTATION,
-          arguments: {
-            id: user.id,
-          },
-          fields: ['id'],
-        },
-        { token: users[1].token }
-      );
-      expect(res.id).toEqual(user.id);
+      await db.collection('users').deleteOne({ _id: new ObjectId(user.id) });
     }
+    const ids = users.map((user) => new ObjectId(user.id));
+    expect(await db.collection('users').countDocuments({ _id: { $in: ids } })).toBe(0);
   });
 });

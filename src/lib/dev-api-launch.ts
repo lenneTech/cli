@@ -169,7 +169,9 @@ export async function startCompiledApi(options: StartCompiledApiOptions): Promis
     });
   }
 
-  log.warn(`compiled API unavailable (build exit ${String(build)}) — falling back to \`${pm.bin} start\` (ts-node).`);
+  log.warn(
+    `compiled API unavailable (build exit ${String(build)}) — falling back to \`${pm.bin} start\` (TypeScript sources).`,
+  );
   return spawnDetached(pm.bin, pm.runScript('start'), { cwd: apiDir, env, logFile });
 }
 

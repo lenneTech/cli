@@ -132,3 +132,15 @@ export function isVendoredProject(projectDir: string): boolean {
     return false;
   }
 }
+
+/**
+ * Points the framework imports in generated import lines at `specifier`.
+ *
+ * The generators' import table (`Server#imports`) is written in npm-mode form,
+ * `from '@lenne.tech/nest-server'`. Emitted unchanged into a vendored project,
+ * every such line is TS2307, because the package is not installed there. Pass the
+ * result of `getFrameworkImportSpecifier()` for the file the lines end up in.
+ */
+export function withFrameworkImportSpecifier(importLines: string, specifier: string): string {
+  return importLines.replace(/from '@lenne\.tech\/nest-server';/g, `from '${specifier}';`);
+}

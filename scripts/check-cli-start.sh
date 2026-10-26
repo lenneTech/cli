@@ -28,7 +28,7 @@ TIMEOUT_SECONDS=30
 
 # Start CLI in background, no stdin attached so it can't block on
 # interactive input. Redirect both stdout and stderr to the log file.
-node ./bin/lt </dev/null >"$LOG_FILE" 2>&1 &
+node ./bin/lt --compiled-build </dev/null >"$LOG_FILE" 2>&1 &
 CLI_PID=$!
 
 # Ensure cleanup on exit (normal exit, error, Ctrl+C).

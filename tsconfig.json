@@ -11,8 +11,7 @@
       "dom"
     ],
     "module": "commonjs",
-    "moduleResolution": "node10",
-    "ignoreDeprecations": "6.0",
+    "moduleResolution": "bundler",
     "noImplicitAny": false,
     "noImplicitThis": true,
     "noUnusedLocals": true,

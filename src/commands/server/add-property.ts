@@ -10,8 +10,14 @@ import {
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { ensureImportLine } from '../../lib/ensure-import';
+import { finishGeneratedImports } from '../../lib/esm-generated-files';
 import { failRun } from '../../lib/fail-run';
-import { getFrameworkImportSpecifier, isVendoredProject } from '../../lib/framework-detection';
+import {
+  getFrameworkImportSpecifier,
+  isVendoredProject,
+  withFrameworkImportSpecifier,
+} from '../../lib/framework-detection';
 import { isSafePathSegment } from '../../lib/safe-paths';
 import genModule from './module';
 import genObject from './object';
@@ -268,6 +274,7 @@ const NewCommand: ExtendedGluegunCommand = {
       .filter((m) => m.getKind() === SyntaxKind.PropertyDeclaration);
 
     // Add props
+    const addedProps: (typeof props)[string][] = [];
     for (const prop of Object.keys(props).reverse()) {
       const propObj = props[prop];
 
@@ -291,6 +298,7 @@ const NewCommand: ExtendedGluegunCommand = {
         continue;
       }
 
+      addedProps.push(propObj);
       const description = `'${pascalCase(propObj.name)} of ${pascalCase(elementToEdit)}'`;
 
       // Use utility function to determine TypeScript type for Model
@@ -429,6 +437,42 @@ const NewCommand: ExtendedGluegunCommand = {
       indentationText: IndentationText.TwoSpaces,
     });
 
+    // Imports for the types the generators' import table covers (the JSON scalar, the file
+    // types). The module generator writes them as a block into new files; here they are merged
+    // into files that already exist, with each file's own framework specifier. Without this,
+    // every JSON or file property left the project failing `tsc` (TS2304).
+    const importTargets = [
+      {
+        file: moduleFile,
+        filePath: modelPath,
+        typesOf: (p: (typeof addedProps)[number]) => [server.getModelClassType(p), server.getModelFieldType(p)],
+      },
+      {
+        file: inputFile,
+        filePath: inputPath,
+        typesOf: (p: (typeof addedProps)[number]) => [server.getInputFieldType(p), server.getInputClassType(p)],
+      },
+      {
+        file: createInputFile,
+        filePath: creatInputPath,
+        typesOf: (p: (typeof addedProps)[number]) => [
+          server.getInputFieldType(p, { create: true }),
+          server.getInputClassType(p, { create: true }),
+        ],
+      },
+    ];
+    for (const { file, filePath, typesOf } of importTargets) {
+      const specifier = getFrameworkImportSpecifier(path, filePath);
+      for (const propObj of addedProps) {
+        for (const typeName of typesOf(propObj)) {
+          const line = server.importLine(typeName);
+          if (line) {
+            ensureImportLine(file, withFrameworkImportSpecifier(line, specifier));
+          }
+        }
+      }
+    }
+
     // Update map method with mapClasses for non-native properties
     const standardTypes = ['boolean', 'string', 'number', 'Date'];
     const mapMethod = modelDeclaration.getMethod('map');
@@ -469,7 +513,12 @@ const NewCommand: ExtendedGluegunCommand = {
           } else if (schema) {
             mappings[propName] = schema;
           } else if (!standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Json') {
-            mappings[propName] = pascalCase(type);
+            // Same rule as the module generator: a type the import table maps to a framework
+            // class (File/FileInfo/Upload → CoreFileInfo) maps to THAT class, the one imported
+            // above; the raw type name (`FileInfo`) exists nowhere.
+            const modelClassType = server.getModelClassType(newProp);
+            mappings[propName] =
+              server.imports[modelClassType] && /^[A-Z]\w*$/.test(modelClassType) ? modelClassType : pascalCase(type);
           }
         }
       }
@@ -554,6 +603,8 @@ const NewCommand: ExtendedGluegunCommand = {
     await moduleFile.save();
     await inputFile.save();
     await createInputFile.save();
+    // An ES module project needs `./x.js` specifiers, also for the imports added above.
+    finishGeneratedImports(path, [modelPath, inputPath, creatInputPath]);
 
     updateSpinner.succeed('All files updated successfully.');
 

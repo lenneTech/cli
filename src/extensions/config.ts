@@ -4,6 +4,7 @@ import * as _ from 'lodash';
 import { join } from 'path';
 
 import { LtConfig } from '../interfaces/lt-config.interface';
+import { loadYaml } from '../lib/yaml';
 
 /**
  * Supported config file names in priority order (highest priority first)
@@ -148,7 +149,7 @@ export class Config {
       // Explicit YAML file
       if (fileName === 'lt.config.yaml') {
         try {
-          return yaml.load(content) as LtConfig;
+          return loadYaml(content) as LtConfig;
         } catch (e) {
           if (!this.suppressWarnings) {
             this.logParseError(configPath, 'YAML', e);
@@ -217,7 +218,7 @@ export class Config {
 
     // Try YAML
     try {
-      return yaml.load(content) as LtConfig;
+      return loadYaml(content) as LtConfig;
     } catch (e) {
       yamlError = e instanceof Error ? e : new Error(String(e));
     }

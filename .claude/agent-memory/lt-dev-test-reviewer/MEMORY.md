@@ -5,3 +5,4 @@
 - [Consumer corpus for trigger checks](consumer-corpus-for-trigger-checks.md) — survey real lt projects under ~/code read-only to tell observed triggers from hypothetical ones
 - [git message locale dependence](git-message-locale-dependence.md) — git stderr is localized on gettext builds; Apple git hides it; Docker repro recipe
 - [Proving test home isolation](proving-test-home-isolation.md) — sentinel-env jest run + mtime check proves tests never touch real ~/.claude / ~/.lenneTech; real plugin permission data paths
+- [CI parity checks](ci-parity-checks.md) — Node 20 binary path, npm 10 `ci --dry-run` lockfile check, testing vendor templates against the real upstream file

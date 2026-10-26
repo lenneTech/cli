@@ -46,4 +46,17 @@ truncates in place — a crash leaves a truncated file); (4) does the DECISION t
 overwrite come from a regex over the file's contents? If yes see
 [[regex-lexing-decides-destruction]].
 
-Related: [[cli-repo-review-scope]]
+**Temp+rename is not symlink-safe when the temp name is fixed (found 2026-10-25, fixed the same day).**
+`heal-vendor-migrate-store.ts#writeAtomic` used to write `${target}.lt-tmp` with a plain
+`writeFileSync` (flag `w`), which FOLLOWS a symlink already sitting at that path; `rename`
+then moved the link itself onto the target. A repo that committed
+`migrations-utils/<file>.lt-tmp -> <any path>` (git checks symlinks out, also dangling ones)
+made `lt fullstack update` truncate/create that outside file with the template content.
+Reproduced for `healVendorTsCompiler` and `healVendorMigrateStore`; the
+`isSymbolicLink(target)` check does not cover the temp path. Now: random suffix
+(`.lt-tmp-<pid>-<12 hex>`) plus `{ flag: 'wx' }` (O_EXCL refuses live and dangling links with
+EEXIST), and only a temp file the call created is unlinked on failure; regression tests in
+both heal test files. `heal-check-wrapper.ts` still uses `.lt-tmp-${pid}` with `copyFileSync`
+(predictable, follows a link) — re-check it if it is ever touched.
+
+Related: [[cli-repo-review-scope]], [[yaml-loader-js-yaml5]]

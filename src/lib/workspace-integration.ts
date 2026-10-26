@@ -28,13 +28,13 @@
 
 import type { GluegunFilesystem, GluegunPatching } from 'gluegun';
 
-import * as yaml from 'js-yaml';
 import { sep } from 'path';
 
 import { ensureRootDockerignore } from './ensure-root-dockerignore';
 import { spawnArgs } from './exec-args';
 import { hoistPackageManager, hoistWorkspacePnpmConfig } from './hoist-workspace-pnpm-config';
 import { removeNestedLockfiles } from './remove-nested-lockfiles';
+import { loadYaml } from './yaml';
 
 /**
  * Options accepted by `addApiToWorkspace`. Mirrors the API-related
@@ -664,7 +664,7 @@ function pnpmWorkspaceDeclaresPackages(path: string, filesystem: GluegunFilesyst
   const content = filesystem.read(path);
   if (!content) return false;
   try {
-    const doc = yaml.load(content) as null | { packages?: unknown };
+    const doc = loadYaml(content) as null | { packages?: unknown };
     const packages = doc?.packages;
     return Array.isArray(packages) && packages.length > 0;
   } catch {

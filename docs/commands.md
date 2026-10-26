@@ -124,7 +124,7 @@ lt server create [name] [options]
 | `--author <name>` | Author name |
 | `--api-mode <Rest\|GraphQL\|Both>` | API mode (ignored with `--next`) |
 | `--framework-mode <npm\|vendor>` | Framework consumption mode (ignored with `--next`) |
-| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag/commit to vendor (only with `--framework-mode vendor`) |
+| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag/commit to vendor (only with `--framework-mode vendor`). Default: the `@lenne.tech/nest-server` version the starter pins, the same version npm mode installs; the default branch only when that tag does not exist (with a warning) |
 | `--branch <branch>` / `-b` | Branch of nest-server-starter to use as template |
 | `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
@@ -164,6 +164,8 @@ lt server module [options]
 | `--skipLint` | Skip lint fix after creation |
 
 **Configuration:** `commands.server.module.*`, `defaults.controller`, `defaults.skipLint`, `defaults.noConfirm`
+
+**ES module projects:** in a project with `"type": "module"`, all four generators (`module`, `object`, `addProp`, `test`) give the relative imports they write or touch their emitted extension (`./x.js`, `../../../core/index.js`), including the import added to `server.module.ts`. A CommonJS project keeps extensionless imports, because nest-server 11 projects start under ts-node, which cannot resolve `./x.js`.
 
 ---
 
@@ -254,12 +256,14 @@ lt server set-secrets [options]
 
 ### `lt server test`
 
-Runs server tests.
+Creates an e2e test file `tests/<name>.e2e-spec.ts` in the API project. Run it from inside `src/`.
 
 **Usage:**
 ```bash
-lt server test
+lt server test <name>
 ```
+
+The generated test follows nest-server-starter's `tests/project.e2e-spec.ts`: it signs test users up and in through Better Auth (`/iam/sign-up/email`, `/iam/sign-in/email`) with the `TestHelper`, makes the first one an admin, and deletes them from the database at the end. It needs no GraphQL, so it also runs in REST projects. The framework import follows the project's mode (`@lenne.tech/nest-server` or the vendored `src/core`). A project whose `server.module.ts` does not export `imports` gets `imports: [ServerModule]` instead of `[...imports, ServerModule]`.
 
 ---
 
@@ -288,8 +292,9 @@ lt server convert-mode --to <vendor|npm> [options]
   - Copies `src/core/`, `src/index.ts`, `src/core.module.ts`, `src/test/`, `src/types/`, and `LICENSE` to `<api-root>/src/core/`; places upstream `src/templates/` at `<api-root>/src/templates/` (outside `core/` so the runtime E-Mail template resolver works)
   - Applies flatten-fix on `index.ts`, `core.module.ts`, `test.helper.ts`, `core-persistence-model.interface.ts`
   - Rewrites all consumer imports from `'@lenne.tech/nest-server'` to relative paths
-  - Merges upstream dependencies dynamically into `package.json`
+  - Merges upstream dependencies dynamically into `package.json`, and raises every pin the project already shares with the vendored core to the core's version when that is newer (never lowered; a framework `devDependency` never raises a runtime pin such as better-auth). If that takes TypeScript to 6 and `tsconfig.json` sets no `strict`, it adds `"strict": false`
   - Rewrites `migrate:*` scripts to use local `bin/migrate.js` with `ts-compiler.js` bootstrap
+  - With a nest-server 12+ core (it ships `src/core/modules/migrate/helpers/ts-compiler.cjs`): moves the dev start (`nodemon.json`, `nodemon-debug.json`) and every script that runs sources through ts-node (`start:nodemon`, `docs:ci`) to `node -r ./src/core/modules/migrate/helpers/ts-compiler.js`. A 12 core imports `./x.js`, which ts-node cannot resolve. A ts-node option that `node` has no equivalent for is left alone and listed as a warning. An older core keeps ts-node
   - Adds `check:vendor-freshness` script
   - Creates `src/core/VENDOR.md` with baseline version + commit SHA
   - Prepends a vendor-mode notice block to `CLAUDE.md`
@@ -321,6 +326,47 @@ For mode-aware update workflows after conversion, use:
 - `/lt-dev:backend:update-nest-server-core` (vendor mode)
 - `/lt-dev:backend:update-nest-server` (npm mode)
 - `/lt-dev:fullstack:update-all` (coordinated backend + frontend)
+
+---
+
+### `lt server convert-esm`
+
+Convert a nest-server 12 API project from CommonJS to ES modules (`"type": "module"`), npm or vendor mode. These are the steps of the nest-server migration guide 11.43.x → 12.0.x, §17. Run it in the API project or in a workspace root with `projects/api`.
+
+**Usage:**
+```bash
+lt server convert-esm [--dry-run] [--noConfirm] [--force] [--skip-verify]
+```
+
+**Options:**
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | List the file-level changes and findings without writing anything |
+| `--noConfirm` | Skip the confirmation prompt |
+| `--force` | Convert although the git working tree has uncommitted changes |
+| `--skip-verify` | Skip the closing build, server start, `migrate:list` and dev start |
+
+**What it rewrites** (exact rewrites only):
+- `package.json`: `"type": "module"`. ts-node scripts (`start:nodemon`, `docs:ci`) and `nodemon*.json` run through the framework loader (`node -r …/helpers/ts-compiler.js`), without `-r tsconfig-paths/register`. In vendor mode the migrate scripts use the core loader directly. lt's own `migrations-utils/ts-compiler.js` is removed and lt's own migration store is replaced by its ES module form, both only when the file is exactly what lt wrote. A project's own store or bootstrap is never overwritten; it is reported instead.
+- `tsconfig*.json`: `module` / `moduleResolution: nodenext`, plus `isolatedModules` in the root config. Comments and formatting stay.
+- TypeScript in `src/`, `tests/`, `migrations/`, `migrations-utils/`, `scripts/` and the project root (never the vendored `src/core/`):
+  - relative imports, re-exports, `import()` and `import('…')` types get `.js` or `/index.js`;
+  - `import x = require()` becomes a default import, and JSON imports get `with { type: 'json' }`;
+  - `__dirname` / `__filename` become `import.meta.dirname` / `import.meta.filename`.
+- Types in decorated signatures that are not classes move to `import type` (TS1272). Classes that drive dependency injection stay value imports.
+- `migrations-utils/*.js` become ES modules (`export default createMigrationStore(…)`); a lazy `require` stays synchronous through `createRequire`.
+- vitest configs get `resolve.extensions` with `.js` first, so graphql loads once.
+
+**What it reports** (file and line, exit code 1 until fixed):
+- Named imports Node cannot see in a CommonJS package, e.g. `import { Connection } from 'mongoose'`. The command asks Node itself, by importing every package once. For a type the fix is `import type`, for a value the default import.
+- Decorated declarations typed with a class from the same import cycle. ESM throws `Cannot access 'X' before initialization` at start-up; type them as `WrapperType<X>`.
+- Leftover `require()`, `module.exports`, unresolved relative imports, `compilerOptions.paths`.
+
+**Verification:** builds the project, starts the BUILT server (`/health-check`), runs `migrate:list` and starts the dev server. Both traps above pass the test suite, so only a real start shows them. Run the command again after fixing the findings: on an ESM project it re-applies the exact rewrites (idempotent) and checks again, without the clean-tree requirement.
+
+Requires nest-server 12+: in npm mode the installed package, in vendor mode a core with `modules/migrate/helpers/package.json`.
+
+The reported checks type-check the whole project in memory. A project of about 1,300 TypeScript files takes some 70 seconds and peaks at 3.1 GB, within Node's default heap of about 4.5 GB. For a considerably larger project, raise the heap: `NODE_OPTIONS=--max-old-space-size=8192 lt server convert-esm`.
 
 ---
 
@@ -1132,7 +1178,7 @@ lt fullstack init [options]
 | `--frontend-copy <path>` | Copy frontend from local template directory |
 | `--frontend-link <path>` | Symlink frontend to local template (fastest, changes affect original) |
 | `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (pilot, core copied to `src/core/`) |
-| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag to vendor from (only with `--framework-mode vendor`) |
+| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag to vendor from (only with `--framework-mode vendor`). Default: the version the starter pins |
 | `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (nuxt-extensions copied to `app/core/`) |
 | `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) for the API instead of `nest-server-starter`. Forces `--api-mode Rest` and `--framework-mode npm`, skips workspace install (run `pnpm install` for app and `bun install` for api manually). |
 | `--dry-run` | Print the resolved plan without making any changes |
@@ -1182,7 +1228,7 @@ lt fullstack add-api [options]
 |--------|-------------|
 | `--api-mode <mode>` | API mode: `Rest`, `GraphQL`, or `Both` |
 | `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (core copied to `src/core/`) |
-| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag/commit to vendor (only with `--framework-mode vendor`) |
+| `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag/commit to vendor (only with `--framework-mode vendor`). Default: the `@lenne.tech/nest-server` version the starter pins, the same version npm mode installs; the default branch only when that tag does not exist (with a warning) |
 | `--api-branch <branch>` | Branch of `nest-server-starter` to clone |
 | `--api-copy <path>` | Copy API from a local template directory |
 | `--api-link <path>` | Symlink API to a local template directory (fastest, changes affect original) |
@@ -1252,6 +1298,7 @@ lt fullstack update
 | `check` wrapper script | Same |
 | Vendor `CLAUDE.md` | Same |
 | `migrations-utils/migrate.js` | Written **once**, at vendor-conversion time. It is project scaffolding, not `src/core/`, so no update path ever revisits it — a project converted before the template stopped requiring `ts-node` unconditionally keeps the broken file forever, and every deployed container then dies with `Cannot find module 'ts-node'` before applying a single migration (silently, because the entrypoint degrades a migration failure to a warning on purpose). |
+| `migrations-utils/ts-compiler.js` | Also written once, at vendor-conversion time. The version earlier CLIs wrote let ts-node read the project's `tsconfig.json` and overrode only `module: commonjs`. On TypeScript 6 with `moduleResolution: nodenext` (what nest-server 12 recommends) that is TS5110, and every `migrate:*` run, including the one `pnpm start` begins with, fails before loading a migration. Replaced only when the file is byte-for-byte the version an earlier CLI generated; an edited file is left alone. The replacement hands over to the vendored core's own SWC loader (nest-server 12+, migration guide §14), so it keeps working after `ts-node` leaves the project. |
 
 The migration-store repair is deliberately narrow. It acts **only** when the `require('./ts-compiler')` is a top-level, unconditional statement — the one shape that provably cannot survive a production image where `ts-node` was pruned. Any conditional form (inside `try`, `if`, a function, a ternary) is the project's own working solution and is left untouched, because the replacement is not behaviour-neutral: the bundled template hardcodes the collection name and takes its URI from `./mongo-uri`, so overwriting a customized store would empty the migration ledger and re-run every historical migration.
 

@@ -770,7 +770,7 @@ export async function startTestApi(opts: StartTestApiOptions): Promise<ReturnTyp
     return spawnDetached(resolveApiRuntime(apiDir), [entry], { cwd: apiDir, env: apiEnv, logFile });
   }
 
-  log.warn(`compiled API not available — falling back to \`${apiPm.bin} start\` (ts-node).`);
+  log.warn(`compiled API not available — falling back to \`${apiPm.bin} start\` (TypeScript sources).`);
   return spawnDetached(apiPm.bin, apiPm.runScript('start'), { cwd: apiDir, env: apiEnv, logFile });
 }
 

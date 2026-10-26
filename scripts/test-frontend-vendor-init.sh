@@ -21,9 +21,14 @@
 #
 # Usage:
 #
-#   bash scripts/test-frontend-vendor-init.sh              # run all scenarios
-#   bash scripts/test-frontend-vendor-init.sh init-vendor  # just one
-#   bash scripts/test-frontend-vendor-init.sh --keep       # keep /tmp/lt-fvt/* on success
+#   bash scripts/test-frontend-vendor-init.sh                   # run all scenarios
+#   bash scripts/test-frontend-vendor-init.sh init-both-vendor  # just one
+#   bash scripts/test-frontend-vendor-init.sh --keep            # keep /tmp/lt-fvt/* on success
+#
+# init-both-vendor vendors the nest-server version the starter pins. It used to pin
+# --framework-upstream-branch 11.24.3, which paired an old core with a current starter
+# (whose config.env.ts imports resolveSmtpSecure, missing in 11.24.3). To test unreleased
+# framework work instead: LT_IT_FRAMEWORK_UPSTREAM_BRANCH=develop.
 #
 # Runs against the LOCAL CLI build at bin/lt. Rebuild first via:
 #   pnpm run clean-build && pnpm run compile && pnpm run copy-templates
@@ -345,7 +350,7 @@ scenario_init_both_vendor() {
     --api-mode Rest \
     --framework-mode vendor \
     --frontend-framework-mode vendor \
-    --framework-upstream-branch 11.24.3 \
+    ${LT_IT_FRAMEWORK_UPSTREAM_BRANCH:+--framework-upstream-branch "${LT_IT_FRAMEWORK_UPSTREAM_BRANCH}"} \
     --noConfirm) || {
     fail "fullstack init failed"
     return 1

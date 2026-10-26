@@ -265,7 +265,7 @@ describe('hoistWorkspacePnpmConfig', () => {
   });
 
   it('does not mistake YAML 1.2 `no` for a disagreement with JSON `false`', () => {
-    // js-yaml 4 parses `esbuild: no` as the STRING 'no'; the same intent in
+    // `loadYaml` parses `esbuild: no` as the STRING 'no'; the same intent in
     // package.json#pnpm is the BOOLEAN false. `syncBuildAllowlists` narrows both
     // to false, so reporting them sends someone through two repos over two
     // spellings of "deny".

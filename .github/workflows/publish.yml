@@ -32,9 +32,17 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@latest
-      - name: NPM install
-        run: npm install
+      - name: Install dependencies
+        # `npm ci`: a lockfile that disagrees with package.json fails here instead of
+        # shipping a tree nobody tested (CLAUDE.md → "An out-of-sync lockfile …").
+        run: npm ci
+      - name: Vulnerability gate
+        # The gate `npm run check` starts with. A release must not ship with a known
+        # advisory, whatever the push pipeline said earlier.
+        run: npm run check:audit
       - name: Build
         run: npm run build
+      - name: CLI start
+        run: npm run check:start
       - name: Publish
         run: npm publish

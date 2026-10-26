@@ -2,6 +2,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { loadYaml } from '../../lib/yaml';
 
 /**
  * Known configuration keys based on LtConfig interface
@@ -281,15 +282,13 @@ const ValidateCommand: ExtendedGluegunCommand = {
       if (configFile.endsWith('.json')) {
         parsedConfig = JSON.parse(content);
       } else if (configFile.endsWith('.yaml')) {
-        const yaml = require('js-yaml');
-        parsedConfig = yaml.load(content);
+        parsedConfig = loadYaml(content);
       } else {
         // Auto-detect
         try {
           parsedConfig = JSON.parse(content);
         } catch {
-          const yaml = require('js-yaml');
-          parsedConfig = yaml.load(content);
+          parsedConfig = loadYaml(content);
         }
       }
     } catch (e) {

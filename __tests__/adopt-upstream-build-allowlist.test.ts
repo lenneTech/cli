@@ -138,7 +138,7 @@ describe('adoptUpstreamBuildAllowlist', () => {
   });
 
   it('treats ANY existing key as a decision, whatever shape YAML gave it', () => {
-    // js-yaml 4 uses the YAML 1.2 core schema, so `no` and `off` are STRINGS, not
+    // `loadYaml` uses the YAML 1.2 core schema, so `no` and `off` are STRINGS, not
     // booleans. Narrowing the project's map to booleans first made a maintainer
     // who wrote `no` to mean "deny" read as "no opinion" — upstream's `true` was
     // adopted AND the original entry vanished from the rewritten file. Verified

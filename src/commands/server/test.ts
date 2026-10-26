@@ -2,7 +2,9 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { finishGeneratedImports } from '../../lib/esm-generated-files';
 import { getFrameworkImportSpecifier } from '../../lib/framework-detection';
+import { serverTestModuleImports } from '../../lib/server-test-imports';
 
 /**
  * Create a new server
@@ -63,6 +65,8 @@ const NewCommand: GluegunCommand = {
 
     const generateSpinner = spin('Generate test file');
 
+    const moduleImports = serverTestModuleImports(filesystem.read(join(path, 'src', 'server', 'server.module.ts')));
+
     // nest-server-tests/tests.e2e-spec.ts.ejs
     await template.generate({
       props: {
@@ -70,10 +74,15 @@ const NewCommand: GluegunCommand = {
         nameCamel,
         nameKebab,
         namePascal,
+        serverModuleImports: moduleImports.importNames,
+        testingModuleImports: moduleImports.modules,
       },
       target: filePath,
       template: 'nest-server-tests/tests.e2e-spec.ts.ejs',
     });
+
+    // An ES module project needs `./x.js` specifiers; the template writes them extensionless.
+    finishGeneratedImports(path, [filePath]);
 
     generateSpinner.succeed('Generate test file');
 

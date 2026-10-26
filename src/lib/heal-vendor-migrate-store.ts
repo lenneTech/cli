@@ -1,7 +1,10 @@
 import { execFileSync } from 'child_process';
+import { randomBytes } from 'crypto';
 import { copyFileSync, existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as ts from 'typescript';
+
+import { isEsmProject } from './esm-generated-files';
 
 /** What git can tell us about a file, and therefore whether an overwrite is recoverable. */
 type GitRecoverability = 'dirty' | 'recoverable' | 'unknown';
@@ -152,6 +155,125 @@ export function healVendorMigrateStore(apiDir: string, assetPath: string): strin
 }
 
 /**
+ * The `migrations-utils/ts-compiler.js` that `convertCloneToVendored()` generated
+ * from 2026-04-11 until the template moved to `templates/vendor-scripts/ts-compiler.js`
+ * (2026-10-24). Exactly one version was ever written — verified over the full git
+ * history of `src/extensions/server.ts`.
+ */
+export const LEGACY_VENDOR_TS_COMPILER = [
+  '/**',
+  ' * ts-node bootstrap for the migrate CLI (vendor mode).',
+  ' *',
+  " * The project's tsconfig.json restricts `types` to vitest/globals",
+  ' * which hides Node globals (__dirname, require, exports). This',
+  ' * bootstrap registers ts-node with an explicit Node-aware config.',
+  ' */',
+  "const tsNode = require('ts-node');",
+  '',
+  'tsNode.register({',
+  '  transpileOnly: true,',
+  '  compilerOptions: {',
+  "    module: 'commonjs',",
+  "    target: 'es2022',",
+  '    esModuleInterop: true,',
+  '    experimentalDecorators: true,',
+  '    emitDecoratorMetadata: true,',
+  '    skipLibCheck: true,',
+  "    types: ['node'],",
+  '  },',
+  '});',
+  '',
+].join('\n');
+
+/**
+ * Idempotently replace a vendor-mode project's `migrations-utils/ts-compiler.js`
+ * when it is still the version an earlier CLI generated.
+ *
+ * ## The defect this heals
+ *
+ * The old bootstrap let ts-node read the project's tsconfig.json and overrode only
+ * `module: 'commonjs'` on top of it. nest-server 12 moves projects to TypeScript 6
+ * and recommends `module`/`moduleResolution: nodenext` (its migration guide, §2).
+ * With that tsconfig the override is TS5110 ("Option 'module' must be set to
+ * 'NodeNext' when option 'moduleResolution' is set to 'NodeNext'"), which ts-node
+ * reports even in transpile-only mode. Every `migrate:*` script and the migration
+ * step of `pnpm start` then fail before a single migration runs. Like the store, the
+ * file is scaffolding written once, so the core updater never revisits it. The
+ * replacement also hands over to the vendored core's own SWC loader once the core is
+ * nest-server 12 or newer, so it keeps working when ts-node leaves the project.
+ *
+ * ## Why an exact match is the whole detection
+ *
+ * The file is replaced only when its content is byte-for-byte the one an earlier CLI
+ * wrote (`LEGACY_VENDOR_TS_COMPILER`; CRLF tolerated for Windows checkouts). Anything
+ * else is the project's own edit and is left alone, whatever it looks like. That is
+ * also why no `.bak` is written for an untracked file: the replaced content is
+ * exactly the constant above, so it can always be restored from it. A tracked file
+ * with uncommitted changes is still skipped, as everywhere else.
+ *
+ * @param apiDir    Absolute path to the api project (the directory holding `src/core`).
+ * @param assetPath Absolute path to the bundled `templates/vendor-scripts/ts-compiler.js`.
+ * @returns Changed or skipped paths relative to `apiDir`; empty when nothing needed healing.
+ */
+export function healVendorTsCompiler(apiDir: string, assetPath: string): string[] {
+  const changed: string[] = [];
+
+  if (!existsSync(join(apiDir, 'src', 'core', 'VENDOR.md'))) {
+    return changed;
+  }
+
+  const rel = 'migrations-utils/ts-compiler.js';
+  const target = join(apiDir, 'migrations-utils', 'ts-compiler.js');
+  if (!existsSync(target) || !existsSync(assetPath)) {
+    return changed;
+  }
+
+  if (isSymbolicLink(target)) {
+    changed.push(`${rel} (skipped: is a symlink — repair the file it points at instead)`);
+    return changed;
+  }
+
+  let current: string;
+  let template: string;
+  try {
+    current = readFileSync(target, 'utf8');
+    template = readFileSync(assetPath, 'utf8');
+  } catch {
+    return changed;
+  }
+
+  if (current.replace(/\r\n/g, '\n') !== LEGACY_VENDOR_TS_COMPILER) {
+    return changed;
+  }
+
+  // In an ES module project a CommonJS `.js` file is loaded as ESM, so the template would be as
+  // broken as the legacy file. There the scripts name the 12 core's loader directly, which
+  // `lt server convert-esm` sets up (and it removes this file).
+  if (isEsmProject(apiDir)) {
+    changed.push(
+      `${rel} (skipped: ES module project — point --compiler at ./src/core/modules/migrate/helpers/ts-compiler.js, ` +
+        'or run lt server convert-esm)',
+    );
+    return changed;
+  }
+
+  if (gitRecoverability(apiDir, rel) === 'dirty') {
+    changed.push(`${rel} (skipped: uncommitted changes — commit or discard them, then re-run)`);
+    return changed;
+  }
+
+  if (!writeAtomic(target, template)) {
+    changed.push(`${rel} (skipped: write failed)`);
+    return changed;
+  }
+
+  changed.push(
+    `${rel} (no longer reads tsconfig.json — a nodenext tsconfig failed every migrate run with TS5110; uses the core's own loader from nest-server 12 on)`,
+  );
+  return changed;
+}
+
+/**
  * Whether git holds a recoverable copy of `relPath`.
  *
  * - `recoverable` — tracked and unmodified: an overwrite is undoable via git.
@@ -242,20 +364,31 @@ function isTsCompilerRequireCall(node: ts.Node): boolean {
   return isLiteral && (arg as ts.StringLiteralLike).text === './ts-compiler';
 }
 
-/** Write via temp file + rename so a crash cannot leave a truncated store. */
+/**
+ * Write via temp file + rename so a crash cannot leave a truncated store.
+ *
+ * The temp file must be one THIS call created: an unpredictable name, opened with `wx`
+ * (O_CREAT | O_EXCL, which also refuses a dangling symlink). The former fixed name
+ * `<file>.lt-tmp` could be committed by a repository as a symlink; `writeFileSync`
+ * followed it and overwrote whatever it pointed at, outside the project, and the
+ * rename then moved the link into place. Only a temp file this call created is
+ * removed on failure.
+ */
 function writeAtomic(target: string, content: string): boolean {
-  const tmp = `${target}.lt-tmp`;
+  const tmp = `${target}.lt-tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  let created = false;
   try {
-    writeFileSync(tmp, content);
+    writeFileSync(tmp, content, { flag: 'wx' });
+    created = true;
     renameSync(tmp, target);
     return true;
   } catch {
-    try {
-      if (existsSync(tmp)) {
+    if (created) {
+      try {
         unlinkSync(tmp);
+      } catch {
+        /* best effort */
       }
-    } catch {
-      /* best effort */
     }
     return false;
   }

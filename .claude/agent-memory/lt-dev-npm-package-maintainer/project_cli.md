@@ -1,6 +1,6 @@
 ---
 name: project-cli
-description: "@lenne.tech/cli maintenance state: npm-based, brace-expansion/minimatch overrides now DEDUPE not security, blocked updates (TS 7, js-yaml 5, @types/jsdom >28.0.1, jsdom 30), ejs 7 done, targeted transitive refresh recipe, flaky gate suites, test baseline"
+description: "@lenne.tech/cli maintenance state: npm-based, brace-expansion/minimatch overrides now DEDUPE not security, blocked updates (TS 7, jsdom 30 + @types/jsdom 30), js-yaml 5 / @types/jsdom 28.0.3 / bundler resolution / ejs 7 done, targeted transitive refresh recipe, flaky gate suites, test baseline"
 metadata:
   type: project
 ---
@@ -13,8 +13,8 @@ metadata:
   `node -e 'const fs=require("fs");const f="package-lock.json";const j=JSON.parse(fs.readFileSync(f,"utf8"));for(const p of Object.values(j.packages)){if(p.peer===true)delete p.peer}fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n")'`
 - CI (`.github/workflows/build.yml`) runs `npm ci` on Node 20 = npm 10, the strict generation. The `@emnapi/core` + `@emnapi/runtime` devDeps exist ONLY for that (see `//devDependencies`); pinned exact 1.11.3 on 2026-10-03 (peer is `^1.7.1 || ^2.0.0-alpha.4`).
 
-## Test Baseline (as of 2026-10-19)
-- **89 suites / 1388 tests, 0 skipped** under `npm run check` (jest ~106s; 85/1279 on 2026-10-11). A `MODULE_NOT_FOUND ... lt-install-fail-*` stack in the log is a deliberate install-failure test, not a failure.
+## Test Baseline (as of 2026-10-24)
+- **107 suites / 1530 tests, 0 skipped** (`npm test`, 2026-10-26; 97/1473 on 2026-10-25, 95/1453 on 2026-10-24, 89/1388 on 2026-10-19, 85/1279 on 2026-10-11). A `MODULE_NOT_FOUND ... lt-install-fail-*` stack in the log is a deliberate install-failure test, not a failure.
 - Verify the lockfile with BOTH `npm ci --dry-run` and a REAL npm 10 install in a scratch dir (copy package.json + package-lock.json, `npx -y npm@10 ci --ignore-scripts`, then `cmp` the lockfile back) (CI = Node 20 / npm 10). The Bash tool runs zsh: `${PIPESTATUS[0]}` is empty there — capture `$?` without a pipe; `set -- $var` does NOT word-split in zsh (write a small node script instead of a shell loop over "name prefix" pairs).
 - **Exact CI pairing without nvm Node 20** (nvm here has 14/18/22/24 only): in a separate scratch tools dir `npm i node@20 npm@10`, then `PATH=<tools>/node_modules/node/bin:$PATH node <tools>/node_modules/npm/bin/npm-cli.js ci --ignore-scripts` in the proof dir. Same PATH prefix runs `node node_modules/eslint/bin/eslint.js` / `tsc` in the repo read-only. 2026-10-19: Node 20.20.2 + npm 10.9.9, exit 0, no EBADENGINE, lockfile byte-identical.
 - **Stale OPTIONAL nodes are invisible to `npm outdated`** (wasm32-only `@napi-rs/wasm-runtime` sat at 1.2.4 while 1.2.5 resolved fresh). Catch them by diffing per-path versions of a fresh `--package-lock-only` resolve against the real lockfile; refresh with `npm update <pkg>`.
@@ -44,13 +44,14 @@ metadata:
 - Stripping ALL overrides: 20 moderate findings, every one from ONE root (sprintf-js GHSA-hp3w-g68c-fv3c via js-yaml 3 > argparse 1); removing only `@istanbuljs/load-nyc-config > js-yaml` reproduces exactly those 20. So that entry is the only security-load-bearing one; brace-expansion keys latent, minimatch/test-exclude dedupe (no-override tree = 800 lock entries vs 759). All targets were newest-in-major; no removal condition met (gluegun still 5.2.2, babel-plugin-istanbul 8.0.0 still test-exclude ^7.0.1, load-nyc-config 1.1.0 still js-yaml ^3.13.1, @napi-rs/wasm-runtime 1.2.5 still non-optional @emnapi peers).
 - Known phantom import, test-only: `__tests__/dev-project.test.ts:174` `require('fs-jetpack')` (since 2026-09-22) resolves via gluegun's fs-jetpack 4.3.1. Not a release risk.
 
-## Blocked / deferred updates (re-verified 2026-10-19: TS 7.0.2 exports unchanged, ts-jest 29.4.15 peer still <7, ts-eslint 8.71.2 peer <6.1.0, jsdom 30.1.3 engines unchanged, @types/jsdom 30.0.0 still TS2307 (no new 28.x/30.x, entities 8.1.0), js-yaml 5.5.0 shows every listed difference incl. !!omap throw)
-- **typescript 6.0.3 → 7.x**: TS 7's package exports only `./lib/version.cjs` + `unstable/*` — the classic compiler API that src uses AT RUNTIME (`ts.createSourceFile`, `ts.forEachChild`, `ts.readConfigFile` in module-specifiers, spinner-lifetime, heal-vendor-migrate-store, server.ts) is gone. Plus ts-jest 29.4.14 peer `<7`, @typescript-eslint 8.65 peer `<6.1.0`, ts-node needs the JS API, tsconfig `moduleResolution: node10`. 6.0.3 is the newest 6.x.
-- **js-yaml 4.3.2 → 5.x** (5.4.3 re-tested 2026-10-09, all differences below still present, plus `!!omap` now THROWS "unknown sequence tag"): differential v4 vs v5 over 20 real stack `pnpm-workspace.yaml` files = identical load + dump. But edge inputs differ: empty / whitespace / comment-only input THROWS ("expected a document") where v4 returned undefined/null; merge keys `<<` NOT resolved by default (literal `'<<'` key); `2026-10-03` stays a string; dump quotes `1_000`. Six load sites (config.ts ×2, validate.ts ×2, workspace-integration.ts, hoist-workspace-pnpm-config.ts, adopt-upstream-build-allowlist.ts). The allowBuilds deny logic depends on `no`/`off` staying STRINGS — so YAML11_SCHEMA is not a migration shortcut. Needs a deliberate migration with a shared load wrapper. 4.3.2 is patched for both current js-yaml advisories. v5 ships own types → drop `@types/js-yaml` then.
-- **@types/jsdom 28.0.1 → 28.0.2+ / 30.0.0**: every version after 28.0.1 depends on parse5 ^8, whose d.ts imports the `entities/decode` subpath → TS2307 under `moduleResolution: node10`. Re-reproduced 2026-10-03 (jest green, `tsc -p .` red). Blocked until the moduleResolution migration. 2026-10-09: 28.0.3 still red (entities 8.1.0 exposes `./decode` only via `exports`). Probe safely with `npm install --no-save --ignore-scripts @types/jsdom@X && npx tsc -p . --noEmit` (manifest + lockfile stay untouched; next `npm install` re-syncs node_modules).
-- **jsdom 29.1.1 → 30.x**: engines `^22.22.2 || ^24.15.0 || >=26.0.0` (local Node 24.12.0 fails; CI build.yml runs Node 20) and undici 8 needs Node >=22.19. `npm outdated` does not even list it.
+## Blocked / deferred updates (re-verified 2026-10-24: TS 7.0.2 exports unchanged, ts-jest 29.4.15 peer still <7, jsdom 30.1.3 engines unchanged)
+- **typescript 6.0.3 → 7.x**: TS 7's package exports only `./lib/version.cjs` + `unstable/*` — the classic compiler API that src uses AT RUNTIME (`ts.createSourceFile`, `ts.forEachChild`, `ts.readConfigFile` in module-specifiers, spinner-lifetime, heal-vendor-migrate-store, server.ts) is gone. Plus ts-jest 29.4.15 peer `<7`, ts-node needs the JS API. 6.0.3 is the newest 6.x.
+- **jsdom 29.1.1 → 30.x**: engines `^22.22.2 || ^24.15.0 || >=26.0.0` (local Node 24.12.0 fails; CI build.yml runs Node 20) and undici 8 needs Node >=22.19. `npm outdated` does not even list it. `@types/jsdom` 30.0.0 belongs to jsdom 30 and moves with it; 28.0.3 is the newest for jsdom 29 (there is no @types/jsdom 29).
 
 ## Done (no longer blocked)
+- **tsconfig `moduleResolution: node10` + `ignoreDeprecations: "6.0"` → `bundler`** (2026-10-24). `module: commonjs` stays, so the emit is unchanged (TS 6 allows bundler with commonjs; TS 7 removes node10). `tsc -p .` and `tsc -p tsconfig.test.json` 0 errors, full suite green. `node16` was the other candidate: only 2 errors (relative dynamic imports in `commands/dev/doctor.ts`), but it keeps `import()` native, which ts-jest/Jest cannot run without `--experimental-vm-modules` and ts-node cannot map `.js`→`.ts`.
+- **@types/jsdom 28.0.1 → 28.0.3** (2026-10-24): unblocked by the bundler switch (parse5 8's `entities/decode` subpath resolves through `exports`).
+- **js-yaml 4.3.2 → 5.5.0** (2026-10-24), `@types/js-yaml` removed (5.x ships types). Every load goes through `src/lib/yaml.ts#loadYaml` (`loadAll` + `CORE_SCHEMA.withTags(mergeTag)`), which restores the 4.x results for empty / whitespace / comment-only input (undefined / null instead of a throw) and resolves `<<` merge keys; `__tests__/yaml.test.ts` pins those cases and fails on any direct `load()`/`loadAll()` outside the wrapper (AST guard, mutation-checked). Deliberately different from 4.x: dates stay strings, `!!omap`/`!!pairs`/`!!set` throw. 5.x depends on argparse ^3 (no deps), so the sprintf-js chain stays closed; the `$js-yaml` override now puts load-nyc-config on 5.5.0 (its `.load` exists; only used for a `.nycrc.yaml`).
 - **ejs 7.0.1** (2026-10-09). Breaking changes were only the ejs CLI parser and "options-in-data" removal (option-named keys in `render(tpl, data)` no longer promoted); every call site passes `{ props }` only. Proof: `lt completion bash|zsh|fish` byte-identical ejs 6 vs 7. ejs 7's `exports` no longer exposes `./package.json` (`require('ejs/package.json')` throws) and still ships no types → keep `@types/ejs`.
 - eslint 10 (10.12.0 on 2026-10-03; `@lenne.tech/eslint-config-ts` 2.3.0 moved to import-x — the old eslint-plugin-import residual is gone, audit 0).
 - prettier 3.9.9 (2026-10-03): collapses short union types onto one line; reformatted `commands/frontend/nuxt.ts`, `commands/fullstack/add-app.ts`, `commands/fullstack/init.ts`, `lib/dev-api-launch.ts`. Check `npx prettier --check` with a new prettier BEFORE the gate writes.
@@ -59,7 +60,7 @@ metadata:
 - fb-watchman 2.0.4 + bser 2.1.2 (2026-10-09, first release in 3-7 years, new publisher `fb-watchman <source_control@meta.com>`, no provenance): `npm pack` both versions and `diff -r` — it was a pure Apache-2.0 → MIT relicense, zero code. Taken 2026-10-11. Do this diff for any long-dormant package that suddenly republishes.
 
 ## Hooks
-- No `prepare` script and no `core.hooksPath` in this checkout → `.husky/` hooks are NOT active unless someone ran `npx husky`. husky devDep kept (documented workflow + `__tests__/husky-hooks.test.ts`); flagged to the user 2026-10-11.
+- None since 2026-10-25: husky (inactive for a long time: no `prepare`, no `core.hooksPath`), `.husky/`, `__tests__/husky-hooks.test.ts`, `extras/sync-version.*` and `@lenne.tech/npm-package-helper` (only the pre-commit hook used it) were removed on the user's decision. CI and the lt-dev ship workflows guard pushes.
 
 ## Transitive refresh recipe (2026-10-09)
 - Never blanket `npm update`: babel-jest/ts-jest peer ranges allow `@babel/core` ^8 (npm outdated --all shows "wanted 8.x"), and `@lenne.tech/eslint-config-ts` pins `@typescript-eslint/{parser,eslint-plugin}` 8.65.0 exactly, so a blanket update would cross a babel major and/or duplicate the ts-eslint family.
@@ -72,9 +73,9 @@ metadata:
 - `minimatch` devDep (10.2.6) — only `__tests__/vscode-settings.test.ts`.
 - `@types/*` devDeps look unused to a grep — consumed via `node_modules/@types` auto-inclusion; `tsc` is the proof.
 - `open` is imported via dynamic `import('open')` (invisible to a `from 'open'` grep).
-- `rimraf` used via `npx rimraf` in scripts; `husky` via `.husky/` hooks; `@lenne.tech/npm-package-helper` via `extras/sync-version.mjs` (pre-commit).
+- `rimraf` used via `npx rimraf` in scripts.
 - `defuddle` 0.x patch bumps repeatedly safe.
-- `semver@*: 7.8.5` override = freshness pin (gluegun 5.2.2 pins 7.7.0); 7.8.5 is still the newest 7.x.
+- `semver@*: 7.8.5` override = freshness pin (gluegun 5.2.2 pins 7.7.0); 7.8.5 is still the newest 7.x. Since 2026-10-24 `semver` 7.8.5 is also a DIRECT dependency (`src/lib/align-framework-pins.ts`), with `@types/semver` 7.8.0; keep the override value and the direct pin identical, or npm refuses the override (EOVERRIDE).
 
 ## ESLint Perfectionist probe (after any eslint-stack change)
 `printf 'export interface Z { b: string; a: string }\n' | npx eslint --stdin --stdin-filename src/__probe.ts` → must report `perfectionist/sort-interfaces` (still does on eslint 10.12.0).

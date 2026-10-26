@@ -9,10 +9,16 @@ import * as ts from 'typescript';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
+import { alignFrameworkPins, withExplicitStrictForTs6 } from '../lib/align-framework-pins';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { ensureCrossEnvDependency } from '../lib/cross-env';
+import { toCoreLoaderCommand, VENDOR_CORE_LOADER } from '../lib/dev-start-loader';
+import { convertProjectToEsm } from '../lib/esm-convert';
+import { isEsmProject } from '../lib/esm-generated-files';
 import { execArgs } from '../lib/exec-args';
 import { rewriteExpressImportsToTypeOnly } from '../lib/express-type-imports';
+import { findProjectDir, getFrameworkRootPath } from '../lib/framework-detection';
+import { toNpmLoaderPath, toVendorLoaderPath } from '../lib/framework-loader-path';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
@@ -22,6 +28,8 @@ import {
   insertVendorBlockIfMissing,
   removeVendorBlock,
 } from '../lib/vendor-claude-md';
+import { flattenRootIndexSpecifier, isCommonJsScopeMarker } from '../lib/vendor-flatten';
+import { isMissingCloneRef, starterPinnedFrameworkVersion } from '../lib/vendor-upstream-ref';
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(
   questions:
@@ -50,7 +58,8 @@ export class Server {
   imports: Record<string, string> = {
     CoreFileInfo: "import { CoreFileInfo } from '@lenne.tech/nest-server';",
     FileUpload: "import type { FileUpload } from 'graphql-upload/processRequest.js';",
-    GraphQLUpload: "import * as GraphQLUpload from 'graphql-upload/GraphQLUpload.js';",
+    // nest-server >= 12; `importLine()` swaps in the 11.x form when the framework lacks it.
+    GraphQLUpload: "import { GraphQLUpload } from '@lenne.tech/nest-server';",
     'Record<string, unknown>': "import { JSON } from '@lenne.tech/nest-server';",
   };
 
@@ -316,8 +325,12 @@ export class Server {
   }
 
   /**
-   * Determine GraphQL Field type for UnifiedField decorator
-   * Used for Model, Input, and CreateInput
+   * Determine the GraphQL field type of a property in Input and CreateInput.
+   *
+   * File/FileInfo/Upload map to the `GraphQLUpload` scalar here and to `CoreFileInfo` in the
+   * model. Inputs used to be forced onto the model's type as well, but `CoreFileInfo` is an
+   * `@ObjectType()`, so every GraphQL or Both project with a file property failed at boot
+   * (`Cannot use "CoreFileInfo" as a GraphQL input type`).
    */
   getInputFieldType(item: ServerProps, options?: { create?: boolean }): string {
     const { create } = { create: false, ...options };
@@ -336,11 +349,10 @@ export class Server {
       return enumRef;
     } else {
       // Standard types or custom types
-      let fieldType =
+      return (
         this.inputFieldTypes[this.pascalCase(item.type)] ||
-        this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input');
-      fieldType = this.modelFieldTypes[item.type] ? this.modelFieldTypes[item.type] : fieldType;
-      return fieldType;
+        this.pascalCase(item.type) + (create ? 'CreateInput' : 'Input')
+      );
     }
   }
 
@@ -437,6 +449,44 @@ export class Server {
   }
 
   /**
+   * The import line the generators emit for a type name, or undefined.
+   *
+   * `GraphQLUpload` depends on the framework. nest-server >= 12 exports the scalar from its
+   * root, which also keeps it on the framework's own graphql-upload copy, the one its
+   * multipart middleware creates uploads with. 11.x has no such export; there the
+   * import-equals form stays a plain `require()` under TypeScript 5 and 6. The former
+   * `import * as GraphQLUpload` became an `__importStar` copy under TypeScript 6, whose
+   * esModuleInterop can no longer be switched off: no `GraphQLScalarType`, and the GraphQL
+   * boot fails with `Cannot determine a GraphQL input type`.
+   */
+  importLine(typeName: string): string | undefined {
+    if (typeName === 'GraphQLUpload' && !this.frameworkExportsUploadScalar()) {
+      return "import GraphQLUpload = require('graphql-upload/GraphQLUpload.js');";
+    }
+    return this.imports[typeName];
+  }
+
+  private _frameworkExportsUploadScalar?: boolean;
+
+  /**
+   * Whether the project's framework ships `common/scalars/upload.scalar` (nest-server >= 12),
+   * checked as a file in the framework root rather than as a version: a vendored core has no
+   * package version to read, and a feature that exists is what the import needs.
+   */
+  protected frameworkExportsUploadScalar(): boolean {
+    if (this._frameworkExportsUploadScalar === undefined) {
+      const projectDir = findProjectDir(this.filesystem.cwd());
+      const root = projectDir ? getFrameworkRootPath(projectDir) : undefined;
+      this._frameworkExportsUploadScalar =
+        !!root &&
+        ['dist/core/common/scalars/upload.scalar.js', 'common/scalars/upload.scalar.ts'].some(
+          (candidate) => !!this.filesystem.exists(join(root, candidate)),
+        );
+    }
+    return this._frameworkExportsUploadScalar;
+  }
+
+  /**
    * Create template string for properties in model
    */
   propsForModel(
@@ -508,7 +558,10 @@ export class Server {
 
       const type = this.standardTypes.includes(item.type) ? item.type : this.pascalCase(item.type);
       if (!this.standardTypes.includes(type) && type !== 'ObjectId' && type !== 'Enum' && type !== 'Json') {
-        mappings[propName] = type;
+        // A type the import table maps to a framework class (File/FileInfo/Upload →
+        // CoreFileInfo) is mapped to THAT class: it is the one imported above, while
+        // the raw type name (`FileInfo`) exists nowhere and was TS2304.
+        mappings[propName] = this.imports[modelClassType] && /^[A-Z]\w*$/.test(modelClassType) ? modelClassType : type;
       }
       if (reference) {
         mappings[propName] = reference;
@@ -516,8 +569,8 @@ export class Server {
       if (schema) {
         mappings[propName] = schema;
       }
-      if (this.imports[modelClassType]) {
-        imports[modelClassType] = this.imports[modelClassType];
+      if (this.importLine(modelClassType)) {
+        imports[modelClassType] = this.importLine(modelClassType);
       }
 
       // Use utility functions for enum and type config
@@ -640,11 +693,11 @@ export class Server {
         // When override is set, always use = undefined
         const propertyUndefinedString = overrideFlag ? ' = undefined;' : undefinedString;
 
-        if (this.imports[inputFieldType]) {
-          imports[inputFieldType] = this.imports[inputFieldType];
+        if (this.importLine(inputFieldType)) {
+          imports[inputFieldType] = this.importLine(inputFieldType);
         }
-        if (this.imports[inputClassType]) {
-          imports[inputClassType] = this.imports[inputClassType];
+        if (this.importLine(inputClassType)) {
+          imports[inputClassType] = this.importLine(inputClassType);
         }
 
         // Use utility functions for enum and type config
@@ -908,7 +961,8 @@ export class Server {
       /**
        * Branch, tag, or commit of the upstream @lenne.tech/nest-server repo
        * to use when vendoring the framework core (vendor mode only).
-       * Default: repository HEAD.
+       * Default: the version the starter pins (falls back to the repository's default branch
+       * when that tag does not exist).
        */
       frameworkUpstreamBranch?: string;
       linkPath?: string;
@@ -1104,7 +1158,11 @@ export class Server {
     dest: string;
     /** Project name. Currently used only for logging/diagnostics. */
     projectName?: string;
-    /** Branch, tag or commit to check out from the upstream repo. Default: HEAD. */
+    /**
+     * Branch, tag or commit to check out from the upstream repo. Default: the
+     * `@lenne.tech/nest-server` version the cloned starter pins (src/lib/vendor-upstream-ref.ts),
+     * falling back to the default branch when that tag does not exist.
+     */
     upstreamBranch?: string;
     /** Override the upstream framework repo URL (for testing / forks). */
     upstreamRepoUrl?: string;
@@ -1125,22 +1183,31 @@ export class Server {
     // `bin/migrate.js`, and associated meta files. The clone lives in a
     // throw-away tmp dir that gets cleaned up at the end.
     const tmpClone = path.join(os.tmpdir(), `lt-vendor-nest-server-${Date.now()}`);
-    try {
-      // Argument list, no shell: the branch comes from --framework-upstream-branch or
-      // lt.config (see exec-args.ts).
-      await execArgs('git', [
-        'clone',
-        '--depth',
-        '1',
-        ...(upstreamBranch ? ['--branch', upstreamBranch] : []),
-        '--',
-        upstreamRepoUrl,
-        tmpClone,
-      ]);
-    } catch (err) {
-      // Clone failures usually boil down to one of four causes — network,
-      // auth, unknown ref, or a pre-existing tmp dir. Give the user a
-      // pointed error message rather than the raw `git clone` stderr.
+
+    // Which core to vendor. An explicit ref wins and is never replaced by a guess. Otherwise
+    // the version the starter pins: the combination the starter was released and tested with,
+    // and the one npm mode installs for the same project. A pinned version without a tag
+    // upstream (the starter already names an unreleased version) falls back to the default
+    // branch, loudly.
+    const starterManifest = filesystem.exists(`${dest}/package.json`)
+      ? filesystem.read(`${dest}/package.json`, 'json')
+      : null;
+    const pinnedVersion = upstreamBranch ? undefined : starterPinnedFrameworkVersion(starterManifest);
+    // Argument list, no shell: the ref comes from --framework-upstream-branch, lt.config or the
+    // starter's package.json (see exec-args.ts).
+    const cloneArgs = (ref?: string): string[] => [
+      'clone',
+      '--depth',
+      '1',
+      ...(ref ? ['--branch', ref] : []),
+      '--',
+      upstreamRepoUrl,
+      tmpClone,
+    ];
+    // Clone failures usually boil down to one of four causes — network, auth, unknown ref, or
+    // a pre-existing tmp dir. Give the user a pointed error message rather than the raw
+    // `git clone` stderr.
+    const cloneFailure = (err: unknown, ref?: string): Error => {
       const raw = (err as Error).message || '';
       const hints: string[] = [];
       if (/Could not resolve host|getaddrinfo|ECONNREFUSED|Network is unreachable/i.test(raw)) {
@@ -1149,9 +1216,9 @@ export class Server {
       if (/Permission denied|authentication failed|publickey|403|401/i.test(raw)) {
         hints.push('Authentication issue — the CLI uses an anonymous HTTPS clone; verify GitHub is reachable.');
       }
-      if (upstreamBranch && /Remote branch .* not found|did not match any file\(s\) known to git/i.test(raw)) {
+      if (ref && isMissingCloneRef(raw)) {
         hints.push(
-          `Upstream ref "${upstreamBranch}" does not exist. Check ${upstreamRepoUrl}/tags or /branches for valid refs. ` +
+          `Upstream ref "${ref}" does not exist. Check ${upstreamRepoUrl}/tags or /branches for valid refs. ` +
             'Note: nest-server tags have NO "v" prefix — use e.g. "11.24.1", not "v11.24.1".',
         );
       }
@@ -1161,9 +1228,30 @@ export class Server {
         );
       }
       const hintBlock = hints.length > 0 ? `\n  Hints:\n    - ${hints.join('\n    - ')}` : '';
-      throw new Error(
-        `Failed to clone ${upstreamRepoUrl}${upstreamBranch ? ` (branch/tag: ${upstreamBranch})` : ''}.\n  Raw git error: ${raw.trim()}${hintBlock}`,
+      return new Error(
+        `Failed to clone ${upstreamRepoUrl}${ref ? ` (branch/tag: ${ref})` : ''}.\n  Raw git error: ${raw.trim()}${hintBlock}`,
       );
+    };
+
+    const cloneRef = upstreamBranch ?? pinnedVersion;
+    try {
+      await execArgs('git', cloneArgs(cloneRef));
+    } catch (err) {
+      if (!pinnedVersion || !isMissingCloneRef((err as Error).message || '')) {
+        throw cloneFailure(err, cloneRef);
+      }
+      this.toolbox.print.warning(
+        `  ⚠ The starter pins @lenne.tech/nest-server ${pinnedVersion}, but ${upstreamRepoUrl} has no tag ` +
+          `"${pinnedVersion}" — vendoring its default branch instead. Pass --framework-upstream-branch to choose.`,
+      );
+      if (filesystem.exists(tmpClone)) {
+        filesystem.remove(tmpClone);
+      }
+      try {
+        await execArgs('git', cloneArgs());
+      } catch (retryErr) {
+        throw cloneFailure(retryErr);
+      }
     }
 
     // Snapshot upstream package.json before cleanup so we can merge its
@@ -1291,6 +1379,17 @@ export class Server {
         }
         filesystem.copy(`${tmpClone}/bin/migrate.js`, `${dest}/bin/migrate.js`);
       }
+      // nest-server 12 is an ES module package and keeps the shim CommonJS through
+      // `bin/package.json` (`{ "type": "commonjs" }`). Without it, `bin/migrate.js` is
+      // ESM-scoped in an ESM project and dies with "require is not defined"; in a
+      // CommonJS project it is a no-op. `copy:bin` copies the whole directory into
+      // dist/, so the production image keeps it too.
+      if (filesystem.exists(`${tmpClone}/bin/package.json`)) {
+        if (filesystem.exists(`${dest}/bin/package.json`)) {
+          filesystem.remove(`${dest}/bin/package.json`);
+        }
+        filesystem.copy(`${tmpClone}/bin/package.json`, `${dest}/bin/package.json`);
+      }
 
       // Copy migration-guides for vendor-sync agent reference (optional
       // but useful — small overhead, big value for the updater agent).
@@ -1339,7 +1438,9 @@ export class Server {
     //     which must become '../common/helpers/db.helper' after the flatten.
     //   - src/core/common/interfaces/core-persistence-model.interface.ts
     //     references '../../..' (three levels up to src/index.ts), which
-    //     must become '../..' (two levels up to src/core/index.ts).
+    //     must become '../..' (two levels up to src/core/index.ts). From
+    //     nest-server 12 the specifier is '../../../index.js' (see
+    //     flattenRootIndexSpecifier).
     const tsMorphProject = new Project({ skipAddingFilesFromTsConfig: true });
 
     const flattenTargets = [`${coreDir}/index.ts`, `${coreDir}/core.module.ts`];
@@ -1377,9 +1478,9 @@ export class Server {
     if (filesystem.exists(persistenceIfacePath)) {
       const sourceFile = tsMorphProject.addSourceFileAtPath(persistenceIfacePath);
       for (const decl of sourceFile.getImportDeclarations()) {
-        const spec = decl.getModuleSpecifierValue();
-        if (spec === '../../..') {
-          decl.setModuleSpecifier('../..');
+        const flattened = flattenRootIndexSpecifier(decl.getModuleSpecifierValue());
+        if (flattened) {
+          decl.setModuleSpecifier(flattened);
         }
       }
       sourceFile.saveSync();
@@ -1630,6 +1731,12 @@ export class Server {
     // The freshness check is now an inline one-liner in package.json
     // (see step 5 below). VENDOR.md is the sole vendor-specific file.
 
+    // From nest-server 12 the core brings its own TypeScript loader, and only that loader can run
+    // its sources (they import `./x.js`). `ts-compiler.cjs` is the 12 implementation file; an
+    // older core has the `.js` re-export of ts-node only, and keeps ts-node (dev-start-loader.ts).
+    const coreShipsLoader = filesystem.exists(`${coreDir}/modules/migrate/helpers/ts-compiler.cjs`);
+    const unconvertedDevStarts: string[] = [];
+
     // ── 5. package.json: remove @lenne.tech/nest-server, add migrate/bin ─
     //
     // Delete the framework dep — it's no longer needed since src/core/
@@ -1726,6 +1833,26 @@ export class Server {
           upstreamDeps,
           upstreamDevDeps,
         });
+
+        // ── 5c. Raise the pins the project shares with the vendored core ──
+        //
+        // The merge above only ADDS packages. The starter follows nest-server only after
+        // an npm publish, so whenever the cloned core is ahead, every pin the two share
+        // stayed on the starter's older version (NestJS 11 next to a core for 12). Same
+        // rule as the starter's own `pnpm run update`, which vendor mode replaces with a
+        // stub — see src/lib/align-framework-pins.ts.
+        const aligned = alignFrameworkPins(pkg, { dependencies: upstreamDeps, devDependencies: upstreamDevDeps });
+        if (aligned.raised.length > 0) {
+          const changes = aligned.raised.map((change) => `${change.name} ${change.from} → ${change.to}`).join(', ');
+          this.toolbox.print.info(
+            `  aligned ${aligned.raised.length} pin(s) with nest-server ${upstreamVersion || '(upstream)'}: ${changes}`,
+          );
+        }
+        for (const entry of aligned.skipped) {
+          this.toolbox.print.warning(
+            `  ⚠ ${entry.section}.${entry.name} is "${entry.current}", not a version or range — not aligned with nest-server.`,
+          );
+        }
 
         // The closure above just made framework-only packages direct dependencies of
         // this project. Their build-script decisions have to come along, or the first
@@ -1869,47 +1996,81 @@ export class Server {
           // check:naf (non-blocking; surfaces a warning at the top of the log).
           // Targets check:raw — never the check.mjs wrapper. See lib helper.
           hookCheckFreshness(scripts);
+
+          // nest-server >= 12: scripts that run sources through the framework's SWC
+          // loader (`node -r …/ts-compiler.js`) must load it from the vendored core.
+          // A starter that still runs them through ts-node is moved over as well: a
+          // 12 core imports `./x.js`, which ts-node cannot resolve (dev-start-loader.ts).
+          for (const [scriptName, command] of Object.entries(scripts)) {
+            if (typeof command === 'string') {
+              let rewritten = toVendorLoaderPath(command);
+              if (coreShipsLoader) {
+                const result = toCoreLoaderCommand(rewritten);
+                rewritten = result.command;
+                unconvertedDevStarts.push(...result.unconverted.map((c) => `package.json#scripts.${scriptName}: ${c}`));
+              }
+              scripts[scriptName] = rewritten;
+            }
+          }
         }
 
         filesystem.write(pkgPath, pkg, { jsonIndent: 2 });
       }
     }
 
+    // Same for the dev start: from nest-server 12 the starter's nodemon configs may
+    // `node -r` the framework's SWC loader instead of running ts-node. A starter that
+    // still runs ts-node there is switched to the vendored loader when the core has
+    // one; the `exec` string is replaced in place, so the file keeps its formatting.
+    for (const nodemonConfig of ['nodemon.json', 'nodemon-debug.json']) {
+      const nodemonPath = `${dest}/${nodemonConfig}`;
+      if (!filesystem.exists(nodemonPath)) continue;
+      const raw = filesystem.read(nodemonPath) || '';
+      let rewritten = toVendorLoaderPath(raw);
+      if (coreShipsLoader) {
+        let exec: unknown;
+        try {
+          exec = JSON.parse(rewritten).exec;
+        } catch {
+          exec = undefined;
+        }
+        if (typeof exec === 'string') {
+          const result = toCoreLoaderCommand(exec);
+          rewritten = rewritten.replace(JSON.stringify(exec), JSON.stringify(result.command));
+          unconvertedDevStarts.push(...result.unconverted.map((c) => `${nodemonConfig}#exec: ${c}`));
+        }
+      }
+      if (rewritten !== raw) {
+        filesystem.write(nodemonPath, rewritten);
+      }
+    }
+    if (unconvertedDevStarts.length > 0) {
+      this.toolbox.print.warning(
+        '  ⚠ The vendored core imports `./x.js`, which ts-node cannot load. These commands still run ts-node ' +
+          `with options \`node\` has no equivalent for; point them at ${VENDOR_CORE_LOADER} by hand:`,
+      );
+      for (const line of unconvertedDevStarts) this.toolbox.print.warning(`      ${line}`);
+    }
+
     // ── 6. migrations-utils/ts-compiler.js bootstrap ─────────────────────
     //
-    // The project's tsconfig.json restricts `types` to vitest/globals
-    // which hides Node globals (__dirname, require, exports). This
-    // bootstrap registers ts-node with an explicit Node-aware config.
-    // Always write it fresh in vendor mode — overwrites whatever the
+    // Registers ts-node for the vendored migration helper and the .ts
+    // migrations. Always written fresh in vendor mode — overwrites whatever the
     // starter shipped (which relies on node_modules/@lenne.tech/nest-server).
-    const tsCompilerPath = `${dest}/migrations-utils/ts-compiler.js`;
-    filesystem.write(
-      tsCompilerPath,
-      [
-        '/**',
-        ' * ts-node bootstrap for the migrate CLI (vendor mode).',
-        ' *',
-        " * The project's tsconfig.json restricts `types` to vitest/globals",
-        ' * which hides Node globals (__dirname, require, exports). This',
-        ' * bootstrap registers ts-node with an explicit Node-aware config.',
-        ' */',
-        "const tsNode = require('ts-node');",
-        '',
-        'tsNode.register({',
-        '  transpileOnly: true,',
-        '  compilerOptions: {',
-        "    module: 'commonjs',",
-        "    target: 'es2022',",
-        '    esModuleInterop: true,',
-        '    experimentalDecorators: true,',
-        '    emitDecoratorMetadata: true,',
-        '    skipLibCheck: true,',
-        "    types: ['node'],",
-        '  },',
-        '});',
-        '',
-      ].join('\n'),
+    // The template ignores the project's tsconfig on purpose: under TypeScript 6
+    // with a `nodenext` tsconfig, the `module: commonjs` override this file needs
+    // is TS5110 and fails every `migrate:*` run (see the template header).
+    // `lt fullstack update` replaces the earlier generated version
+    // (healVendorTsCompiler).
+    const tsCompilerTemplate = filesystem.read(
+      path.join(__dirname, '..', 'templates', 'vendor-scripts', 'ts-compiler.js'),
     );
+    if (!tsCompilerTemplate) {
+      throw new Error(
+        'CLI build is missing templates/vendor-scripts/ts-compiler.js — cannot generate migrations-utils/ts-compiler.js.',
+      );
+    }
+    filesystem.write(`${dest}/migrations-utils/ts-compiler.js`, tsCompilerTemplate);
 
     // ── 6b. extras/sync-packages.mjs: replace with vendor-aware stub ─────
     //
@@ -1976,6 +2137,23 @@ export class Server {
     this.widenTsconfigExcludes(`${dest}/tsconfig.build.json`);
     this.widenTsconfigTypes(`${dest}/tsconfig.json`);
     this.widenTsconfigTypes(`${dest}/tsconfig.build.json`);
+
+    // Step 5c may have raised TypeScript from 5 to 6, whose default turned `strict` on.
+    // A starter tsconfig that never set it would compile under strict for the first time.
+    const alignedPkg: null | Record<string, any> = filesystem.exists(pkgPath) ? filesystem.read(pkgPath, 'json') : null;
+    const projectTypescript: string | undefined =
+      alignedPkg?.devDependencies?.typescript ?? alignedPkg?.dependencies?.typescript;
+    const baseTsconfigPath = `${dest}/tsconfig.json`;
+    if (filesystem.exists(baseTsconfigPath)) {
+      const raw = filesystem.read(baseTsconfigPath) || '';
+      const patched = withExplicitStrictForTs6(raw, projectTypescript);
+      if (patched !== raw) {
+        filesystem.write(baseTsconfigPath, patched);
+        this.toolbox.print.info(
+          `  tsconfig.json: added "strict": false (TypeScript ${projectTypescript} turns strict on by default)`,
+        );
+      }
+    }
 
     // ── 9b. Prepend a vendor-mode block to projects/api/CLAUDE.md ────────
     //
@@ -2121,6 +2299,26 @@ export class Server {
 
     // ── Post-conversion verification ──────────────────────────────────────
     //
+    // An ES module starter (nest-server-starter after the 12.0.0 publish): the steps above wrote
+    // extensionless relative core imports, a CommonJS migration store and the ts-node
+    // bootstrap, none of which an ES module can load. The file-level ESM steps fix exactly
+    // those; the starter's own files are valid ESM already (see esm-convert.ts).
+    if (isEsmProject(dest)) {
+      const esm = convertProjectToEsm({
+        analyze: false,
+        apiDir: dest,
+        checkNamedImports: false,
+        dryRun: false,
+        mode: 'vendor',
+      });
+      this.toolbox.print.info(
+        `  ES module starter: ${esm.changes.length} file(s) adjusted (relative imports with .js, migration store, core loader)`,
+      );
+      for (const finding of esm.findings) {
+        this.toolbox.print.warning(`  ⚠ ${finding.file}${finding.line ? `:${finding.line}` : ''} ${finding.message}`);
+      }
+    }
+
     // Scan all consumer files for stale bare-specifier imports that the
     // codemod should have rewritten. A single miss causes a compile error,
     // so catching it here with a clear message saves the user debugging time.
@@ -2724,7 +2922,24 @@ export class Server {
       }
       ensureCrossEnvDependency(pkg as Record<string, any>);
 
+      // `node -r` of the framework's SWC loader (nest-server >= 12) back to the package;
+      // `src/core/` is deleted below.
+      for (const [scriptName, command] of Object.entries(scripts)) {
+        if (typeof command === 'string') {
+          scripts[scriptName] = toNpmLoaderPath(command);
+        }
+      }
+
       filesystem.write(`${dest}/package.json`, pkg);
+    }
+    for (const nodemonConfig of ['nodemon.json', 'nodemon-debug.json']) {
+      const nodemonPath = `${dest}/${nodemonConfig}`;
+      if (!filesystem.exists(nodemonPath)) continue;
+      const raw = filesystem.read(nodemonPath) || '';
+      const rewritten = toNpmLoaderPath(raw);
+      if (rewritten !== raw) {
+        filesystem.write(nodemonPath, rewritten);
+      }
     }
 
     // ── 5. Remove vendor artifacts ──────────────────────────────────────
@@ -2733,6 +2948,11 @@ export class Server {
     }
     if (filesystem.exists(`${dest}/bin/migrate.js`)) {
       filesystem.remove(`${dest}/bin/migrate.js`);
+      // The format marker nest-server 12 ships next to the shim goes with it, but only
+      // in exactly that shape: a bin/package.json the project wrote itself stays.
+      if (isCommonJsScopeMarker(filesystem.read(`${dest}/bin/package.json`))) {
+        filesystem.remove(`${dest}/bin/package.json`);
+      }
       // Remove bin/ dir if empty
       const binContents = filesystem.list(`${dest}/bin`) || [];
       if (binContents.length === 0) {

@@ -27,11 +27,32 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+      - name: CLI start
+        # The compiled build must load every command and reach the menu, which
+        # `npm run check` proves locally and the build step alone does not.
+        run: npm run check:start
       - name: Save build
         uses: actions/upload-artifact@v4
         with:
           name: build
           path: ./build
+
+  audit:
+    name: Vulnerability gate
+    runs-on: ubuntu-latest
+    # A job of its own: a newly published advisory turns this red without hiding the
+    # lint, test and build results above. Same gate as the first step of `npm run check`.
+    steps:
+      - name: Git checkout
+        uses: actions/checkout@v4
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: npm audit
+        run: npm run check:audit
 
   build-windows:
     name: Build (Windows, non-blocking)

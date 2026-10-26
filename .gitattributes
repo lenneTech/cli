@@ -1,6 +1,5 @@
 * text=auto eol=lf
 *.sh        text eol=lf
-.husky/*    text eol=lf
 .githooks/* text eol=lf
 Dockerfile  text eol=lf
 *.cmd       text eol=crlf

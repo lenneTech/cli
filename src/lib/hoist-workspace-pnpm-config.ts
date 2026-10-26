@@ -1,10 +1,11 @@
 import type { GluegunFilesystem } from 'gluegun';
 
 import { readFileSync } from 'fs';
-import { dump, load } from 'js-yaml';
+import { dump } from 'js-yaml';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 import { isSymlink } from './fs-utils';
+import { loadYaml } from './yaml';
 
 /**
  * pnpm workspace-scoped fields that must live at the workspace root.
@@ -559,7 +560,7 @@ function applyDenyWins(rootValue: unknown, subValue: unknown): unknown {
 /**
  * Compare the value each field's own downstream normalisation will actually use.
  *
- * `allowBuilds` is the case that matters: js-yaml 4 follows the YAML 1.2 core
+ * `allowBuilds` is the case that matters: `loadYaml` follows the YAML 1.2 core
  * schema, so `esbuild: no` parses as the STRING `'no'` while the same intent in a
  * `package.json#pnpm` block is the BOOLEAN `false`. `syncBuildAllowlists` narrows
  * both to `false` (`enabled === true`), so reporting them as a disagreement sends
@@ -847,7 +848,7 @@ function readYaml(filesystem: GluegunFilesystem, path: string): null | Record<st
   if (!raw) return null;
   let parsed: unknown;
   try {
-    parsed = load(raw);
+    parsed = loadYaml(raw);
   } catch {
     // Malformed YAML — leave it untouched rather than risk data loss.
     return null;

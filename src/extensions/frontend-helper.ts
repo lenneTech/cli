@@ -1,4 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { alignFrameworkPins } from '../lib/align-framework-pins';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { execArgs } from '../lib/exec-args';
 import { formatMarkdownTable } from '../lib/markdown-table';
@@ -668,6 +669,21 @@ export class FrontendHelper {
           if (this.isFrontendVendorRuntimeDep(depName) && !(depName in deps)) {
             deps[depName] = depVersion;
           }
+        }
+
+        // Raise the pins the app shares with the vendored module, by the same rule as the
+        // backend conversion (src/lib/align-framework-pins.ts): only what the app already
+        // declares, never lowered, and a framework devDependency never sets a runtime pin, so
+        // `nuxt` / `vue` stay the app's own. The merge above only ADDS packages.
+        const aligned = alignFrameworkPins(pkg, { dependencies: upstreamDeps, devDependencies: upstreamDevDeps });
+        if (aligned.raised.length > 0) {
+          const changes = aligned.raised.map((change) => `${change.name} ${change.from} → ${change.to}`).join(', ');
+          this.toolbox.print.info(`  aligned ${aligned.raised.length} pin(s) with nuxt-extensions: ${changes}`);
+        }
+        for (const entry of aligned.skipped) {
+          this.toolbox.print.warning(
+            `  ⚠ ${entry.section}.${entry.name} is "${entry.current}", not a version or range — not aligned with nuxt-extensions.`,
+          );
         }
 
         // Verify peer deps are present (they should already be from the starter)

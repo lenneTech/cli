@@ -430,7 +430,7 @@ const NewCommand: GluegunCommand = {
       } else if (frameworkMode === 'vendor') {
         info(`  3. clone nest-server-starter → ${projectDir}/projects/api`);
         info(
-          `  4. clone @lenne.tech/nest-server${frameworkUpstreamBranch ? ` (branch/tag: ${frameworkUpstreamBranch})` : ''} → /tmp`,
+          `  4. clone @lenne.tech/nest-server (${frameworkUpstreamBranch ? `branch/tag: ${frameworkUpstreamBranch}` : 'version pinned by the starter'}) → /tmp`,
         );
         info(`  5. vendor core/ + flatten-fix + codemod consumer imports`);
         info(`  6. merge upstream deps (dynamic, no hard-coded list)`);

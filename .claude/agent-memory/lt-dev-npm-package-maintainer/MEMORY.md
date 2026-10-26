@@ -4,7 +4,7 @@ description: NPM Package Maintainer memory for lenne.tech CLI project
 
 # NPM Package Maintainer Memory - lenne.tech CLI
 
-- [cli maintenance](project_cli.md) — npm-based; 1388 tests/89 suites; only load-nyc-config js-yaml override load-bearing; TS7/js-yaml5/@types/jsdom30/jsdom30 blocked; Node20+npm10 ci proof
+- [cli maintenance](project_cli.md) — npm-based; 1530 tests/107 suites; only load-nyc-config js-yaml override load-bearing; TS7 + jsdom30/@types/jsdom30 blocked; js-yaml 5 via loadYaml, bundler resolution done; Node20+npm10 ci proof
 - [nest-server maintenance](project_nest-server-maintenance.md) — overrides in pnpm-workspace.yaml; mongodb must track mongoose pin; brevo 4+/graphql 17/graphql-upload 16+ blocked; nest bin exec-bit quirk
 - [nuxt-extensions maintenance](project_nuxt-extensions.md) — TS 7 blocked by @nuxt/module-builder peer ^5.8.3; pnpm-pin sha512-hex method; @nuxt/kit range intentional
 - [lt-monorepo maintenance](project_lt-monorepo.md) — template repo; pnpm 11 default 24h release-age gate auto-writes minimumReleaseAgeExclude; c-a-t-v 13 deferred

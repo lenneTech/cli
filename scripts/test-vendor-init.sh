@@ -14,13 +14,18 @@
 #   4. `pnpm run build` in projects/api
 #   5. `pnpm run migrate:list` in projects/api
 #   6. `lt server module`, `object`, `addProp`, `test` generation
-#   7. Re-run tsc after generation
+#   7. Re-run tsc after generation, run the generated e2e test and the dev start
 #
 # Usage:
 #
 #   bash scripts/test-vendor-init.sh                  # run all 4 scenarios
 #   bash scripts/test-vendor-init.sh npm-rest         # just one
 #   bash scripts/test-vendor-init.sh --keep           # keep /tmp/lt-it/* on success
+#
+# Vendor scenarios vendor the nest-server version the starter pins. To test unreleased
+# framework work instead (e.g. a pushed `develop`, or a local snapshot via git insteadOf):
+#
+#   LT_IT_FRAMEWORK_UPSTREAM_BRANCH=develop bash scripts/test-vendor-init.sh vendor-both
 #
 # Runs against the LOCAL CLI build at bin/lt. Make sure to rebuild first
 # via `pnpm run clean-build && pnpm run compile && pnpm run copy-templates`.
@@ -119,6 +124,7 @@ run_scenario() {
       --frontend nuxt \
       --api-mode "${api_mode}" \
       --framework-mode "${framework_mode}" \
+      ${LT_IT_FRAMEWORK_UPSTREAM_BRANCH:+--framework-upstream-branch "${LT_IT_FRAMEWORK_UPSTREAM_BRANCH}"} \
       --noConfirm) >/dev/null 2>&1 \
     && pass "init completed" \
     || { fail "init failed"; return 0; }
@@ -152,6 +158,15 @@ run_scenario() {
     [[ -f "${api_dir}/migrations-utils/ts-compiler.js" ]] \
       && pass "migrations-utils/ts-compiler.js present" \
       || fail "migrations-utils/ts-compiler.js missing"
+    # nest-server >= 12 runs sources through its own SWC loader (`node -r …/ts-compiler.js`).
+    # A vendored project has no node_modules/@lenne.tech/nest-server, so the dev start and
+    # the scripts must load it from src/core. (A no-op for starters that still use ts-node.)
+    if grep -q "node_modules/@lenne.tech/nest-server/dist/core/modules/migrate/helpers/ts-compiler.js" \
+      "${api_dir}/package.json" "${api_dir}/nodemon.json" "${api_dir}/nodemon-debug.json" 2>/dev/null; then
+      fail "nodemon config or scripts still load the TypeScript loader from node_modules/@lenne.tech/nest-server"
+    else
+      pass "no nodemon config or script loads the TypeScript loader from node_modules/@lenne.tech/nest-server"
+    fi
     # migrate.js should explicitly load the ts-compiler bootstrap
     if grep -q "require('./ts-compiler')" "${api_dir}/migrations-utils/migrate.js"; then
       pass "migrations-utils/migrate.js explicitly loads ts-compiler"
@@ -324,9 +339,13 @@ run_scenario() {
   fi
 
   # 6. Generate module/object/addProp/test
+  # `meta` (JSON) pulls an extra framework import from the generators' import
+  # table. In vendor mode it used to stay `from '@lenne.tech/nest-server'`, which
+  # the tsc check after generation (step 7) now catches.
   (cd "${api_dir}/src" && \
     "${CLI_BIN}" server module --name Product --controller "${api_mode}" --noConfirm --skipLint \
-      --prop-name-0 name --prop-type-0 string --prop-name-1 price --prop-type-1 number >/dev/null 2>&1) \
+      --prop-name-0 name --prop-type-0 string --prop-name-1 price --prop-type-1 number \
+      --prop-name-2 meta --prop-type-2 JSON >/dev/null 2>&1) \
     && pass "server module generated" \
     || fail "server module generation failed"
 
@@ -338,7 +357,7 @@ run_scenario() {
 
   (cd "${api_dir}/src" && \
     "${CLI_BIN}" server addProp --type Module --element product --noConfirm --skipLint \
-      --prop-name-0 stock --prop-type-0 number >/dev/null 2>&1) \
+      --prop-name-0 stock --prop-type-0 number --prop-name-1 extras --prop-type-1 JSON >/dev/null 2>&1) \
     && pass "server addProp generated" \
     || fail "server addProp generation failed"
 
@@ -356,6 +375,13 @@ run_scenario() {
     else
       fail "product.service.ts does NOT use relative vendor import (got: ${service_import})"
     fi
+    # The extra imports of special property types (JSON above) come from a separate
+    # table; they must be rewritten too, in every generated file.
+    if grep -rlq "from '@lenne.tech/nest-server'" "${api_dir}/src/server/modules/product"; then
+      fail "generated product files still import '@lenne.tech/nest-server': $(grep -rl "from '@lenne.tech/nest-server'" "${api_dir}/src/server/modules/product" | tr '\n' ' ')"
+    else
+      pass "no generated product file imports '@lenne.tech/nest-server'"
+    fi
   else
     if [[ "${service_import}" == *"@lenne.tech/nest-server"* ]]; then
       pass "product.service.ts uses bare npm specifier"
@@ -368,6 +394,27 @@ run_scenario() {
   (cd "${api_dir}" && pnpm exec tsc --noEmit >/dev/null 2>&1) \
     && pass "tsc --noEmit still clean after generation" \
     || fail "tsc --noEmit errors after generation"
+
+  # 8b. The test `lt server test` generated must PASS, not only compile. It used to
+  # sign users up via the GraphQL `signUp` mutation, which no project the CLI creates
+  # today has (Better Auth, and no GraphQL at all in REST mode), so it failed in every
+  # scenario and only the soft `pnpm test` of step 12 noticed. Run it on its own: the
+  # rest of the suite belongs to the starter.
+  if (cd "${api_dir}" && pnpm run vitest tests/my-test.e2e-spec.ts >/dev/null 2>&1); then
+    pass "generated e2e test (lt server test) passes"
+  else
+    fail "generated e2e test (lt server test) fails"
+    (cd "${api_dir}" && pnpm run vitest tests/my-test.e2e-spec.ts 2>&1 \
+      | grep -E "(Test Files|Tests |FAIL|beforeAllError|Error:)" | tail -6) || true
+  fi
+
+  # 8c. The dev start (nodemon.json's exec, what `pnpm start` runs) must serve HTTP.
+  # Build, migrate, generators and the vitest suites never go through it, so a dev
+  # start that cannot even load the core passed every other step: a nest-server 12
+  # core imports `./x.js`, which the starter's ts-node exec cannot resolve
+  # (`Cannot find module './core.module.js'`, 2026-10-26). Uses the scenario's local
+  # database, whose name is stable, so repeated runs reuse it.
+  verify_dev_start "${api_dir}" "${project_root}" "${name}"
 
   # 9. lt fullstack update should detect the mode correctly
   local update_output
@@ -454,6 +501,40 @@ sys.exit(1 if leftover else 0)
   # step 11 — graphQl:false, region markers, pnpm hoist).
   section "Scenario: ${scenario} — fullstack compatibility (soft)"
   verify_fullstack_check_soft "${api_dir}"
+}
+
+# ── Dev start verifier (hard) ──────────────────────────────────────────
+
+verify_dev_start() {
+  local api_dir="$1" project_root="$2" name="$3"
+  local exec_cmd port log pid status="did not answer within 120s" code
+  exec_cmd="$(node -p "require('${api_dir}/nodemon.json').exec" 2>/dev/null || true)"
+  if [[ -z "${exec_cmd}" ]]; then
+    fail "dev start: nodemon.json has no exec"
+    return 0
+  fi
+  port="$(node -e "const s=require('net').createServer();s.listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})")"
+  log="${WORK_DIR}/${name}-devstart.log"
+  # `exec` all the way down, so $! is the server process itself and the kill below reaches it.
+  (cd "${api_dir}" && PORT="${port}" NODE_ENV=local \
+    PATH="${api_dir}/node_modules/.bin:${project_root}/node_modules/.bin:${PATH}" \
+    exec bash -c "exec ${exec_cmd}") >"${log}" 2>&1 &
+  pid=$!
+  for _ in $(seq 1 120); do
+    if ! kill -0 "${pid}" 2>/dev/null; then status="exited before answering"; break; fi
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${port}/health-check" || true)"
+    if [[ -n "${code}" && "${code}" != "000" ]]; then status="up"; break; fi
+    sleep 1
+  done
+  kill "${pid}" 2>/dev/null || true
+  sleep 1
+  kill -9 "${pid}" 2>/dev/null || true
+  if [[ "${status}" == "up" ]]; then
+    pass "dev start serves HTTP (${exec_cmd%% *} …, /health-check → ${code})"
+  else
+    fail "dev start ${status}: ${exec_cmd}"
+    grep -m3 -E "Cannot find module|Error:|ERR_" "${log}" | sed 's/^/      /' || true
+  fi
 }
 
 # ── Fullstack compatibility verifier (soft — advisory only) ─────────────

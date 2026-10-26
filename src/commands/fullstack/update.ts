@@ -7,7 +7,7 @@ import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-dete
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
 import { healCheckWrapper } from '../../lib/heal-check-wrapper';
 import { healDangerousOxlintFixFlags, healOxlintrcFilename } from '../../lib/heal-oxlintrc';
-import { healVendorMigrateStore } from '../../lib/heal-vendor-migrate-store';
+import { healVendorMigrateStore, healVendorTsCompiler } from '../../lib/heal-vendor-migrate-store';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
 /**
@@ -297,6 +297,26 @@ const NewCommand: GluegunCommand = {
     if (changedStore.length > 0) {
       info('');
       success(`  Repaired the vendor migration store: ${changedStore.join(', ')}`);
+    }
+
+    // ── Self-heal: the vendor-mode ts-node bootstrap next to the store ─────
+    //
+    // The ts-compiler.js earlier CLIs generated read the project's tsconfig and
+    // overrode `module: commonjs` on top of it. A TypeScript 6 project on
+    // `moduleResolution: nodenext` (what nest-server 12 recommends) turns that into
+    // TS5110 and every migrate run fails. Replaced only when the file is exactly
+    // what an earlier CLI wrote. The replacement uses the core's own SWC loader
+    // from nest-server 12 on, where ts-node may no longer be installed.
+    const tsCompilerAsset = join(__dirname, '..', '..', 'templates', 'vendor-scripts', 'ts-compiler.js');
+    const changedTsCompiler = healVendorTsCompiler(apiDir, tsCompilerAsset);
+    const tsCompilerSkipped = changedTsCompiler.filter((entry) => entry.includes('skipped'));
+    const tsCompilerApplied = changedTsCompiler.filter((entry) => !entry.includes('skipped'));
+    if (tsCompilerApplied.length > 0) {
+      info('');
+      success(`  Replaced the vendor ts-node bootstrap: ${tsCompilerApplied.join(', ')}`);
+    }
+    for (const entry of tsCompilerSkipped) {
+      warning(`  Vendor ts-node bootstrap NOT replaced: ${entry}`);
     }
 
     info('');

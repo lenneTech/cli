@@ -34,7 +34,8 @@ export const help = {
       values: ['npm', 'vendor'],
     },
     {
-      description: 'Upstream nest-server branch/tag to vendor (with --framework-mode vendor)',
+      description:
+        'Upstream nest-server branch/tag to vendor (with --framework-mode vendor; default: the version the starter pins)',
       flag: '--framework-upstream-branch',
       required: false,
       type: 'string',
@@ -337,7 +338,7 @@ const NewCommand: GluegunCommand = {
       } else if (frameworkMode === 'vendor') {
         info(`  1. clone nest-server-starter → ./${projectDir}`);
         info(
-          `  2. clone @lenne.tech/nest-server${frameworkUpstreamBranch ? ` (${frameworkUpstreamBranch})` : ''} → /tmp`,
+          `  2. clone @lenne.tech/nest-server (${frameworkUpstreamBranch || 'version pinned by the starter'}) → /tmp`,
         );
         info(`  3. vendor core/ + flatten-fix + codemod consumer imports`);
         info(`  4. merge upstream deps`);

@@ -306,6 +306,21 @@ describe('healVendorMigrateStore', () => {
       expect(changed[0]).toContain('symlink');
       expect(readFileSync(outside, 'utf8')).toBe(BROKEN);
     });
+
+    it('never writes through a symlink a repository planted at the temp path', () => {
+      // `migrate.js.lt-tmp` was a fixed name: committed as a symlink, the temp write
+      // followed it and overwrote a file outside the project.
+      makeVendored();
+      writeStore(BROKEN);
+      const outside = join(apiDir, 'outside-victim.txt');
+      writeFileSync(outside, 'precious', 'utf8');
+      symlinkSync(outside, `${store()}.lt-tmp`);
+
+      healVendorMigrateStore(apiDir, asset);
+
+      expect(readFileSync(outside, 'utf8')).toBe('precious');
+      expect(readStore()).toBe(TEMPLATE);
+    });
   });
 
   describe('scope', () => {
