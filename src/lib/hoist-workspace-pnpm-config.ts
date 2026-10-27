@@ -101,7 +101,27 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/;
 const commentKey = (field: string, key: string): string => `${field}${KEY_SEPARATOR}${key}`;
 
 /**
- * Comment blocks attached to the entries of each top-level mapping in `raw`.
+ * Key of a list item: `auditConfig` + `ignoreGhsas` + `GHSA-…`, or field + `''` +
+ * item for a top-level list such as `onlyBuiltDependencies`. Three parts where an
+ * entry key has two, so an item can never collide with a mapping entry.
+ */
+const itemCommentKey = (field: string, listKey: string, item: string): string =>
+  `${commentKey(field, listKey)}${KEY_SEPARATOR}${item}`;
+
+type CarryLine = { key?: string; kind: 'entry' } | { kind: 'blank' } | { kind: 'comment' } | { kind: 'outside' };
+
+/** Where a line sits inside the carried fields. Shared by harvest and reattach. */
+interface CarryState {
+  field: null | string;
+  fieldIndent: number;
+  /** Entry at the first level whose list items follow (`ignoreGhsas` in `auditConfig`). */
+  listKey: null | string;
+  listKeyIndent: number;
+}
+
+/**
+ * Comment blocks attached to the entries of each top-level mapping in `raw`, and to
+ * the scalar items of its lists.
  *
  * Only contiguous `#` lines DIRECTLY above an entry are taken, and a blank line
  * ends the block — a comment separated from a key by an empty line belongs to the
@@ -111,34 +131,12 @@ const commentKey = (field: string, key: string): string => `${field}${KEY_SEPARA
 export function extractKeyComments(raw: string, fields: readonly string[] = WORKSPACE_SCOPED_PNPM_FIELDS): KeyComments {
   const out: KeyComments = new Map();
   if (!raw) return out;
-  const lines = raw.split('\n');
-
-  let field: null | string = null;
-  let fieldIndent = 0;
+  const state: CarryState = { field: null, fieldIndent: 0, listKey: null, listKeyIndent: 0 };
   let pending: string[] = [];
 
-  for (const line of lines) {
-    const topLevel = /^([A-Za-z_][\w-]*):\s*$/.exec(line);
-    if (topLevel) {
-      field = fields.includes(topLevel[1]) ? topLevel[1] : null;
-      fieldIndent = 0;
-      pending = [];
-      continue;
-    }
-    if (field === null) continue;
-
-    if (/^\s*$/.test(line)) {
-      pending = [];
-      continue;
-    }
-    const indent = line.search(/\S/);
-    // Back at column 0 → the mapping is over (a new top-level key or a list item).
-    if (indent === 0) {
-      field = null;
-      pending = [];
-      continue;
-    }
-    if (/^\s*#/.test(line)) {
+  for (const line of raw.split('\n')) {
+    const read = readCarryLine(state, line, fields);
+    if (read.kind === 'comment') {
       // A bare CR is NOT a line break to `String.split('\n')` but IS one to every
       // YAML parser. So a comment containing one is re-emitted verbatim, and
       // everything after the CR becomes real YAML at a column of its author's
@@ -157,16 +155,8 @@ export function extractKeyComments(raw: string, fields: readonly string[] = WORK
       pending.push(line.trimStart());
       continue;
     }
-    const entry = /^\s*((?:'[^']*')|(?:"[^"]*")|(?:[^\s:#][^:]*?))\s*:/.exec(line);
-    if (!entry) {
-      pending = [];
-      continue;
-    }
-    // Nested deeper than the first entry level (e.g. `auditConfig.ignoreGhsas`
-    // items) — the block belongs to the inner key, which this pass does not carry.
-    if (fieldIndent === 0) fieldIndent = indent;
-    if (indent === fieldIndent && pending.length) {
-      out.set(commentKey(field, unquoteYamlKey(entry[1])), pending.join('\n'));
+    if (read.kind === 'entry' && read.key && pending.length) {
+      out.set(read.key, pending.join('\n'));
     }
     pending = [];
   }
@@ -186,49 +176,95 @@ export function reattachKeyComments(
   fields: readonly string[] = WORKSPACE_SCOPED_PNPM_FIELDS,
 ): string {
   if (comments.size === 0) return yaml;
-  const lines = yaml.split('\n');
+  const state: CarryState = { field: null, fieldIndent: 0, listKey: null, listKeyIndent: 0 };
   const out: string[] = [];
 
-  let field: null | string = null;
-  let fieldIndent = 0;
-
-  for (const line of lines) {
-    const topLevel = /^([A-Za-z_][\w-]*):\s*$/.exec(line);
-    if (topLevel) {
-      field = fields.includes(topLevel[1]) ? topLevel[1] : null;
-      fieldIndent = 0;
-      out.push(line);
-      continue;
-    }
-
-    if (field !== null && !/^\s*$/.test(line)) {
-      const indent = line.search(/\S/);
-      if (indent === 0) {
-        field = null;
-      } else {
-        const entry = /^\s*((?:'[^']*')|(?:"[^"]*")|(?:[^\s:#][^:]*?))\s*:/.exec(line);
-        if (entry) {
-          if (fieldIndent === 0) fieldIndent = indent;
-          if (indent === fieldIndent) {
-            const block = comments.get(commentKey(field, unquoteYamlKey(entry[1])));
-            // `out[out.length - 1]`, not `.at(-1)`: this project's tsconfig lib
-            // predates ES2022.
-            const already = (out[out.length - 1] ?? '').trim().startsWith('#');
-            // Second gate on purpose: harvest is one source of blocks today, and a
-            // control character reaching the emitted file is the whole exploit.
-            if (block && !already && !CONTROL_CHARS.test(block)) {
-              const pad = ' '.repeat(indent);
-              out.push(...block.split('\n').map((l) => `${pad}${l}`));
-            }
-          }
-        }
+  for (const line of yaml.split('\n')) {
+    const read = readCarryLine(state, line, fields);
+    if (read.kind === 'entry' && read.key) {
+      const block = comments.get(read.key);
+      // `out[out.length - 1]`, not `.at(-1)`: this project's tsconfig lib
+      // predates ES2022.
+      const already = (out[out.length - 1] ?? '').trim().startsWith('#');
+      // Second gate on purpose: harvest is one source of blocks today, and a
+      // control character reaching the emitted file is the whole exploit.
+      if (block && !already && !CONTROL_CHARS.test(block)) {
+        const pad = ' '.repeat(line.search(/\S/));
+        out.push(...block.split('\n').map((l) => `${pad}${l}`));
       }
     }
-
     out.push(line);
   }
 
   return out.join('\n');
+}
+
+/**
+ * Classify one line and advance `state`. An `entry` carries a `key` only where a
+ * comment block is carried: a mapping entry at the first level of a field, or a
+ * scalar list item, either directly in a top-level list or one level below a
+ * first-level entry.
+ *
+ * The list items matter most: an `auditConfig.ignoreGhsas` item SUPPRESSES a
+ * vulnerability finding, and its assessment sits directly above it. Dropping that
+ * left the generated project suppressing a high advisory with no reason in sight.
+ */
+function readCarryLine(state: CarryState, line: string, fields: readonly string[]): CarryLine {
+  const topLevel = /^([A-Za-z_][\w-]*):\s*$/.exec(line);
+  if (topLevel) {
+    state.field = fields.includes(topLevel[1]) ? topLevel[1] : null;
+    state.fieldIndent = 0;
+    state.listKey = null;
+    return { kind: 'outside' };
+  }
+  if (state.field === null) return { kind: 'outside' };
+  if (/^\s*$/.test(line)) return { kind: 'blank' };
+  const indent = line.search(/\S/);
+  // Back at column 0 → the mapping is over (a new top-level key or a list item).
+  if (indent === 0) {
+    state.field = null;
+    return { kind: 'outside' };
+  }
+  if (/^\s*#/.test(line)) return { kind: 'comment' };
+
+  const item = /^\s*-\s+(.*?)\s*$/.exec(line);
+  if (item) {
+    // A list as the field's own value (`onlyBuiltDependencies`).
+    if (state.fieldIndent === 0) state.fieldIndent = indent;
+    const value = scalarListItem(item[1]);
+    if (value === undefined) return { kind: 'entry' };
+    if (indent === state.fieldIndent) return { key: itemCommentKey(state.field, '', value), kind: 'entry' };
+    if (state.listKey !== null && indent > state.listKeyIndent) {
+      return { key: itemCommentKey(state.field, state.listKey, value), kind: 'entry' };
+    }
+    return { kind: 'entry' };
+  }
+
+  const entry = /^\s*((?:'[^']*')|(?:"[^"]*")|(?:[^\s:#][^:]*?))\s*:/.exec(line);
+  if (!entry) return { kind: 'entry' };
+  if (state.fieldIndent === 0) state.fieldIndent = indent;
+  if (indent === state.fieldIndent) {
+    const key = unquoteYamlKey(entry[1]);
+    state.listKey = key;
+    state.listKeyIndent = indent;
+    return { key: commentKey(state.field, key), kind: 'entry' };
+  }
+  // Nested deeper than the first entry level (e.g. `peerDependencyRules.allowedVersions`
+  // keys): the block belongs to the inner key, which is not carried, and neither are
+  // list items below it.
+  state.listKey = null;
+  return { kind: 'entry' };
+}
+
+/**
+ * The value of a `- value` list item when it is a plain or quoted scalar, else
+ * `undefined` (a nested list, a flow collection, a mapping item, an alias). A
+ * trailing ` # comment` is not part of the value.
+ */
+function scalarListItem(raw: string): string | undefined {
+  const value = raw.replace(/\s+#.*$/, '').trim();
+  if (!value || /^[-[{&*!|>]/.test(value) || /:(\s|$)/.test(value)) return undefined;
+  return unquoteYamlKey(value);
 }
 
 /** `'msgpackr-extract'` / `"foo"` / `foo` all denote the same mapping key. */

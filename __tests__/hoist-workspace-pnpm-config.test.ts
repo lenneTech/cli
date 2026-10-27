@@ -165,10 +165,7 @@ describe('hoistWorkspacePnpmConfig', () => {
       pnpm: { overrides: { 'better-auth': '1.7.1' } },
     });
     writeJson(`${tempDir}/projects/app/package.json`, { name: 'app' });
-    filesystem.write(
-      `${tempDir}/projects/app/pnpm-workspace.yaml`,
-      dump({ overrides: { 'better-auth': '1.6.26' } }),
-    );
+    filesystem.write(`${tempDir}/projects/app/pnpm-workspace.yaml`, dump({ overrides: { 'better-auth': '1.6.26' } }));
 
     const { conflicts } = hoistWorkspacePnpmConfig({
       filesystem,
@@ -1184,7 +1181,7 @@ describe('hoistWorkspacePnpmConfig — comment preservation', () => {
   it("keeps the root's own wording when both files annotate the same key", () => {
     filesystem.write(
       `${tempDir}/pnpm-workspace.yaml`,
-      "packages:\n  - projects/*\nallowBuilds:\n  # Root decided this deliberately.\n  bcrypt: true\n",
+      'packages:\n  - projects/*\nallowBuilds:\n  # Root decided this deliberately.\n  bcrypt: true\n',
     );
     filesystem.write(
       `${tempDir}/projects/api/pnpm-workspace.yaml`,
@@ -1220,11 +1217,54 @@ describe('hoistWorkspacePnpmConfig — comment preservation', () => {
     expect(reattachKeyComments(once, comments)).toBe(once);
   });
 
+  it('carries the assessment above an auditConfig suppression into the root file', () => {
+    // nuxt-base-starter justifies its one suppressed HIGH advisory in twenty lines
+    // directly above the list item. The hoist carried entry comments only, so every
+    // generated workspace suppressed the advisory with no reason in sight, under the
+    // lt-monorepo comment that called the list empty (smoke test 2026-10-27).
+    filesystem.write(
+      `${tempDir}/pnpm-workspace.yaml`,
+      'packages:\n  - projects/*\nauditConfig:\n  # Root note on the key.\n  ignoreGhsas: []\n',
+    );
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      [
+        'auditConfig:',
+        '  ignoreGhsas:',
+        '    # GHSA-86w9-cpqp-85rv (high): node-forge, dev certificate only.',
+        '    #',
+        '    # Delete when `pnpm audit` is clean without this entry.',
+        '    - GHSA-86w9-cpqp-85rv',
+        '    # A retired entry, documented after the last item.',
+        '',
+      ].join('\n'),
+    );
+    hoist();
+    const lines = rootText().split('\n');
+    const itemAt = lines.findIndex((l) => l.trim() === '- GHSA-86w9-cpqp-85rv');
+    expect(lines.slice(itemAt - 3, itemAt)).toEqual([
+      '    # GHSA-86w9-cpqp-85rv (high): node-forge, dev certificate only.',
+      '    #',
+      '    # Delete when `pnpm audit` is clean without this entry.',
+    ]);
+    // The key keeps the root's own block, and a comment below the last item has no
+    // entry to belong to.
+    expect(rootText()).toContain('  # Root note on the key.\n  ignoreGhsas:');
+    expect(rootText()).not.toContain('A retired entry');
+    expect((load(rootText()) as any).auditConfig).toEqual({ ignoreGhsas: ['GHSA-86w9-cpqp-85rv'] });
+  });
+
+  it('carries comments on the items of a top-level list, by value, after the sort', () => {
+    const comments = extractKeyComments('onlyBuiltDependencies:\n  # Why sharp may build.\n  - sharp\n  - esbuild\n');
+    const out = reattachKeyComments('onlyBuiltDependencies:\n  - esbuild\n  - sharp\n', comments);
+    expect(out).toBe('onlyBuiltDependencies:\n  - esbuild\n  # Why sharp may build.\n  - sharp\n');
+    // Idempotent over an already-annotated file, as for mapping entries.
+    expect(reattachKeyComments(out, comments)).toBe(out);
+  });
+
   it('does not harvest comments from keys nested one level deeper', () => {
-    // The neighbouring list-item fixture is rejected one branch EARLIER (a `- x`
-    // line never matches the entry regex), so it never reaches the depth guard it
-    // claims to test — removing the guard left every test green. A nested MAP is
-    // what actually exercises it.
+    // List items are carried (see above), but a nested MAP is not: its block belongs
+    // to the inner key. This is what exercises the depth guard in `readCarryLine`.
     const nested = 'overrides:\n  a: 1\n  nested:\n    # inner note\n    b: 2\n';
     expect([...extractKeyComments(nested).keys()]).toEqual([]);
 
@@ -1239,9 +1279,7 @@ describe('hoistWorkspacePnpmConfig — comment preservation', () => {
     // contain spaces. With a space separator, `overrides` + `a b` and `overrides a`
     // + `b` collapse onto one entry — one override's reasoning silently attached
     // to another's.
-    const comments = extractKeyComments(
-      "overrides:\n  # range note\n  'minimatch@>=5.0.0 <10.2.6': 10.2.6\n",
-    );
+    const comments = extractKeyComments("overrides:\n  # range note\n  'minimatch@>=5.0.0 <10.2.6': 10.2.6\n");
     expect([...comments.keys()]).toEqual(['overrides\u0000minimatch@>=5.0.0 <10.2.6']);
     const out = reattachKeyComments("overrides:\n  'minimatch@>=5.0.0 <10.2.6': 10.2.6\n", comments);
     expect(out).toContain('# range note');
@@ -1297,11 +1335,11 @@ describe('extractKeyComments / reattachKeyComments', () => {
     expect(reattachKeyComments(yaml, new Map())).toBe(yaml);
   });
 
-  it('leaves nested list items alone', () => {
-    // `auditConfig.ignoreGhsas` entries sit one level deeper; their comments belong
-    // to the inner key, which this pass deliberately does not carry.
+  it('keys a nested list item by field, inner key and value', () => {
+    // These items used to be left alone, and with them the assessment of every
+    // suppressed advisory: the block above `- GHSA-x` explains that item, nothing else.
     const comments = extractKeyComments('auditConfig:\n  ignoreGhsas:\n    # why\n    - GHSA-x\n');
-    expect([...comments.keys()]).toEqual([]);
+    expect([...comments.entries()]).toEqual([['auditConfig\u0000ignoreGhsas\u0000GHSA-x', '# why']]);
   });
 });
 

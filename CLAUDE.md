@@ -1072,6 +1072,17 @@ a name clash with different content or an unusable root `patches/` leaves the en
 pointing at the file where it is and is reported. Verified against the real starter
 files and pnpm 11.14.0: the lockfile records the patch hash.
 
+The values survive, the reasons have to be carried. `js-yaml`'s `dump()` drops every
+comment, so `extractKeyComments` / `reattachKeyComments` move the block directly above
+an entry. Until 2026-10-27 that meant MAPPING entries only: a comment above a list
+item was dropped, and with it the assessment of every suppressed advisory. The smoke
+test found a generated workspace suppressing nuxt-base-starter's high node-forge
+advisory with no reason in sight, under lt-monorepo's "Empty on purpose" on the key.
+Scalar list items are carried now too (`auditConfig.ignoreGhsas`, top-level lists like
+`minimumReleaseAgeExclude`), keyed by field, inner key and value, so the sort cannot
+move a block. Both passes share `readCarryLine`; change the two only together. A
+comment below the LAST item has no entry to belong to and is dropped on purpose.
+
 ### Hoisting is destructive, so conflict detection only sees ONE run <!-- Added: 2026-08-24 -->
 `hoistWorkspacePnpmConfig` returns `{ conflicts }` when two sources set the same key
 of an object-valued field (`overrides`, `allowBuilds`) to different values — the merge

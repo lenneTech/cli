@@ -155,9 +155,24 @@ run_scenario() {
     [[ -f "${api_dir}/bin/migrate.js" ]] \
       && pass "bin/migrate.js present" \
       || fail "bin/migrate.js missing"
-    [[ -f "${api_dir}/migrations-utils/ts-compiler.js" ]] \
-      && pass "migrations-utils/ts-compiler.js present" \
-      || fail "migrations-utils/ts-compiler.js missing"
+    # An ES module project ("type": "module", the starter from v12.0.0 on) has no CommonJS
+    # bootstrap: the scripts name the core's loader directly, and migrate.js requires the
+    # helper through createRequire (lt server convert-esm, VENDOR_ESM_STORE).
+    local esm_project=false
+    node -e "process.exit(require(process.argv[1]).type === 'module' ? 0 : 1)" "${api_dir}/package.json" \
+      && esm_project=true
+    if [[ "${esm_project}" == "true" ]]; then
+      [[ ! -f "${api_dir}/migrations-utils/ts-compiler.js" ]] \
+        && pass "migrations-utils/ts-compiler.js absent (ES module project uses the core loader)" \
+        || fail "migrations-utils/ts-compiler.js present in an ES module project"
+      grep -q "ts:./src/core/modules/migrate/helpers/ts-compiler.js" "${api_dir}/package.json" \
+        && pass "migrate scripts name the vendored core loader" \
+        || fail "migrate scripts do not name ./src/core/modules/migrate/helpers/ts-compiler.js"
+    else
+      [[ -f "${api_dir}/migrations-utils/ts-compiler.js" ]] \
+        && pass "migrations-utils/ts-compiler.js present" \
+        || fail "migrations-utils/ts-compiler.js missing"
+    fi
     # nest-server >= 12 runs sources through its own SWC loader (`node -r …/ts-compiler.js`).
     # A vendored project has no node_modules/@lenne.tech/nest-server, so the dev start and
     # the scripts must load it from src/core. (A no-op for starters that still use ts-node.)
@@ -167,8 +182,16 @@ run_scenario() {
     else
       pass "no nodemon config or script loads the TypeScript loader from node_modules/@lenne.tech/nest-server"
     fi
-    # migrate.js should explicitly load the ts-compiler bootstrap
-    if grep -q "require('./ts-compiler')" "${api_dir}/migrations-utils/migrate.js"; then
+    if [[ "${esm_project}" == "true" ]]; then
+      # require(esm) skips the loader's ESM hooks, so an `import` of the vendored helper fails.
+      if grep -q "createRequire(import.meta.url)" "${api_dir}/migrations-utils/migrate.js" \
+        && grep -q "require('../src/core/modules/migrate/migration.helper')" "${api_dir}/migrations-utils/migrate.js"; then
+        pass "migrations-utils/migrate.js requires the vendored helper through createRequire"
+      else
+        fail "migrations-utils/migrate.js does not require the vendored helper through createRequire"
+      fi
+    elif grep -q "require('./ts-compiler')" "${api_dir}/migrations-utils/migrate.js"; then
+      # migrate.js should explicitly load the ts-compiler bootstrap
       pass "migrations-utils/migrate.js explicitly loads ts-compiler"
     else
       fail "migrations-utils/migrate.js does NOT load ts-compiler"
