@@ -18,8 +18,8 @@ irm https://raw.githubusercontent.com/lenneTech/cli/main/scripts/windows/setup.p
 
 `irm | iex` is not subject to the execution policy, so this works on a fresh machine where `npm` and
 `lt` are still blocked. The script is idempotent: run it again at any time, it only does what is still
-missing, and ends with `lt doctor`. The Git, Node.js and MongoDB installers are machine-wide, so expect
-up to three UAC prompts. It asks for your name and e-mail for git commits if they are not set yet.
+missing, and ends with `lt doctor`. The Git, Node.js, GitHub CLI and MongoDB installers are machine-wide, so
+expect up to four UAC prompts. It asks for your name and e-mail for git commits if they are not set yet.
 
 Then open a **new** terminal, so it picks up the new PATH.
 
@@ -44,10 +44,14 @@ If Group Policy enforces a stricter policy, call the `.cmd` shims instead: `npm.
 winget install --id Git.Git -e --source winget
 winget install --id OpenJS.NodeJS.LTS -e --source winget
 winget install --id CaddyServer.Caddy -e --source winget
+winget install --id GitHub.cli -e --source winget
 winget install --id MongoDB.Server -e --source winget
 ```
 
 - Caddy serves the HTTPS URLs of `lt dev` (`https://<project>.localhost`). `lt dev` starts it itself.
+- GitHub CLI (`gh`) is what `/lt-dev:ticket-cycle` uses to open, watch and merge pull requests. Log in
+  once: `gh auth login --web --git-protocol https`. For a GitLab project install
+  `winget install --id GLab.GLab -e --source winget` instead and log in with `glab auth login`.
 - MongoDB installs as the Windows service "MongoDB Server" and listens on `127.0.0.1:27017`. No
   Docker is needed. Check with `Get-Service MongoDB`.
 

@@ -87,10 +87,12 @@ function Invoke-LtSetup {
     Write-Ok 'winget available'
 
     # 3. Tools. Git first: the others do not need it, but everything after this script does.
-    Write-Step 'Git, Node.js LTS, Caddy, MongoDB'
+    Write-Step 'Git, Node.js LTS, Caddy, GitHub CLI, MongoDB'
     Install-WingetPackage 'Git.Git' 'Git' { Test-Command 'git' }
     Install-WingetPackage 'OpenJS.NodeJS.LTS' 'Node.js LTS' { Test-Command 'node' }
     Install-WingetPackage 'CaddyServer.Caddy' 'Caddy' { Test-Command 'caddy' }
+    # The ticket cycle opens, watches and merges pull requests through gh (GitLab: glab, see docs/windows.md).
+    Install-WingetPackage 'GitHub.cli' 'GitHub CLI' { Test-Command 'gh' }
     # MongoDB installs machine-wide as a Windows service: expect a UAC prompt. mongod is not put
     # on PATH by its installer, so the service is what counts.
     Install-WingetPackage 'MongoDB.Server' 'MongoDB (Windows service)' { [bool](Get-Service -Name 'MongoDB' -ErrorAction SilentlyContinue) }
@@ -124,6 +126,11 @@ function Invoke-LtSetup {
             $value = Read-Host $prompt
             if ($value) { & git config --global $key $value; Write-Ok "$key = $value" }
             else { Write-Fail "$key is not set. lt fullstack init cannot commit without it: git config --global $key ""...""" }
+        }
+        if (Test-Command 'gh') {
+            & gh auth status *> $null
+            if ($LASTEXITCODE -eq 0) { Write-Ok 'GitHub CLI is logged in' }
+            else { Write-Note 'GitHub CLI is not logged in. Once, in a new terminal: gh auth login --web --git-protocol https' }
         }
     } else {
         Write-Fail 'git is not on PATH, git settings skipped.'

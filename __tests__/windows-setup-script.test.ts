@@ -36,7 +36,7 @@ describe('scripts/windows/setup.ps1', () => {
 
   it('documents every winget package it installs in docs/windows.md', () => {
     const ids = [...code.matchAll(/Install-WingetPackage '([^']+)'/g)].map((m) => m[1]);
-    expect(ids).toEqual(['Git.Git', 'OpenJS.NodeJS.LTS', 'CaddyServer.Caddy', 'MongoDB.Server']);
+    expect(ids).toEqual(['Git.Git', 'OpenJS.NodeJS.LTS', 'CaddyServer.Caddy', 'GitHub.cli', 'MongoDB.Server']);
     for (const id of ids) {
       expect(guide).toContain(`winget install --id ${id} -e`);
     }
