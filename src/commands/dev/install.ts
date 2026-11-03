@@ -23,7 +23,7 @@ import { resolveLayout } from '../../lib/dev-project';
  */
 const InstallCommand: GluegunCommand = {
   alias: ['i'],
-  description: 'Setup Caddy service for lt dev',
+  description: 'Setup Caddy for lt dev',
   hidden: false,
   name: 'install',
   run: async (toolbox: ExtendedGluegunToolbox) => {
@@ -44,6 +44,12 @@ const InstallCommand: GluegunCommand = {
     if (result.caddyMissing) {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev install: caddy missing';
+    }
+    // A foreign Caddy on :2019: re-running install cannot fix that, only the
+    // user's own decision can — the lines above name the options.
+    if (result.foreign) {
+      if (!parameters.options.fromGluegunMenu) process.exit(1);
+      return 'dev install: foreign caddy';
     }
 
     // Auto-chain: if we're inside an un-initialized lt-dev project, run the

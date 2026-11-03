@@ -33,8 +33,9 @@ import { existsSync, readdirSync, rmSync } from 'fs';
 import { cpus, totalmem } from 'os';
 import { join } from 'path';
 
-import { reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
+import { detectCaddyOwner, foreignCaddyLines, reloadCaddy, removeProjectBlock, upsertProjectBlock } from './caddy';
 import { applyPendingMigrations, findCompiledEntry, resolveApiRuntime } from './dev-api-launch';
+import { ensureOwnCaddy } from './dev-caddy-gate';
 import { buildDevEnv, internalUrl } from './dev-env';
 import { clearEnvBridge, writeEnvBridge } from './dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from './dev-identity';
@@ -337,6 +338,9 @@ export async function bringUpTestSession(
   if (testIdentity.subdomains.app && appPort)
     routes.push({ hostname: testIdentity.subdomains.app.hostname, upstreamPort: appPort });
   if (routes.length === 0) throw new Error('test session has no subdomains to expose (need an app project).');
+  // Ownership before the Caddyfile changes (see `detectCaddyOwner`).
+  const caddyGate = await ensureOwnCaddy({ startIfDown: true });
+  if (!caddyGate.ok) throw new Error(caddyGate.lines.join('\n'));
   upsertProjectBlock(testIdentity.slug, routes);
   const reload = await reloadCaddy();
   if (!reload.ok) throw new Error(`caddy reload failed:\n${reload.stderr}`);
@@ -841,10 +845,13 @@ export async function tearDownTestSession(
     clearSession(layout.root, names.sessionFile);
   }
 
+  const owner = await detectCaddyOwner();
   const removed = removeProjectBlock(testIdentity.slug);
-  if (removed) {
+  if (removed && owner === 'ours') {
     const r = await reloadCaddy();
     if (!r.ok && !opts.silent) log.warn(`Removed test Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+  } else if (removed && owner === 'foreign' && !opts.silent) {
+    log.warn(`Removed the test block from lt dev's Caddyfile, but did not reload:\n${foreignCaddyLines().join('\n')}`);
   }
 
   clearEnvBridge(layout.root, names.bridgeFile);

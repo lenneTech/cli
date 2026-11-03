@@ -3,16 +3,10 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import {
-  caddyAvailable,
-  CaddyRoute,
-  healCaddyfile,
-  prepareCaddy,
-  reloadCaddy,
-  upsertProjectBlock,
-} from '../../lib/caddy';
+import { CaddyRoute, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
 import { CommandHelp } from '../../lib/command-help';
 import { isApiCompiledRequested, startCompiledApi } from '../../lib/dev-api-launch';
+import { ensureOwnCaddy } from '../../lib/dev-caddy-gate';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
 import { buildIdentity } from '../../lib/dev-identity';
@@ -124,19 +118,19 @@ const UpCommand: GluegunCommand = {
       return 'dev up: not a project';
     }
 
-    // Pre-flight: Caddy
-    if (!(await caddyAvailable())) {
-      error('caddy is not installed. Run `lt dev install` first.');
+    // Pre-flight: Caddy must be OURS before the Caddyfile is rewritten below —
+    // ownership of an instance started before the owner marker existed is proven
+    // by comparing its config with the file, so the check has to come first.
+    // On Windows this also starts Caddy when none runs.
+    const caddyGate = await ensureOwnCaddy({ startIfDown: true });
+    if (!caddyGate.ok) {
+      const [first, ...rest] = caddyGate.lines;
+      error(first);
+      rest.forEach((l) => info(l));
       if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev up: caddy missing';
+      return `dev up: caddy ${caddyGate.reason}`;
     }
-    // Repairs the Caddyfile before asking whether Caddy runs (see prepareCaddy).
-    const caddyState = await prepareCaddy();
-    if (!caddyState.running) {
-      error('caddy daemon is not running. Run `lt dev install` to start the lt-dev service.');
-      if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev up: caddy daemon down';
-    }
+    if (caddyGate.started) success('Started Caddy.');
 
     // Ticket-aware: in a `lt ticket` worktree (tagged by a `.lt-dev/ticket`
     // marker) — or with an explicit `--ticket <name>` — the slug / URLs / DB are
@@ -352,9 +346,10 @@ const UpCommand: GluegunCommand = {
         // that nothing listens on.
         dbName: identity.subdomains.api ? (existingEntry?.dbName ?? dbName) : undefined,
       });
-      // The upsert below is never reached on this path, so a running stack would otherwise keep a
-      // block without the loopback guard (reachable from the LAN) and a Caddyfile that still has
-      // the `default_bind` of CLI 1.51.0/1.51.1, which makes every Caddy reload fail on macOS.
+      // The upsert below is never reached on this path. The gate above has already repaired the
+      // whole Caddyfile (the 1.51.0/1.51.1 `default_bind`, a loopback guard for every block, the
+      // owner marker) and reloaded it; what is left is this stack's own block, which may predate
+      // the current `renderProjectBlock` (the upstream connection cap, for one).
       const runningRoutes: CaddyRoute[] = [];
       if (identity.subdomains.api && existingEntry?.internalPorts.api)
         runningRoutes.push({
@@ -366,11 +361,9 @@ const UpCommand: GluegunCommand = {
           hostname: identity.subdomains.app.hostname,
           upstreamPort: existingEntry.internalPorts.app,
         });
-      const caddyfileChanged =
-        runningRoutes.length > 0 ? upsertProjectBlock(identity.slug, runningRoutes) : healCaddyfile();
-      if (caddyfileChanged || caddyState.healed) {
+      if (runningRoutes.length > 0 && upsertProjectBlock(identity.slug, runningRoutes)) {
         const reload = await reloadCaddy();
-        if (reload.ok) info('Caddy config refreshed: this stack answers requests from this machine only.');
+        if (reload.ok) info('Caddy config refreshed for this stack.');
         else warning(`caddy reload failed:\n${reload.stderr}`);
       }
       info('Run `lt dev down` first to force a full restart.');

@@ -6,7 +6,7 @@ import { isMachinePrepared, shouldRunInstallBeforeInit } from '../../lib/dev-boo
 import { runInstall } from '../../lib/dev-install-helper';
 import { printMigrateResult, runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
-import { platformSupported } from '../../lib/dev-service';
+import { caddyLaunchMode } from '../../lib/dev-service';
 
 /**
  * Initialize an existing project for `lt dev` and apply idempotent
@@ -58,7 +58,7 @@ const InitCommand: GluegunCommand = {
     // install command) makes infinite recursion structurally impossible.
     const runInstallFirst = shouldRunInstallBeforeInit({
       machinePrepared: isMachinePrepared(),
-      platformSupported: platformSupported() !== 'unsupported',
+      platformSupported: caddyLaunchMode() !== 'manual',
       skipInstall: parameters.options.skipInstall === true,
     });
     if (runInstallFirst) {

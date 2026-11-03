@@ -2,18 +2,11 @@ import { spawn } from 'child_process';
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import {
-  caddyAvailable,
-  caddyDaemonRunning,
-  paths as caddyPaths,
-  compareLoadedConfig,
-  hasLegacyLoopbackBind,
-  readCaddyfile,
-  validateCaddyfile,
-} from '../../lib/caddy';
+import { caddyAvailable } from '../../lib/caddy';
+import { diagnoseCaddy } from '../../lib/dev-doctor-caddy';
 import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
-import { getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
+import { caddyLaunchMode, getServicePaths, getServiceStatus } from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
 import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
 
@@ -54,9 +47,11 @@ const DoctorCommand: GluegunCommand = {
     }
 
     // 2. Service installed (LaunchAgent / systemd-user)
-    const plat = platformSupported();
-    if (plat === 'unsupported') {
+    const mode = caddyLaunchMode();
+    if (mode === 'manual') {
       line('WARN', colors.yellow, `service management not supported on ${process.platform} — run caddy manually`);
+    } else if (mode === 'on-demand') {
+      line('INFO', colors.cyan, 'no service on this platform — `lt dev up` starts Caddy when it is not running');
     } else {
       const svc = await getServiceStatus();
       const servicePaths = getServicePaths();
@@ -71,59 +66,12 @@ const DoctorCommand: GluegunCommand = {
       }
     }
 
-    // 3. Caddy daemon admin endpoint
-    let daemon = false;
-    if (hasCaddy) {
-      daemon = await caddyDaemonRunning();
-      if (daemon) line('OK', colors.green, 'caddy admin (:2019) reachable');
-      else {
-        line('FAIL', colors.red, 'caddy admin (:2019) unreachable — run `lt dev install`');
-        fails++;
-      }
-    }
-
-    // 4. Caddyfile validates
-    let valid = false;
-    if (hasCaddy) {
-      const v = await validateCaddyfile();
-      valid = v.ok;
-      if (v.ok) line('OK', colors.green, `Caddyfile valid (${caddyPaths.caddyfile})`);
-      else line('WARN', colors.yellow, `Caddyfile validation: ${v.stderr.split('\n')[0]}`);
-    }
-
-    // 4a. The `default_bind` of CLI 1.51.0/1.51.1. Valid syntax, so check 4 passes it, but macOS
-    //     lets an unprivileged Caddy bind port 443 only on the wildcard address: every reload
-    //     fails and a restarted Caddy does not come up at all. Any `lt dev` command that writes
-    //     the Caddyfile removes it; this names the cause while nothing has.
-    if (hasLegacyLoopbackBind(readCaddyfile())) {
-      const tag = process.platform === 'darwin' ? 'FAIL' : 'WARN';
-      line(
-        tag,
-        tag === 'FAIL' ? colors.red : colors.yellow,
-        'Caddyfile has `default_bind 127.0.0.1 [::1]` (lt 1.51.0/1.51.1), which macOS refuses to bind — run `lt dev up` to remove it',
-      );
-      if (tag === 'FAIL') fails++;
-    }
-
-    // 4b. Does the running Caddy serve this Caddyfile? A failed reload (a bind error, say) leaves
-    //     Caddy on its previous config while the admin, validate and port checks all stay green,
-    //     because `caddy validate` never binds. Read-only: compares, never reloads.
-    if (daemon && valid) {
-      const loaded = await compareLoadedConfig();
-      if (loaded === 'matches') {
-        line('OK', colors.green, 'caddy serves the current Caddyfile');
-      } else if (loaded === 'differs') {
-        line('FAIL', colors.red, 'caddy is not serving the current Caddyfile — the last reload failed or none ran');
-        line(
-          'FAIL',
-          colors.red,
-          `  see Caddy's error: caddy reload --config ${caddyPaths.caddyfile} --adapter caddyfile`,
-        );
-        fails++;
-      } else {
-        line('WARN', colors.yellow, 'could not compare the config caddy serves with the Caddyfile');
-      }
-    }
+    // 3./4. Caddy: whose it is, whether the Caddyfile validates, the 1.51.x `default_bind`, and
+    //      whether OUR Caddy serves the file (see `dev-doctor-caddy.ts`).
+    const caddyDiagnosis = await diagnoseCaddy(hasCaddy, { launchMode: mode });
+    const tagColor = { FAIL: colors.red, INFO: colors.cyan, OK: colors.green, WARN: colors.yellow };
+    caddyDiagnosis.lines.forEach((l) => line(l.tag, tagColor[l.tag], l.msg));
+    fails += caddyDiagnosis.fails;
 
     // 4. Port 80 / 443 free or held by Caddy
     //

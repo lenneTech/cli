@@ -111,6 +111,8 @@ describe('caddy / Caddyfile management', () => {
   // with "listen tcp 127.0.0.1:443: bind: permission denied". `caddy validate` never binds.
   describe('loopback only', () => {
     const LEGACY = 'default_bind 127.0.0.1 [::1]';
+    // Every write also carries the owner marker (see caddy-owner.test.ts).
+    const OWNER = '{\n\tlog lt-dev-owner {\n\t\toutput discard\n\t}\n}';
     const routes = [
       { hostname: 'crm.localhost', upstreamPort: 4011 },
       { hostname: 'api.crm.localhost', upstreamPort: 4010 },
@@ -139,7 +141,7 @@ describe('caddy / Caddyfile management', () => {
 
       expect(upsertProjectBlock('crm', routes)).toBe(true);
       expect(readCaddyfile()).not.toMatch(/default_bind/);
-      expect(readCaddyfile()).toMatch(/^# lt dev — managed Caddyfile\n\n# >>> lt-dev:crm >>>/);
+      expect(readCaddyfile().startsWith(`# lt dev — managed Caddyfile\n\n${OWNER}\n\n# >>> lt-dev:crm >>>`)).toBe(true);
       expect(upsertProjectBlock('crm', routes)).toBe(false);
     });
 
@@ -189,7 +191,7 @@ describe('caddy / Caddyfile management', () => {
     test('lt dev install creates the stub only when the Caddyfile is missing', () => {
       rmSync(process.env.LT_DEV_CADDYFILE as string, { force: true });
       expect(ensureCaddyfile('# stub\n')).toBe(true);
-      expect(readCaddyfile()).toBe('# stub\n');
+      expect(readCaddyfile()).toBe(`# stub\n\n${OWNER}\n`);
     });
 
     test('lt dev install keeps the projects of an existing Caddyfile and repairs the 1.51.x line', () => {
@@ -213,7 +215,7 @@ describe('caddy / Caddyfile management', () => {
     test('removing it from a project-marker file leaves the markers intact', () => {
       writeCaddyfile(`# lt dev\n\n{\n\t${LEGACY}\n}\n\n# >>> lt-dev:kit >>>\nkit.localhost {\n}\n# <<< lt-dev:kit <<<\n`);
       expect(readCaddyfile()).toBe(
-        '# lt dev\n\n# >>> lt-dev:kit >>>\nkit.localhost {\n  @lt_remote not remote_ip 127.0.0.0/8 ::1\n  abort @lt_remote\n}\n# <<< lt-dev:kit <<<\n',
+        `# lt dev\n\n${OWNER}\n\n# >>> lt-dev:kit >>>\nkit.localhost {\n  @lt_remote not remote_ip 127.0.0.0/8 ::1\n  abort @lt_remote\n}\n# <<< lt-dev:kit <<<\n`,
       );
       expect(removeProjectBlock('kit')).toBe(true);
     });
