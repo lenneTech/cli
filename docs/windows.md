@@ -128,6 +128,10 @@ Measured on Windows hardware during DEV-3320:
 
 - **`curl` is not curl** in Windows PowerShell 5.1 but an alias of `Invoke-WebRequest`. Write
   `curl.exe` in instructions and scripts.
+- **`curl.exe` needs `--ssl-no-revoke` for `https://*.localhost`.** Windows' TLS stack (Schannel) checks
+  the revocation list of every certificate, and Caddy's local CA has none: without the flag curl ends
+  with exit 35, `CRYPT_E_NO_REVOCATION_CHECK`, while the browser shows the same page. Measured
+  2026-11-03. Node-based tools (lt, Playwright, the API client) are not affected.
 - **`*.localhost` resolves in the browser only.** Chromium resolves it internally, the system resolver
   does not. Anything that asks from Node or a shell has to use `127.0.0.1`; `lt` does that for its own
   probes.
