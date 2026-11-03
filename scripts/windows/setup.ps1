@@ -149,9 +149,15 @@ function Invoke-LtSetup {
             & npm.cmd install -g pnpm
             if (Test-Command 'pnpm') { Write-Ok 'pnpm installed' } else { Write-Fail 'pnpm could not be installed: npm install -g pnpm' }
         }
-        # Quoted: without quotes PowerShell reads the leading @ as an operator.
-        & npm.cmd install -g '@lenne.tech/cli@latest'
-        if (Test-Command 'lt') { Write-Ok 'lt CLI installed (latest)' } else { Write-Fail 'lt could not be installed: npm install -g "@lenne.tech/cli"' }
+        # Only when missing, like every other step: an installed lt may be an `npm link` of a
+        # local clone (measured 2026-11-03: a second run replaced the linked test version with
+        # the published one). `lt update` is the way to update.
+        if (Test-Command 'lt') { Write-Ok 'lt CLI already installed (update with: lt update)' }
+        else {
+            # Quoted: without quotes PowerShell reads the leading @ as an operator.
+            & npm.cmd install -g '@lenne.tech/cli@latest'
+            if (Test-Command 'lt') { Write-Ok 'lt CLI installed' } else { Write-Fail 'lt could not be installed: npm install -g "@lenne.tech/cli"' }
+        }
         # npm no longer runs install scripts by default. For the CLI that only skips the bash/zsh
         # completion setup, which PowerShell does not use. The warning about it is harmless.
     } else {

@@ -47,6 +47,14 @@ describe('scripts/windows/setup.ps1', () => {
     expect(guide).toContain('git config --global core.autocrlf input');
   });
 
+  it('installs lt only when it is missing, so a second run keeps an npm link', () => {
+    const install = code.indexOf("install -g '@lenne.tech/cli");
+    const guard = code.lastIndexOf("if (Test-Command 'lt')", install);
+    expect(install).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(-1);
+    expect(code.slice(guard, install)).toContain('else');
+  });
+
   it('quotes the scoped package name (PowerShell reads a bare @ as an operator)', () => {
     expect(code).toMatch(/install -g '@lenne\.tech\/cli/);
     expect(guide).toContain('npm install -g "@lenne.tech/cli"');
