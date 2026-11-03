@@ -798,6 +798,26 @@ const NewCommand: GluegunCommand = {
         workspaceRoot: projectDir,
       });
 
+      // Best-effort `lt dev init` so the workspace is ready for `lt dev up`
+      // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
+      // injects the URL block into CLAUDE.md, adds `.lt-dev/` to .gitignore.
+      // Failures here are non-fatal — `init` itself remains successful.
+      // BEFORE the initial commit: it patches the three CLAUDE.md files and
+      // playwright.config.ts, and after the commit every fresh project started
+      // with four modified files nobody had touched (DEV-3320: a ticket run on
+      // Windows stopped to ask whose changes they were).
+      let devMigrateOk = false;
+      try {
+        const layout = resolveLayout(projectDir, fs);
+        const migrate = runMigrate({ layout });
+        devMigrateOk = true;
+        if (!migrate.alreadyMigrated) {
+          info(colors.dim(`  registered "${migrate.identity.slug}" with \`lt dev\``));
+        }
+      } catch {
+        /* best-effort — never block init */
+      }
+
       // Create initial commit after everything is set up
       try {
         await execArgs('git', ['add', '.'], { cwd: projectDir });
@@ -817,22 +837,6 @@ const NewCommand: GluegunCommand = {
           failRun(toolbox);
           return;
         }
-      }
-
-      // Best-effort `lt dev init` so the workspace is ready for `lt dev up`
-      // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
-      // injects the URL block into CLAUDE.md, adds `.lt-dev/` to .gitignore.
-      // Failures here are non-fatal — `init` itself remains successful.
-      let devMigrateOk = false;
-      try {
-        const layout = resolveLayout(projectDir, fs);
-        const migrate = runMigrate({ layout });
-        devMigrateOk = true;
-        if (!migrate.alreadyMigrated) {
-          info(colors.dim(`  registered "${migrate.identity.slug}" with \`lt dev\``));
-        }
-      } catch {
-        /* best-effort — never block init */
       }
 
       // We're done, so show what to do next
