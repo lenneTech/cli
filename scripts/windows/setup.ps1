@@ -13,7 +13,7 @@
 # ternary operator. Messages are ASCII only, because PowerShell 5.1 reads a downloaded .ps1
 # without BOM as ANSI. No `exit` anywhere: under `iex` it would close the user's window.
 
-function Install-LtStack {
+function Invoke-LtSetup {
     # 'Continue', not 'Stop': under 5.1, 'Stop' turns any stderr line of a native command
     # (git, npm, winget) into a terminating error. Failures are checked explicitly instead.
     $ErrorActionPreference = 'Continue'
@@ -64,6 +64,8 @@ function Install-LtStack {
     Write-Host 'Safe to run again; every step only does what is still missing.'
 
     if ($env:OS -ne 'Windows_NT') { Write-Fail 'This script is for Windows. On macOS/Linux see docs/windows.md for the equivalent steps.'; return }
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) { Write-Note 'This window runs as administrator. Not needed: the installers ask for elevation themselves.' }
 
     # 1. Execution policy: a fresh Windows blocks every .ps1, and npm/pnpm/lt are .ps1 shims.
     Write-Step 'PowerShell execution policy'
@@ -170,7 +172,8 @@ function Install-LtStack {
         New-ItemProperty -Path 'HKCU:\Console' -Name 'QuickEdit' -Value 0 -PropertyType DWord -Force | Out-Null
         Write-Ok 'QuickEdit turned off for new console windows (this window keeps it until closed)'
     }
-    if (Test-Command 'wt') { Write-Ok 'Windows Terminal available (recommended for lt)' }
+    # WT_SESSION is set inside Windows Terminal; the wt alias is not always on PATH (e.g. elevated).
+    if ($env:WT_SESSION -or (Test-Command 'wt')) { Write-Ok 'Windows Terminal available (recommended for lt)' }
     else { Write-Note 'Windows Terminal is recommended for lt: winget install --id Microsoft.WindowsTerminal -e' }
 
     # 8. Summary and check.
@@ -190,6 +193,18 @@ function Install-LtStack {
     Write-Host '  lt fullstack init --name my-project --frontend nuxt --api-mode Rest --noConfirm'
     Write-Host '  cd my-project'
     Write-Host '  lt dev up'
+}
+
+function Install-LtStack {
+    # git and npm write UTF-8, Windows PowerShell 5.1 decodes native output with the console code
+    # page: the git name "K" + o-umlaut + "nig" was read back as mojibake. Restored on every way out.
+    $previous = [Console]::OutputEncoding
+    try {
+        try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }
+        Invoke-LtSetup
+    } finally {
+        try { [Console]::OutputEncoding = $previous } catch { }
+    }
 }
 
 Install-LtStack
