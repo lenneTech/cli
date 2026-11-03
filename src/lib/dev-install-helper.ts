@@ -21,6 +21,7 @@ import {
 } from './caddy';
 import { startOwnCaddy } from './dev-caddy-gate';
 import {
+  caddyInstallHint,
   caddyLaunchMode,
   getServicePaths,
   getServiceStatus,
@@ -79,10 +80,10 @@ export async function runInstall(
     success('caddy is on PATH');
   } else {
     warning('caddy is not installed.');
-    info(`  → macOS: ${colors.cyan('brew install caddy')}`);
-    info(`  → Linux: ${colors.cyan('https://caddyserver.com/docs/install')}`);
-    info(`  → Windows: ${colors.cyan('winget install CaddyServer.Caddy')}`);
-    info('  (Do NOT start it via `brew services` — `lt dev install` runs its own service.)');
+    info(`  → Install it with ${colors.cyan(caddyInstallHint())}.`);
+    if (process.platform === 'darwin') {
+      info('  (Do NOT start it via `brew services` — `lt dev install` runs its own service.)');
+    }
     blocked = true;
   }
 
@@ -230,7 +231,8 @@ async function installOnDemand(toolbox: ExtendedGluegunToolbox, alreadyRunning: 
 
   info('');
   info(colors.bold('Local CA trust'));
-  info("  Windows asks once whether to trust Caddy's local CA, on Caddy's first start.");
+  info('  Caddy adds its local CA to your trust store when it first serves a *.localhost site,');
+  info('  i.e. on your first `lt dev up`. Windows may ask you once to confirm that.');
   info(`  If browsers still warn about ${colors.cyan('https://*.localhost')}, run this while Caddy runs:`);
   info(`    ${colors.cyan('caddy trust')}`);
   return { blocked: false, caddyMissing: false, ok: true, unsupported: false };

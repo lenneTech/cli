@@ -6,7 +6,7 @@ import { caddyAvailable } from '../../lib/caddy';
 import { diagnoseCaddy } from '../../lib/dev-doctor-caddy';
 import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
-import { caddyLaunchMode, getServicePaths, getServiceStatus } from '../../lib/dev-service';
+import { caddyInstallHint, caddyLaunchMode, getServicePaths, getServiceStatus } from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
 import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
 
@@ -42,7 +42,11 @@ const DoctorCommand: GluegunCommand = {
     const hasCaddy = await caddyAvailable();
     if (hasCaddy) line('OK', colors.green, 'caddy on PATH');
     else {
-      line('FAIL', colors.red, 'caddy not installed — run `brew install caddy` then `lt dev install`');
+      line(
+        'FAIL',
+        colors.red,
+        `caddy not installed — install it with ${caddyInstallHint()}, then run \`lt dev install\``,
+      );
       fails++;
     }
 

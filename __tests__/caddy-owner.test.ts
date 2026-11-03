@@ -23,7 +23,7 @@ import {
 } from '../src/lib/caddy';
 import { ensureOwnCaddy, startOwnCaddy } from '../src/lib/dev-caddy-gate';
 import { diagnoseCaddy } from '../src/lib/dev-doctor-caddy';
-import { caddyLaunchMode, startCaddyOnDemand } from '../src/lib/dev-service';
+import { caddyInstallHint, caddyLaunchMode, caddyUninstallHint, startCaddyOnDemand } from '../src/lib/dev-service';
 
 afterAll(() => rmSync(tmp, { force: true, recursive: true }));
 
@@ -458,12 +458,31 @@ describe('lt dev doctor — the ownership check and the loaded-config check agre
   });
 });
 
-describe('Caddy launch on each platform', () => {
+describe('Caddy launch and advice on each platform', () => {
   it('service on macOS/Linux, on demand on Windows, manual elsewhere', () => {
     expect(caddyLaunchMode('darwin')).toBe('service');
     expect(caddyLaunchMode('linux')).toBe('service');
     expect(caddyLaunchMode('win32')).toBe('on-demand');
     expect(caddyLaunchMode('freebsd')).toBe('manual');
+  });
+
+  it('install/uninstall hints: brew only on macOS, the winget id checked against winget-pkgs on Windows', () => {
+    expect(caddyInstallHint('darwin')).toContain('brew install caddy');
+    expect(caddyInstallHint('win32')).toContain('winget install CaddyServer.Caddy');
+    expect(caddyInstallHint('win32')).toContain('scoop install caddy');
+    expect(caddyUninstallHint('win32')).toContain('winget uninstall CaddyServer.Caddy');
+    for (const p of ['win32', 'linux'] as const) {
+      expect(caddyInstallHint(p)).not.toMatch(/brew/);
+      expect(caddyUninstallHint(p)).not.toMatch(/brew/);
+    }
+  });
+
+  it('the Windows install path names neither sudo nor brew', () => {
+    const src = readFileSync(join(__dirname, '..', 'src', 'lib', 'dev-install-helper.ts'), 'utf8');
+    const onDemand = src.slice(src.indexOf('async function installOnDemand'));
+    expect(onDemand.length).toBeGreaterThan(100);
+    expect(onDemand).not.toMatch(/sudo|brew/);
+    expect(onDemand).toContain('caddy trust');
   });
 
   it('startCaddyOnDemand runs `caddy run` with OUR Caddyfile, logging to a file', async () => {

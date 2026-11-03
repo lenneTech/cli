@@ -408,7 +408,7 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
 **Auto-chaining:** when run from inside an lt-dev-capable project that is not yet initialized, `lt dev install` runs `lt dev init` for that project **afterwards**. Pass `--skip-init` to opt out. This is one hop deep and never recurses — `install` calls the init *helper*, not the init command.
 
 **What it does:**
-1. Verifies `caddy` is on PATH (suggests `brew install caddy` if missing).
+1. Verifies `caddy` is on PATH. If it is missing, it names the install command for your platform: `brew install caddy` on macOS, `winget install CaddyServer.Caddy` (or `scoop install caddy`) on Windows, then a new terminal.
 2. Refuses to go on if a foreign Caddy holds `:2019` (see above).
 3. Creates `~/.lenneTech/Caddyfile` stub if absent. An existing file keeps its project blocks and is only repaired: owner marker, loopback guard per block, and removal of the `default_bind` line of 1.51.0/1.51.1.
 4. Detects a conflicting `brew services caddy` registration and asks you to stop it.
@@ -417,7 +417,7 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
    - **Linux:** `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`.
 6. Waits up to 8s for Caddy's admin endpoint (`http://127.0.0.1:2019/config/`) to respond.
 7. Validates the Caddyfile.
-8. Reminds you to run the CA trust command **with HOME preserved** (Windows: plain `caddy trust`, only if browsers still warn — Windows asks once on Caddy's first start, and `caddy trust` needs the running instance):
+8. Reminds you to run the CA trust command **with HOME preserved** (Windows: plain `caddy trust`, no `sudo`, and only if browsers still warn. Caddy adds its CA to the trust store when it first serves a `*.localhost` site, i.e. on the first `lt dev up`, and `caddy trust` needs the running instance):
    ```bash
    sudo -E HOME="$HOME" caddy trust
    ```
@@ -524,7 +524,9 @@ against another's.
 
 **Pre-flight guards (exit code 1 each):**
 - Caddy not installed (`lt dev install` first)
-- Caddy daemon not running (run `lt dev install` — it bootstraps the lt-dev service)
+- A Caddy on `:2019` that `lt dev` did not start: refused, with the path of our Caddyfile and the `caddy reload` / `caddy run` commands. It is never stopped or reloaded.
+- Caddy not running. macOS/Linux: run `lt dev install` (it bootstraps the lt-dev service); after a Caddyfile repair `lt dev up` first waits up to 20 s for the service to restart Caddy. **Windows:** not a guard, `lt dev up` starts Caddy itself.
+- The repaired Caddyfile does not reload (Caddy keeps its previous config; the error is printed)
 - A FRESHLY allocated internal port is already in use by a foreign process
 
 **Health-aware (re)start (idempotent):** `lt dev up` is safe to re-run. It probes
@@ -635,7 +637,7 @@ lt dev tunnel --api        # tunnel the API instead
 
 **What it does:**
 1. Checks `cloudflared` is on PATH (suggests `brew install cloudflared` otherwise).
-2. Confirms the Caddy daemon is up (`lt dev install` must have run).
+2. Confirms that the Caddy `lt dev` started is up. It does not start one (the routes come from `lt dev up`) and refuses a Caddy that `lt dev` did not start.
 3. Spawns `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`. The host-header rewrite is required — without it Caddy would not match the project block for the random `*.trycloudflare.com` hostname.
 4. Waits for cloudflared to publish the public URL (usually 5-10s) and prints it prominently.
 
@@ -732,7 +734,7 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 **Alias:** `lt d t`
 
 **Behaviour (App mode):**
-1. Pre-flight: Caddy installed + daemon running, and `playwright.config.ts` env-aware (otherwise abort; `--force` overrides).
+1. Pre-flight: Caddy installed, running and started by `lt dev` (same gate as `lt dev up`; on Windows it starts Caddy), and `playwright.config.ts` env-aware (otherwise abort; `--force` overrides).
 2. Builds the API and applies pending migrations to the test DB (`migrate:up`, with the API's own env, so it hits the same DB). A failed migration aborts the run; a project without a `migrate:up` script starts unmigrated. Then starts the compiled API. Without a build output it falls back to the project's `start` script, which migrates by itself.
 3. Builds the App (`nuxt build`) and serves the Nitro output.
 4. Waits for both to answer and aborts if either never does, so the suite never runs against a dead stack.

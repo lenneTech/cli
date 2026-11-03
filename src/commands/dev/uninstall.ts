@@ -4,7 +4,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { paths as caddyPaths, detectCaddyOwner, foreignCaddyLines, stopCaddy } from '../../lib/caddy';
-import { caddyLaunchMode, getServicePaths, uninstallService } from '../../lib/dev-service';
+import { caddyLaunchMode, caddyUninstallHint, getServicePaths, uninstallService } from '../../lib/dev-service';
 
 /**
  * Symmetric counterpart to `lt dev install`.
@@ -13,8 +13,8 @@ import { caddyLaunchMode, getServicePaths, uninstallService } from '../../lib/de
  * daemon, and optionally purges all lt-dev state (Caddyfile, logs).
  *
  * What it does NOT touch:
- *   - the caddy binary itself (`brew uninstall caddy` remains the
- *     user's choice — we don't presume they want to drop the tool)
+ *   - the caddy binary itself (`caddyUninstallHint` names how; that
+ *     remains the user's choice — we don't presume they want to drop the tool)
  *   - per-project state under `<project>/.lt-dev/` (use `lt dev down`)
  *   - the trusted CA in the system keychain (use
  *     `sudo -E HOME="$HOME" caddy untrust` if desired)
@@ -99,7 +99,7 @@ const UninstallCommand: GluegunCommand = {
 
     info('');
     info(
-      `To reinstall: ${colors.cyan('lt dev install')}. To also remove caddy itself: ${colors.cyan('brew uninstall caddy')}.`,
+      `To reinstall: ${colors.cyan('lt dev install')}. To also remove caddy itself: ${colors.cyan(caddyUninstallHint())}.`,
     );
     if (!parameters.options.fromGluegunMenu) process.exit(0);
     return 'dev uninstall: ok';

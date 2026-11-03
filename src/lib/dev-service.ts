@@ -115,6 +115,18 @@ export interface UninstallServiceResult {
 let activeRunner: ShellRunner = defaultShellRunner;
 
 /**
+ * How to install Caddy on this platform — `brew` is not advice on Linux or Windows. The one
+ * source for every "caddy is missing" message. Package ids checked against the package
+ * repositories: `CaddyServer.Caddy` in microsoft/winget-pkgs (a portable zip; winget adds its
+ * link folder to PATH, which only a new terminal sees) and `caddy` in Scoop's main bucket.
+ */
+export function caddyInstallHint(p: NodeJS.Platform = process.platform): string {
+  if (p === 'darwin') return '`brew install caddy`';
+  if (p === 'win32') return '`winget install CaddyServer.Caddy` (or `scoop install caddy`), then open a new terminal';
+  return 'your package manager (https://caddyserver.com/docs/install)';
+}
+
+/**
  * How Caddy gets started on this platform.
  *
  * - `service`: a LaunchAgent / systemd-user unit owns it (`installService`).
@@ -125,6 +137,13 @@ export function caddyLaunchMode(p: NodeJS.Platform = platform()): 'manual' | 'on
   if (p === 'darwin' || p === 'linux') return 'service';
   if (p === 'win32') return 'on-demand';
   return 'manual';
+}
+
+/** Counterpart of {@link caddyInstallHint} for `lt dev uninstall`. */
+export function caddyUninstallHint(p: NodeJS.Platform = process.platform): string {
+  if (p === 'darwin') return '`brew uninstall caddy`';
+  if (p === 'win32') return '`winget uninstall CaddyServer.Caddy` (or `scoop uninstall caddy`)';
+  return 'your package manager';
 }
 
 /** Compute the file-system locations for the service. Pure. */
@@ -416,15 +435,9 @@ export async function waitForServiceReady(timeoutMs = 5_000): Promise<boolean> {
   return false;
 }
 
-/** Install hint for the current platform — `brew` is not advice on Linux or Windows. */
+/** Install message for a missing `caddy`, see {@link caddyInstallHint}. */
 function caddyMissingMessage(): string {
-  if (process.platform === 'darwin') {
-    return 'caddy not found on PATH. Install with `brew install caddy`.';
-  }
-  if (process.platform === 'win32') {
-    return 'caddy not found on PATH. Install with `winget install CaddyServer.Caddy` or `scoop install caddy`.';
-  }
-  return 'caddy not found on PATH. Install it with your package manager.';
+  return `caddy not found on PATH. Install it with ${caddyInstallHint()}.`;
 }
 
 function defaultShellRunner(cmd: string, args: string[]): Promise<ShellResult> {
