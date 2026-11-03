@@ -376,6 +376,7 @@ const NewCommand: GluegunCommand = {
 
       if (pushToRemote) {
         gitLink =
+          cliGitLink ||
           configGitLink ||
           (await helper.getInput(null, {
             name: 'git repository link',
@@ -389,7 +390,9 @@ const NewCommand: GluegunCommand = {
       // Default in noConfirm mode: git true. Git is always initialized locally
       // (dev branch + initial commit); push to a remote only when a gitLink is
       // configured, otherwise stay local-only (nothing to push to).
-      gitLink = configGitLink;
+      // The flag first: `--git-link <url> --noConfirm` without `--git true` used to read only
+      // lt.config, so the link was dropped and the workspace stayed local without a word.
+      gitLink = cliGitLink || configGitLink;
       pushToRemote = !!gitLink;
       info(
         `Using default git: true${gitLink ? ' (push to configured gitLink)' : ' (local only — no --git-link configured)'}`,
