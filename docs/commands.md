@@ -1706,8 +1706,9 @@ lt doctor [options]
 
 Checks:
 - Node.js version
-- npm version
-- Git installation
+- Package manager of the current directory, and pnpm in any case (`lt fullstack init` and `lt dev` need it)
+- Git installation, with the install command for the platform
+- Git identity: asks `git var GIT_COMMITTER_IDENT`, i.e. whether git could commit here (config, `includeIf`, auto-detection)
 - lt CLI version and updates
 - Project configuration
 - Dependencies installation

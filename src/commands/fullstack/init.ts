@@ -7,6 +7,7 @@ import { resolveLayout } from '../../lib/dev-project';
 import { execArgs, spawnArgs } from '../../lib/exec-args';
 import { failRun } from '../../lib/fail-run';
 import { setPackageName } from '../../lib/package-name';
+import { checkGitIdentity, findMissingTools } from '../../lib/toolchain-preflight';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 import {
   detectWorkspaceLayout,
@@ -31,7 +32,6 @@ const NewCommand: GluegunCommand = {
       config,
       filesystem,
       frontendHelper,
-      git,
       helper,
       parameters,
       patching,
@@ -53,12 +53,6 @@ const NewCommand: GluegunCommand = {
     toolbox.tools.nonInteractiveHint(
       'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor: workspace-wide, applies to API and frontend> [--frontend-framework-mode <npm|vendor>: overrides --framework-mode for the frontend only] [--framework-upstream-branch <ref>] [--next: implies nuxt-base-starter#next unless --frontend-branch overrides] [--dry-run] --noConfirm',
     );
-
-    // Check git
-    if (!(await git.gitInstalled())) {
-      failRun(toolbox);
-      return;
-    }
 
     // Load configuration
     const ltConfig = config.loadConfig();
@@ -107,6 +101,26 @@ const NewCommand: GluegunCommand = {
       commandConfig: ltConfig?.commands?.fullstack,
       config: ltConfig,
     });
+
+    // Missing tools surface before the first prompt, not minutes later in the install step.
+    // A dry run only reports them: it neither clones nor installs.
+    const missingTools = findMissingTools({ pnpm: !experimental });
+    if (missingTools.length > 0) {
+      const report = dryRun ? warning : error;
+      info('');
+      for (const issue of missingTools) {
+        report(issue.message);
+        for (const line of issue.fix) {
+          info(`  ${colors.cyan(line)}`);
+        }
+      }
+      if (!dryRun) {
+        info('');
+        info('Open a new terminal after installing, so it picks up the new PATH, then run lt fullstack init again.');
+        failRun(toolbox);
+        return;
+      }
+    }
 
     // ── Auto-detect existing workspace ─────────────────────────────────
     //
@@ -534,6 +548,22 @@ const NewCommand: GluegunCommand = {
       await execArgs('git', ['init', '--initial-branch=dev'], { cwd: projectDir });
     } catch (err) {
       ngBaseSpinner.fail(`Failed to initialize git: ${err.message}`);
+      failRun(toolbox);
+      return;
+    }
+
+    // The initial commit is the last step, after the multi-minute install. Ask git now, inside
+    // the new repository, whether it could commit: that resolves the identity exactly as the
+    // commit will (includeIf sections included). The folder is ours, it did not exist before
+    // the clone, and removing it lets the user re-run init right after fixing the identity.
+    const identityIssue = await checkGitIdentity(projectDir);
+    if (identityIssue) {
+      ngBaseSpinner.fail(identityIssue.message);
+      for (const line of identityIssue.fix) {
+        info(`  ${colors.cyan(line)}`);
+      }
+      filesystem.remove(projectDir);
+      info(`Removed the unfinished "${projectDir}". Run lt fullstack init again after setting the identity.`);
       failRun(toolbox);
       return;
     }

@@ -1,6 +1,7 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { execArgs, isSafeRef, safeRef } from '../lib/exec-args';
 import { nonInteractiveGitEnv } from '../lib/git-env';
+import { gitInstallHint } from '../lib/toolchain-preflight';
 
 /**
  * Git functions
@@ -260,7 +261,7 @@ export class Git {
         const {
           print: { error },
         } = this.toolbox;
-        error('Please install git: https://git-scm.com');
+        error(`Please install git: ${gitInstallHint()}`);
       }
       return this.gitInstalledCache;
     }
@@ -275,7 +276,7 @@ export class Git {
     this.gitInstalledCache = gitInstalled;
 
     if (!gitInstalled) {
-      error('Please install git: https://git-scm.com');
+      error(`Please install git: ${gitInstallHint()}`);
       return false;
     }
 
