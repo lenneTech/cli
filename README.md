@@ -15,8 +15,20 @@ CLI in action:
 
 ## Installation
 
+Prerequisites: [Node.js](https://nodejs.org) LTS, [git](https://git-scm.com) with a configured identity
+(`git config --global user.name` / `user.email`), and [pnpm](https://pnpm.io) for `lt fullstack init`
+and `lt dev`. `lt doctor` checks all of them.
+
 ```
 $ npm install -g @lenne.tech/cli
+$ npm install -g pnpm
+```
+
+**Windows** (native, PowerShell, no WSL): one command sets up a machine from zero, see
+[docs/windows.md](docs/windows.md) for what it does and for the manual steps.
+
+```powershell
+irm https://raw.githubusercontent.com/lenneTech/cli/main/scripts/windows/setup.ps1 | iex
 ```
 
 ## Usage
@@ -144,7 +156,9 @@ When `--next` is set the CLI:
 - skips `nest-server-starter`-specific patching (`config.env.ts`,
   `main.ts` Swagger setup, `meta.json`, `lt.config.json`),
 - skips the workspace install in fullstack mode — run `pnpm install` for
-  the frontend and `bun install` for the API yourself.
+  the frontend and `bun install` for the API yourself (nest-base runs on
+  [Bun](https://bun.sh), so `--next` needs Bun installed; the Nuxt app keeps
+  using pnpm).
 
 This option is **experimental** and may change. The downstream `lt server
 module/object/addProp/test/permissions` commands target the classic
@@ -190,8 +204,11 @@ A full end-to-end smoke test for all four supported init combinations
 CLI:
 
 ```bash
-$ pnpm run test:vendor-init
+$ npm run test:vendor-init
 ```
+
+This repository uses npm; the generated projects use pnpm. The script needs
+bash, git and pnpm on PATH (macOS or Linux) and network access for the clones.
 
 Each scenario runs init → module → object → addProp → test → tsc → build →
 migrate:list and asserts ~30 structural + functional invariants per scenario.
