@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
 import { failRun } from '../../lib/fail-run';
 import {
   detectWorkspaceLayout,
@@ -49,6 +50,11 @@ export const help = {
     },
     { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
     { description: 'Skip install / format after API integration', flag: '--skip-install', type: 'boolean' },
+    {
+      description: 'Public project: keep the template rule that keeps agent notes out of git',
+      flag: '--public',
+      type: 'boolean',
+    },
     { description: 'Print resolved plan and exit without disk changes', flag: '--dry-run', type: 'boolean' },
     { description: 'Skip all interactive prompts', flag: '--noConfirm', type: 'boolean' },
   ],
@@ -362,6 +368,12 @@ const NewCommand: GluegunCommand = {
     // sits directly above the install output that would otherwise bury it.
     const { conflicts } = finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
     reportWorkspaceConflicts(conflicts, toolbox.print.warning);
+
+    // Only the new sub-project: the root `.gitignore` belongs to the workspace.
+    if (!(await applyAgentNotesIgnorePolicy(toolbox, apiDest, { noConfirm }))) {
+      failRun(toolbox);
+      return;
+    }
 
     // Run install + format unless explicitly skipped (CI/agents may
     // want to chain multiple add-* calls before installing once).

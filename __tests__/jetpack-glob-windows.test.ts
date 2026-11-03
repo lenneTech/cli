@@ -19,8 +19,8 @@
  *
  * Why it regressed at all: fs-jetpack declares `minimatch: ^3.0.2`, and
  * minimatch 3 DID normalise a pattern's separators via `path.sep`. This repo
- * pins `minimatch` as a direct dependency, so the hoisted 10.x wins — and 10.x
- * dropped that normalisation. Anyone re-introducing a slash-bearing
+ * pins `minimatch` as a direct dependency (and raises fs-jetpack's), so a hoisted
+ * 10.x or newer wins — and 10.x dropped that normalisation. Anyone re-introducing a slash-bearing
  * `filesystem.find` would therefore be writing code that works on their Mac and
  * fails, without a word, for every Windows user.
  *

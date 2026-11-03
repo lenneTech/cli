@@ -40,8 +40,16 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-const CADDYFILE_TMP = mkdtempSync(join(tmpdir(), 'lt-dev-svc-e2e-'));
-process.env.LT_DEV_CADDYFILE = join(CADDYFILE_TMP, 'Caddyfile');
+// caddy paths are captured at import time, and vitest evaluates every import before the first
+// statement: only a hoisted block runs early enough.
+const { CADDYFILE_TMP } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-dev-svc-e2e-'));
+  process.env.LT_DEV_CADDYFILE = path.join(dir, 'Caddyfile');
+  return { CADDYFILE_TMP: dir };
+});
 
 // Detect a pre-existing real LaunchAgent (e.g. the developer already
 // ran `lt dev install`). If found, we skip the entire E2E suite —

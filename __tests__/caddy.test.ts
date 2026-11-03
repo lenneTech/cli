@@ -1,9 +1,15 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { existsSync, rmSync, writeFileSync } from 'fs';
 
-const tmp = mkdtempSync(join(tmpdir(), 'lt-caddy-'));
-process.env.LT_DEV_CADDYFILE = join(tmp, 'Caddyfile');
+// caddy.ts reads LT_DEV_CADDYFILE when it is imported, and vitest evaluates every import
+// before the first statement: only a hoisted block runs early enough.
+const { tmp } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-caddy-'));
+  process.env.LT_DEV_CADDYFILE = path.join(dir, 'Caddyfile');
+  return { tmp: dir };
+});
 
 import {
   addLoopbackGuards,

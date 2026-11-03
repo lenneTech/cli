@@ -7,6 +7,7 @@ import { spawnSync } from 'child_process';
 
 import { checkCommandExists, findClaudeCli } from '../src/lib/claude-cli';
 import { processPostInstall, safeExecCommand } from '../src/lib/plugin-utils';
+import * as pluginUtilsModule from '../src/lib/plugin-utils';
 
 // ─── safeExecCommand ───────────────────────────────────────────────
 
@@ -167,7 +168,7 @@ describe('processPostInstall', () => {
 
   test('detects already-installed requirement via checkCommand', () => {
     // Temporarily add a test entry to PLUGIN_POST_INSTALL
-    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    const { PLUGIN_POST_INSTALL } = pluginUtilsModule;
     PLUGIN_POST_INSTALL['__test_plugin__'] = {
       requirements: [
         {
@@ -189,7 +190,7 @@ describe('processPostInstall', () => {
   });
 
   test('reports missing requirement when install fails', () => {
-    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    const { PLUGIN_POST_INSTALL } = pluginUtilsModule;
     PLUGIN_POST_INSTALL['__test_fail_plugin__'] = {
       requirements: [
         {
@@ -210,7 +211,7 @@ describe('processPostInstall', () => {
   });
 
   test('detects an already-installed requirement via executable, without `which`', () => {
-    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    const { PLUGIN_POST_INSTALL } = pluginUtilsModule;
     PLUGIN_POST_INSTALL['__test_executable__'] = {
       requirements: [
         {
@@ -231,7 +232,7 @@ describe('processPostInstall', () => {
   });
 
   test('reports a missing executable requirement when install fails', () => {
-    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    const { PLUGIN_POST_INSTALL } = pluginUtilsModule;
     PLUGIN_POST_INSTALL['__test_executable_fail__'] = {
       requirements: [
         {
@@ -252,7 +253,7 @@ describe('processPostInstall', () => {
   });
 
   test('runs installCommand without checkCommand', () => {
-    const { PLUGIN_POST_INSTALL } = require('../src/lib/plugin-utils');
+    const { PLUGIN_POST_INSTALL } = pluginUtilsModule;
     PLUGIN_POST_INSTALL['__test_nocheck__'] = {
       requirements: [
         {

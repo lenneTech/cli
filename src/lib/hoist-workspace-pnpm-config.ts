@@ -835,7 +835,16 @@ function mergePnpmFieldValue(field: PnpmConfigField, rootValue: unknown, subValu
         const b = Array.isArray(value) ? (value as string[]) : [];
         merged[key] = Array.from(new Set([...a, ...b])).sort((x, y) => x.localeCompare(y));
       } else if (isMap(value) && isMap(merged[key])) {
-        const inner: Record<string, unknown> = { ...merged[key], ...value };
+        const existing = merged[key] as Record<string, unknown>;
+        const inner: Record<string, unknown> = { ...existing, ...value };
+        if (field === 'auditConfig' && key === 'unusableFixConsumers') {
+          for (const [id, declaration] of Object.entries(value)) {
+            const other = existing[id];
+            if (typeof other === 'string' && typeof declaration === 'string' && other !== declaration) {
+              inner[id] = unionUnusableFixDeclarations(other, declaration);
+            }
+          }
+        }
         merged[key] = Object.fromEntries(Object.entries(inner).sort(([x], [y]) => x.localeCompare(y)));
       } else {
         merged[key] = value;
@@ -1178,4 +1187,38 @@ function syncBuildAllowlists(ws: Record<string, unknown>): void {
 
   ws.allowBuilds = Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
   ws.onlyBuiltDependencies = allowed;
+}
+
+/**
+ * Union two `auditConfig.unusableFixConsumers` declarations for the same advisory.
+ *
+ * Format, as nest-server's `scripts/check-overrides.mjs#parseResidual` reads it:
+ * `'<consumer>@<version> + <consumer>@<version> cannot use <v1>, <v2>'`. That check
+ * tests every declared consumer and every rejected version on its own, so when the
+ * api and the app both pull the advisory in, the workspace has to declare both
+ * sides' consumers: keeping only one list fails `check:overrides` with RE-TEST for
+ * the other. The same consumer at two versions stays twice for the same reason; a
+ * workspace lockfile holds both.
+ */
+function unionUnusableFixDeclarations(a: string, b: string): string {
+  const parse = (raw: string): { consumers: string[]; rejected: string[] } => {
+    const [left, right] = raw.split(/\s+cannot use\s+/);
+    return {
+      consumers: left
+        .split(/\s+\+\s+/)
+        .map((c) => c.trim())
+        .filter(Boolean),
+      rejected: (right ?? '')
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean),
+    };
+  };
+  const sortedUnion = (x: string[], y: string[]): string[] =>
+    Array.from(new Set([...x, ...y])).sort((p, q) => p.localeCompare(q, undefined, { numeric: true }));
+  const first = parse(a);
+  const second = parse(b);
+  const consumers = sortedUnion(first.consumers, second.consumers).join(' + ');
+  const rejected = sortedUnion(first.rejected, second.rejected);
+  return rejected.length > 0 ? `${consumers} cannot use ${rejected.join(', ')}` : consumers;
 }

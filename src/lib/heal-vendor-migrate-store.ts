@@ -1,6 +1,6 @@
 import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { copyFileSync, existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import * as ts from 'typescript';
 
@@ -131,15 +131,23 @@ export function healVendorMigrateStore(apiDir: string, assetPath: string): strin
   let note = '';
   if (recoverability === 'unknown') {
     const backupPath = `${storePath}.bak`;
-    try {
-      if (!existsSync(backupPath)) {
-        copyFileSync(storePath, backupPath);
-      }
-      note = ` — previous version saved to ${rel}.bak`;
-    } catch {
-      changed.push(`${rel} (skipped: git has no copy and the .bak could not be written)`);
+    // The backup is written next to the store, so a link planted at that path
+    // would aim the write outside the project just like a linked store.
+    if (isSymbolicLink(backupPath)) {
+      changed.push(`${rel} (skipped: ${rel}.bak is a symlink)`);
       return changed;
     }
+    try {
+      // Keep the FIRST backup. `wx` (O_CREAT | O_EXCL) is that check, and it also
+      // refuses any symlink at the path, dangling ones included.
+      writeFileSync(backupPath, readFileSync(storePath), { flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        changed.push(`${rel} (skipped: git has no copy and the .bak could not be written)`);
+        return changed;
+      }
+    }
+    note = ` — previous version saved to ${rel}.bak`;
   }
 
   // Atomic: a crash between write and rename leaves the original intact rather

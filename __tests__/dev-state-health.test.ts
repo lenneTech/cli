@@ -65,10 +65,10 @@ describe('classifyComponentHealth — startup grace window', () => {
   });
 
   it('pins the exact grace boundary with a fixed clock (age === grace → crashed, one ms less → starting)', () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     try {
       const now = 1_700_000_000_000; // fixed epoch — deterministic ageMs
-      jest.setSystemTime(now);
+      vi.setSystemTime(now);
       const grace = STARTUP_GRACE_MS;
       // Exactly at the boundary: ageMs === grace → NOT `< grace` → crashed.
       expect(
@@ -83,7 +83,7 @@ describe('classifyComponentHealth — startup grace window', () => {
         }),
       ).toBe('starting');
     } finally {
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 });

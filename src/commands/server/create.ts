@@ -1,6 +1,8 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
+import { failRun } from '../../lib/fail-run';
 import { reconfigureUpstreamForDownstream, runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
 
 /**
@@ -58,6 +60,13 @@ export const help = {
       default: false,
       description: 'Override the workspace-detection abort under --noConfirm',
       flag: '--force',
+      required: false,
+      type: 'boolean',
+    },
+    {
+      default: false,
+      description: 'Public project: keep the template rule that keeps agent notes out of git',
+      flag: '--public',
       required: false,
       type: 'boolean',
     },
@@ -413,6 +422,13 @@ const NewCommand: GluegunCommand = {
       if (upstreamResult.updated) {
         info('Configured .claude/upstream.json for downstream contributions');
       }
+    }
+
+    // The starter is public and keeps its agent notes out of git; a private
+    // project decides for itself, so the rule goes unless --public.
+    if (!(await applyAgentNotesIgnorePolicy(toolbox, projectDir, { noConfirm }))) {
+      failRun(toolbox);
+      return;
     }
 
     // Git initialization (after npm install which is done in setupServer).

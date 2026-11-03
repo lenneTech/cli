@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-import { signalVerdict, takeViolations } from './support/signal-guard';
+import config from '../vitest.config.mts';
+import { guardInstalled, signalVerdict, takeViolations } from './support/signal-guard';
 
 /**
  * The guard that stops a test from signalling a process it did not spawn.
@@ -36,9 +37,11 @@ describe('signal guard', () => {
     expect(takeViolations()).toHaveLength(1);
   });
 
-  it('is registered for every suite in package.json', () => {
-    const jest = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')).jest;
-    expect(jest.setupFilesAfterEnv).toContain('<rootDir>/support/signal-guard.ts');
+  it('is registered for every suite in vitest.config.mts', () => {
+    // The setup file arms it, not this import (see signal-guard.setup.ts); without the
+    // registration, the test above would find no guard.
+    expect(guardInstalled()).toBe(true);
+    expect(config.test?.setupFiles).toContain('__tests__/support/signal-guard.setup.ts');
   });
 
   it('src/ builds a negative pid in exactly one place, and only from a SignalTarget', () => {

@@ -132,6 +132,7 @@ lt server create [name] [options]
 | `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) instead of `nest-server-starter`. Skips API-mode / vendor-mode / install / lt.config.json processing. |
 | `--dry-run` | Print the resolved plan and exit without making any changes |
 | `--force` | Override the workspace-detection abort under `--noConfirm` |
+| `--public` | Public project: keep the starter's rule that keeps agent notes out of git (see `lt fullstack init`) |
 | `--noConfirm` | Skip confirmation prompts |
 
 **Workspace-awareness:** When run inside a directory that already looks like a fullstack workspace (contains `pnpm-workspace.yaml` or `projects/`), the command behaves differently per mode:
@@ -1184,9 +1185,12 @@ lt fullstack init [options]
 | `--dry-run` | Print the resolved plan without making any changes |
 | `--git` | Push initial commit to remote repository (git is always initialized) |
 | `--git-link <url>` | Git remote repository URL (required when `--git` is true) |
+| `--public` | Public project: keep the templates' rule that keeps agent notes (`.claude/agent-memory`) out of git |
 | `--noConfirm` | Skip confirmation prompts |
 
 **Note:** Git is always initialized with the `dev` branch. The `--git` flag only controls whether the initial commit is pushed to a remote repository.
+
+**Agent notes:** the templates are public, so their `.gitignore` keeps the agent notes out of git (`**/.claude/agent-memory` plus the comment above it). A generated project is usually private and decides for itself whether to share its notes, so the rule is removed: without `--public` an interactive run asks, a non-interactive one (`--noConfirm`, no TTY) removes it. `--public` keeps it; `--no-public` / `--public=false` removes it without asking. `lt fullstack add-api`, `lt fullstack add-app` and `lt server create` apply the same rule to the project they create.
 
 **Note:** For Nuxt frontends with `--frontend-copy` or `--frontend-link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root.
 
@@ -1235,6 +1239,7 @@ lt fullstack add-api [options]
 | `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) instead of `nest-server-starter`. Forces `--api-mode Rest` and `--framework-mode npm`, runs `bun run rename` post-clone, skips workspace install. |
 | `--workspace-dir <path>` | Workspace root. When omitted, defaults to cwd; if cwd is not a workspace, the command walks up until it finds one (so it works from inside `projects/api/src/`). |
 | `--skip-install` | Skip `pnpm install` and the post-install format pass |
+| `--public` | Public project: keep the starter's rule that keeps agent notes out of git (see `lt fullstack init`) |
 | `--dry-run` | Print the resolved plan without making any changes |
 | `--noConfirm` | Skip all interactive prompts |
 
@@ -1268,6 +1273,7 @@ lt fullstack add-app [options]
 | `--next` | Default the nuxt-base-starter ref to the `next` branch (auth `basePath` aligned with the experimental `--next` API) |
 | `--workspace-dir <path>` | Workspace root. When omitted, defaults to cwd; if cwd is not a workspace, the command walks up until it finds one (so it works from inside `projects/api/src/`). |
 | `--skip-install` | Skip `pnpm install` and the post-install format pass |
+| `--public` | Public project: keep the starter's rule that keeps agent notes out of git (see `lt fullstack init`) |
 | `--dry-run` | Print the resolved plan without making any changes |
 | `--noConfirm` | Skip all interactive prompts |
 

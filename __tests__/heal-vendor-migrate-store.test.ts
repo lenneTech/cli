@@ -321,6 +321,22 @@ describe('healVendorMigrateStore', () => {
       expect(readFileSync(outside, 'utf8')).toBe('precious');
       expect(readStore()).toBe(TEMPLATE);
     });
+
+    it('never writes the backup through a symlink a repository planted at the .bak path', () => {
+      // Outside git the heal writes a `.bak` first. `existsSync` reads a DANGLING link
+      // as absent, so the backup used to be created wherever that link pointed.
+      makeVendored();
+      writeStore(BROKEN);
+      const planted = join(apiDir, 'planted-by-repo.js');
+      symlinkSync(planted, `${store()}.bak`);
+
+      const changed = healVendorMigrateStore(apiDir, asset);
+
+      expect(existsSync(planted)).toBe(false);
+      expect(changed[0]).toContain('skipped');
+      // Without its backup the store must stay as it was, not be replaced unsaved.
+      expect(readStore()).toBe(BROKEN);
+    });
   });
 
   describe('scope', () => {

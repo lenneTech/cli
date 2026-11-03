@@ -10,6 +10,7 @@ import {
   deriveTestDbName,
   resolveLayout,
 } from '../src/lib/dev-project';
+import * as devProjectModule from '../src/lib/dev-project';
 
 describe('dev-project', () => {
   let tmp: string;
@@ -167,7 +168,7 @@ describe('dev-project', () => {
 });
 
 describe('resolveLayout absolutises its root', () => {
-  const { resolveLayout } = require('../src/lib/dev-project');
+  const { resolveLayout } = devProjectModule;
   const nodeOs = require('os');
   const nodeFs = require('fs');
   const nodePath = require('path');

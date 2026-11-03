@@ -1,8 +1,11 @@
-// Import-equals, not `import * as fs`: the namespace form is transpiled into a copy
-// with non-configurable getters, which `jest.spyOn` cannot replace. This binds the
-// real `fs` module object — the same one `dev-env-bridge.ts` calls through.
+// Import-equals, not `import * as fs`: an ES module namespace cannot be spied on. This
+// binds the CommonJS `fs` object; `syncBuiltinESMExports` then carries the spy over to
+// the `fs` binding `dev-env-bridge.ts` imports.
+import type { MockInstance } from 'vitest';
+
 import fs = require('fs');
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'fs';
+import { syncBuiltinESMExports } from 'module';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -27,7 +30,7 @@ const OWNER_ONLY = 0o600;
  * inherits from the project directory inside the user's profile; no mode bit we
  * could pass would widen or narrow it.
  */
-function expectOwnerOnly(file: string, chmod: jest.SpyInstance): void {
+function expectOwnerOnly(file: string, chmod: MockInstance): void {
   if (process.platform === 'win32') {
     expect(chmod).toHaveBeenCalledWith(file, OWNER_ONLY);
     return;
@@ -59,17 +62,19 @@ const fakeDevEnv: DevEnv = {
 };
 
 describe('dev-env-bridge', () => {
-  let chmod: jest.SpyInstance;
+  let chmod: MockInstance;
   let project: string;
 
   beforeEach(() => {
     project = mkdtempSync(join(tmpdir(), 'lt-dev-bridge-'));
     // Call-through spy: on Windows the written file keeps no POSIX mode bits, so the
     // recorded call is the only observable proof of the 0600 — see `expectOwnerOnly`.
-    chmod = jest.spyOn(fs, 'chmodSync');
+    chmod = vi.spyOn(fs, 'chmodSync');
+    syncBuiltinESMExports();
   });
   afterEach(() => {
     chmod.mockRestore();
+    syncBuiltinESMExports();
     rmSync(project, { force: true, recursive: true });
   });
 

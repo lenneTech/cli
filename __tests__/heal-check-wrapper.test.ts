@@ -368,6 +368,36 @@ describe('healCheckWrapper', () => {
       expect(readFileSync(outside, 'utf8')).toBe('MUST NOT BE OVERWRITTEN');
       expect(lstatSync(join(root, 'scripts', 'check.mjs')).isSymbolicLink()).toBe(true);
     });
+
+    it('never writes the backup through a planted symlink', () => {
+      // An unversioned project (a downloaded archive, no git) can ship a dangling
+      // `check.mjs.bak` link: existsSync reports it absent, and copyFileSync would
+      // create the link's target, anywhere on disk, with the project's content.
+      writePkg({ check: 'node scripts/check.mjs', 'check:raw': 'pnpm test' });
+      filesystem.write(filesystem.path(root, 'scripts', 'check.mjs'), 'PROJECT CONTENT');
+      const planted = join(assetDir, 'planted.mjs');
+      symlinkSync(planted, join(root, 'scripts', 'check.mjs.bak'));
+
+      const changed = healCheckWrapper(root, asset);
+      expect(changed.join(' ')).toContain('skipped');
+      expect(existsSync(planted)).toBe(false);
+      expect(readScript()).toBe('PROJECT CONTENT');
+    });
+
+    it('never writes the temp file through a planted symlink', () => {
+      // The temp name used to be `<file>.lt-tmp-<pid>`: a link sitting there was
+      // followed by copyFileSync, and the rename then moved the link into place.
+      writePkg({ check: 'node scripts/check.mjs', 'check:raw': 'pnpm test' });
+      const outside = join(assetDir, 'outside.mjs');
+      writeFileSync(outside, 'MUST NOT BE OVERWRITTEN');
+      filesystem.dir(filesystem.path(root, 'scripts'));
+      symlinkSync(outside, join(root, 'scripts', `check.mjs.lt-tmp-${process.pid}`));
+
+      expect(healCheckWrapper(root, asset)).toEqual(expect.arrayContaining(['scripts/check.mjs']));
+      expect(readFileSync(outside, 'utf8')).toBe('MUST NOT BE OVERWRITTEN');
+      expect(lstatSync(join(root, 'scripts', 'check.mjs')).isFile()).toBe(true);
+      expect(readScript()).toBe(BUNDLED);
+    });
   });
 
   it('installs the REAL bundled wrapper asset (integration) as valid, complete content', () => {

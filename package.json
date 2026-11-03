@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.52.2",
+  "version": "1.53.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -18,36 +18,35 @@
     "lt": "bin/lt"
   },
   "scripts": {
+    "build": "npm run lint && npm run typecheck:tests && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
     "c": "npm run check",
     "cf": "npm run check:fix",
     "check": "bash scripts/check.sh",
     "check:audit": "bash scripts/check.sh --audit-only",
     "check:fix": "npm install && npm audit fix && npm run format && npm run lint:fix && npm run build && npm run check:start",
     "check:start": "bash scripts/check-cli-start.sh",
-    "sync:check-template": "ts-node --transpile-only extras/sync-check-template.ts",
-    "postinstall": "node bin/postinstall.js",
-    "build": "npm run lint && npm run test && npm run clean-build && npm run compile && npm run copy-templates",
-    "clean-build": "npx rimraf ./build",
+    "clean-build": "node scripts/rm.mjs ./build",
     "compile": "tsc -p .",
     "copy-templates": "npx shx cp -R ./src/templates ./build/templates && npx shx cp -R ./src/config ./build/config",
-    "coverage": "jest --coverage",
-    "test:vendor-init": "bash scripts/test-vendor-init.sh",
-    "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",
-    "test:incremental-fullstack": "bash scripts/test-incremental-fullstack.sh",
-    "test:manual": "jest --testMatch \"<rootDir>/*.manual.ts\" --testTimeout=60000",
-    "test:e2e:service": "jest --testMatch \"<rootDir>/dev-service-e2e.manual.ts\" --testTimeout=60000",
     "format": "prettier --write \"src/**/*.{js,ts,tsx,json}\" \"!src/templates/**/*\"",
     "lint": "eslint \"./src/**/*.{ts,js,vue}\"",
     "lint:fix": "eslint \"./src/**/*.{ts,js,vue}\" --fix",
+    "postinstall": "node bin/postinstall.js",
     "prepublishOnly": "npm run build",
     "preversion": "npm run lint",
-    "reinit": "npx rimraf package-lock.json && npx rimraf node_modules && npm i && npm run build",
-    "snapupdate": "jest --updateSnapshot",
+    "reinit": "node scripts/rm.mjs package-lock.json node_modules && npm i && npm run build",
     "start": "node bin/lt",
     "start:build": "npm run build && node bin/lt --compiled-build",
     "start:compiled": "node bin/lt --compiled-build",
-    "test": "jest --testTimeout=60000",
-    "watch": "jest --watch"
+    "sync:check-template": "ts-node --transpile-only extras/sync-check-template.ts",
+    "test": "vitest run",
+    "test:e2e:service": "vitest run --config vitest.manual.config.mts __tests__/dev-service-e2e.manual.ts",
+    "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",
+    "test:incremental-fullstack": "bash scripts/test-incremental-fullstack.sh",
+    "test:manual": "vitest run --config vitest.manual.config.mts",
+    "test:vendor-init": "bash scripts/test-vendor-init.sh",
+    "typecheck:tests": "tsc -p tsconfig.test.json",
+    "watch": "vitest"
   },
   "files": [
     "tsconfig.json",
@@ -65,7 +64,7 @@
     "cross-spawn": "7.0.6",
     "defuddle": "0.19.5",
     "ejs": "7.0.2",
-    "glob": "13.0.6",
+    "glob": "14.0.3",
     "gluegun": "5.2.2",
     "js-sha256": "1.0.0",
     "js-yaml": "5.5.0",
@@ -81,39 +80,38 @@
     "turndown-plugin-gfm": "1.0.2",
     "typescript": "6.0.3"
   },
-  "//devDependencies": {
-    "@emnapi/core": "Not imported by this CLI. @napi-rs/wasm-runtime 1.x moved @emnapi/core and @emnapi/runtime from dependencies to peerDependencies (napi-rs#3174), and the only path to them here is dev-only AND optional: eslint-plugin-import-x / jest-resolve > unrs-resolver > @unrs/resolver-binding-wasm32-wasi (cpu: wasm32) > @napi-rs/wasm-runtime. npm >= 11.5.0 (arborist 9.1.3) prunes nodes that are both peer and optional from the ideal tree, so it never writes them to the lockfile — while npm <= 11.4 still demands them and fails npm ci with \"Missing: @emnapi/core@1.11.3 from lock file\". Declaring them here is the remedy arborist's own source comment names: an optional peer stops being optional once a root dependency requires it, so both npm generations then agree. Verified: npm ci passes on npm 10 and 11.6, and npm install no longer strips the entries. Remove once @napi-rs/wasm-runtime declares them in peerDependenciesMeta as optional, or once npm >= 11.5 is the floor everywhere (GitHub Actions still runs Node 20 = npm 10).",
-    "@emnapi/runtime": "Same as @emnapi/core."
-  },
   "devDependencies": {
-    "@emnapi/core": "1.11.3",
-    "@emnapi/runtime": "1.11.3",
-    "@lenne.tech/eslint-config-ts": "2.3.0",
+    "@eslint-community/eslint-plugin-eslint-comments": "4.7.2",
+    "@stylistic/eslint-plugin": "5.10.0",
     "@types/cross-spawn": "6.0.6",
     "@types/ejs": "3.1.5",
-    "@types/jest": "30.0.0",
     "@types/jsdom": "28.0.3",
     "@types/lodash": "4.17.27",
     "@types/node": "26.6.5",
     "@types/semver": "7.8.0",
     "@types/turndown": "5.0.6",
+    "@typescript-eslint/eslint-plugin": "8.65.0",
+    "@typescript-eslint/parser": "8.65.0",
     "eslint": "10.13.0",
-    "jest": "30.5.2",
-    "minimatch": "10.2.6",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-no-only-tests": "3.3.0",
+    "eslint-plugin-perfectionist": "5.10.0",
+    "eslint-plugin-unused-imports": "4.4.1",
+    "minimatch": "11.0.4",
     "prettier": "3.9.10",
-    "rimraf": "6.1.3",
-    "ts-jest": "29.4.15"
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
   },
   "//overrides": {
     "semver@*": "Force latest semver 7.x across all sub-deps; gluegun@5.2.2 pins semver@7.7.0 which is stale - remove once gluegun updates its dep.",
     "brace-expansion@<1.1.21": "Five DoS advisories, all patched in the 1.x line by 1.1.21: exponential-time expansion of consecutive non-expanding {} groups (GHSA-3jxr-9vmj-r5cp, high, fixed 1.1.16), unbounded expansion length causing an OOM crash (GHSA-mh99-v99m-4gvg, high, fixed 1.1.17), uncontrolled recursion in parseCommaParts (GHSA-6j4f-fj2g-mc7p, high, fixed 1.1.19), uncontrolled recursion on nested brace groups (GHSA-qhr7-859c-m2p7, high, fixed 1.1.20) and quadratic-time `{a},b}` rewrite (GHSA-q2hr-2g5m-vwhr, medium, fixed 1.1.21). Raised from 1.1.18 on 2026-10-03: 1.1.18 was still open to the last three. Transitive via dotgitignore/eslint/fs-jetpack/glob/test-exclude/ts-morph > minimatch. Latent today: the minimatch raises below leave no 1.x install in the tree (only brace-expansion 5.0.12), so this key catches a future minimatch 3.x consumer. One bounded key per affected major so each can only raise a vulnerable version, never cap a patched one - remove once minimatch requests the patched ranges.",
     "brace-expansion@>=2.0.0 <2.1.7": "Same five advisories, 2.x line (fixed 2.1.2 / 2.1.3 / 2.1.5 / 2.1.6 / 2.1.7). Raised from 2.1.4 on 2026-10-03. Latent today, like the 1.x key.",
     "brace-expansion@>=5.0.0 <5.0.12": "Same advisories, 5.x line, plus three newer DoS advisories fixed only in 5.0.10-5.0.12 (GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr; all high). Reaches production via gluegun > fs-jetpack > minimatch. Floored at >=5.0.0 so a future 3.x/4.x dependency is not silently forced across two majors.",
-    "//minimatch-note": "Why the minimatch raises exist: when they were added, brace-expansion 1.x and 2.x were END OF LINE for GHSA-mh99-v99m-4gvg (advisory range <=5.0.7 across ALL majors, patched only 5.0.8+), so the only fix was to raise each CONSUMER off minimatch 3.x/5.x/9.x. That premise no longer holds: upstream has since backported every fix (GHSA-mh99 now reads <1.1.17 / >=2.0.0 <2.1.3, and 1.1.21 / 2.1.7 patch all five current advisories). Verified 2026-10-03 with fresh lockfile resolves: without `minimatch@>=4 <10` and `fs-jetpack > minimatch@<10` npm audit is still clean, the tree only gains minimatch 3.1.5 + 5.1.9 and brace-expansion 1.1.21 + 2.1.7 (7 packages). So both are now a DEDUPE measure (one minimatch 10.2.6, one brace-expansion 5.0.12), not a security fix - dropping them is a judgment call, it reopens no advisory. Forcing brace-expansion 5.x globally is still NOT an option: 5.x is ESM/tshy and exports an object ({ expand, ... }) while 1.x/2.x export the function itself, so minimatch 3.x/5.x would die on `expand is not a function`. Each scoped entry was verified against the consumer's actual call site before being added. The eslint / @eslint/eslintrc / @eslint/config-array entries were REMOVED in 1.42.0: eslint 10 requests minimatch ^10.2.5 itself, config-array ^10.2.4, and eslintrc is no longer in the tree at all.",
-    "minimatch@>=4 <10": "Bounded raise of every minimatch 4.x-9.x install to 10.2.6, whose brace-expansion ^5.0.8 is patched. As of 2026-10-03 the only consumer it still raises is filelist (gluegun > ejs 3.1.10 > jake > filelist, PRODUCTION-reachable, minimatch ^5.0.1): @typescript-eslint/typescript-estree 8.65 requests ^10.2.2 itself and the jest 30.5 packages no longer depend on minimatch. Verified safe: filelist calls only the static helper `minimatch.match(files, pat, opts)`. Floored at >=4 so the 3.x line is NOT swept in: minimatch 3.x is callable while 9.x/10.x export an object with __esModule but no `default` key, so sweeping it would break any consumer that calls the default export. Dedupe, not security (see //minimatch-note). Drop once filelist requests minimatch >=10.",
-    "babel-plugin-istanbul > test-exclude@<8": "Dedupe override, no longer a security fix. Added when babel-plugin-istanbul requested test-exclude ^6.0.0, whose 6.0.0 pins minimatch ^3.0.4 and glob ^7. Since jest 30.5 (babel-plugin-istanbul 8.0.0) the request is ^7.0.1, and test-exclude 7.0.2 already uses minimatch ^10.2.2: a fresh resolve without this entry audits clean (2026-10-03) but adds 23 packages (glob 10.5.0 and its subtree). 8.0.0 uses glob ^13, the major this project already ships, and is still CJS with the same `module.exports = TestExclude` class shape, so babel-plugin-istanbul 8's _interopRequireDefault + `new _testExclude.default(opts)` keeps working. Drop once babel-plugin-istanbul requests test-exclude ^8.",
-    "@istanbuljs/load-nyc-config > js-yaml": "Security fix for GHSA-hp3w-g68c-fv3c (sprintf-js, DoS via unbounded precision specifiers, moderate). Advisory range is ALL versions, so there is no patched sprintf-js to raise to. Dev-only path: ts-jest > @jest/transform > babel-plugin-istanbul 8.0.0 > @istanbuljs/load-nyc-config 1.1.0 (js-yaml ^3.13.1) > js-yaml 3.15.2 > argparse 1.0.10 > sprintf-js. Every link is already at its latest release (2026-10-06), and only js-yaml 4+ leaves the chain: 4.x depends on argparse ^2, 5.x on argparse ^3, neither of which has sprintf-js. `$js-yaml` pins it to this project's own direct js-yaml (5.5.0 since 2026-10-24), so the two never drift. Verified safe: load-nyc-config only calls `require('js-yaml').load(...)` (index.js:80), which 5.x still exports and which behaves like 3.x `safeLoad`; it only runs for a .nycrc.yaml, which this repo does not have. Drop once load-nyc-config requests js-yaml >=4 or argparse 1.x drops sprintf-js.",
-    "fs-jetpack > minimatch@<10": "Same chain, PRODUCTION-reachable (gluegun > fs-jetpack). Safe: lib/utils/matcher.js does `require('minimatch').Minimatch` and uses only `new Minimatch(pattern, { matchBase, nocomment, nocase, dot })`, `.negate` and `.match()` - all verified against 10.x. Not fixable by upgrading fs-jetpack: gluegun@5.2.2 is the latest release and fs-jetpack@5.1.0 still requests minimatch ^5.1.0 (brace-expansion ^2.0.1, also unpatched)."
+    "//minimatch-note": "Why the minimatch raises exist: when they were added, brace-expansion 1.x and 2.x were END OF LINE for GHSA-mh99-v99m-4gvg (advisory range <=5.0.7 across ALL majors, patched only 5.0.8+), so the only fix was to raise each CONSUMER off minimatch 3.x/5.x/9.x. That premise no longer holds: upstream has since backported every fix (GHSA-mh99 now reads <1.1.17 / >=2.0.0 <2.1.3, and 1.1.21 / 2.1.7 patch all five current advisories). Verified 2026-10-03 with fresh lockfile resolves: without `minimatch@>=4 <10` and `fs-jetpack > minimatch@<10` npm audit is still clean, the tree only gains minimatch 3.1.5 + 5.1.9 and brace-expansion 1.1.21 + 2.1.7 (7 packages). So both are now a DEDUPE measure (one minimatch 10.2.6, one brace-expansion 5.0.12), not a security fix - dropping them is a judgment call, it reopens no advisory. Forcing brace-expansion 5.x globally is still NOT an option: 5.x is ESM/tshy and exports an object ({ expand, ... }) while 1.x/2.x export the function itself, so minimatch 3.x/5.x would die on `expand is not a function`. Each scoped entry was verified against the consumer's actual call site before being added. The eslint / @eslint/eslintrc / @eslint/config-array entries were REMOVED in 1.42.0: eslint 10 requests minimatch ^10.2.5 itself, config-array ^10.2.4, and eslintrc is no longer in the tree at all. Superseded 2026-11-03: GHSA-g3hv-75wg-m249 (minimatch <11.0.1, moderate, DoS via globparts amplification) is fixed only in 11.x, a rewrite without makeRe/AST/matchOne/regexp. Every consumer that can run on 11 is raised by a scoped entry; there is no global minimatch key any more, because npm 10 (CI, Node 20) rejected the lockfile a global key plus a scoped downgrade produced (Missing: glob@13.0.6 / minimatch@10.2.6), even one it had written itself. Verify any change here with npx -y npm@10.9.2 ci --dry-run AND npm ci --dry-run.",
+    "minimatch: scoped upgrades to 11.0.4": "GHSA-g3hv-75wg-m249. @eslint/config-array, @typescript-eslint/typescript-estree and eslint (lint), @ts-morph/common (PRODUCTION: the ts-morph conversions) and filelist (PRODUCTION-reachable: gluegun > ejs > jake > filelist) request ^10 and use only new Minimatch(...).match/negate/set and minimatch(), all present in 11. Verified 2026-11-03: lint, the full test suite, compile and check:start green, npm audit clean. eslint-plugin-import-x, the one consumer that imports makeRe (gone in 11), left the tree with @lenne.tech/eslint-config-ts (see eslint.config.mjs). Drop each line once that consumer requests minimatch >=11.0.1.",
+    "fs-jetpack > minimatch@<11.0.1": "Same advisory, PRODUCTION-reachable (gluegun > fs-jetpack, which requests ^3.0.2). lib/utils/matcher.js uses only new Minimatch(pattern, { matchBase, nocomment, nocase, dot }), .negate and .match(), all present in 11. Not fixable by upgrading: gluegun@5.2.2 is the latest release and pins fs-jetpack 4.3.1.",
+    "glob@<8 > minimatch": "glob 7 (fs-jetpack > rimraf 2 > glob 7, PRODUCTION) requests minimatch ^3.1.1. npm 11 reaches it through the fs-jetpack key, npm 10 does not once rimraf 2 is hoisted, so the rule is explicit. Never exercised: fs-jetpack calls rimraf with disableGlob: true. glob 7 itself is outside GHSA-3g3m-2fjr-6pw4 (>=9).",
+    "glob: scoped upgrades to 14.0.3": "GHSA-3g3m-2fjr-6pw4 (glob 9.0.0-14.0.1, moderate, AbortSignal cancellation bypass). glob is a direct PRODUCTION dependency of this CLI (globSync in server.ts, api-mode.ts, strip-vendor-schema-augmentation.ts, nuxt-base-components.ts), raised to 14.0.3, whose exports match 13. Its former dev-only consumers (jest, rimraf 6, test-exclude) left with jest and rimraf on 2026-11-03, so no scoped glob entry is needed any more."
   },
   "overrides": {
     "semver@*": "7.8.5",
@@ -121,35 +119,25 @@
     "brace-expansion@>=2.0.0 <2.1.7": "2.1.7",
     "brace-expansion@>=5.0.0 <5.0.12": "5.0.12",
     "fs-jetpack": {
-      "minimatch@<10": "10.2.6"
+      "minimatch@<11.0.1": "11.0.4"
     },
-    "babel-plugin-istanbul": {
-      "test-exclude@<8": "8.0.0"
+    "@eslint/config-array": {
+      "minimatch": "11.0.4"
     },
-    "@istanbuljs/load-nyc-config": {
-      "js-yaml": "$js-yaml"
+    "@ts-morph/common": {
+      "minimatch": "11.0.4"
     },
-    "minimatch@>=4 <10": "10.2.6"
-  },
-  "//jest.workerIdleMemoryLimit": "Recycle a ts-jest worker once its heap passes this. Guards against an intermittent `A jest worker process was terminated by another process: signal=SIGSEGV` that kills ONE suite while every other test passes (seen twice in marketplace*, both under `npm run check`, never reproducible on demand - 0 in 9 targeted runs incl. --maxWorkers=16). It is a worker crash, NOT an assertion failure: the signature is `Test suite failed to run` with the remaining count still green. All versions are current and in-range (node 24 / jest 30 / ts-jest 29 / ts 6), so this is a resilience measure against unbounded worker heap growth, not a proven root-cause fix - if it recurs, capture the suite name and re-open.",
-  "jest": {
-    "testEnvironment": "node",
-    "rootDir": "__tests__",
-    "testTimeout": 60000,
-    "workerIdleMemoryLimit": "512MB",
-    "setupFilesAfterEnv": [
-      "<rootDir>/support/signal-guard.ts"
-    ],
-    "testMatch": [
-      "<rootDir>/*.test.ts"
-    ],
-    "transform": {
-      "^.+\\.tsx?$": [
-        "ts-jest",
-        {
-          "tsconfig": "tsconfig.test.json"
-        }
-      ]
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.4"
+    },
+    "eslint": {
+      "minimatch": "11.0.4"
+    },
+    "filelist": {
+      "minimatch": "11.0.4"
+    },
+    "glob@<8": {
+      "minimatch": "11.0.4"
     }
   }
 }

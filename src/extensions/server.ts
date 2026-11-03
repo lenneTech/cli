@@ -1520,7 +1520,7 @@ export class Server {
     // inside a PATTERN as an escape. On Windows `C:\…\core` + `**/*.ts` therefore
     // collapses to a literal that matches nothing, so this loop silently patched
     // no files at all. (minimatch 3 normalised the pattern's separators; the repo
-    // now resolves the hoisted minimatch 10, which does not — see package.json.)
+    // now resolves a hoisted minimatch 10 or newer, which does not — see package.json.)
     // `glob` keeps base and pattern apart and returns absolute OS-native paths.
     const vendoredTsFiles = globSync('**/*.ts', { absolute: true, cwd: coreDir, dot: true, nodir: true });
     for (const absPath of vendoredTsFiles) {

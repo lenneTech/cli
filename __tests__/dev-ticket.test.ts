@@ -1,5 +1,6 @@
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs';
+import * as devTicketModule from '../src/lib/dev-ticket';
 /** gluegun's OWN parser — the exact code path that produces `parameters.options`. */
 const { parseParams } = require('gluegun/build/toolbox/parameter-tools');
 import { tmpdir } from 'os';
@@ -530,7 +531,7 @@ describe('dev-ticket — git-backed worktree + safety helpers', () => {
   // pattern neither matches nor guards against.
   test('gitMainRepoRoot outside a repo throws without printing git’s fatal', () => {
     const outside = mkdtempSync(join(tmpdir(), 'lt-not-a-repo-'));
-    const write = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       expect(() => gitMainRepoRoot(outside)).toThrow();
       expect(write).not.toHaveBeenCalled();
@@ -849,7 +850,7 @@ function buildIdentityFixture(name: string) {
 }
 
 describe('installWorktreeDeps error contract', () => {
-  const { installWorktreeDeps } = require('../src/lib/dev-ticket');
+  const { installWorktreeDeps } = devTicketModule;
   const nodeOs = require('os');
   const nodeFs = require('fs');
   const nodePath = require('path');

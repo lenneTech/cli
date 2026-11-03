@@ -1,3 +1,5 @@
+import type { Mock, MockedFunction } from 'vitest';
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
@@ -17,13 +19,13 @@ import { runChildInherit, spawnDetached } from '../src/lib/dev-process';
 // the actual value shapes a `--api-compiled` flag produces on the command line.
 const { parseParams } = require('gluegun/build/toolbox/parameter-tools');
 
-jest.mock('../src/lib/dev-process', () => ({
-  runChildInherit: jest.fn(),
-  spawnDetached: jest.fn(),
+vi.mock('../src/lib/dev-process', () => ({
+  runChildInherit: vi.fn(),
+  spawnDetached: vi.fn(),
 }));
 
-const runChildInheritMock = runChildInherit as jest.MockedFunction<typeof runChildInherit>;
-const spawnDetachedMock = spawnDetached as jest.MockedFunction<typeof spawnDetached>;
+const runChildInheritMock = runChildInherit as MockedFunction<typeof runChildInherit>;
+const spawnDetachedMock = spawnDetached as MockedFunction<typeof spawnDetached>;
 
 /** Minimal fake package manager — `runScript('build')` → `['build']`. */
 const pm = {
@@ -34,7 +36,7 @@ const pm = {
 
 describe('startCompiledApi', () => {
   let apiDir: string;
-  let log: { info: jest.Mock; warn: jest.Mock };
+  let log: { info: Mock; warn: Mock };
 
   const writePkg = (scripts: Record<string, string>) =>
     writeFileSync(join(apiDir, 'package.json'), JSON.stringify({ name: 'api', scripts }));
@@ -46,7 +48,7 @@ describe('startCompiledApi', () => {
 
   beforeEach(() => {
     apiDir = mkdtempSync(join(tmpdir(), 'lt-dev-api-launch-'));
-    log = { info: jest.fn(), warn: jest.fn() };
+    log = { info: vi.fn(), warn: vi.fn() };
     runChildInheritMock.mockReset();
     spawnDetachedMock.mockReset();
     spawnDetachedMock.mockReturnValue({ pid: 4321, rotated: { rotated: false } });

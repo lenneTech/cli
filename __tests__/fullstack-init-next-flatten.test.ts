@@ -29,13 +29,15 @@
  * the legacy default-branch path. We name the test file after `--next`
  * because that's the friction surface that prompted the change.
  *
- * Implementation note: ts-jest treats every test file as part of one
- * TypeScript program, so a top-level `const { filesystem } = require(
- * 'gluegun')` collides with the same declaration in
- * `fullstack-claude-md-patching.test.ts` (TS2451). We require gluegun
- * lazily inside the describe block — the same pattern the other
+ * Implementation note: a test file without an import is a script, and all of
+ * them share one TypeScript program (`npm run typecheck:tests`), so a
+ * top-level `const { filesystem } = require('gluegun')` collides with the same
+ * declaration in `fullstack-claude-md-patching.test.ts` (TS2451). gluegun is
+ * required inside the describe block, the pattern the other
  * `fullstack-init-next-*.test.ts` files use.
  */
+
+import * as frontendHelperModule from '../src/extensions/frontend-helper';
 
 describe('Fullstack init nuxt-base-template flatten', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -105,7 +107,7 @@ describe('Fullstack init nuxt-base-template flatten', () => {
     };
   } {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('../src/extensions/frontend-helper');
+    return frontendHelperModule as never;
   }
 
   /**

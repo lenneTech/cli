@@ -15,9 +15,17 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 
-// Caddyfile path must be injected BEFORE importing dev-service (caddy paths is captured at import time).
-const CADDYFILE_TMP = mkdtempSync(join(tmpdir(), 'lt-dev-service-caddy-'));
-process.env.LT_DEV_CADDYFILE = join(CADDYFILE_TMP, 'Caddyfile');
+// Caddyfile path must be injected BEFORE importing dev-service (caddy paths is captured at
+// import time), and vitest evaluates every import before the first statement: only a hoisted
+// block runs early enough.
+const { CADDYFILE_TMP } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-dev-service-caddy-'));
+  process.env.LT_DEV_CADDYFILE = path.join(dir, 'Caddyfile');
+  return { CADDYFILE_TMP: dir };
+});
 
 import {
   getServicePaths,
@@ -32,6 +40,7 @@ import {
   ShellRunner,
   uninstallService,
 } from '../src/lib/dev-service';
+import type { FindExecutableOptions } from '../src/lib/platform';
 
 interface RecordedCall {
   args: string[];
@@ -50,6 +59,16 @@ function makeRecorder(scripted: (call: RecordedCall) => ShellResult): { calls: R
 
 const ok = (stdout = ''): ShellResult => ({ code: 0, ok: true, stderr: '', stdout });
 const fail = (stderr = '', code = 1): ShellResult => ({ code, ok: false, stderr, stdout: '' });
+
+/**
+ * Finds caddy at `/opt/homebrew/bin/caddy` without reading the host's PATH. The lookup runs
+ * through `findExecutable` since it stopped spawning `which`, so a test that only scripted
+ * `which` passed or failed depending on whether the machine running it had caddy on PATH.
+ */
+const CADDY_ON_PATH: FindExecutableOptions = {
+  env: { PATH: '/opt/homebrew/bin' },
+  isExecutableFile: (path) => path === '/opt/homebrew/bin/caddy',
+};
 
 /** Pre-seed a unit file at the canonical location, creating parent dirs as needed. */
 function seedUnitFile(path: string, content: string): void {
@@ -249,7 +268,6 @@ describe('dev-service', () => {
     maybeDarwin('on darwin', () => {
       test('writes plist + bootstraps when not yet installed', async () => {
         const { calls, runner } = makeRecorder((call) => {
-          if (call.cmd === 'which' && call.args[0] === 'caddy') return ok('/opt/homebrew/bin/caddy\n');
           // print fails → not loaded yet
           if (call.cmd === 'launchctl' && call.args[0] === 'print') return fail('Could not find service');
           // bootstrap succeeds
@@ -258,7 +276,7 @@ describe('dev-service', () => {
         });
         setShellRunner(runner);
 
-        const result = await installService();
+        const result = await installService({ lookup: CADDY_ON_PATH });
 
         expect(result.ok).toBe(true);
         expect(result.created).toBe(true);
@@ -280,20 +298,19 @@ describe('dev-service', () => {
       test('idempotent re-install: same content, already loaded → no-op bootstrap', async () => {
         const paths = getServicePaths();
         const { calls, runner } = makeRecorder((call) => {
-          if (call.cmd === 'which' && call.args[0] === 'caddy') return ok('/opt/homebrew/bin/caddy\n');
           if (call.cmd === 'launchctl' && call.args[0] === 'print') return ok('state = running\npid = 4242\n');
           if (call.cmd === 'launchctl' && call.args[0] === 'bootstrap') return ok();
           return fail();
         });
         setShellRunner(runner);
 
-        const first = await installService();
+        const first = await installService({ lookup: CADDY_ON_PATH });
         expect(first.ok).toBe(true);
         const after = readFileSync(paths.unitFile, 'utf8');
 
         // Reset call log; second install should detect no change + skip bootstrap.
         calls.length = 0;
-        const second = await installService();
+        const second = await installService({ lookup: CADDY_ON_PATH });
         expect(second.ok).toBe(true);
         expect(second.created).toBe(false);
         // print was called once to check status; bootstrap MUST NOT have been called again.
@@ -307,7 +324,6 @@ describe('dev-service', () => {
         seedUnitFile(paths.unitFile, '<?xml ?><stale/>');
 
         const { calls, runner } = makeRecorder((call) => {
-          if (call.cmd === 'which' && call.args[0] === 'caddy') return ok('/opt/homebrew/bin/caddy\n');
           if (call.cmd === 'launchctl' && call.args[0] === 'print') return ok();
           if (call.cmd === 'launchctl' && call.args[0] === 'bootout') return ok();
           if (call.cmd === 'launchctl' && call.args[0] === 'bootstrap') return ok();
@@ -315,7 +331,7 @@ describe('dev-service', () => {
         });
         setShellRunner(runner);
 
-        const result = await installService();
+        const result = await installService({ lookup: CADDY_ON_PATH });
         expect(result.ok).toBe(true);
         expect(result.created).toBe(true);
 
@@ -367,14 +383,13 @@ describe('dev-service', () => {
 
       test('bootstrap failure surfaces error message + leaves unit file', async () => {
         const { runner } = makeRecorder((call) => {
-          if (call.cmd === 'which' && call.args[0] === 'caddy') return ok('/opt/homebrew/bin/caddy\n');
           if (call.cmd === 'launchctl' && call.args[0] === 'print') return fail();
           if (call.cmd === 'launchctl' && call.args[0] === 'bootstrap') return fail('5: Input/output error');
           return fail();
         });
         setShellRunner(runner);
 
-        const result = await installService();
+        const result = await installService({ lookup: CADDY_ON_PATH });
         expect(result.ok).toBe(false);
         expect(result.bootstrapped).toBe(false);
         expect(result.message).toMatch(/bootstrap failed/i);
@@ -450,7 +465,6 @@ describe('dev-service', () => {
     maybeDarwin('leaves no plist behind after symmetric calls', async () => {
       let bootstrapped = false;
       const runner: ShellRunner = async (cmd, args) => {
-        if (cmd === 'which' && args[0] === 'caddy') return ok('/opt/homebrew/bin/caddy\n');
         if (cmd === 'launchctl' && args[0] === 'print') return bootstrapped ? ok('running') : fail();
         if (cmd === 'launchctl' && args[0] === 'bootstrap') {
           bootstrapped = true;
@@ -464,7 +478,7 @@ describe('dev-service', () => {
       };
       setShellRunner(runner);
 
-      const ins = await installService();
+      const ins = await installService({ lookup: CADDY_ON_PATH });
       expect(ins.ok).toBe(true);
       expect(existsSync(getServicePaths().unitFile)).toBe(true);
 

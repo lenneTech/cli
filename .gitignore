@@ -87,3 +87,11 @@ typings/
 .vscode
 
 globalConfig.json
+
+# Review agents' notes stay off this public repository: they record findings and internals
+# that do not belong in it (decided 2026-11-01). No trailing slash: the lt-memory plugin links
+# the directory in as a symlink, which git treats as a file, and `agent-memory/` would miss it.
+**/.claude/agent-memory
+
+# Claude Code runtime state
+**/.claude/scheduled_tasks.lock

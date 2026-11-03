@@ -1,6 +1,7 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
 import { failRun } from '../../lib/fail-run';
 import {
   detectWorkspaceLayout,
@@ -36,6 +37,11 @@ export const help = {
     { description: 'Use experimental nuxt-base-starter `next` branch', flag: '--next', type: 'boolean' },
     { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
     { description: 'Skip install / format after app integration', flag: '--skip-install', type: 'boolean' },
+    {
+      description: 'Public project: keep the template rule that keeps agent notes out of git',
+      flag: '--public',
+      type: 'boolean',
+    },
     { description: 'Print resolved plan and exit without disk changes', flag: '--dry-run', type: 'boolean' },
     { description: 'Skip all interactive prompts', flag: '--noConfirm', type: 'boolean' },
   ],
@@ -288,6 +294,12 @@ const NewCommand: GluegunCommand = {
     // sits directly above the install output that would otherwise bury it.
     const { conflicts } = finalizeWorkspaceRoot({ filesystem, projectDir: workspaceDir });
     reportWorkspaceConflicts(conflicts, toolbox.print.warning);
+
+    // Only the new sub-project: the root `.gitignore` belongs to the workspace.
+    if (!(await applyAgentNotesIgnorePolicy(toolbox, appDest, { noConfirm }))) {
+      failRun(toolbox);
+      return;
+    }
 
     if (!skipInstall) {
       const installSpinner = spin('Install workspace packages');

@@ -1,8 +1,15 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    // vitest runs every test file as an ES module (top-level await in `vi.hoisted`);
+    // `preserve` still accepts the `import x = require()` a few tests use.
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "noEmit": true,
     "rootDir": ".",
-    "types": ["jest", "node"]
+    "target": "es2022",
+    "types": ["vitest/globals", "node"]
   },
   "include": ["src/**/*", "__tests__/**/*"]
 }

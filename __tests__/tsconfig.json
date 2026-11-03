@@ -1,0 +1,11 @@
+{
+  // For the editor: the root tsconfig.json covers only src/, so without this file VS Code checks a
+  // test file in an inferred project that has no vitest globals. Same settings as
+  // `npm run typecheck:tests`. Vite reads the nearest tsconfig.json for its transform, and
+  // `target: es2022` would switch class fields to define semantics there; the root config (es6)
+  // never did, so the old behaviour is kept explicitly.
+  "extends": "../tsconfig.test.json",
+  "compilerOptions": {
+    "useDefineForClassFields": false
+  }
+}

@@ -13,11 +13,17 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-// Redirect side-effecting paths BEFORE importing the modules under test.
-const REGISTRY_TMP = mkdtempSync(join(tmpdir(), 'lt-dev-test-session-reg-'));
-const CADDYFILE_TMP = join(REGISTRY_TMP, 'Caddyfile');
-process.env.LT_DEV_REGISTRY_PATH = join(REGISTRY_TMP, 'projects.json');
-process.env.LT_DEV_CADDYFILE = CADDYFILE_TMP;
+// Redirect side-effecting paths BEFORE importing the modules under test. vitest evaluates
+// every import before the first statement: only a hoisted block runs early enough.
+const { REGISTRY_TMP } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-dev-test-session-reg-'));
+  process.env.LT_DEV_REGISTRY_PATH = path.join(dir, 'projects.json');
+  process.env.LT_DEV_CADDYFILE = path.join(dir, 'Caddyfile');
+  return { REGISTRY_TMP: dir };
+});
 
 import { writeEnvBridge } from '../src/lib/dev-env-bridge';
 import { buildTestIdentity, DevIdentity } from '../src/lib/dev-identity';

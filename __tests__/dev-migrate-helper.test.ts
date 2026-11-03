@@ -2,8 +2,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-const REGISTRY_TMP = mkdtempSync(join(tmpdir(), 'lt-dev-migrate-helper-'));
-process.env.LT_DEV_REGISTRY_PATH = join(REGISTRY_TMP, 'projects.json');
+// dev-state reads LT_DEV_REGISTRY_PATH when it is imported, and vitest evaluates every
+// import before the first statement: only a hoisted block runs early enough.
+const { REGISTRY_TMP } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-dev-migrate-helper-'));
+  process.env.LT_DEV_REGISTRY_PATH = path.join(dir, 'projects.json');
+  return { REGISTRY_TMP: dir };
+});
 
 import { runMigrate } from '../src/lib/dev-migrate-helper';
 import { DevProjectLayout } from '../src/lib/dev-project';

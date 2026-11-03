@@ -1,14 +1,6 @@
 import { execFileSync } from 'child_process';
-import {
-  copyFileSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'fs';
+import { randomBytes } from 'crypto';
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'path';
 
 /** Marker value for the report-driven check wrapper. */
@@ -53,8 +45,8 @@ interface CopyPlan extends Copy {
 
 /**
  * `// @lt-check-wrapper 3.12.0` on line 2 of the wrapper: the lt-monorepo RELEASE it belongs
- * to (never a project's own package version). Same expression as lt-monorepo's
- * `scripts/check-wrapper-version.cjs#MARKER_RE`, so both sides agree on the format: a whole
+ * to (never a project's own package version). Same expression as `MARKER_RE` in lt-monorepo's
+ * `scripts/check-wrapper-version.test.mjs`, so both sides agree on the format: a whole
  * line, so prose mentioning the tag never matches, and `\r?` for a CRLF checkout.
  */
 const VERSION_MARKER = /^\/\/ @lt-check-wrapper (\S+)\r?$/m;
@@ -311,7 +303,7 @@ function hasUncommittedChanges(projectRoot: string, relPath: string): boolean {
 
 /**
  * True for a regular file, checked without following a symlink. A directory
- * named `*.mjs` would otherwise reach copyFileSync and abort the whole migration
+ * named `*.mjs` would otherwise reach the copy and abort the whole migration
  * with EISDIR.
  */
 function isRegularFile(target: string): boolean {
@@ -381,6 +373,12 @@ function planCopy(projectRoot: string, copy: Copy): CopyPlan {
     }
     return plan;
   }
+  // The backup is written next to the target, so a link planted at that path
+  // would aim the write outside the project just like a linked target.
+  if (isSymlink(`${target}.bak`)) {
+    plan.action = 'skip';
+    return plan;
+  }
   plan.backup = true;
   return plan;
 }
@@ -391,26 +389,35 @@ function writeCopy(projectRoot: string, plan: CopyPlan): void {
   mkdirSync(dirname(target), { recursive: true });
 
   if (plan.backup && existsSync(target)) {
-    const backup = `${target}.bak`;
     // Keep the FIRST backup — a later run must not overwrite the original with
-    // an already-generated copy.
-    if (!existsSync(backup)) {
-      copyFileSync(target, backup);
+    // an already-generated copy. `wx` (O_CREAT | O_EXCL) is that check, and it
+    // also refuses any symlink at the path, dangling ones included.
+    try {
+      writeFileSync(`${target}.bak`, readFileSync(target), { flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw error;
+      }
     }
   }
 
   // temp + rename so an interrupted run can never leave a half-written wrapper.
-  const tmp = `${target}.lt-tmp-${process.pid}`;
+  // The temp file must be one THIS call created: an unpredictable name opened
+  // with `wx`. The former `<file>.lt-tmp-<pid>` was followed when a link sat
+  // there, and the rename then moved the link into place.
+  const tmp = `${target}.lt-tmp-${process.pid}-${randomBytes(6).toString('hex')}`;
+  let created = false;
   try {
-    copyFileSync(plan.source, tmp);
+    writeFileSync(tmp, readFileSync(plan.source), { flag: 'wx' });
+    created = true;
     renameSync(tmp, target);
   } catch (error) {
-    try {
-      if (existsSync(tmp)) {
+    if (created) {
+      try {
         unlinkSync(tmp);
+      } catch {
+        /* best effort */
       }
-    } catch {
-      /* best effort */
     }
     throw error;
   }

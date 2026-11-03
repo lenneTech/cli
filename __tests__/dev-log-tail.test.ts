@@ -85,13 +85,15 @@ describe('dev-log-tail', () => {
   it('findEarlyExits names a component whose pid dies within the window, and only that one', async () => {
     let t = 0;
     const alive = (pid: number) => !(pid === 2 && t >= 2); // app (pid 2) dies on the third look
+    // The window ends on the real clock, and the instant sleep makes the loop spin until then
+    // because api never dies: keep the budget short (it was 60 s of busy loop).
     const dead = await findEarlyExits(
       [
         { name: 'api', pid: 1 },
         { name: 'app', pid: 2 },
         { name: 'skipped', pid: undefined },
       ],
-      { budgetMs: 60_000, isAlive: (pid) => alive(pid), sleep: async () => void t++ },
+      { budgetMs: 200, isAlive: (pid) => alive(pid), sleep: async () => void t++ },
     );
     expect(dead).toEqual(['app']);
   });

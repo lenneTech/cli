@@ -13,6 +13,7 @@ import {
   planSmokeTestDbSweep,
   planStaleShardDbSweep,
 } from '../src/lib/dev-prune';
+import * as devPruneModule from '../src/lib/dev-prune';
 
 /**
  * The prune plan decides IRREVERSIBLE database drops from derived data, so these
@@ -288,7 +289,7 @@ describe('dev-prune', () => {
 });
 
 describe('registry entries with a relative path (written before the path was absolutised)', () => {
-  const { planRegistryPrune } = require('../src/lib/dev-prune');
+  const { planRegistryPrune } = devPruneModule;
   const nodeOs = require('os');
   const nodeFs = require('fs');
   const nodePath = require('path');
@@ -300,7 +301,7 @@ describe('registry entries with a relative path (written before the path was abs
         { dbName: e.dbName ?? `${slug}-local`, internalPorts: {}, path: e.path, subdomains: {} },
       ]),
     ),
-    version: 1,
+    version: 1 as const,
   });
 
   it('does NOT declare a live project orphaned just because its path is relative', () => {

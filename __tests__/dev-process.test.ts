@@ -12,6 +12,9 @@ import {
   waitForHttp,
   windowsTrampoline,
 } from '../src/lib/dev-process';
+import * as devProcessModule from '../src/lib/dev-process';
+import * as devStateModule from '../src/lib/dev-state';
+import * as platformModule from '../src/lib/platform';
 
 describe('rotateLogFile', () => {
   let dir: string;
@@ -367,7 +370,7 @@ describe('spawnDetached (sh/exec FD-limit wrapper)', () => {
 describe('probePorts', () => {
   const nodeNet = require('net');
 
-  const { isPortBound, probePorts } = require('../src/lib/dev-process');
+  const { isPortBound, probePorts } = devProcessModule;
 
   const listen = (): Promise<{ close: () => void; port: number }> =>
     new Promise((resolve) => {
@@ -426,7 +429,7 @@ describe('probePorts', () => {
 });
 
 describe('isPidAlive and EPERM', () => {
-  const { isPidAlive } = require('../src/lib/dev-state');
+  const { isPidAlive } = devStateModule;
 
   it('treats a process it may not signal as alive, not dead', () => {
     // `process.kill(1, 0)` throws EPERM on POSIX: PID 1 exists, we may not
@@ -442,7 +445,7 @@ describe('isPidAlive and EPERM', () => {
     // A pid that has provably exited, rather than a high number that merely
     // looks unused — `pid_max` is configurable, so "probably nobody" is not a
     // property a test may rely on.
-    const { spawnCmd } = require('../src/lib/platform');
+    const { spawnCmd } = platformModule;
     const child = spawnCmd(process.execPath, ['-e', ''], { stdio: 'ignore' });
     const pid: number = child.pid;
     await new Promise((resolve) => child.on('close', resolve));
@@ -453,7 +456,7 @@ describe('isPidAlive and EPERM', () => {
 describe('probePorts owner lookup — both platform branches, from any host', () => {
   const nodeNet = require('net');
 
-  const { probePorts } = require('../src/lib/dev-process');
+  const { probePorts } = devProcessModule;
 
   const listen = (): Promise<{ close: () => void; port: number }> =>
     new Promise((resolve) => {
@@ -545,7 +548,7 @@ describe('probePorts owner lookup — both platform branches, from any host', ()
 describe('httpStatus — the probe that replaced `curl -o /dev/null`', () => {
   const nodeHttp = require('http');
 
-  const { httpStatus, waitForHttp } = require('../src/lib/dev-process');
+  const { httpStatus, waitForHttp } = devProcessModule;
 
   const serve = (handler: (req: unknown, res: { end: () => void; statusCode: number }) => void) =>
     new Promise<{ close: () => void; url: string }>((resolve) => {
@@ -615,7 +618,7 @@ describe('httpStatus — the probe that replaced `curl -o /dev/null`', () => {
 });
 
 describe('planTermination — the only gate between a stored number and a signal', () => {
-  const { planTermination } = require('../src/lib/dev-process');
+  const { planTermination } = devProcessModule;
   const self = { pid: 50_000, ppid: 49_999 };
 
   it('refuses pid 1 on POSIX: `-1` is the kill(2) broadcast, not a group', () => {
@@ -647,7 +650,7 @@ describe('planTermination — the only gate between a stored number and a signal
 });
 
 describe('killProcessGroup / terminateProcessGroup — every signal injected, none real', () => {
-  const { killProcessGroup, terminateProcessGroup: terminate } = require('../src/lib/dev-process');
+  const { killProcessGroup, terminateProcessGroup: terminate } = devProcessModule;
 
   /** Records instead of acting. Nothing here may reach `process.kill` or `taskkill`. */
   const fake = (aliveChecks: boolean[] = []) => {

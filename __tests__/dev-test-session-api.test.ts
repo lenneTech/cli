@@ -10,6 +10,8 @@
  * Kept apart from `dev-test-session.test.ts` because it mocks the process layer,
  * which the teardown tests there must not see mocked.
  */
+import type { Mock, MockedFunction } from 'vitest';
+
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -18,18 +20,18 @@ import { pickPackageManager } from '../src/lib/dev-package-manager';
 import { runChildInherit, spawnDetached } from '../src/lib/dev-process';
 import { migrationFailedError, startTestApi, TestSessionLogger } from '../src/lib/dev-test-session';
 
-jest.mock('../src/lib/dev-process', () => ({
-  ...jest.requireActual('../src/lib/dev-process'),
-  runChildInherit: jest.fn(),
-  spawnDetached: jest.fn(),
+vi.mock('../src/lib/dev-process', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/lib/dev-process')>()),
+  runChildInherit: vi.fn(),
+  spawnDetached: vi.fn(),
 }));
 
-const runChildInheritMock = runChildInherit as jest.MockedFunction<typeof runChildInherit>;
-const spawnDetachedMock = spawnDetached as jest.MockedFunction<typeof spawnDetached>;
+const runChildInheritMock = runChildInherit as MockedFunction<typeof runChildInherit>;
+const spawnDetachedMock = spawnDetached as MockedFunction<typeof spawnDetached>;
 
 describe('startTestApi', () => {
   let apiDir: string;
-  let log: TestSessionLogger & { info: jest.Mock; warn: jest.Mock };
+  let log: TestSessionLogger & { info: Mock; warn: Mock };
 
   /** The env the test API runs with — carries the TEST database, never the dev one. */
   const apiEnv = { NODE_ENV: 'local', NSC__MONGOOSE__URI: 'mongodb://127.0.0.1/svl-test' };
@@ -53,7 +55,7 @@ describe('startTestApi', () => {
 
   beforeEach(() => {
     apiDir = mkdtempSync(join(tmpdir(), 'lt-dev-test-api-'));
-    log = { dim: (s: string) => s, info: jest.fn(), warn: jest.fn() };
+    log = { dim: (s: string) => s, info: vi.fn(), warn: vi.fn() };
     runChildInheritMock.mockReset();
     spawnDetachedMock.mockReset();
     spawnDetachedMock.mockReturnValue({ pid: 4321, rotated: { rotated: false } });

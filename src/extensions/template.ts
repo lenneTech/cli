@@ -1,5 +1,8 @@
+import { realpathSync } from 'fs';
+
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { execArgs } from '../lib/exec-args';
+import { removeTemplateAgentMemory } from '../lib/template-agent-memory';
 
 /**
  * Result of template setup operation
@@ -71,11 +74,16 @@ export class TemplateHelper {
       return { method: 'copy', path: templatePath, success: false };
     }
 
-    filesystem.copy(templatePath, dest, { overwrite: true });
+    // fs-jetpack copies a linked root as the link itself, which would make `dest`
+    // the developer's checkout: the cleanup below would then delete its `.git` and
+    // agent notes. Copy the directory the link points at instead.
+    filesystem.copy(realpathSync(templatePath), dest, { overwrite: true });
 
     if (opts.removeGit && filesystem.exists(`${dest}/.git`)) {
       filesystem.remove(`${dest}/.git`);
     }
+    // The template's agent notes describe the template, not the new project.
+    removeTemplateAgentMemory(dest);
 
     if (opts.showInfo) {
       info(`Copied from: ${templatePath}`);
@@ -156,6 +164,7 @@ export class TemplateHelper {
       if (opts.removeGit && filesystem.exists(`${dest}/.git`)) {
         filesystem.remove(`${dest}/.git`);
       }
+      removeTemplateAgentMemory(dest);
 
       if (opts.showInfo && opts.branch) {
         info(`Cloned from ${repoUrl} (branch: ${opts.branch})`);

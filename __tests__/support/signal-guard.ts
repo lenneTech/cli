@@ -1,5 +1,6 @@
 /**
- * Jest `setupFilesAfterEnv`: a test may send a real signal only to a process it spawned.
+ * A test may send a real signal only to a process it spawned. Armed for every test
+ * file by `signal-guard.setup.ts` (vitest `setupFiles`).
  *
  * Why this exists: on 2026-09-23 at 09:37 a test in `dev-process.test.ts` called
  * `killProcessGroup(1, { platform: 'linux' })`. Only the platform was injected;
@@ -14,15 +15,63 @@
  * group it names) is a child this worker spawned. Probing with signal 0 stays
  * allowed — it delivers nothing.
  *
- * Scope: signals sent from inside the Jest worker. A CLI subprocess a test
+ * Scope: signals sent from inside the test worker. A CLI subprocess a test
  * spawns runs without this guard.
+ *
+ * The state lives on `process`, not in this module: vitest loads a fresh copy of
+ * every module per test file while `process` stays the same object. Module-level
+ * state would wrap `process.kill` once per file, and the refusals the first copy
+ * records would never reach the `afterEach` of a later file.
  */
 import { ChildProcess } from 'child_process';
 
-const SPAWNED = Symbol.for('lt-cli.signal-guard.spawned');
+interface GuardState {
+  spawned: Set<number>;
+  violations: string[];
+}
 
-interface Registry {
-  [SPAWNED]?: Set<number>;
+const STATE = Symbol.for('lt-cli.signal-guard.state');
+const holder = process as unknown as Record<symbol, GuardState | undefined>;
+
+/** True once `installSignalGuard` ran in this process. */
+export function guardInstalled(): boolean {
+  return holder[STATE] !== undefined;
+}
+
+/**
+ * Wrap `process.kill` and record every child this process spawns. Idempotent: a
+ * second call in the same process does nothing.
+ */
+export function installSignalGuard(): void {
+  if (holder[STATE]) {
+    return;
+  }
+  const state: GuardState = { spawned: new Set(), violations: [] };
+
+  // Every async child_process API (spawn, exec, execFile, fork) and cross-spawn
+  // ends in ChildProcess.prototype.spawn, so recording here sees all of them.
+  const proto = ChildProcess.prototype as unknown as { spawn: (...args: unknown[]) => unknown };
+  const originalSpawn = proto.spawn;
+  proto.spawn = function (this: ChildProcess, ...args: unknown[]) {
+    const result = originalSpawn.apply(this, args);
+    if (typeof this.pid === 'number') {
+      state.spawned.add(this.pid);
+    }
+    return result;
+  };
+
+  const realKill = process.kill.bind(process);
+  process.kill = ((pid: number, signal?: number | string) => {
+    const verdict = signalVerdict(pid, signal ?? 'SIGTERM', state.spawned);
+    if (verdict) {
+      const message = `signal-guard: process.kill(${pid}, ${String(signal ?? 'SIGTERM')}) ${verdict}`;
+      state.violations.push(message);
+      throw new Error(message);
+    }
+    return realKill(pid, signal);
+  }) as typeof process.kill;
+
+  holder[STATE] = state;
 }
 
 /**
@@ -39,48 +88,7 @@ export function signalVerdict(pid: unknown, signal: unknown, spawned: ReadonlySe
   return null;
 }
 
-/** Pids of children spawned in this worker, shared across test files. */
-function spawnedRegistry(): Set<number> {
-  const proto = ChildProcess.prototype as unknown as Registry & { spawn: (...a: unknown[]) => unknown };
-  if (!proto[SPAWNED]) {
-    const spawned = new Set<number>();
-    const original = proto.spawn;
-    // Every async child_process API (spawn, exec, execFile, fork) and cross-spawn
-    // ends in ChildProcess.prototype.spawn, so recording here sees all of them.
-    proto.spawn = function (this: ChildProcess, ...args: unknown[]) {
-      const result = original.apply(this, args);
-      if (typeof this.pid === 'number') spawned.add(this.pid);
-      return result;
-    };
-    proto[SPAWNED] = spawned;
-  }
-  return proto[SPAWNED];
-}
-
-const spawned = spawnedRegistry();
-const realKill = process.kill.bind(process);
-const violations: string[] = [];
-
-process.kill = ((pid: number, signal?: number | string) => {
-  const verdict = signalVerdict(pid, signal ?? 'SIGTERM', spawned);
-  if (verdict) {
-    const message = `signal-guard: process.kill(${pid}, ${String(signal ?? 'SIGTERM')}) ${verdict}`;
-    violations.push(message);
-    throw new Error(message);
-  }
-  return realKill(pid, signal);
-}) as typeof process.kill;
-
-/** Drain recorded refusals — for the guard's own wiring test only. */
+/** Drain recorded refusals: for the setup file's `afterEach` and the guard's own wiring test. */
 export function takeViolations(): string[] {
-  return violations.splice(0);
+  return holder[STATE]?.violations.splice(0) ?? [];
 }
-
-// Throwing alone is not enough: code under test that wraps `process.kill` in a
-// try/catch (as every kill helper in `src/` does) would swallow the refusal and
-// the test would pass. So a refused signal also fails the test it happened in.
-afterEach(() => {
-  if (violations.length === 0) return;
-  const found = takeViolations();
-  throw new Error(`${found.length} refused signal(s) in this test:\n${found.join('\n')}`);
-});

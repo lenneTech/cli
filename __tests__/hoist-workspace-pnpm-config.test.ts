@@ -750,6 +750,71 @@ describe('hoistWorkspacePnpmConfig', () => {
     expect(rootWs().auditConfig).toEqual({ ignoreGhsas: ['GHSA-x'], someScalar: true });
   });
 
+  it('unions the consumers of an unusableFixConsumers declaration both sub-projects make', () => {
+    // Regression: the inner map merged last-writer-wins per GHSA, so the api's
+    // consumer list vanished as soon as the app declared the same advisory, and
+    // check:overrides then failed with RE-TEST for the consumers it no longer saw.
+    // Format (nest-server scripts/check-overrides.mjs#parseResidual):
+    // '<c>@<v> + <c>@<v> cannot use <v1>, <v2>'.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      [
+        'auditConfig:',
+        '  unusableFixConsumers:',
+        "    GHSA-g3hv-75wg-m249: '@nestjs/cli@12.0.11 + nodemon@3.1.14 cannot use 11.0.1'",
+        "    GHSA-3g3m-2fjr-6pw4: 'rimraf@6.1.3 cannot use 14.0.2'",
+        "    GHSA-same-on-both: 'glob@13.0.6 cannot use 11.0.1'",
+        '',
+      ].join('\n'),
+    );
+    filesystem.dir(`${tempDir}/projects/app`);
+    filesystem.write(
+      `${tempDir}/projects/app/pnpm-workspace.yaml`,
+      [
+        'auditConfig:',
+        '  unusableFixConsumers:',
+        "    GHSA-g3hv-75wg-m249: 'nuxt@4.4.8 + nodemon@3.1.14 cannot use 11.0.1, 10.5.1'",
+        "    GHSA-x6jw-m9v5-85vh: '@nuxt/devtools@3.4.1 cannot use 4.0.1'",
+        "    GHSA-same-on-both: 'glob@13.0.6 cannot use 11.0.1'",
+        '',
+      ].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api', 'projects/app'] });
+
+    expect(rootWs().auditConfig).toEqual({
+      unusableFixConsumers: {
+        'GHSA-3g3m-2fjr-6pw4': 'rimraf@6.1.3 cannot use 14.0.2',
+        'GHSA-g3hv-75wg-m249': '@nestjs/cli@12.0.11 + nodemon@3.1.14 + nuxt@4.4.8 cannot use 10.5.1, 11.0.1',
+        'GHSA-same-on-both': 'glob@13.0.6 cannot use 11.0.1',
+        'GHSA-x6jw-m9v5-85vh': '@nuxt/devtools@3.4.1 cannot use 4.0.1',
+      },
+    });
+  });
+
+  it('keeps both versions when the sub-projects assessed the same consumer at different ones', () => {
+    // check-overrides checks every declared `<consumer>@<version>` on its own, and a
+    // workspace lockfile can hold both, so neither assessment may be dropped.
+    writeJson(`${tempDir}/package.json`, { name: 'root' });
+    filesystem.write(
+      `${tempDir}/pnpm-workspace.yaml`,
+      ['auditConfig:', '  unusableFixConsumers:', "    GHSA-a: 'glob@13.0.6 cannot use 11.0.1'", ''].join('\n'),
+    );
+    filesystem.dir(`${tempDir}/projects/api`);
+    filesystem.write(
+      `${tempDir}/projects/api/pnpm-workspace.yaml`,
+      ['auditConfig:', '  unusableFixConsumers:', "    GHSA-a: 'glob@13.0.7 cannot use 11.0.1'", ''].join('\n'),
+    );
+
+    hoistWorkspacePnpmConfig({ filesystem, projectDir: tempDir, subProjects: ['projects/api'] });
+
+    expect(rootWs().auditConfig).toEqual({
+      unusableFixConsumers: { 'GHSA-a': 'glob@13.0.6 + glob@13.0.7 cannot use 11.0.1' },
+    });
+  });
+
   it('hoists peerDependencyRules, merging allowedVersions and unioning the lists', () => {
     // Regression, same trap as `auditConfig` above: the starter scope-allows
     // `@swc/cli>chokidar` and `graphql-upload>@types/express` here, the

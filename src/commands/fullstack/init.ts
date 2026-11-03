@@ -1,12 +1,14 @@
 import { filesystem as fs, GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
 import { caddyAvailable } from '../../lib/caddy';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { execArgs, spawnArgs } from '../../lib/exec-args';
 import { failRun } from '../../lib/fail-run';
 import { setPackageName } from '../../lib/package-name';
+import { removeTemplateAgentMemory } from '../../lib/template-agent-memory';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 import {
   detectWorkspaceLayout,
@@ -477,6 +479,9 @@ const NewCommand: GluegunCommand = {
 
     // Remove git folder after clone
     filesystem.remove(`${projectDir}/.git`);
+    // lt-monorepo's agent notes describe lt-monorepo, not the new project, and
+    // would otherwise land in its initial commit.
+    removeTemplateAgentMemory(projectDir);
 
     // Patch root files for the project.
     //
@@ -724,6 +729,13 @@ const NewCommand: GluegunCommand = {
       // again at the end (the install output below buries this one).
       const { conflicts } = finalizeWorkspaceRoot({ filesystem, projectDir });
       reportWorkspaceConflicts(conflicts, toolbox.print.warning);
+
+      // The templates are public and keep their agent notes out of git; a
+      // private project decides for itself, so the rule goes unless --public.
+      if (!(await applyAgentNotesIgnorePolicy(toolbox, projectDir, { noConfirm }))) {
+        failRun(toolbox);
+        return;
+      }
 
       // Install all packages
       if (!experimental) {

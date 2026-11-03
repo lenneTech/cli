@@ -163,7 +163,7 @@ commands:
       });
 
       it('should warn when multiple config files exist in same directory', () => {
-        const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
         // Create config instance without suppressWarnings
         const configWithWarnings = new Config(filesystem, { suppressWarnings: false });
@@ -205,7 +205,7 @@ commands:
       });
 
       it('should not warn when suppressWarnings is true', () => {
-        const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
         // Create config instance with suppressWarnings
         const configSuppressed = new Config(filesystem, { suppressWarnings: true });

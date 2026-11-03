@@ -13,15 +13,16 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v4
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install dependencies
         # `npm ci` and not `npm install`: it FAILS on a lockfile that disagrees with
         # package.json, which is the only guard against the drift that shipped through
         # three releases unnoticed (see CLAUDE.md → "An out-of-sync lockfile is invisible
-        # to `npm install`"). Node 20 here means npm 10 — the strict generation.
+        # to `npm install`"). Node 22 here means npm 10, the strict generation (vitest 5 needs
+        # Node >= 22.12, so Node 20 is no longer an option).
         run: npm ci
       - name: Lint
         run: npm run lint
@@ -45,10 +46,10 @@ jobs:
     steps:
       - name: Git checkout
         uses: actions/checkout@v4
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install dependencies
         run: npm ci
       - name: npm audit
@@ -82,11 +83,11 @@ jobs:
             echo "$crlf"
             exit 1
           fi
-      - name: Use Node.js 20
+      - name: Use Node.js 22
         if: ${{ !cancelled() }}
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install dependencies
         if: ${{ !cancelled() }}
         run: npm ci

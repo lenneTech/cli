@@ -5,6 +5,7 @@ import { join } from 'path';
 import { findClaudeCli } from '../src/lib/claude-cli';
 import { findCodexCli } from '../src/lib/codex-cli';
 import { findExecutable, isWindows, spawnCmdSync, windowsAppData } from '../src/lib/platform';
+import * as platformModule from '../src/lib/platform';
 
 /** File probe backed by a fixed set of paths, so Windows lookups run on any host. */
 const onDisk = (...paths: string[]) => {
@@ -168,7 +169,7 @@ describe('CLI lookups on macOS/Linux', () => {
 });
 
 describe('spawnCmd / spawnCmdSync semantics', () => {
-  const { spawnCmd, spawnCmdSync } = require('../src/lib/platform');
+  const { spawnCmd, spawnCmdSync } = platformModule;
 
   it('spawnCmd starts a child and reports its exit code', async () => {
     const code = await new Promise<null | number>((resolve) => {

@@ -3,9 +3,16 @@ import { tmpdir } from 'os';
 import { dirname, join } from 'path';
 
 // Registry path override MUST be set before importing the module under test,
-// because dev-state reads LT_DEV_REGISTRY_PATH at module-load time.
-const REGISTRY_TMP = mkdtempSync(join(tmpdir(), 'lt-bootstrap-reg-'));
-process.env.LT_DEV_REGISTRY_PATH = join(REGISTRY_TMP, 'projects.json');
+// because dev-state reads LT_DEV_REGISTRY_PATH at module-load time, and vitest
+// evaluates every import before the first statement: only a hoisted block runs early enough.
+const { REGISTRY_TMP } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-bootstrap-reg-'));
+  process.env.LT_DEV_REGISTRY_PATH = path.join(dir, 'projects.json');
+  return { REGISTRY_TMP: dir };
+});
 
 import {
   isLtDevProject,

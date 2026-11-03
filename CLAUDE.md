@@ -13,7 +13,7 @@ src/
 
 schemas/               # JSON Schema for IDE support
 docs/                  # Command and configuration docs
-__tests__/             # Jest tests
+__tests__/             # Vitest tests (vitest.config.mts)
 ```
 
 ## WHY: Purpose
@@ -129,7 +129,7 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   version, sha256 per file); `__tests__/check-template-sync.test.ts` fails on
   any byte that differs from that pin, without network. Two guards, two jobs:
   the pin stops drift here, the `// @lt-check-wrapper <version>` marker (line 2,
-  same regex as lt-monorepo's `check-wrapper-version.cjs#MARKER_RE`) stops damage
+  same regex as `MARKER_RE` in lt-monorepo's `scripts/check-wrapper-version.test.mjs`) stops damage
   in projects. It names the lt-monorepo RELEASE, never a project's version. Heal
   replaces a project wrapper only when the bundled release is NEWER or the
   project wrapper is unmarked (markers start at the pinned commit, so every
@@ -147,8 +147,9 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   files get no lint/tsc coverage at all; the guards that do cover them
   are `__tests__/check-template.test.ts` and
   `__tests__/build-test-gate.test.ts`, which load them in a real Node
-  ESM child (`__tests__/check-template-esm.ts`) because Jest's transform
-  turns `import()` into `require()` and cannot load an `.mjs` at all.
+  ESM child (`__tests__/check-template-esm.ts`). That started as a Jest
+  workaround (its transform turned `import()` into `require()`); it stays
+  because a plain Node child is what the generated projects run.
   Mode-agnostic — it neither reads nor generates framework source, so it
   needs no row in the vendor/npm tables below.
 
@@ -206,9 +207,9 @@ flag every command exposes for AI agents.
 
 | Command | Use when | Output | Common flags |
 |---|---|---|---|
-| `lt fullstack init` | Fresh dir, want a new monorepo | `lt-monorepo` clone with `projects/api/` + `projects/app/` (auto-delegates to `add-api`/`add-app` if cwd is already a workspace with one half present) | `--name --frontend --api-mode --framework-mode --frontend-framework-mode --next --dry-run --noConfirm` |
-| `lt fullstack add-api` | Workspace with `projects/app/` only | Adds `projects/api/` | `--api-mode --framework-mode --framework-upstream-branch --api-branch --api-copy --api-link --next --dry-run --skip-install --noConfirm` |
-| `lt fullstack add-app` | Workspace with `projects/api/` only | Adds `projects/app/` | `--frontend --frontend-framework-mode --frontend-branch --frontend-copy --frontend-link --next --dry-run --skip-install --noConfirm` |
+| `lt fullstack init` | Fresh dir, want a new monorepo | `lt-monorepo` clone with `projects/api/` + `projects/app/` (auto-delegates to `add-api`/`add-app` if cwd is already a workspace with one half present) | `--name --frontend --api-mode --framework-mode --frontend-framework-mode --next --public --dry-run --noConfirm` |
+| `lt fullstack add-api` | Workspace with `projects/app/` only | Adds `projects/api/` | `--api-mode --framework-mode --framework-upstream-branch --api-branch --api-copy --api-link --next --public --dry-run --skip-install --noConfirm` |
+| `lt fullstack add-app` | Workspace with `projects/api/` only | Adds `projects/app/` | `--frontend --frontend-framework-mode --frontend-branch --frontend-copy --frontend-link --next --public --dry-run --skip-install --noConfirm` |
 
 The standalone scaffolders are workspace-aware: when run inside a
 fullstack workspace they refuse non-interactive callers (KI/CI
@@ -357,13 +358,12 @@ external service or OS integration (a live Qdrant/MongoDB, real
 `*.test.ts` — a conditional skip still shows up as "skipped" and can be
 unsafe (e.g. `dev-service-e2e` would `launchctl bootout` the user's live
 `lt dev` daemon via the shared label). Instead:
-- Name the file `*.manual.ts`. Jest's `testMatch`
-  (`<rootDir>/*.test.ts`, set in `package.json#jest`) only matches
-  top-level `*.test.ts`, so `*.manual.ts` is **excluded, not skipped**.
-  (That `testMatch` is also why a stray `__tests__/temp-*/…/*.test.ts`
-  left by an aborted run is never collected.)
-- Run them on demand: `npm run test:manual` (all `*.manual.ts`) or a
-  specific script like `npm run test:e2e:service`.
+- Name the file `*.manual.ts`. `include` in `vitest.config.mts`
+  (`__tests__/*.test.ts`) only matches top-level `*.test.ts`, so
+  `*.manual.ts` is **excluded, not skipped**. (That pattern is also why a
+  stray `__tests__/temp-*/…/*.test.ts` left by an aborted run is never collected.)
+- Run them on demand: `npm run test:manual` (all `*.manual.ts`,
+  `vitest.manual.config.mts`) or a specific script like `npm run test:e2e:service`.
 - Keep an in-file guard (platform/service/real-daemon checks) so the
   manual run self-skips safely instead of damaging a live setup.
 
@@ -689,6 +689,31 @@ reaches it reliably — args appended to an `&&` chain only hit the LAST command
 human-readable reason into the sibling `//overrides` doc object), e.g. `form-data`
 4.0.6 (GHSA-hmw2-7cc7-3qxx), `@babel/core` 7.29.7 (GHSA-4x5r-pxfx-6jf8).
 
+**An override is only done when BOTH npm generations accept the lockfile** (2026-11-03).
+`minimatch` GHSA-g3hv-75wg-m249 (`<11.0.1`) and `glob` GHSA-3g3m-2fjr-6pw4 (`9.0.0`–`14.0.1`)
+are fixed only in new majors. The first attempt, a global `minimatch@>=4 <11.0.1` override plus a
+scoped DOWNGRADE for the one consumer that cannot use 11, passed lint and all tests under npm 11.6
+and failed `npm ci` under npm 10 (CI's Node 20): `Missing: glob@13.0.6 / minimatch@10.2.6`. npm
+10 even rejected a lockfile it had written itself. What both accept is scoped UPGRADES per
+consumer and no global key (`package.json#overrides`, reasons in `//overrides`). **Rules:**
+- Check every override change with `npx -y npm@10.9.2 ci --dry-run --ignore-scripts` AND
+  `npm ci --dry-run --ignore-scripts`. Both validate the lockfile without installing, so a
+  variant costs seconds.
+- Before `npm install --package-lock-only`, delete the `packages` entries of every node the new
+  overrides should move (and their deps). npm keeps a nested node that is already in the lockfile,
+  and the result then looks consistent while the override never applied (the first scoped variant
+  still had `minimatch` 10.2.6 in five places).
+- A ranged key for a package that is also a direct dependency fails with `EOVERRIDE` when the range
+  covers the direct version (`rimraf@>=4`); `glob@<8` next to the direct `glob` 14 is fine.
+- `rimraf` is gone as a dependency: it only served `clean-build` and `reinit`, which now call
+  `node scripts/rm.mjs` (`fs.rmSync`). `fs-jetpack`'s own `rimraf` 2 stays; it calls `glob` 7
+  with `disableGlob: true`, and `glob` 7 is outside the advisory range.
+- Two dev-only advisories had no usable fix and went with the tools that pulled them in (see
+  "jest → vitest, and ESLint without import-x"): `eslint-plugin-import-x` 4.17.1 (latest, pinned
+  by `@lenne.tech/eslint-config-ts` 2.3.0) does `import { makeRe } from 'minimatch'`, which 11
+  removed; `deepmerge` (GHSA-gcqx-w48m-w2h4, no patched release) came only through `jest-config`.
+  `npm audit` is clean since.
+
 `js-yaml` is at **5.5.0** (raised from 4.3.2 on 2026-10-24; 4.3.2 had fixed GHSA-5p4m-2wfm-xmqj
 and GHSA-2883-xcg3-v3hh). It is a direct production dependency of this CLI. **Load YAML only
 through `src/lib/yaml.ts#loadYaml`, never with js-yaml's `load()`.** 5.x `load()` throws on
@@ -703,9 +728,9 @@ suite showed no output difference for the files the CLI writes. 5.x ships its ow
 `@types/js-yaml` is gone.
 
 The dev-only 3.x path (ts-jest > @jest/transform > babel-plugin-istanbul >
-@istanbuljs/load-nyc-config, which requests `^3.13.1`) is forced onto the direct version by
-the consumer-scoped override `"@istanbuljs/load-nyc-config": { "js-yaml": "$js-yaml" }`
-(`$js-yaml` = this project's own direct js-yaml, so the two cannot drift). History:
+@istanbuljs/load-nyc-config, which requests `^3.13.1`) left with jest on 2026-11-03, and the
+consumer-scoped override `"@istanbuljs/load-nyc-config": { "js-yaml": "$js-yaml" }` with it.
+What follows is kept for the two npm facts at its end. History:
 until 2026-09-14 the same override existed for the `!!omap` advisory; it was dropped
 when js-yaml backported that fix to 3.15.1/3.15.2. On 2026-10-06 GHSA-hp3w-g68c-fv3c
 (sprintf-js, DoS, advisory range ALL versions) brought it back: js-yaml 3.x needs
@@ -854,13 +879,15 @@ makes it oscillate by ten lines on every `check`.
 - **Declare the peer explicitly** (here: both `@emnapi/*` as devDependencies). That is the remedy
   arborist's own source comment names — an optional peer stops being optional once a root
   dependency requires it — and it is the only one both npm generations agree on. Verified across
-  npm 10 → 11.6, and `npm install` no longer strips it.
+  npm 10 → 11.6, and `npm install` no longer strips it. **Removed again on 2026-11-03:** both
+  consumers (`eslint-plugin-import-x`, `jest-resolve`) left the tree, the lockfile has no
+  `@emnapi` node any more, and `npm ci --dry-run` passes on npm 10.9.2 and 11.6 without them.
 - **Document it next to the entry.** `//devDependencies` in `package.json` mirrors the existing
   `//overrides` convention and carries the removal condition, so an unused-looking dependency is
   not deleted by the next maintenance pass.
 - **A fix nothing enforces comes back.** `.github/workflows/build.yml` now runs `npm ci`, so a
-  lockfile that drifts again fails CI instead of shipping. Node 20 there means npm 10 — the strict
-  generation, which is what makes the guard meaningful.
+  lockfile that drifts again fails CI instead of shipping. Node 22 there (Node 20 until vitest 5
+  required 22.12) means npm 10, the strict generation, which is what makes the guard meaningful.
 - **When a lockfile claim disagrees with your machine, check the npm version before the file.**
   This one reproduced on npm <= 11.4 and passed on 11.5+; "works for me" was a version, not a
   mistake by the reporter.
@@ -1021,8 +1048,18 @@ heal again with a newer bundle.
 refused; anything git does not track is unrecoverable, so it gets a `.bak` and is then
 replaced. Refusing there instead permanently blocks the update, because the CLI's own
 prior output is untracked. And never write through a symlink (`lstatSync` before
-`copyFileSync` — the link blob reads as clean, so the git guard cannot see it), and
-write via temp+rename.
+the write — the link blob reads as clean, so the git guard cannot see it), and
+write via temp+rename. That holds for EVERY path the heal writes, not only the target:
+until 2026-11-01 the `.bak` was guarded by `existsSync`, which reads a DANGLING link as
+absent, so `copyFileSync` created the link's target anywhere on disk with the
+project's content (reproduced in a non-git project), and the temp name
+`<file>.lt-tmp-<pid>` was followed the same way. Now: `planCopy` skips when `.bak` is
+a link, backup and temp are opened with `wx` (O_EXCL refuses any link), and the temp
+name carries a random suffix — the same shape as `heal-vendor-migrate-store.ts#writeAtomic`.
+`healVendorMigrateStore` had the identical `.bak` hole in the same `lt fullstack update` pass
+(fixed 2026-11-03, same shape: skip when `migrate.js.bak` is a link, write it with `wx`). Its
+skip matters more than the `wx`: `wx` alone turns a planted link into `EEXIST`, which reads as
+"first backup kept", and the store would be replaced with no backup at all.
 **Rule 4 — every diagnostic that knows the old asset must learn the new set.**
 `lt dev doctor` compared only `check.mjs` and printed a green "matches the canonical
 CLI version" for a project whose `check` could not start at all — and doctor is exactly
@@ -1057,6 +1094,13 @@ It rides in `NESTED_ARRAY_FIELDS`, which now also merges an inner MAP
 both sides": two sub-projects allowing the same selector with different ranges end
 last-writer-wins without a warning — acceptable because the rule only silences a peer
 warning, but it is not conflict-checked.
+`auditConfig.unusableFixConsumers` is the second inner map, and there last-writer-wins
+was NOT acceptable (fixed 2026-11-01): nest-server's `check:overrides` checks every
+declared `<consumer>@<version>` on its own, so when api and app declared the same GHSA,
+the lost list failed the run with RE-TEST. `unionUnusableFixDeclarations` unions the
+consumers (` + `) and the rejected versions (`, `) per advisory, in the format
+`scripts/check-overrides.mjs#parseResidual` reads; a value present on one side only
+stays byte-identical.
 
 `patchedDependencies` (2026-10-06, 1.50.4) is the third instance, and the first with a
 FILE attached. nuxt-base-starter closes the simple-git advisories with an override to
@@ -1177,8 +1221,8 @@ the CLI itself does. Behaviour is pinned in `__tests__/dev-test-session-api.test
 ### `git-commands.test.ts` runs in a throwaway clone — never against this checkout <!-- Added: 2026-07-31, rewritten: 2026-09-15 -->
 The suite used to shell out to `lt git update` / `git create` / `git reset` inside THIS
 working copy, against its GitHub remote. Two consequences:
-- **Network:** a real `git fetch` per test; SSH connect timeout and Jest's
-  `--testTimeout` are both 60 s, so offline, VPN or an SSH agent waiting for approval
+- **Network:** a real `git fetch` per test; SSH connect timeout and the test timeout
+  are both 60 s, so offline, VPN or an SSH agent waiting for approval
   showed up as unrelated test timeouts.
 - **Destruction:** `lt git update` without `--dry-run` is a real `git pull --rebase`.
   On a branch that diverged from its upstream — exactly the state after a local rebase,
@@ -1332,9 +1376,12 @@ is not airtight for global npm shims (`%APPDATA%\npm\*.cmd` re-parse `%*`), so p
 arguments only, never untrusted free text. Platform,
 env and file probe are injectable, so write the Windows branch as a test on any host
 (`__tests__/platform.test.ts`). Migrated so far: Claude/Codex lookup, plugin
-requirements. The `lt dev` spawn sites (`dev-process.ts`, `dev/up.ts`, …) and
-`dev-service.ts#resolveCaddyBin` are not migrated yet. They follow once the Windows
-laptop test settles process lifecycle and the Caddy mode.
+requirements, `dev-service.ts#resolveCaddyBin`. The `lt dev` spawn sites (`dev-process.ts`,
+`dev/up.ts`, …) are not migrated yet. They follow once the Windows laptop test settles
+process lifecycle and the Caddy mode. **A migrated lookup no longer reaches a scripted
+`which`:** five `installService` tests kept scripting `which caddy` and so passed or failed
+depending on whether the machine running them had caddy on its PATH (red in a Claude Code
+shell without `/opt/homebrew/bin`, 2026-11-03). Pass `lookup` (env + file probe) instead.
 
 ### Blanking comments with a bare `ts.createScanner` quietly stops working <!-- Added: 2026-09-21 -->
 Two detectors used to ask "does this file still import X?" by searching the raw text,
@@ -1544,6 +1591,43 @@ first conversion pass missed four more (`rebase`/`reset` chains, `getFirstBranch
   interpolation or is assembled in a variable; the only survivor is `src/lib/marker.ts`, which
   interpolates fixed paths under the user's own home. Repeat that audit before claiming the
   class is closed again.
+
+### A scaffold must not inherit the template's agent memory <!-- Added: 2026-11-01 -->
+`lt-monorepo`, `nest-server-starter` and `nuxt-base-starter` (also inside
+`nuxt-base-template/`) versioned `.claude/agent-memory/`, and the clone carried it into
+every new project, where `lt fullstack init`'s `git add .` put notes about the TEMPLATE
+repo into the customer's initial commit. The base repos stopped versioning those notes
+on 2026-11-01 (this repo too: `**/.claude/agent-memory` in `.gitignore`, deliberately
+WITHOUT a trailing slash: the lt-memory plugin links the notes in from a private repo
+as a symlink, git treats a symlink as a file, and `agent-memory/` matches directories
+only, so the link would be committed). An older ref still has them, and a local
+checkout used with `--*-copy` keeps them on disk as ignored files or as that symlink,
+which the copy reproduces as a symlink. So `removeTemplateAgentMemory` (`src/lib/template-agent-memory.ts`)
+runs after every clone and copy in `TemplateHelper` and after the lt-monorepo clone
+in `fullstack/init.ts`. It walks the whole tree (skipping `node_modules`/`.git`),
+never follows a symlink, and is **never** called on a `--*-link` target: that is the
+developer's own checkout.
+**A `--*-copy` source that is itself a symlink turned the copy into a link** (found in review,
+2026-11-03): fs-jetpack checks the source root with `lstat` and copies a linked root as the
+link, so `dest` WAS the developer's checkout, and the cleanup after the copy deleted that
+checkout's agent notes, and, older than the cleanup, its `.git`. The source can come from
+`lt.config.*` in any parent directory, so a cloned repository can supply both the value and
+the committed link. `copyLocal` now copies `realpathSync(source)`, and the walk returns
+without touching anything when its root is a link.
+**The ignore rule itself is the template's, not the project's** (Kai's decision, 2026-11-03).
+The base repos are public, so their `.gitignore` carries `**/.claude/agent-memory`; a generated
+project is usually private and decides for itself whether to share its notes. So
+`applyAgentNotesIgnorePolicy` (`src/lib/agent-notes-ignore.ts`) removes the rule from every
+`.gitignore` of the new project unless it is public: `--public` keeps it, an interactive run without
+the flag asks, a non-interactive one removes it. It runs in `lt fullstack init` (whole workspace),
+`add-api` / `add-app` (the new sub-project only: the root `.gitignore` belongs to the existing
+workspace) and `lt server create`, after scaffolding and before the first commit; it asks nothing
+when no file carries the rule. `lt frontend nuxt` / `angular` are not wired: their templates carry
+no rule, and Angular commits inside its helper. The edit works per paragraph: a paragraph of only
+comments and agent-notes entries goes as a whole, one that ignores more (nuxt-base-starter's
+`.claude/settings.local.json`) keeps its comment and loses only the entry. `--public` reads presence
+as intent (keeping the rule publishes nothing), and a swallowed positional (`--public my-app`) is an
+error, not a guess.
 
 ### A command that changes a project refuses flags it does not know <!-- Added: 2026-10-19 -->
 gluegun/yargs-parser accepts any flag and the command never sees the typo. Plugin docs told
@@ -1785,6 +1869,56 @@ nest-server-starter's `tests/project.e2e-spec.ts`: IAM REST sign-up and sign-in,
 generated spec and fails the scenario when it fails. `serverTestModuleImports` reads
 `server.module.ts` from the AST and falls back to `[ServerModule]` when the project does not
 export `imports`. When the starter changes its test pattern, the template follows.
+
+### jest → vitest, and ESLint without import-x <!-- Added: 2026-11-03 -->
+GHSA-g3hv-75wg-m249 (minimatch, via `eslint-plugin-import-x`) and GHSA-gcqx-w48m-w2h4 (deepmerge,
+via `jest-config`) had no fix the consumer could use, so the tools went instead (Kai's decision:
+raise or remove, no allowlist). ESLint stays: `perfectionist` carries the sorting conventions this
+file relies on, and oxlint's JS-plugin support is alpha. `eslint.config.mjs` holds the rules of
+`@lenne.tech/eslint-config-ts` 2.3.0 minus import-x, markdown, yml and jsonc. Tests run on vitest
+5 (`vitest.config.mts`, Node >= 22.12, hence Node 22 in CI); `npm run typecheck:tests` takes over
+the type check ts-jest did and runs in `build` before the tests.
+
+**The trap that cost real data: ES module order.** vitest evaluates every import of a file before
+its first statement; ts-jest kept statements where they were written. Six suites set
+`LT_DEV_REGISTRY_PATH` / `LT_DEV_CADDYFILE` between their imports, for modules that read the path
+at import time (`dev-state.ts`, `caddy.ts`). The first full vitest run therefore wrote test
+fixtures into the developer's real `~/.lenneTech/projects.json` and `~/.lenneTech/Caddyfile`. Both
+were restored the same day (the Caddyfile rebuilt from the config Caddy still served, verified with
+`caddy adapt`; the registry from the content a failing assertion had printed, one entry lost).
+**Rules:**
+- `__tests__/support/isolate-user-state.setup.ts` is the FIRST setup file and points every
+  per-user path the CLI knows (registry, Caddyfile, session salt, `LT_CONFIG_DIR`, permission
+  ledger, marketplace config, `CLAUDE_CONFIG_DIR`) at a temp dir before any import.
+  `__tests__/test-isolation.test.ts` fails when a module resolves one of them outside temp. A new
+  per-user file gets its override there before its first test.
+- A suite that wants its own path in place before an import uses `await vi.hoisted(async () => …)`.
+- Before the first run of a converted or new suite that writes state, checksum the real files it
+  could reach and compare afterwards. That is how this incident was bounded.
+- The integration scripts (`scripts/test-{vendor-init,frontend-vendor-init,incremental-fullstack}.sh`)
+  run the real `lt fullstack init`, which registers every new project with `lt dev`. They export
+  `LT_DEV_REGISTRY_PATH` into their work dir; before that, each release run left its scenarios in
+  the developer's `~/.lenneTech/projects.json`, pointing at deleted `/tmp` directories.
+
+Smaller differences the conversion hit, each fixed in place:
+- A builtin's CommonJS object (`require('child_process').spawn = fake`, `vi.spyOn(fs, 'chmodSync')`)
+  no longer reaches code that imports the builtin as an ES module until `syncBuiltinESMExports()`
+  runs (`cloudflared.test.ts`, `dev-env-bridge.test.ts`).
+- `require('../src/…')` cannot load a `.ts` file under vitest; those became namespace imports. The
+  untyped `require` had hidden a real type error in `dev-prune.test.ts`.
+- `jest.requireActual` became `importOriginal` in the `vi.mock` factory.
+- The signal guard keeps its state on `process`: vitest loads a fresh copy of every module per test
+  file, so module-level state would wrap `process.kill` once per file and lose the refusals.
+- `dev-log-tail.test.ts` spun 60 s on the real clock with an instant `sleep`; jest's timeout timer
+  never got a turn, so it passed. vitest stopped it at 60 s. The budget is 200 ms now.
+- vite's `mergeConfig` CONCATENATES arrays. `vitest.manual.config.mts` used it at first, and
+  `npm run test:manual` collected all 110 regular suites next to the 2 manual ones. It spreads
+  `base.test` now; `test-isolation.test.ts` pins its `include`.
+- `@types/jest` used to hand the editor its globals: the root `tsconfig.json` covers only `src/`, so
+  VS Code checks a test file in an inferred project, which loads every `@types/*` package. vitest
+  ships no such package, so `__tests__/tsconfig.json` extends `tsconfig.test.json` for the editor.
+  vite also reads that file for its transform, hence the explicit `useDefineForClassFields: false`
+  (the root config's es6 target implied it; `es2022` would switch class fields to define semantics).
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

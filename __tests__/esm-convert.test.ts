@@ -95,7 +95,7 @@ describe('convertProjectToEsm', () => {
     const before = (path: string) => readFileSync(join(dir, path), 'utf8');
     const pkg = before('package.json');
     const tsconfig = before('tsconfig.json');
-    const spy = jest.spyOn(syntax, 'convertCommonJsSyntax').mockImplementation(() => {
+    const spy = vi.spyOn(syntax, 'convertCommonJsSyntax').mockImplementation(() => {
       throw new Error('rewrite failed');
     });
     try {

@@ -47,6 +47,11 @@ rm -rf "${WORK_DIR}"
 mkdir -p "${WORK_DIR}"
 cd "${WORK_DIR}"
 
+# `lt fullstack init` registers every new project with `lt dev` (best-effort `lt dev init`).
+# Without this the scenarios land in the developer's real ~/.lenneTech/projects.json and stay
+# there, pointing at directories this script deletes.
+export LT_DEV_REGISTRY_PATH="${WORK_DIR}/lt-dev-registry.json"
+
 # Minimal nest-server-starter fixture. The CLI's setup primitives only
 # need package.json with a recognisable shape + a src/ tree. We
 # include enough to make convertCloneToVendored bail early in npm mode

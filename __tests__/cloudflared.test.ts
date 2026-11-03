@@ -6,7 +6,10 @@
  * functions are mocked via a fake child-process emitter so we never
  * shell out to the real cloudflared during CI.
  */
+import type { Mock } from 'vitest';
+
 import { EventEmitter } from 'events';
+import { syncBuiltinESMExports } from 'module';
 import { Readable } from 'stream';
 
 import {
@@ -18,14 +21,14 @@ import {
 
 /** Minimal child-process stub that emits scripted stdout/stderr/close. */
 function fakeChild(): {
-  child: EventEmitter & { kill: jest.Mock; stderr: Readable; stdout: Readable };
+  child: EventEmitter & { kill: Mock; stderr: Readable; stdout: Readable };
   emitClose: (code: number) => void;
   emitErr: (chunk: string) => void;
   emitOut: (chunk: string) => void;
 } {
   const stdout = new Readable({ read() {} });
   const stderr = new Readable({ read() {} });
-  const child = Object.assign(new EventEmitter(), { kill: jest.fn(), stderr, stdout });
+  const child = Object.assign(new EventEmitter(), { kill: vi.fn(), stderr, stdout });
   return {
     child,
     emitClose: (code) => child.emit('close', code),
@@ -103,11 +106,15 @@ describe('cloudflared', () => {
       originalSpawn = cp.spawn;
       fake = fakeChild();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (cp as any).spawn = jest.fn(() => fake.child as any);
+      (cp as any).spawn = vi.fn(() => fake.child as any);
+      // cloudflared.ts imports `spawn` as an ES module binding, which follows the
+      // CommonJS object only once Node is told to sync it.
+      syncBuiltinESMExports();
     });
     afterEach(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (cp as any).spawn = originalSpawn;
+      syncBuiltinESMExports();
     });
 
     test('resolves publicUrl once cloudflared logs the trycloudflare URL', async () => {
