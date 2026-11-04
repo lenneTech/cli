@@ -17,9 +17,10 @@
  */
 import { existsSync } from 'fs';
 
+import { paths as caddyPaths } from './caddy';
 import { buildIdentity } from './dev-identity';
 import { DevProjectLayout } from './dev-project';
-import { getServicePaths } from './dev-service';
+import { caddyLaunchMode, getServicePaths } from './dev-service';
 import { loadRegistry } from './dev-state';
 
 /**
@@ -37,12 +38,15 @@ export function isLtDevProject(layout: DevProjectLayout): boolean {
  * install has run; whether the daemon is currently *running* is a
  * separate concern handled by `lt dev up` / `doctor`.
  *
- * Always false on unsupported platforms (no service model), so the
- * chaining never tries to install where it cannot.
+ * On Windows there is no unit file (lt dev starts Caddy on demand), so the
+ * marker there is our Caddyfile, which `lt dev install` creates. Always
+ * false where Caddy can only be started by hand, so the chaining never
+ * tries to install where it cannot.
  */
-export function isMachinePrepared(): boolean {
+export function isMachinePrepared(mode: ReturnType<typeof caddyLaunchMode> = caddyLaunchMode()): boolean {
+  if (mode === 'on-demand') return existsSync(caddyPaths.caddyfile);
   const paths = getServicePaths();
-  return paths.platform !== 'unsupported' && existsSync(paths.unitFile);
+  return mode === 'service' && paths.platform !== 'unsupported' && existsSync(paths.unitFile);
 }
 
 /**

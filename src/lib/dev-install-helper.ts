@@ -10,23 +10,47 @@
  * caller decides the exit code from the returned result.
  */
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
-import { caddyAvailable, paths as caddyPaths, ensureCaddyfile, validateCaddyfile } from './caddy';
 import {
+  caddyAvailable,
+  CADDYFILE_STUB,
+  type CaddyOwner,
+  paths as caddyPaths,
+  type CaddyResult,
+  detectCaddyOwner,
+  ensureCaddyfile,
+  foreignCaddyLines,
+  reloadCaddy,
+  validateCaddyfile,
+} from './caddy';
+import {
+  caddyLaunchMode,
   getServicePaths,
   getServiceStatus,
   installService,
-  platformSupported,
+  startCaddyOnDemand,
   waitForServiceReady,
 } from './dev-service';
+
+/** Injection points for {@link runInstall}, so the platform branches are testable on any host. */
+export interface RunInstallDeps {
+  available?: () => Promise<boolean>;
+  detectOwner?: () => Promise<CaddyOwner>;
+  launchMode?: ReturnType<typeof caddyLaunchMode>;
+  reload?: () => Promise<CaddyResult>;
+  start?: () => Promise<{ logFile: string; message: string; ok: boolean }>;
+  validate?: () => Promise<CaddyResult>;
+}
 
 export interface RunInstallResult {
   /** Setup is incomplete — caddy missing, daemon didn't start, etc. */
   blocked: boolean;
   /** caddy is not on PATH. */
   caddyMissing: boolean;
-  /** installService succeeded (unit written + bootstrapped). */
+  /** A Caddy that `lt dev` did not start holds :2019; nothing was installed or started. */
+  foreign?: boolean;
+  /** The service is installed (macOS/Linux) or lt dev's Caddy runs (Windows). */
   ok: boolean;
-  /** Platform has no supported service model (not macOS/Linux). */
+  /** lt dev cannot start Caddy on this platform (neither a service nor on demand). */
   unsupported: boolean;
 }
 
@@ -38,6 +62,7 @@ export interface RunInstallResult {
 export async function runInstall(
   toolbox: ExtendedGluegunToolbox,
   opts: { auto?: boolean } = {},
+  deps: RunInstallDeps = {},
 ): Promise<RunInstallResult> {
   const {
     print: { colors, error, info, success, warning },
@@ -51,9 +76,9 @@ export async function runInstall(
   );
   info(colors.dim('─'.repeat(60)));
 
-  const plat = platformSupported();
-  if (plat === 'unsupported') {
-    error(`Service management is not supported on ${process.platform}. Only macOS and Linux are covered.`);
+  const mode = deps.launchMode ?? caddyLaunchMode();
+  if (mode === 'manual') {
+    error(`Starting Caddy is not supported on ${process.platform}. macOS, Linux and Windows are covered.`);
     info(`  Workaround: run \`${colors.cyan(`caddy run --config ${caddyPaths.caddyfile}`)}\` manually.`);
     return { blocked: true, caddyMissing: false, ok: false, unsupported: true };
   }
@@ -61,20 +86,21 @@ export async function runInstall(
   let blocked = false;
 
   // 1. caddy on PATH
-  const hasCaddy = await caddyAvailable();
+  const hasCaddy = await (deps.available ?? caddyAvailable)();
   if (hasCaddy) {
     success('caddy is on PATH');
   } else {
     warning('caddy is not installed.');
     info(`  → macOS: ${colors.cyan('brew install caddy')}`);
     info(`  → Linux: ${colors.cyan('https://caddyserver.com/docs/install')}`);
-    info('  (Do NOT start it via `brew services` — `lt dev install` runs its own service.)');
+    info(`  → Windows: ${colors.cyan('winget install CaddyServer.Caddy')}`);
+    if (mode === 'service') info('  (Do NOT start it via `brew services` — `lt dev install` runs its own service.)');
     blocked = true;
   }
 
   // 2. Caddyfile stub, only if absent. An existing file is repaired, never replaced: it holds the
   // routes of every registered project.
-  ensureCaddyfile('# lt dev — managed Caddyfile\n# Add per-project blocks via `lt dev up`.\n');
+  const caddyfileChanged = ensureCaddyfile(CADDYFILE_STUB);
   success(`Caddyfile present at ${caddyPaths.caddyfile}`);
 
   if (!hasCaddy) {
@@ -83,7 +109,27 @@ export async function runInstall(
     return { blocked: true, caddyMissing: true, ok: false, unsupported: false };
   }
 
-  // 3. brew services conflict warning
+  // 3. Whose Caddy holds :2019? A foreign one is left alone, and our service is not installed
+  // either: it would crash-loop against the occupied port.
+  const owner = await (deps.detectOwner ?? (() => detectCaddyOwner()))();
+  if (owner === 'foreign') {
+    info('');
+    const [first, ...rest] = foreignCaddyLines();
+    error(first);
+    rest.forEach((line) => info(`  ${line}`));
+    return { blocked: true, caddyMissing: false, foreign: true, ok: false, unsupported: false };
+  }
+  if (owner === 'ours' && caddyfileChanged) {
+    // Our running Caddy serves the repaired file, the owner marker included, from now on.
+    const reload = await (deps.reload ?? reloadCaddy)();
+    if (!reload.ok) warning(`caddy reload failed: ${reload.stderr.split('\n')[0]}`);
+  }
+
+  if (mode === 'on-demand') {
+    return installOnDemand(toolbox, owner === 'ours', deps);
+  }
+
+  // 4. brew services conflict warning
   const brewConflict = await detectBrewCaddyConflict();
   if (brewConflict) {
     warning('A `brew services caddy` instance is registered.');
@@ -91,10 +137,10 @@ export async function runInstall(
     info('  `lt dev install` runs its own service — the brew one is no longer needed.');
   }
 
-  // 4. Install our LaunchAgent / systemd unit
+  // 5. Install our LaunchAgent / systemd unit
   const paths = getServicePaths();
   info('');
-  info(`Installing ${plat === 'darwin' ? 'LaunchAgent' : 'systemd-user unit'} at:`);
+  info(`Installing ${process.platform === 'darwin' ? 'LaunchAgent' : 'systemd-user unit'} at:`);
   info(colors.dim(`  ${paths.unitFile}`));
   const installResult = await installService();
   if (!installResult.ok) {
@@ -106,7 +152,7 @@ export async function runInstall(
     info(colors.dim(installResult.message));
   }
 
-  // 5. Wait for admin endpoint
+  // 6. Wait for admin endpoint
   if (installResult.ok) {
     info(colors.dim('Waiting for Caddy admin endpoint (:2019) ...'));
     const ready = await waitForServiceReady(8_000);
@@ -125,14 +171,14 @@ export async function runInstall(
     }
   }
 
-  // 6. Validate Caddyfile
+  // 7. Validate Caddyfile
   if (installResult.ok) {
     const validation = await validateCaddyfile();
     if (validation.ok) success('Caddyfile validates');
     else warning(`Caddyfile validation: ${validation.stderr.split('\n').slice(0, 2).join(' / ')}`);
   }
 
-  // 7. CA trust
+  // 8. CA trust
   info('');
   info(colors.bold('Local CA trust'));
   info('  Caddy creates its local CA on first run. To trust it system-wide,');
@@ -163,4 +209,43 @@ function detectBrewCaddyConflict(): Promise<boolean> {
       resolve(conflict);
     });
   });
+}
+
+/**
+ * Windows: no service. Start lt dev's Caddy unless it already runs, then point at the CA trust.
+ * Start first, trust second: `caddy trust` talks to the running Caddy's admin API.
+ */
+async function installOnDemand(
+  toolbox: ExtendedGluegunToolbox,
+  alreadyRunning: boolean,
+  deps: RunInstallDeps,
+): Promise<RunInstallResult> {
+  const {
+    print: { colors, error, info, success, warning },
+  } = toolbox;
+
+  info('');
+  if (alreadyRunning) {
+    success("lt dev's Caddy is already running.");
+  } else {
+    const started = await (deps.start ?? (() => startCaddyOnDemand()))();
+    if (!started.ok) {
+      error(started.message);
+      info(colors.dim(`  Log: ${started.logFile}`));
+      return { blocked: true, caddyMissing: false, ok: false, unsupported: false };
+    }
+    success(started.message);
+  }
+  info(colors.dim('  No service on Windows: `lt dev up` starts Caddy again after a restart.'));
+
+  const validation = await (deps.validate ?? validateCaddyfile)();
+  if (validation.ok) success('Caddyfile validates');
+  else warning(`Caddyfile validation: ${validation.stderr.split('\n').slice(0, 2).join(' / ')}`);
+
+  info('');
+  info(colors.bold('Local CA trust'));
+  info('  Caddy adds its local CA to the Windows certificate store; Windows may ask you to confirm.');
+  info(`  If browsers still warn about ${colors.cyan('https://*.localhost')}, run this while Caddy runs:`);
+  info(`    ${colors.cyan('caddy trust')}`);
+  return { blocked: false, caddyMissing: false, ok: true, unsupported: false };
 }

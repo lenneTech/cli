@@ -134,6 +134,20 @@ describe('dev-bootstrap', () => {
       expect(existsSync(unit)).toBe(true);
       expect(isMachinePrepared()).toBe(true);
     });
+
+    it('on Windows (no service) the marker is our Caddyfile, which lt dev install creates', () => {
+      const caddyfile = process.env.LT_DEV_CADDYFILE as string;
+      rmSync(caddyfile, { force: true });
+      expect(isMachinePrepared('on-demand')).toBe(false);
+      mkdirSync(dirname(caddyfile), { recursive: true });
+      writeFileSync(caddyfile, '# lt dev\n');
+      expect(isMachinePrepared('on-demand')).toBe(true);
+      rmSync(caddyfile, { force: true });
+    });
+
+    it('never prepared where Caddy can only be started by hand', () => {
+      expect(isMachinePrepared('manual')).toBe(false);
+    });
   });
 
   describe('isProjectInitialized', () => {

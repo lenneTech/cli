@@ -3,14 +3,16 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { paths as caddyPaths } from '../../lib/caddy';
-import { getServicePaths, platformSupported, uninstallService } from '../../lib/dev-service';
+import { paths as caddyPaths, stopOwnCaddy } from '../../lib/caddy';
+import { caddyLaunchMode, getServicePaths, uninstallService } from '../../lib/dev-service';
 
 /**
  * Symmetric counterpart to `lt dev install`.
  *
  * Removes the LaunchAgent / systemd-user unit, stops the running Caddy
- * daemon, and optionally purges all lt-dev state (Caddyfile, logs).
+ * daemon, and optionally purges all lt-dev state (Caddyfile, logs). On
+ * Windows, where no service owns Caddy, it stops lt dev's own Caddy, and
+ * only that one: a Caddy lt dev did not start keeps running.
  *
  * What it does NOT touch:
  *   - the caddy binary itself (`brew uninstall caddy` remains the
@@ -39,25 +41,40 @@ const UninstallCommand: GluegunCommand = {
     info(colors.bold('lt dev uninstall — remove the lt-dev Caddy service'));
     info(colors.dim('─'.repeat(60)));
 
-    const plat = platformSupported();
-    if (plat === 'unsupported') {
+    const mode = caddyLaunchMode();
+    if (mode === 'manual') {
       info('No managed service to remove on this platform.');
       if (!parameters.options.fromGluegunMenu) process.exit(0);
       return 'dev uninstall: nothing to do';
     }
 
     const paths = getServicePaths();
-    const result = await uninstallService();
-    if (!result.ok) {
-      error(result.message);
-      if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev uninstall: failed';
-    }
-
-    if (result.removed.length === 0) {
-      info(colors.dim('Service was not installed.'));
+    if (mode === 'on-demand') {
+      const stop = await stopOwnCaddy();
+      if (stop.owner === 'foreign') {
+        warning('The Caddy on port 2019 was not started by lt dev; it was left running.');
+      } else if (stop.owner === 'none') {
+        info(colors.dim('Caddy is not running.'));
+      } else if (stop.result?.ok) {
+        success("Stopped lt dev's Caddy.");
+      } else {
+        error(`caddy stop failed: ${stop.result?.stderr.split('\n')[0]}`);
+        if (!parameters.options.fromGluegunMenu) process.exit(1);
+        return 'dev uninstall: failed';
+      }
     } else {
-      success(`Removed: ${result.removed.join(', ')}`);
+      const result = await uninstallService();
+      if (!result.ok) {
+        error(result.message);
+        if (!parameters.options.fromGluegunMenu) process.exit(1);
+        return 'dev uninstall: failed';
+      }
+
+      if (result.removed.length === 0) {
+        info(colors.dim('Service was not installed.'));
+      } else {
+        success(`Removed: ${result.removed.join(', ')}`);
+      }
     }
 
     // Optional purge of related state files.
@@ -83,9 +100,8 @@ const UninstallCommand: GluegunCommand = {
     }
 
     info('');
-    info(
-      `To reinstall: ${colors.cyan('lt dev install')}. To also remove caddy itself: ${colors.cyan('brew uninstall caddy')}.`,
-    );
+    const removeCaddy = mode === 'on-demand' ? 'winget uninstall CaddyServer.Caddy' : 'brew uninstall caddy';
+    info(`To reinstall: ${colors.cyan('lt dev install')}. To also remove caddy itself: ${colors.cyan(removeCaddy)}.`);
     if (!parameters.options.fromGluegunMenu) process.exit(0);
     return 'dev uninstall: ok';
   },
