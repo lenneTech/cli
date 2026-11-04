@@ -55,6 +55,13 @@ function Invoke-LtSetup {
         else { Write-Fail "${Label}: winget exit code $code, still not found. By hand: winget install --id $Id -e" }
     }
 
+    # pnpm --version outside any project: inside one, pnpm first switches to the version it pins.
+    function Get-PnpmVersion([string]$Cmd) {
+        if (-not $Cmd -or -not (Test-Path $Cmd)) { return '' }
+        Push-Location $env:TEMP
+        try { return [string](& $Cmd --version 2>$null | Select-Object -Last 1) } finally { Pop-Location }
+    }
+
     function Test-Port([int]$Port) {
         $client = New-Object System.Net.Sockets.TcpClient
         try { $client.Connect('127.0.0.1', $Port); return $true } catch { return $false } finally { $client.Close() }
@@ -144,10 +151,21 @@ function Invoke-LtSetup {
             if (Add-UserPath $prefix) { Write-Ok "added the npm global folder to PATH: $prefix" }
             else { Write-Ok "npm global folder is on PATH: $prefix" }
         }
-        if (Test-Command 'pnpm') { Write-Ok 'pnpm already installed' }
-        else {
-            & npm.cmd install -g pnpm
-            if (Test-Command 'pnpm') { Write-Ok 'pnpm installed' } else { Write-Fail 'pnpm could not be installed: npm install -g pnpm' }
+        # pnpm 11 from npm, the major lt projects pin. pnpm 12 is a native binary that downloads the
+        # pinned version as another native binary, and Smart App Control blocked that download
+        # (DEV-3320, 2026-11-04, CodeIntegrity event 3033). pnpm 11 from npm is JavaScript, run by
+        # the signed node.exe.
+        $npmPnpm = if ($prefix) { Join-Path $prefix 'pnpm.cmd' } else { '' }
+        $pnpmVersion = Get-PnpmVersion $npmPnpm
+        if ($pnpmVersion -notlike '11.*') {
+            & npm.cmd install -g pnpm@11
+            $pnpmVersion = Get-PnpmVersion $npmPnpm
+        }
+        if ($pnpmVersion -like '11.*') { Write-Ok "pnpm $pnpmVersion (from npm)" }
+        else { Write-Fail 'pnpm 11 could not be installed: npm install -g pnpm@11' }
+        $firstPnpm = (Get-Command pnpm -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+        if ($firstPnpm -and $prefix -and -not $firstPnpm.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) {
+            Write-Fail "Another pnpm comes first in PATH: $firstPnpm. lt needs pnpm 11 from npm: remove that folder from the user PATH, or move $prefix before it, then open a new terminal."
         }
         # Only when missing, like every other step: an installed lt may be an `npm link` of a
         # local clone (measured 2026-11-03: a second run replaced the linked test version with

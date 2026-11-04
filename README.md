@@ -21,7 +21,7 @@ and `lt dev`. `lt doctor` checks all of them.
 
 ```
 $ npm install -g @lenne.tech/cli
-$ npm install -g pnpm
+$ npm install -g pnpm@11
 ```
 
 **Windows** (native, PowerShell, no WSL): one command sets up a machine from zero, see

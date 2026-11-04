@@ -55,6 +55,12 @@ describe('scripts/windows/setup.ps1', () => {
     expect(code.slice(guard, install)).toContain('else');
   });
 
+  it('installs pnpm 11 from npm, which the guide documents (pnpm 12 downloads blocked binaries)', () => {
+    expect(code).toContain('install -g pnpm@11');
+    expect(code).not.toMatch(/install -g pnpm(?!@)/);
+    expect(guide).toContain('npm install -g pnpm@11');
+  });
+
   it('quotes the scoped package name (PowerShell reads a bare @ as an operator)', () => {
     expect(code).toMatch(/install -g '@lenne\.tech\/cli/);
     expect(guide).toContain('npm install -g "@lenne.tech/cli"');

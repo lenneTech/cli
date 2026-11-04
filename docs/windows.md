@@ -75,11 +75,21 @@ git config --global user.email "you@example.com"
 ### 4. pnpm and the lt CLI
 
 ```powershell
-npm install -g pnpm
+npm install -g pnpm@11
 npm install -g "@lenne.tech/cli"
 ```
 
 Quote the package name: without quotes PowerShell reads the leading `@` as an operator.
+
+**pnpm 11, from npm, and nothing else first in PATH.** lt projects pin pnpm 11. pnpm 12 is a
+native program, and in a project pinned to 11 it downloads that version as another native
+program (`@pnpm/exe`). With Smart App Control on, the default on many fresh Windows 11
+installations, Windows blocks that download: `lt fullstack init` then fails in the install
+with "Eine Anwendungssteuerungsrichtlinie hat diese Datei blockiert (os error 4551)", and the
+CodeIntegrity log (event 3033) names the file. pnpm 11 from npm is JavaScript, run by the
+signed `node.exe`, so nothing is blocked. A standalone pnpm (installed with pnpm's own
+installer into `%LOCALAPPDATA%\pnpm`) that comes before `%APPDATA%\npm` in PATH wins over it:
+remove that folder from the user PATH. `(Get-Command pnpm).Source` shows which one runs.
 
 npm may warn that install scripts are "not yet covered by allowScripts". For lt that is harmless: its
 native dependency ships prebuilt binaries, and the skipped script only sets up bash/zsh completion,
@@ -128,6 +138,8 @@ Measured on Windows hardware during DEV-3320:
 
 - **`curl` is not curl** in Windows PowerShell 5.1 but an alias of `Invoke-WebRequest`. Write
   `curl.exe` in instructions and scripts.
+- **Smart App Control blocks a pnpm that downloads native builds.** See step 4: use pnpm 11
+  from npm. Measured 2026-11-04.
 - **`curl.exe` needs `--ssl-no-revoke` for `https://*.localhost`.** Windows' TLS stack (Schannel) checks
   the revocation list of every certificate, and Caddy's local CA has none: without the flag curl ends
   with exit 35, `CRYPT_E_NO_REVOCATION_CHECK`, while the browser shows the same page. Measured
