@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// @lt-check-wrapper 3.15.3
+// @lt-check-wrapper 3.17.1
 /**
  * Quiet, report-driven wrapper around the project `check` pipeline.
  *
@@ -28,8 +28,8 @@
  *
  * Version marker: the `@lt-check-wrapper` line above names the lt-monorepo
  * release this wrapper ships with. The lt CLI reads it so `lt fullstack update`
- * never replaces a project's wrapper with an older one. `pnpm run release`
- * bumps it (bumpFiles in .versionrc.json), and
+ * never replaces a project's wrapper with an older one. The release recipe
+ * sets it together with the package.json version, and
  * scripts/check-wrapper-version.test.mjs fails when it drifts from
  * package.json. In a generated project it keeps the release it came from.
  */
@@ -196,7 +196,10 @@ function classify(cmd) {
   // to fall through to `other` and run ungated, fully concurrent with the API
   // e2e suite. The gate then paid its serialisation cost while the second
   // heaviest CPU load in the chain still ran alongside the suite it protects.
-  if (/\btypecheck\b/.test(c)) return { fatal: true, kind: 'build', label: 'typecheck' };
+  // The label keeps the script's suffix: the app chain runs `typecheck` AND
+  // `typecheck:tests`, and two identical report lines would hide which failed.
+  const typecheck = /\btypecheck(?::[\w-]+)?/.exec(c);
+  if (typecheck) return { fatal: true, kind: 'build', label: typecheck[0] };
   if (c.includes('build') || c.includes('nuxt build') || c.includes('tsc'))
     return { fatal: true, kind: 'build', label: 'build' };
   if (c.includes('check-server-start') || c.includes('server-start'))
