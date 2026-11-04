@@ -4,6 +4,16 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { buildIdentity } from '../../lib/dev-identity';
 import { runChildInherit } from '../../lib/dev-process';
 import { deriveDbName, resolveLayout } from '../../lib/dev-project';
+import {
+  describeSqlFailure,
+  detectDatabaseSetup,
+  displaySqlUrl,
+  dropSqlDatabases,
+  listSqlDatabaseNames,
+  localSqlSource,
+  sqlDriverLabel,
+  sqlRemovalTargets,
+} from '../../lib/dev-sql';
 import { loadRegistry, sameRealPath, saveRegistry } from '../../lib/dev-state';
 import {
   dropDatabases,
@@ -188,27 +198,63 @@ const StopCommand: GluegunCommand = {
     // The plan is built even with --keep-db: its targets are then RECORDED as kept
     // (registry `keptDbs`) so the orphan sweep (`lt dev prune` / `lt dev up`) never
     // collects what the user explicitly asked to keep.
+    // A project on SQL alone has no MongoDB databases to plan for (see dev-sql.ts).
+    const usesMongo = detectDatabaseSetup(mainLayout.apiDir, process.env).mongo;
+    const projectDevDb = deriveDbName(mainLayout.apiDir, base.slug);
+    const registryEntry = loadRegistry().projects[ticketSlug];
     const plan = planTicketDbDrop({
-      hasApi: Boolean(mainLayout.apiDir),
+      hasApi: Boolean(mainLayout.apiDir) && usesMongo,
       // Observe what exists so sharded test DBs (`…-test-<n>`) are included —
       // their shard index cannot be derived. Listing failure (no mongosh /
       // Mongo down) degrades to the derived candidates.
-      observedDbNames: listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot]),
-      projectDevDb: deriveDbName(mainLayout.apiDir, base.slug),
-      registryEntry: loadRegistry().projects[ticketSlug],
+      observedDbNames: usesMongo ? listDatabaseNames(undefined, [mainLayout.apiDir, mainRepoRoot]) : null,
+      projectDevDb,
+      registryEntry,
       ticketId: id,
       worktreePath: wt.path,
     });
     let dropTargets = keepDb ? [] : plan.targets;
 
+    // The ticket's databases on the project's own SQL server (PostgreSQL / MySQL / MariaDB): the
+    // same planner and guards, and the database the configuration names is never among them.
+    const sqlSource = localSqlSource(mainLayout.apiDir, process.env);
+    const sqlDriverPaths = [mainLayout.apiDir, mainRepoRoot];
+    const sqlLabel = sqlSource ? sqlDriverLabel(sqlSource.driver) : '';
+    const sqlObserved = sqlSource ? listSqlDatabaseNames(sqlSource, sqlDriverPaths) : null;
+    const sqlPlan = sqlSource
+      ? planTicketDbDrop({
+          hasApi: true,
+          observedDbNames: sqlObserved,
+          projectDevDb,
+          registryEntry,
+          ticketId: id,
+          worktreePath: wt.path,
+        })
+      : null;
+    // Unlike MongoDB, the server can list its databases cheaply, so a derived name it does not have
+    // (a ticket that never ran `lt dev test`) is left out instead of being reported as dropped.
+    const sqlSplit =
+      sqlSource && sqlPlan
+        ? sqlRemovalTargets(
+            sqlSource,
+            sqlObserved ? sqlPlan.targets.filter((db) => sqlObserved.includes(db)) : sqlPlan.targets,
+          )
+        : { refused: [], targets: [] };
+    let sqlDropTargets = keepDb ? [] : sqlSplit.targets;
+
     if (!keepDb) {
-      if (plan.foreignEntryPath) {
-        warning(`  registry slug "${ticketSlug}" belongs to another checkout (${plan.foreignEntryPath}) —`);
+      if (plan.foreignEntryPath ?? sqlPlan?.foreignEntryPath) {
+        warning(
+          `  registry slug "${ticketSlug}" belongs to another checkout (${plan.foreignEntryPath ?? sqlPlan?.foreignEntryPath}) —`,
+        );
         warning("    ignoring its database name (it is not this ticket's).");
       }
-      for (const db of plan.refused) {
+      for (const db of [...new Set([...plan.refused, ...(sqlPlan?.refused ?? [])])]) {
         warning(`  refusing to drop "${db}" — it is not a database of ticket "${id}".`);
         info(colors.dim('    (drop it manually if you are sure it is safe.)'));
+      }
+      for (const db of sqlSplit.refused) {
+        warning(`  refusing to drop ${sqlLabel} database "${db}" — the project's configuration names it.`);
       }
     }
 
@@ -227,13 +273,15 @@ const StopCommand: GluegunCommand = {
     // above protects — it can never be recovered from a branch. So it is the one step we
     // confirm. Non-interactive callers (CI, AI agents, `--noConfirm`) get the documented
     // default without a prompt; the guards above are what make that safe, not the prompt.
-    if (dropTargets.length > 0 && !isNonInteractive(parameters.options.noConfirm === true)) {
+    if (dropTargets.length + sqlDropTargets.length > 0 && !isNonInteractive(parameters.options.noConfirm === true)) {
       info('');
       warning('  These databases will be DROPPED (irreversible):');
-      dropTargets.forEach((db) => info(colors.dim(`    • ${db}`)));
+      dropTargets.forEach((db) => info(colors.dim(`    • ${db}${sqlSource ? ' (MongoDB)' : ''}`)));
+      sqlDropTargets.forEach((db) => info(colors.dim(`    • ${db} (${sqlLabel})`)));
       if (!(await confirm('Drop them?', true))) {
         info(colors.dim('  keeping the databases (same as --keep-db).'));
         dropTargets = [];
+        sqlDropTargets = [];
       }
     }
 
@@ -276,13 +324,14 @@ const StopCommand: GluegunCommand = {
       info(colors.dim('  --keep-db → databases kept (nothing references them anymore; drop them manually when done).'));
       // Record the kept names on the MAIN project's entry — the ticket's own entry is
       // deleted below, and without this record the orphan sweep would collect them.
-      if (plan.targets.length > 0) {
+      const kept = [...new Set([...plan.targets, ...sqlSplit.targets])];
+      if (kept.length > 0) {
         const reg = loadRegistry();
         const main = reg.projects[base.slug];
         if (main) {
-          main.keptDbs = [...new Set([...(main.keptDbs ?? []), ...plan.targets])];
+          main.keptDbs = [...new Set([...(main.keptDbs ?? []), ...kept])];
           saveRegistry(reg);
-          info(colors.dim(`    recorded as kept in the registry: ${plan.targets.join(', ')}`));
+          info(colors.dim(`    recorded as kept in the registry: ${kept.join(', ')}`));
         }
       }
     } else if (dropTargets.length > 0) {
@@ -294,6 +343,16 @@ const StopCommand: GluegunCommand = {
       } else if (reason === 'unreachable') {
         warning('  MongoDB is not reachable — the ticket databases were NOT dropped.');
         info(colors.dim(`    start it and drop them manually: ${dropTargets.join(', ')}`));
+      }
+    }
+    if (!keepDb && sqlSource && sqlDropTargets.length > 0) {
+      const { dropped, failure } = dropSqlDatabases(sqlSource, sqlDropTargets, sqlDriverPaths);
+      dropped.forEach((db) => info(colors.dim(`  dropped ${sqlLabel} db ${db}`)));
+      if (failure) {
+        const where = { display: displaySqlUrl(sqlSource.url), driver: sqlSource.driver };
+        warning(`  ${sqlLabel}: the ticket databases were NOT all dropped — ${describeSqlFailure(failure, where)}`);
+        const left = sqlDropTargets.filter((db) => !dropped.includes(db));
+        info(colors.dim(`    drop them manually: ${left.join(', ')}`));
       }
     }
 

@@ -14,6 +14,7 @@ import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { buildIdentity, DevIdentity } from './dev-identity';
 import { addToGitignore, autoPatch, patchClaudeMd, PatchResult } from './dev-patches';
 import { deriveDbName, DevProjectLayout } from './dev-project';
+import { planStackDatabases } from './dev-sql';
 import { loadRegistry, ProjectsRegistryEntry, saveRegistry } from './dev-state';
 import { renameUnmodifiedTemplatePackage } from './package-name';
 
@@ -111,6 +112,13 @@ export function runMigrate(input: MigrateInput): MigrateResult {
 
   const identity = buildIdentity(layout.root);
   const dbName = deriveDbName(layout.apiDir, identity.slug);
+  // The base project's dev stack: it keeps the SQL database its configuration names.
+  const databases = planStackDatabases({
+    apiDir: layout.apiDir,
+    baseEnv: process.env,
+    dbName,
+    keepConfiguredSqlDb: true,
+  });
 
   // 1. Code patches. Run `autoPatch` over EVERY existing config file (not just
   //    the ones a port-detector flags): the patches are idempotent, and some —
@@ -139,7 +147,7 @@ export function runMigrate(input: MigrateInput): MigrateResult {
   ];
   const claudePatches = claudeCandidates
     .filter((f) => existsSync(f))
-    .map((f) => patchClaudeMd(f, { dbName, identity }));
+    .map((f) => patchClaudeMd(f, { databases, dbName, identity }));
 
   // 3. Registry — only write when something actually changed.
   const reg = loadRegistry();
@@ -153,10 +161,13 @@ export function runMigrate(input: MigrateInput): MigrateResult {
     path: layout.root,
     subdomains: subdomainMap,
   };
+  // Recorded for a project on SQL only (see `ProjectsRegistryEntry.dbUrls`).
+  if (databases.sql || databases.sqlProblem) next.dbUrls = databases.displayUrls;
   const registryChanged =
     !existing ||
     existing.path !== next.path ||
     existing.dbName !== next.dbName ||
+    JSON.stringify(existing.dbUrls) !== JSON.stringify(next.dbUrls) ||
     JSON.stringify(existing.subdomains) !== JSON.stringify(next.subdomains);
   if (registryChanged) {
     reg.projects[identity.slug] = next;

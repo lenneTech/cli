@@ -5,7 +5,8 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { buildIdentity, buildTicketIdentity } from '../../lib/dev-identity';
 import { runChildInherit } from '../../lib/dev-process';
 import { deriveDbName, deriveTicketDbName, resolveLayout } from '../../lib/dev-project';
-import { loadRegistry } from '../../lib/dev-state';
+import { planStackDatabases } from '../../lib/dev-sql';
+import { loadRegistry, registryDbUrls } from '../../lib/dev-state';
 import {
   defaultTicketBranch,
   deriveTicketId,
@@ -195,7 +196,13 @@ const StartCommand: GluegunCommand = {
     success(`Ticket "${id}" ready.`);
     if (ticketIdentity.subdomains.app) info(`  app: https://${ticketIdentity.subdomains.app.hostname}`);
     if (ticketIdentity.subdomains.api) info(`  api: https://${ticketIdentity.subdomains.api.hostname}`);
-    info(`  db:  mongodb://127.0.0.1/${dbName}  (empty)`);
+    // What `lt dev up` registered (a SQL project's own database), else what it will use.
+    const ticketEntry = loadRegistry().projects[ticketIdentity.slug];
+    const dbUrls = ticketEntry
+      ? registryDbUrls(ticketEntry)
+      : planStackDatabases({ apiDir: layout.apiDir, baseEnv: process.env, dbName, keepConfiguredSqlDb: false })
+          .displayUrls;
+    for (const url of dbUrls) info(`  db:  ${url}  (empty)`);
     info(`  dir: ${worktreePath}`);
     info('');
     info(colors.dim(`Open it:   code ${worktreePath}    (or: lt ticket switch ${id})`));

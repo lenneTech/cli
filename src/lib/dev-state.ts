@@ -84,6 +84,13 @@ export interface ProjectsRegistry {
 export interface ProjectsRegistryEntry {
   /** Database name, when known. */
   dbName?: string;
+  /**
+   * The databases this stack uses, as credential-free URLs (`postgres://127.0.0.1:5432/<db>`,
+   * `mongodb://127.0.0.1/<db>`). Recorded only for a project on SQL; a stack on MongoDB alone
+   * leaves it out (its `dbName` says everything, and its entry stays as it always was). Read it
+   * through {@link registryDbUrls}.
+   */
+  dbUrls?: string[];
   /** Internal ports (Caddy upstreams) — frozen on first `up`. */
   internalPorts: { api?: number; app?: number };
   /**
@@ -315,6 +322,15 @@ export function loadSession(root: string, sessionFile: string = SESSION_FILE): D
 }
 
 /**
+ * The databases a registry entry's stack uses, for display: the recorded URLs of a SQL project,
+ * else the MongoDB URL of its `dbName`. Empty for an App-only stack.
+ */
+export function registryDbUrls(entry: Pick<ProjectsRegistryEntry, 'dbName' | 'dbUrls'>): string[] {
+  if (entry.dbUrls) return entry.dbUrls;
+  return entry.dbName ? [`mongodb://127.0.0.1/${entry.dbName}`] : [];
+}
+
+/**
  * True if two paths resolve to the same location (normalising symlinks, e.g. /var → /private/var).
  *
  * `.native` rather than plain `realpathSync`, because on Windows the JS
@@ -375,8 +391,9 @@ export function takenInternalPorts(reg: ProjectsRegistry, excludeSlug?: string):
  */
 function normalizeRegistry(reg: ProjectsRegistry): ProjectsRegistry {
   for (const entry of Object.values(reg.projects)) {
-    if (entry?.dbName && !entry.subdomains?.api) {
+    if (entry && !entry.subdomains?.api) {
       delete entry.dbName;
+      delete entry.dbUrls;
     }
   }
   return reg;

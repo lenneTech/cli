@@ -23,6 +23,17 @@ import { killProcessGroup, probePorts, spawnDetached, terminateProcessGroup } fr
 import { deriveDbName, resolveLayout } from '../../lib/dev-project';
 import { collectDevPrunePlan } from '../../lib/dev-prune';
 import {
+  describeSqlFailure,
+  displaySqlUrl,
+  dropSqlDatabases,
+  ensureSqlDatabase,
+  listSqlDatabaseNames,
+  localSqlSource,
+  planStackDatabases,
+  sqlDriverLabel,
+  sqlRemovalTargets,
+} from '../../lib/dev-sql';
+import {
   allocateInternalPort,
   classifyComponentHealth,
   type ComponentHealth,
@@ -35,7 +46,13 @@ import {
   takenInternalPorts,
   withRegistryLock,
 } from '../../lib/dev-state';
-import { dropDatabases, gitMainRepoRoot, listDatabaseNames, resolveDevIdentity } from '../../lib/dev-ticket';
+import {
+  dropDatabases,
+  gitMainRepoRoot,
+  listDatabaseNames,
+  mainCheckoutApiDir,
+  resolveDevIdentity,
+} from '../../lib/dev-ticket';
 
 /**
  * Start API + App behind Caddy with project-specific URLs.
@@ -86,7 +103,8 @@ function printProjectUrls(
     apiUpstreamPort?: number;
     appHostname?: string;
     appUpstreamPort?: number;
-    dbName?: string;
+    /** Credential-free database URLs (`registryDbUrls`). */
+    dbUrls?: string[];
   },
 ): void {
   if (options.appHostname) {
@@ -97,8 +115,8 @@ function printProjectUrls(
     const arrow = options.apiUpstreamPort ? `  →  127.0.0.1:${options.apiUpstreamPort}` : '';
     info(`  api: https://${options.apiHostname}${arrow}`);
   }
-  if (options.dbName) {
-    info(`  db:  mongodb://127.0.0.1/${options.dbName}`);
+  for (const url of options.dbUrls ?? []) {
+    info(`  db:  ${url}`);
   }
 }
 
@@ -214,6 +232,36 @@ const UpCommand: GluegunCommand = {
       }
     }
 
+    // The databases this stack uses. A project on PostgreSQL / MySQL / MariaDB gets its own SQL
+    // database per stack, created here when missing — unlike MongoDB, a SQL server does not create
+    // one on first use. The base dev stack keeps the database its configuration names, so the
+    // developer's data stays where it is; a ticket stack gets `<base>-<id>` (see dev-sql.ts).
+    const databases = planStackDatabases({
+      apiDir: layout.apiDir,
+      baseEnv: process.env,
+      dbName,
+      keepConfiguredSqlDb: !ticket,
+      mainApiDir: mainCheckoutApiDir(layout),
+    });
+    if (databases.sqlProblem) {
+      warning(`SQL database not isolated: ${databases.sqlProblem}.`);
+      info(colors.dim("  This stack uses the database the API's configuration names, shared with every other stack."));
+    }
+    if (databases.sql) {
+      const ensured = ensureSqlDatabase(databases.sql, [layout.apiDir, layout.root]);
+      if (ensured.failure) {
+        error(
+          `SQL database "${databases.sql.name}" is not available: ${describeSqlFailure(ensured.failure, databases.sql)}`,
+        );
+        if (!parameters.options.fromGluegunMenu) process.exit(1);
+        return 'dev up: sql database unavailable';
+      }
+      if (ensured.created) {
+        info(colors.dim(`created ${sqlDriverLabel(databases.sql.driver)} database "${databases.sql.name}"`));
+      }
+      if (ensured.warning) warning(ensured.warning);
+    }
+
     // Load any existing session up-front. The "is it already running?" decision
     // is deliberately deferred until AFTER port allocation: a recorded wrapper
     // PID being alive is NOT proof a component serves (a crashed ts-node leaves
@@ -274,6 +322,8 @@ const UpCommand: GluegunCommand = {
         for (const [k, v] of Object.entries(identity.subdomains)) subdomainMap[k] = v.hostname;
         reg.projects[identity.slug] = {
           dbName,
+          // Recorded for a project on SQL only (see `ProjectsRegistryEntry.dbUrls`).
+          ...(databases.sql || databases.sqlProblem ? { dbUrls: databases.displayUrls } : {}),
           internalPorts: { api: apiPort, app: appPort },
           lastUsedAt: new Date().toISOString(),
           path: layout.root,
@@ -299,7 +349,9 @@ const UpCommand: GluegunCommand = {
         ...(layout.apiDir ? [join(layout.apiDir, 'CLAUDE.md')] : []),
         ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
       ];
-      const patched = claudeCandidates.map((f) => patchClaudeMd(f, { dbName, identity })).filter((r) => r.patched);
+      const patched = claudeCandidates
+        .map((f) => patchClaudeMd(f, { databases, dbName, identity }))
+        .filter((r) => r.patched);
       if (patched.length > 0) {
         info(colors.dim(`updated CLAUDE.md URL block in ${patched.length} file(s)`));
       }
@@ -348,9 +400,8 @@ const UpCommand: GluegunCommand = {
         apiUpstreamPort: existingEntry?.internalPorts.api,
         appHostname: identity.subdomains.app?.hostname,
         appUpstreamPort: existingEntry?.internalPorts.app,
-        // App-only projects have no database — don't advertise a Mongo URL
-        // that nothing listens on.
-        dbName: identity.subdomains.api ? (existingEntry?.dbName ?? dbName) : undefined,
+        // App-only projects have no database — don't advertise a URL nothing listens on.
+        dbUrls: identity.subdomains.api ? databases.displayUrls : undefined,
       });
       // The upsert below is never reached on this path, so a running stack would otherwise keep a
       // block without the loopback guard (reachable from the LAN) and a Caddyfile that still has
@@ -420,7 +471,7 @@ const UpCommand: GluegunCommand = {
           apiCompiled ? colors.dim('  (compiled, no hot reload)') : ''
         }`,
       );
-    if (identity.subdomains.api) info(`  db:  mongodb://127.0.0.1/${dbName}`);
+    if (identity.subdomains.api) databases.displayUrls.forEach((url) => info(`  db:  ${url}`));
     info('');
 
     // Build env per process.
@@ -431,6 +482,7 @@ const UpCommand: GluegunCommand = {
       appDir: layout.appDir,
       appInternalPort: appPort ?? 0,
       baseEnv: process.env,
+      databases,
       dbName,
       identity,
     });
@@ -582,7 +634,7 @@ const UpCommand: GluegunCommand = {
       apiUpstreamPort: apiPort,
       appHostname: identity.subdomains.app?.hostname,
       appUpstreamPort: appPort,
-      dbName: identity.subdomains.api ? dbName : undefined,
+      dbUrls: identity.subdomains.api ? databases.displayUrls : undefined,
     });
     info(colors.dim('Logs: <root>/.lt-dev/api.log, <root>/.lt-dev/app.log'));
     for (const note of rotationNotes) info(colors.dim(note));
@@ -632,6 +684,37 @@ const UpCommand: GluegunCommand = {
                 `(prune incomplete — ${reason === 'no-mongosh' ? 'mongosh missing' : 'MongoDB unreachable'}; run \`lt dev prune\` later)`,
               ),
             );
+          }
+        }
+        // The same sweep on the project's own SQL server (PostgreSQL / MySQL / MariaDB), under the
+        // same guards; `sqlRemovalTargets` additionally keeps the database the configuration names.
+        const sqlSource = localSqlSource(mainLayout.apiDir, process.env);
+        const sqlDriverPaths = [mainLayout.apiDir, mainRepoRoot];
+        const sqlObserved = sqlSource ? listSqlDatabaseNames(sqlSource, sqlDriverPaths) : null;
+        if (sqlSource && sqlObserved) {
+          const sqlPlan = collectDevPrunePlan({
+            loadRegistry,
+            mainRepoRoot,
+            observedDbNames: sqlObserved,
+            projectDevDb: deriveDbName(mainLayout.apiDir, baseSlug),
+            slug: baseSlug,
+          });
+          const { targets } = sqlRemovalTargets(sqlSource, [
+            ...new Set([...sqlPlan.orphan.targets, ...sqlPlan.shardTargets, ...sqlPlan.smokeTargets]),
+          ]);
+          if (targets.length > 0) {
+            const { dropped, failure } = dropSqlDatabases(sqlSource, targets, sqlDriverPaths);
+            if (dropped.length > 0) {
+              info(colors.dim(`Pruned ${dropped.length} orphaned test/ticket SQL database(s): ${dropped.join(', ')}`));
+            }
+            if (failure) {
+              const where = { display: displaySqlUrl(sqlSource.url), driver: sqlSource.driver };
+              info(
+                colors.dim(
+                  `(SQL prune incomplete — ${describeSqlFailure(failure, where)} Run \`lt dev prune\` later.)`,
+                ),
+              );
+            }
           }
         }
         if (plan.registryPrune.length > 0) {

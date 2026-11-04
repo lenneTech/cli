@@ -501,8 +501,38 @@ lt dev up
 | `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage | `crm` |
 | `NUXT_PUBLIC_API_PROXY` | always `false` — Caddy + cookie-domain make it obsolete | `false` |
 | `NUXT_SESSION_PASSWORD` | Nuxt/h3 `useSession` — only projects that added h3 sessions or `nuxt-auth-utils` read it; the Better-Auth default stack ignores it | `a1b2…` (32 hex chars) |
-| `NSC__MONGOOSE__URI` | nest-server Mongoose URI | `mongodb://127.0.0.1/crm-local` |
-| `DATABASE_URL` | Postgres convenience URL (for nest-base-style projects) | `postgresql://crm-local:crm-local@localhost:5432/crm-local` |
+| `NSC__MONGOOSE__URI` | nest-server Mongoose URI — not for an API on SQL alone (see below) | `mongodb://127.0.0.1/crm-local` |
+| `NSC__DATABASE__URL` | nest-server `database.url` (API only, projects on PostgreSQL / MySQL / MariaDB) | the project's URL, database replaced: `postgres://crm_app:…@127.0.0.1:5432/crm-2314` |
+| `NSC__DATABASE__OWNER_URL` | nest-server `database.ownerUrl` (API only, when the project configures an owner) | `postgres://crm_owner:…@127.0.0.1:5432/crm-2314` |
+| `DATABASE_URL` | Postgres convenience URL for projects outside nest-server (nest-base); nest-server never reads it. Not set for a project on PostgreSQL / MySQL / MariaDB, where it would name a database that does not exist | `postgresql://crm-local:crm-local@localhost:5432/crm-local` |
+
+**Projects on PostgreSQL / MySQL / MariaDB (nest-server 12.1+).** `lt dev` recognises one by the
+SQL URL the API itself would use, in the API's own order: `NSC__DATABASE__URL` /
+`NSC__DATABASE__OWNER_URL` exported in the shell, then in the API's `.env`, then a `database` URL
+in `src/config.env.ts` (comments do not count, so the starter's commented-out example does not
+either). A `pg` or `mysql2` dependency alone is not a sign: an API may use them for something
+else. Each stack then gets its own database on the same server: same scheme, credentials, host and
+options, only the database name changes.
+
+- The base dev stack keeps the database its configuration names, so your data stays where it is.
+  Ticket stacks get `<base>-<id>`, `lt dev test` gets `<base>-test` (`-test-<n>` per shard).
+- A ticket worktree has no `.env` of its own (git does not check out ignored files). Without one,
+  `lt dev` reads the URL from the main checkout's API `.env`; a `.env` in the worktree wins.
+- A missing database is created before the API starts, as the owner role (so it owns it), and the
+  application role gets access: `CONNECT` on PostgreSQL, row privileges on MySQL / MariaDB. The
+  owner therefore needs `CREATEDB` (PostgreSQL) or `CREATE` plus `GRANT OPTION` on the stack
+  databases (MySQL / MariaDB, e.g. `GRANT ALL PRIVILEGES ON \`crm%\`.* TO … WITH GRANT OPTION`).
+  The error names the missing privilege.
+- `lt dev` uses the API's own `pg` / `mysql2` package. It creates and drops databases only on a
+  server on this machine (`localhost`, `127.x`, `::1`, a socket), judged by the host the driver
+  connects to: on PostgreSQL also a `host` / `hostaddr` in the URL's query, and `PGHOST` when the
+  URL names no host. A URL pointing elsewhere is reported: `lt dev up` then runs on the configured database, shared by every stack, and
+  `lt dev test` refuses to run, because an E2E suite must not touch your data.
+- An API on SQL alone (no `mongoose` configuration, no `NSC__MONGOOSE__URI`) gets no
+  `NSC__MONGOOSE__URI`. The variable would make `mongoose` explicit, and nest-server would open a
+  MongoDB connection the project never configured.
+- `lt ticket stop`, `lt dev prune` and the sweep in `lt dev up` remove the SQL databases with the
+  same guards as the MongoDB ones. The database the configuration names is never removed.
 
 `NUXT_SESSION_PASSWORD` exists because `lt dev test` serves the **built** Nitro server, which
 reads no `.env` — so a project that keeps its password there watched every login answer 500
@@ -583,6 +613,8 @@ Collects three classes of orphans:
 3. **Dead registry entries** (any project) — the recorded path no longer exists, so the entry and its reserved internal ports are reclaimed. Databases of dead MAIN projects are never dropped (a deleted folder is not consent to destroy data).
 
 `lt dev up` runs the same collection automatically after a successful start (opt out with `--no-prune`), so restarting an environment always cleans up after its predecessors. Database access uses `mongosh` when available and falls back to the project's own `mongodb` driver otherwise — a machine without mongosh no longer silently skips every drop.
+
+A project on PostgreSQL / MySQL / MariaDB gets the same sweep on its own SQL server (local servers only, through the API's `pg` / `mysql2`). Classes 1 and 2 apply there under the same guards, and the database the API's configuration names is never removed.
 
 ---
 
@@ -868,6 +900,11 @@ out entirely.
 database belonging to a *different* ticket, or one named by a registry entry that turns out
 to belong to another checkout. Anything that is not provably this ticket's database is
 refused with a warning rather than guessed at.
+
+**Projects on PostgreSQL / MySQL / MariaDB:** the ticket's SQL databases are dropped the same
+way, on the project's own local server, and the prompt names them with their database
+(`(PostgreSQL)`). The database the API's configuration names is never among them, whatever its
+name. A project on SQL alone plans no MongoDB drops.
 
 **Ordering:** the worktree is removed *before* the databases are dropped. Removing a worktree
 can fail (locked, modified submodule, permissions); dropping a database cannot be undone. So

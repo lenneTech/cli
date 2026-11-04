@@ -49,6 +49,8 @@ import {
   waitForHttp,
 } from './dev-process';
 import { deriveDbName, deriveTestDbName, DevProjectLayout } from './dev-project';
+import { describeSqlFailure, ensureSqlDatabase, planStackDatabases, sqlDriverLabel } from './dev-sql';
+import { mainCheckoutApiDir } from './dev-ticket';
 import { spawnCmdSync } from './platform';
 
 /** Per-bring-up options. `shardIndex` selects an isolated shard stack; `skipBuild` reuses an existing build. */
@@ -287,6 +289,30 @@ export async function bringUpTestSession(
     }
   }
 
+  // A project on PostgreSQL / MySQL / MariaDB gets this stack's own SQL database, created when
+  // missing. Where that is impossible the run is REFUSED rather than pointed at the configured
+  // database: an E2E suite against the developer's data is what this stack exists to prevent.
+  const databases = planStackDatabases({
+    apiDir: layout.apiDir,
+    baseEnv: process.env,
+    dbName,
+    keepConfiguredSqlDb: false,
+    mainApiDir: mainCheckoutApiDir(layout),
+  });
+  if (databases.sqlProblem) {
+    throw new Error(`the test stack needs its own SQL database and cannot get one: ${databases.sqlProblem}.`);
+  }
+  if (databases.sql) {
+    const ensured = ensureSqlDatabase(databases.sql, [layout.apiDir, layout.root]);
+    if (ensured.failure) {
+      throw new Error(
+        `SQL database "${databases.sql.name}" is not available: ${describeSqlFailure(ensured.failure, databases.sql)}`,
+      );
+    }
+    if (ensured.created) log.info(`created ${sqlDriverLabel(databases.sql.driver)} database "${databases.sql.name}"`);
+    if (ensured.warning) log.info(ensured.warning);
+  }
+
   // Allocate internal ports AND reserve them in the registry ATOMICALLY, under a
   // cross-process lock — so two parallel `lt dev test` runs (different ticket
   // worktrees) can never read the registry, pick the same free ports, and both
@@ -321,6 +347,8 @@ export async function bringUpTestSession(
     for (const [k, v] of Object.entries(testIdentity.subdomains)) subdomainMap[k] = v.hostname;
     reg.projects[testIdentity.slug] = {
       dbName,
+      // Recorded for a project on SQL only (see `ProjectsRegistryEntry.dbUrls`).
+      ...(databases.sql ? { dbUrls: databases.displayUrls } : {}),
       internalPorts: { api: apiPort, app: appPort },
       lastUsedAt: new Date().toISOString(),
       path: layout.root,
@@ -352,7 +380,7 @@ export async function bringUpTestSession(
   // project's global-setup does is the project's business. The claim used to be
   // printed unconditionally and sent a diagnosis looking for a reset that never
   // happened instead of at the un-migrated DB (DEV-3289).
-  log.info(`  db:  mongodb://127.0.0.1/${dbName}`);
+  databases.displayUrls.forEach((url) => log.info(`  db:  ${url}`));
   log.info('');
 
   const devEnv = buildDevEnv({
@@ -362,6 +390,7 @@ export async function bringUpTestSession(
     appDir: layout.appDir,
     appInternalPort: appPort ?? 0,
     baseEnv: process.env,
+    databases,
     dbName,
     identity: testIdentity,
   });

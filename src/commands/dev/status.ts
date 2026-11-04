@@ -13,6 +13,7 @@ import {
   loadRegistry,
   loadSession,
   partitionComponentStates,
+  registryDbUrls,
   summarizeStackHealth,
   TEST_SESSION_FILE,
 } from '../../lib/dev-state';
@@ -145,9 +146,9 @@ const StatusCommand: GluegunCommand = {
       const port = sub === 'api' ? entry.internalPorts.api : entry.internalPorts.app;
       info(`  ${sub.padEnd(6)} https://${host}${port ? colors.dim(`  →  127.0.0.1:${port}`) : ''}`);
     }
-    // `loadRegistry` strips dbName from API-less (App-only) entries, so its
-    // presence alone means there is a database to advertise.
-    if (entry.dbName) info(`  db     mongodb://127.0.0.1/${entry.dbName}`);
+    // `loadRegistry` strips the database from API-less (App-only) entries, so an empty
+    // list means there is no database to advertise.
+    for (const url of registryDbUrls(entry)) info(`  db     ${url}`);
 
     // Patch status — quick view whether legacy ports are still in source.
     const legacyFiles: string[] = [];
@@ -292,7 +293,7 @@ const StatusCommand: GluegunCommand = {
       info(colors.bold('  Isolated test stack (lt dev test)'));
       if (testEntry) {
         for (const [sub, host] of Object.entries(testEntry.subdomains)) info(`    ${sub.padEnd(6)} https://${host}`);
-        if (testEntry.dbName) info(`    db     mongodb://127.0.0.1/${testEntry.dbName}`);
+        for (const url of registryDbUrls(testEntry)) info(`    db     ${url}`);
       }
       const apiAlive = testSession.pids.api ? isPidAlive(testSession.pids.api) : false;
       const appAlive = testSession.pids.app ? isPidAlive(testSession.pids.app) : false;

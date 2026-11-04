@@ -3,7 +3,7 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { buildIdentity } from '../../lib/dev-identity';
 import { resolveLayout } from '../../lib/dev-project';
-import { isPidAlive, loadRegistry, loadSession } from '../../lib/dev-state';
+import { isPidAlive, loadRegistry, loadSession, registryDbUrls } from '../../lib/dev-state';
 import { gitMainRepoRoot, listWorktrees } from '../../lib/dev-ticket';
 
 /**
@@ -57,9 +57,9 @@ const ListCommand: GluegunCommand = {
       info(`  ${dot} ${colors.bold(String(wt.ticket).padEnd(16))} ${colors.dim(`branch ${wt.branch ?? '-'}`)}`);
       if (entry) {
         for (const [sub, host] of Object.entries(entry.subdomains)) info(`       ${sub.padEnd(4)} https://${host}`);
-        // `loadRegistry` strips dbName from API-less entries, so its presence
-        // alone means there is a database to show.
-        if (entry.dbName) info(`       db   mongodb://127.0.0.1/${entry.dbName}`);
+        // `loadRegistry` strips dbName / dbUrls from API-less entries, so whatever
+        // remains is a database to show (SQL projects carry their own URLs).
+        for (const url of registryDbUrls(entry)) info(`       db   ${url}`);
       }
       info(colors.dim(`       dir  ${wt.path}`));
       info(colors.dim(`       ${running ? 'running' : 'stopped'}${entry ? '' : ' (not brought up yet)'}`));

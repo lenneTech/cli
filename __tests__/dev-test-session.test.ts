@@ -308,6 +308,20 @@ describe('dev-test-session', () => {
     });
   });
 
+  describe('SQL database of the test stack', () => {
+    // What the plan decides is covered by behaviour in `dev-sql.test.ts`. What only the source
+    // can show is that the bring-up asks for the stack's OWN database and refuses without one:
+    // otherwise the suite and its migrations run against the developer's dev database.
+    test('the plan never keeps the configured database', () => {
+      expect(source).toMatch(/planStackDatabases\(\{[^}]*keepConfiguredSqlDb:\s*false/);
+      expect(source).not.toMatch(/keepConfiguredSqlDb:\s*true/);
+    });
+
+    test('a stack that cannot get its own SQL database is refused, not started', () => {
+      expect(source).toMatch(/if\s*\(\s*databases\.sqlProblem\s*\)\s*\{\s*throw\s/);
+    });
+  });
+
   describe('isStackServing — readiness predicate (DEV-3208)', () => {
     test('accepts a 2xx', () => {
       // `@lenne.tech/nest-server` answers 200 on /meta.

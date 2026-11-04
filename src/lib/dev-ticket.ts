@@ -21,7 +21,7 @@
 import { execFileSync } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { basename, dirname, join } from 'path';
+import { basename, dirname, join, relative } from 'path';
 
 import { buildIdentity, buildTicketIdentity, DevIdentity, slugify } from './dev-identity';
 import { pickPackageManager } from './dev-package-manager';
@@ -532,6 +532,23 @@ export function listWorktrees(repoDir: string): WorktreeInfo[] {
   }
   if (current?.path) result.push(finalizeWorktree(current));
   return result;
+}
+
+/**
+ * The main checkout's counterpart of a linked worktree's API dir, or null when `layout` IS the main
+ * checkout or lies in no git repository. A ticket worktree has no `.env` of its own (git does not
+ * check out ignored files), so `dev-sql.ts#detectDatabaseSetup` reads a SQL URL kept there from
+ * the main checkout instead.
+ */
+export function mainCheckoutApiDir(layout: Pick<DevProjectLayout, 'apiDir' | 'root'>): null | string {
+  if (!layout.apiDir) return null;
+  let mainRoot: string;
+  try {
+    mainRoot = gitMainRepoRoot(layout.root);
+  } catch {
+    return null;
+  }
+  return sameRealPath(mainRoot, layout.root) ? null : join(mainRoot, relative(layout.root, layout.apiDir));
 }
 
 /**

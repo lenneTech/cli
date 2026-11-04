@@ -15,6 +15,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 import { DevIdentity } from './dev-identity';
+import { sqlDriverLabel, StackDatabases } from './dev-sql';
 
 /**
  * Version of the `lt-dev:bridge` block emitted into a consumer's
@@ -128,8 +129,14 @@ export function patchApiConfig(file: string): PatchResult {
  * URLs is a no-op; re-running with different URLs replaces the block
  * in place.
  */
-export function patchClaudeMd(file: string, options: { dbName?: string; identity: DevIdentity }): PatchResult {
-  const { dbName, identity } = options;
+export function patchClaudeMd(
+  file: string,
+  options: { databases?: Pick<StackDatabases, 'mongo' | 'sql' | 'sqlProblem'>; dbName?: string; identity: DevIdentity },
+): PatchResult {
+  const { databases, dbName, identity } = options;
+  // A project on MongoDB alone gets the block it always got, byte for byte: the file is committed,
+  // and any change here shows up as a diff in every such project on its next `lt dev up`.
+  const sqlProject = Boolean(databases?.sql || databases?.sqlProblem);
   const startMarker = '<!-- lt-dev:url-block:start -->';
   const endMarker = '<!-- lt-dev:url-block:end -->';
 
@@ -177,10 +184,35 @@ export function patchClaudeMd(file: string, options: { dbName?: string; identity
       `- The \`*.localhost\` names are resolved by BROWSERS. Node, \`curl\` and other tools may not resolve them (they do not on Windows), so a script uses the loopback address: ${loopbackVars.join(' / ')} (set in the processes and in \`.lt-dev/.env\`), or the \`→ 127.0.0.1:<port>\` that \`lt dev status\` prints. The port differs per machine, which is why it is not written here.`,
     );
   }
-  if (dbName) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
+  // The SQL line names the database, not its URL: host, port and credentials come from the
+  // developer's own configuration and differ per machine, while this file is committed.
+  if (databases?.sql) {
+    lines.push(
+      `- SQL database: ${sqlDriverLabel(databases.sql.driver)} \`${databases.sql.name}\` on the local server — \`lt dev\` hands the API its own database per stack (dev, \`lt dev test\`, every ticket) via \`NSC__DATABASE__URL\`${databases.sql.ownerUrl ? ' / `NSC__DATABASE__OWNER_URL`' : ''}`,
+    );
+  } else if (databases?.sqlProblem) {
+    lines.push(
+      "- SQL database: the one the API's own configuration names, SHARED by every `lt dev` stack — `lt dev up` prints why it cannot give each stack its own",
+    );
+  }
+  if (dbName && (databases?.mongo ?? true)) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
   lines.push('');
+  const envVars = sqlProject
+    ? [
+        '`BASE_URL`',
+        '`APP_URL`',
+        '`NUXT_API_URL`',
+        '`NUXT_PUBLIC_API_URL`',
+        '`NUXT_PUBLIC_SITE_URL`',
+        '`NUXT_PUBLIC_STORAGE_PREFIX`',
+        '`NUXT_SESSION_PASSWORD`',
+        ...(databases?.mongo ? ['`NSC__MONGOOSE__URI`'] : []),
+        ...(databases?.sql ? ['`NSC__DATABASE__URL`'] : []),
+        ...(databases?.sql?.ownerUrl ? ['`NSC__DATABASE__OWNER_URL`'] : []),
+      ].join(', ')
+    : '`BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`';
   lines.push(
-    'Env vars set automatically by `lt dev up`: `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Never assume `localhost:3000` / `localhost:3001` for this project** — those are the framework defaults, not the active URLs.',
+    `Env vars set automatically by \`lt dev up\`: ${envVars}. **Never assume \`localhost:3000\` / \`localhost:3001\` for this project** — those are the framework defaults, not the active URLs.`,
   );
   lines.push('');
   lines.push(endMarker);

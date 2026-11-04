@@ -251,7 +251,8 @@ ports. Developers and Claude Code never see the internal ports.
 | Concern | File | Notes |
 |---|---|---|
 | Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
-| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
+| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`, and — API only, from the optional `databases` input — `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL`. `databases.mongo: false` (an API on SQL alone) suppresses `NSC__MONGOOSE__URI`; a SQL project (`sql` or `sqlProblem`) gets no `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
+| SQL databases (nest-server 12.1+) | `src/lib/dev-sql.ts` + `src/templates/dev-sql/runner.cjs` | Projects on PostgreSQL / MySQL / MariaDB. `detectDatabaseSetup` reads the SQL URL in the API's own precedence (shell → API `.env` → `database` literal in `config.env.ts`, from the AST) — never from a `pg`/`mysql2` dependency. `planStackDatabases` derives the stack's URLs (only the database path changes; the base dev stack keeps the configured database, tickets/test stacks get `dbName`), refuses a non-local host, a name PostgreSQL would truncate (>63) and a stack name equal to the configured database. `ensureSqlDatabase` creates it as the owner role and grants the app role (`CONNECT` / row privileges); `listSqlDatabaseNames` / `dropSqlDatabases` serve `lt ticket stop`, `lt dev prune` and the `lt dev up` sweep, behind `localSqlSource` (local servers only) and `sqlRemovalTargets` (never the configured database, re-checked inside `dropSqlDatabases`). The runner is a plain `.cjs` started with `process.execPath`, loads the PROJECT's driver, takes every value from env, quotes identifiers and passes accounts as parameters. Real-server check: `__tests__/dev-sql-e2e.manual.ts`. Registry entries of SQL projects carry credential-free `dbUrls` (`registryDbUrls`). |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
 | Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. Every site block carries `@lt_remote not remote_ip 127.0.0.0/8 ::1` + `abort @lt_remote`, so stacks are not reachable from the LAN (the `lt dev test` seed admin's password is in this public repo). **Never** use a global `default_bind 127.0.0.1 [::1]` instead: see the Gotcha "`caddy validate` passing is not Caddy binding". Every write goes through `migrateCaddyfile`: it deletes the line 1.51.0/1.51.1 wrote AND adds the guard to every block between lt's markers, in one step. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
 | VS Code memory profile | `src/commands/dev/vscode.ts` + `src/lib/vscode-settings.ts` | `lt dev vscode` (alias `vsc`) tunes the USER `settings.json` of VS Code / Insiders / Cursor / VSCodium. Machine-level, not project-level — no registry or Caddy involvement. JSONC-aware via `jsonc-parser` (lazy-required, since gluegun loads every command on every `lt` run) so comments survive; refuses an unparseable file or a symlink; keeps the FIRST `settings.json.bak`. Object-valued exclude maps are MERGED on apply (user entries win) and SUBTRACTED on `--revert`, so an undo never removes a hand-maintained exclusion. `MEMORY_PROFILE` targets the per-root SEMANTIC TS servers and excludes `**/.nuxt*/**` / `**/.output*/**` (segment globs — the bare names miss `.nuxt-test`); `EXCLUDED_FROM_PROFILE` records three commonly recommended keys that were ruled out, surfaced by `--explain`. `--dry-run` uses presence-as-intent (`isPreventingFlagSet`), not `=== true`, because it PREVENTS a write; `--noConfirm` must be an explicit CLI flag — a repo-local `lt.config.json` must not silence a prompt guarding a machine-global write. |
@@ -280,7 +281,7 @@ ports. Developers and Claude Code never see the internal ports.
 8. **`lt dev test [--api] [--keep] [--debug] [-- args]`** / **`lt dev test down`** — App mode (default) brings up an ISOLATED parallel stack (`<slug>-test.localhost` / `api.<slug>-test.localhost`, DB `<…>-test`), runs Playwright against it, then tears it down. The dev `lt dev up` session is never touched. `--keep` leaves the test stack up for debugging; `lt dev test down` tears a leftover stack down. `--api` runs the API E2E suite in the api project instead (already DB-isolated, no stack needed). Forwards args after `--` to the test runner.
 9. **`lt dev tunnel [--api]`** — Cloudflare Quick Tunnel: foreground `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`, prints the public `*.trycloudflare.com` URL. The host-header rewrite is mandatory — without it Caddy's vhost match fails for the random tunnel URL. Tunnels only expose ONE subdomain at a time; start a second `lt dev tunnel --api` in another shell for full external usage.
 
-**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`; h3 session cookies are namespaced via `NUXT_SESSION_PASSWORD`, keyed per slug so a cookie sealed by one stack cannot be unsealed by another (dev, `-test` and every `-test-N` shard stack differ). The isolated `lt dev test` stack reuses the same protections under a `-test` suffix (slug `<…>-test`, DB `<…>-test`, prefix `<…>-test`, port band 4500+) so it can run literally side-by-side with the dev session.
+**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`; a project on PostgreSQL / MySQL / MariaDB gets its own SQL database per stack via `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL` (API only, created on the local server when missing; the base dev stack keeps the configured one); h3 session cookies are namespaced via `NUXT_SESSION_PASSWORD`, keyed per slug so a cookie sealed by one stack cannot be unsealed by another (dev, `-test` and every `-test-N` shard stack differ). The isolated `lt dev test` stack reuses the same protections under a `-test` suffix (slug `<…>-test`, DB `<…>-test`, prefix `<…>-test`, port band 4500+) so it can run literally side-by-side with the dev session.
 
 ### Vendor Modification Policy (for CLI-generated content)
 
@@ -1919,6 +1920,58 @@ Smaller differences the conversion hit, each fixed in place:
   ships no such package, so `__tests__/tsconfig.json` extends `tsconfig.test.json` for the editor.
   vite also reads that file for its transform, hence the explicit `useDefineForClassFields: false`
   (the root config's es6 target implied it; `es2022` would switch class fields to define semantics).
+
+### A SQL database has to be created, not just named, and `pg` in the dependencies is not SQL <!-- Added: 2026-11-04 -->
+Until this change `lt dev` gave every stack its own MongoDB database and NOTHING for a project on
+PostgreSQL / MySQL / MariaDB (nest-server 12.1+): it exported `DATABASE_URL`, which nest-server never
+reads (its SQL connection is `database.url` / `database.ownerUrl`, merged from `NSC__DATABASE__URL` /
+`__OWNER_URL`). Dev, `-test`, every shard and every ticket ran against the one database the
+configuration named, and the CLAUDE.md block still said `mongodb://` (found by the nest-server
+session, 2026-11-04). `src/lib/dev-sql.ts` closes it. What it had to get right:
+- **Detection reads the URL the API would use, never a dependency.** TurboOps depends on `pg` for its
+  CrowdSec database and runs nest-server on MongoDB; exporting `NSC__DATABASE__URL` there would move
+  its framework models onto SQL. Order mirrors nest-server: shell → API `.env` (nest-server loads it
+  via dotenv, which never overrides an existing variable, so `lt dev`'s export wins) → `database`
+  literal in `config.env.ts`, read from the AST so the starter's commented-out example does not count.
+  Verified against nest-server's own `getEnvironmentConfig`: both variables land in
+  `database.url` / `.ownerUrl` whether the config holds a string or an object, `sqlEngine` survives.
+- **Exporting `NSC__MONGOOSE__URI` is not harmless on SQL.** The env merge makes `mongoose` explicit,
+  and nest-server then opens MongoDB as the extra source `mongoose` (measured: sources
+  `['default','mongoose']` instead of `['default']`). An API on SQL alone — no `mongoose` property in
+  config, no URI in shell or `.env` — gets none.
+- **Unlike MongoDB, a SQL server does not create a database on first use**, so `lt dev up` and
+  `lt dev test` create it before the API starts, as the owner role (which then owns it, as the schema
+  runner expects), and grant the app role `CONNECT` (PostgreSQL) or row privileges (MySQL / MariaDB,
+  the account taken from `CURRENT_USER()` of an app login, so the grant names the real host part).
+- **The base dev stack keeps the configured database**, so a developer's data does not move. That
+  opens a collision the MongoDB side never had: configured `shop-admin` and ticket `admin` derive the
+  same name. `planStackDatabases` refuses a non-base stack whose name equals the configured one, and
+  `sqlRemovalTargets` + the re-check inside `dropSqlDatabases` keep it out of every removal, since the
+  ticket/prune guards judge names by shape only.
+- **Local servers only**, like the loopback-only `MONGO_BASE_URI`. A remote URL leaves `lt dev up`
+  on the configured database with a warning and makes `lt dev test` refuse: an E2E suite against the
+  developer's data is what the test stack exists to prevent. **Judge the host the DRIVER uses, not
+  the authority** (`sqlHostIsLocal`): `pg` lets `?host=` / `?hostaddr=` override it, and an empty
+  host falls back to `PGHOST`, which the runner inherits. The first version read only the
+  authority, so `postgres://u@127.0.0.1/x?host=team-db` passed and the `lt dev up` sweep would have
+  dropped on the team server (found in review, reproduced against pg 8.23.1).
+- **A ticket worktree has no `.env`** (git checks out no ignored file), and `lt ticket start` copies
+  none. A project keeping its SQL URL there (nest-server-starter's `.env.example` says to) got a
+  ticket stack that silently ran on MongoDB. `dev-ticket.ts#mainCheckoutApiDir` gives
+  `detectDatabaseSetup` the main checkout's API dir; its `.env` is read when the worktree has none.
+- **63 characters**: PostgreSQL truncates longer identifiers silently, which would let two long ticket
+  names share one database. Refused instead.
+- The SQL URLs stay out of the `.lt-dev/.env` bridge: they carry the project's passwords, and no
+  external runner needs them yet. Add them only with a consumer.
+- **Every place that prints a database learns the SQL URLs, not just `lt dev up`.** The live run
+  (nest-server-starter 12.3.1 on PostgreSQL 18: `lt dev up`, `lt ticket start/stop`, `lt dev prune`)
+  found three spots the unit tests had not: `lt ticket start` and `lt ticket list` still printed
+  `mongodb://127.0.0.1/<db>` (they now read `registryDbUrls`), and nest-base's `DATABASE_URL`
+  (port 5432, a database the project does not have) went to the API and the bridge. A SQL project
+  gets none. `lt ticket stop` drops only the SQL names the server lists, so a ticket that never
+  ran `lt dev test` no longer reports a `-test` database as dropped.
+- This repo's `tsconfig` has no `strictNullChecks`, so a `{ ok: false } | { ok: true }` union does
+  not narrow; the results carry a nullable `failure` field instead.
 
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:

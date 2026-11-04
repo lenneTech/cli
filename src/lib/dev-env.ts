@@ -11,6 +11,8 @@
  * - `NUXT_PUBLIC_*` lock the App to its own API
  * - `NUXT_PUBLIC_STORAGE_PREFIX` namespaces localStorage/sessionStorage
  * - `NSC__MONGOOSE__URI` / `DATABASE_URL` namespace the database per project
+ * - `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL` (API only) give a project on
+ *   PostgreSQL / MySQL / MariaDB its own database per stack (see `dev-sql.ts`)
  * - `NUXT_SESSION_PASSWORD` is keyed per slug, so a session cookie sealed by one
  *   stack cannot be unsealed by another (dev vs. `-test` vs. `-test-N` shard)
  *
@@ -27,6 +29,7 @@ import { dirname, join } from 'node:path';
 
 import { detectCaddyRootCa } from './dev-env-bridge';
 import { DevIdentity } from './dev-identity';
+import { StackDatabases } from './dev-sql';
 
 export interface BuildDevEnvInput {
   /** Internal API port (assigned by `dev-state.allocateInternalPort`). */
@@ -40,6 +43,12 @@ export interface BuildDevEnvInput {
   appInternalPort: number;
   /** Inherited shell env (defaults to {}, callers usually pass `process.env`). */
   baseEnv?: NodeJS.ProcessEnv;
+  /**
+   * What the API runs on (`dev-sql.ts#planStackDatabases`). Omitted → MongoDB, as before 12.1.
+   * `mongo: false` (a project on SQL alone) suppresses `NSC__MONGOOSE__URI`; `sql` exports the
+   * stack's own SQL database to the API. A SQL project (`sql` or `sqlProblem`) gets no `DATABASE_URL`.
+   */
+  databases?: Pick<StackDatabases, 'mongo' | 'sql' | 'sqlProblem'>;
   /** Database name (per-project, used in NSC__MONGOOSE__URI / DATABASE_URL). */
   dbName?: string;
   /** Project identity (slug + subdomains). */
@@ -61,7 +70,7 @@ export interface DevEnv {
  * vars survive. `lt dev`-managed keys win on top.
  */
 export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
-  const { apiInternalPort, appDir, appInternalPort, baseEnv = {}, dbName, identity } = input;
+  const { apiInternalPort, appDir, appInternalPort, baseEnv = {}, databases, dbName, identity } = input;
   const apiSub = identity.subdomains.api;
   const appSub = identity.subdomains.app;
 
@@ -85,7 +94,13 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
     ...(appInternal ? { LT_DEV_APP_INTERNAL_URL: appInternal } : {}),
     ...(apiUrl ? { BASE_URL: apiUrl, NSC__BASE_URL: apiUrl } : {}),
     ...(appUrl ? { APP_URL: appUrl, NSC__APP_URL: appUrl } : {}),
-    ...(dbName ? { DATABASE_URL: buildPostgresUrl(dbName), NSC__MONGOOSE__URI: `mongodb://127.0.0.1/${dbName}` } : {}),
+    // `DATABASE_URL` is for projects outside nest-server (nest-base); nest-server never reads it.
+    // Not for a project on SQL: it would name a database on port 5432 that does not exist there,
+    // and a script reading the common `DATABASE_URL` convention would connect to the wrong place.
+    ...(dbName && !databases?.sql && !databases?.sqlProblem ? { DATABASE_URL: buildPostgresUrl(dbName) } : {}),
+    // Not for a project on SQL alone: the env merge would make `mongoose` explicit there, and
+    // nest-server would open a MongoDB connection the project never configured.
+    ...(dbName && (databases?.mongo ?? true) ? { NSC__MONGOOSE__URI: `mongodb://127.0.0.1/${dbName}` } : {}),
     // Caddy's local root CA — without this, Node's TLS rejects
     // self-signed certs and Nuxt SSR + API server-side fetches fail.
     ...(caPath ? { NODE_EXTRA_CA_CERTS: caPath } : {}),
@@ -103,6 +118,11 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         HOST: '127.0.0.1',
         NITRO_HOST: '127.0.0.1',
         PORT: String(apiInternalPort),
+        // The stack's own SQL database. API only: these URLs carry the project's credentials,
+        // and the App never talks to the database. The env merge maps them onto
+        // `database.url` / `database.ownerUrl`, the same database for both roles.
+        ...(databases?.sql ? { NSC__DATABASE__URL: databases.sql.url } : {}),
+        ...(databases?.sql?.ownerUrl ? { NSC__DATABASE__OWNER_URL: databases.sql.ownerUrl } : {}),
       },
       internalPort: apiInternalPort,
     },

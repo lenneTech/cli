@@ -4,6 +4,15 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { buildIdentity } from '../../lib/dev-identity';
 import { deriveDbName, resolveLayout } from '../../lib/dev-project';
 import { collectDevPrunePlan } from '../../lib/dev-prune';
+import {
+  describeSqlFailure,
+  displaySqlUrl,
+  dropSqlDatabases,
+  listSqlDatabaseNames,
+  localSqlSource,
+  sqlDriverLabel,
+  sqlRemovalTargets,
+} from '../../lib/dev-sql';
 import { loadRegistry, saveRegistry, withRegistryLock } from '../../lib/dev-state';
 import { dropDatabases, gitMainRepoRoot, listDatabaseNames } from '../../lib/dev-ticket';
 import { isNonInteractive } from '../../lib/workspace-integration';
@@ -76,7 +85,30 @@ const PruneCommand: GluegunCommand = {
     });
 
     const dbTargets = [...new Set([...plan.orphan.targets, ...plan.shardTargets, ...plan.smokeTargets])];
-    if (dbTargets.length === 0 && plan.registryPrune.length === 0) {
+
+    // The same sweep on the project's own SQL server (PostgreSQL / MySQL / MariaDB). Same guards on
+    // the names; `sqlRemovalTargets` additionally keeps the database the configuration names.
+    const sqlSource = localSqlSource(mainLayout.apiDir, process.env);
+    const sqlDriverPaths = [mainLayout.apiDir, mainRepoRoot];
+    const sqlObserved = sqlSource ? listSqlDatabaseNames(sqlSource, sqlDriverPaths) : null;
+    if (sqlSource && sqlObserved === null) {
+      warning(
+        `Could not list the SQL databases at ${displaySqlUrl(sqlSource.url).replace(/\/[^/]*$/, '')} — the SQL databases are not swept this time.`,
+      );
+    }
+    const sqlPlan =
+      sqlSource && sqlObserved
+        ? collectDevPrunePlan({ loadRegistry, mainRepoRoot, observedDbNames: sqlObserved, projectDevDb, slug })
+        : null;
+    const sqlTargets =
+      sqlSource && sqlPlan
+        ? sqlRemovalTargets(sqlSource, [
+            ...new Set([...sqlPlan.orphan.targets, ...sqlPlan.shardTargets, ...sqlPlan.smokeTargets]),
+          ]).targets
+        : [];
+    const sqlLabel = sqlSource ? sqlDriverLabel(sqlSource.driver) : '';
+
+    if (dbTargets.length === 0 && sqlTargets.length === 0 && plan.registryPrune.length === 0) {
       success(
         'Nothing to prune — no orphaned ticket DBs, no stale shard DBs, no smoke-test DBs, no dead registry entries.',
       );
@@ -99,6 +131,10 @@ const PruneCommand: GluegunCommand = {
       info(colors.bold('Orphaned smoke-test databases (reserved lt-smoke-test prefix, no live run):'));
       plan.smokeTargets.forEach((db) => info(colors.dim(`  • ${db}`)));
     }
+    if (sqlTargets.length > 0) {
+      info(colors.bold(`${sqlLabel} databases (orphaned ticket, stale shard or smoke-test):`));
+      sqlTargets.forEach((db) => info(colors.dim(`  • ${db}`)));
+    }
     if (plan.orphan.protected.length > 0) {
       info(colors.dim(`Kept (recorded via --keep-db or still referenced): ${plan.orphan.protected.join(', ')}`));
     }
@@ -117,13 +153,16 @@ const PruneCommand: GluegunCommand = {
     // Dropping databases is irreversible — confirm interactively (documented default
     // for non-interactive callers, mirroring `lt ticket stop`).
     let confirmedDbTargets = dbTargets;
-    if (dbTargets.length > 0 && !isNonInteractive(parameters.options.noConfirm === true)) {
+    let confirmedSqlTargets = sqlTargets;
+    if (dbTargets.length + sqlTargets.length > 0 && !isNonInteractive(parameters.options.noConfirm === true)) {
       info('');
       warning('  These databases will be DROPPED (irreversible):');
-      dbTargets.forEach((db) => info(colors.dim(`    • ${db}`)));
+      dbTargets.forEach((db) => info(colors.dim(`    • ${db}${sqlTargets.length > 0 ? ' (MongoDB)' : ''}`)));
+      sqlTargets.forEach((db) => info(colors.dim(`    • ${db} (${sqlLabel})`)));
       if (!(await confirm('Drop them?', true))) {
         info(colors.dim('  keeping the databases.'));
         confirmedDbTargets = [];
+        confirmedSqlTargets = [];
       }
     }
 
@@ -134,6 +173,14 @@ const PruneCommand: GluegunCommand = {
         warning('  mongosh is not installed — the databases were NOT dropped.');
       } else if (reason === 'unreachable') {
         warning('  MongoDB is not reachable — the databases were NOT dropped.');
+      }
+    }
+    if (sqlSource && confirmedSqlTargets.length > 0) {
+      const { dropped, failure } = dropSqlDatabases(sqlSource, confirmedSqlTargets, sqlDriverPaths);
+      dropped.forEach((db) => info(colors.dim(`  dropped ${sqlLabel} db ${db}`)));
+      if (failure) {
+        const where = { display: displaySqlUrl(sqlSource.url), driver: sqlSource.driver };
+        warning(`  ${sqlLabel}: not every database was dropped — ${describeSqlFailure(failure, where)}`);
       }
     }
 
