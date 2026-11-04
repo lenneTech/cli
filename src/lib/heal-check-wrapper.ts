@@ -10,30 +10,30 @@ const WRAPPER = 'node scripts/check.mjs';
 const SCRIPTS_DIR = 'scripts';
 
 /**
- * How the project's wrapper relates to the bundled one, by `@lt-check-wrapper` marker.
+ * How the project's wrapper relates to the lt-monorepo release, by `@lt-check-wrapper` marker.
  *
- * - `bundled-newer`: the project runs an older release — heal replaces it.
+ * - `release-newer`: the project runs an older release — heal replaces it.
  * - `legacy`: the project wrapper has no marker, i.e. predates markers — heal replaces it.
  * - `project-newer`: the project runs a newer release — replacing it would be a downgrade.
  * - `same-release`: same release number. The marker only moves on an lt-monorepo release, so
  *   two copies with the same number can still differ, and nothing says which one is newer.
  * - `unrecognised`: the project marker is not a version this CLI can compare.
  */
-export type WrapperRelation = 'bundled-newer' | 'legacy' | 'project-newer' | 'same-release' | 'unrecognised';
+export type WrapperRelation = 'legacy' | 'project-newer' | 'release-newer' | 'same-release' | 'unrecognised';
 
-/** Versions of the bundled and the installed wrapper, read from their markers. */
+/** Versions of the release and the installed wrapper, read from their markers. */
 export interface WrapperVersions {
-  /** Marker of the wrapper bundled with this CLI; null when it carries none. */
-  bundled: null | string;
   /** Marker of `<project>/scripts/check.mjs`; null when absent or unmarked. */
   project: null | string;
   relation: WrapperRelation;
+  /** Marker of the release's wrapper; null when it carries none. */
+  release: null | string;
 }
 
 interface Copy {
   /** Path relative to the project root, e.g. `scripts/check.mjs`. */
   rel: string;
-  /** Absolute path of the bundled source file. */
+  /** Absolute path of the source file in the release. */
   source: string;
 }
 
@@ -81,30 +81,30 @@ export function compareVersions(a: string, b: string): number {
   return pa.pre < pb.pre ? -1 : 1;
 }
 
-/** Read both wrapper markers and classify how the project relates to the bundle. */
+/** Read both wrapper markers and classify how the project relates to the release. */
 export function compareWrapperVersions(projectRoot: string, assetPath: string): WrapperVersions {
-  const bundled = readWrapperVersion(assetPath);
+  const release = readWrapperVersion(assetPath);
   const project = readWrapperVersion(join(projectRoot, SCRIPTS_DIR, 'check.mjs'));
   let relation: WrapperRelation;
   if (project === null) {
     relation = 'legacy';
   } else if (!SEMVER.test(project)) {
     relation = 'unrecognised';
-  } else if (bundled === null || !SEMVER.test(bundled)) {
-    // A marked project against an unmarked bundle: the bundle predates markers.
+  } else if (release === null || !SEMVER.test(release)) {
+    // A marked project against an unmarked source: the source predates markers.
     relation = 'project-newer';
   } else {
-    const order = compareVersions(bundled, project);
-    relation = order > 0 ? 'bundled-newer' : order < 0 ? 'project-newer' : 'same-release';
+    const order = compareVersions(release, project);
+    relation = order > 0 ? 'release-newer' : order < 0 ? 'project-newer' : 'same-release';
   }
-  return { bundled, project, relation };
+  return { project, relation, release };
 }
 
 /**
  * Idempotently install the report-driven check wrapper — and every module it
  * imports — into a project.
  *
- * Copies the bundled wrapper to `<root>/scripts/check.mjs`, copies its whole
+ * Copies the release's wrapper to `<root>/scripts/check.mjs`, copies its whole
  * relative-import closure alongside it under the names the wrapper imports them
  * by, and rewrites the root `package.json` so that `check` runs the wrapper
  * while the original chain is preserved as `check:raw`. A no-op once already
@@ -119,8 +119,9 @@ export function compareWrapperVersions(projectRoot: string, assetPath: string): 
  * running a single step.
  *
  * @param projectRoot Absolute path to the (workspace) project root.
- * @param assetPath   Absolute path to the bundled wrapper. Its DIRECTORY is
- *                    also probed: every module the wrapper imports relatively
+ * @param assetPath   Absolute path to the wrapper of the release to install
+ *                    (`fetchCheckWrapperRelease`). Its DIRECTORY is also
+ *                    probed: every module the wrapper imports relatively
  *                    (transitively) is shipped from there. The asset always
  *                    lands as `scripts/check.mjs` regardless of its own name.
  * @returns The list of changed file paths (relative to `projectRoot`); empty when nothing changed.
@@ -161,8 +162,8 @@ export function healCheckWrapper(projectRoot: string, assetPath: string): string
   // the doc block above.
   const plans = copies.map((copy) => planCopy(projectRoot, copy));
   const blocked = plans.filter((p) => p.action === 'skip');
-  // Never downgrade: a project created from a newer lt-monorepo than this CLI
-  // bundles keeps its wrapper. Replacing it silently dropped fixes before.
+  // Never downgrade: a project whose wrapper is newer than the release keeps it.
+  // Replacing it silently dropped fixes before.
   const kept = keptWrapperReason(projectRoot, assetPath);
   if (kept) {
     changed.push(`${copies.map((c) => c.rel).join(' + ')} (skipped: ${kept})`);
@@ -201,17 +202,19 @@ export function healCheckWrapper(projectRoot: string, assetPath: string): string
  * Shared by heal (skip reason) and doctor (INFO line), so both say the same thing.
  */
 export function keptWrapperReason(projectRoot: string, assetPath: string): null | string {
-  const { bundled, project, relation } = compareWrapperVersions(projectRoot, assetPath);
+  const { project, relation, release } = compareWrapperVersions(projectRoot, assetPath);
   switch (relation) {
     case 'project-newer':
-      return `project wrapper ${project} is newer than this CLI's ${bundled ?? '(unversioned)'} — update lt`;
+      return `project wrapper ${project} is newer than the lt-monorepo release ${release ?? '(unversioned)'} — kept`;
     case 'same-release': {
       // Identical content is simply up to date; a missing sibling may still be installed.
       const projectCheck = join(projectRoot, SCRIPTS_DIR, 'check.mjs');
       if (readFileSync(projectCheck, 'utf8') === readFileSync(assetPath, 'utf8')) {
         return null;
       }
-      return `project wrapper differs from this CLI's copy of the same release ${project} — kept, because the release number cannot tell which one is newer; update lt after the next lt-monorepo release`;
+      // A project created from lt-monorepo `main` after a release carries that release's
+      // marker with later content.
+      return `project wrapper differs from lt-monorepo release ${project} with the same number — kept, because the release number cannot tell which one is newer; the next lt-monorepo release replaces it`;
     }
     case 'unrecognised':
       return `project wrapper carries an unrecognised @lt-check-wrapper marker "${project}" — kept`;
@@ -232,9 +235,9 @@ export function readWrapperVersion(file: string): null | string {
 /**
  * The wrapper plus the transitive closure of its relative imports.
  *
- * Matches both quote styles: the bundled `.mjs` files are formatted by the
- * consuming project's formatter, not by this repo's, so their quote style is
- * not ours to assume.
+ * Matches both quote styles: the `.mjs` files are formatted by the consuming
+ * project's formatter once installed, not by this repo's, so their quote style
+ * is not ours to assume.
  */
 export function resolveCopySet(assetPath: string): Copy[] {
   const assetDir = dirname(assetPath);

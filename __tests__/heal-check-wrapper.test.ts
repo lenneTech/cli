@@ -16,13 +16,12 @@ import {
   readWrapperVersion,
   resolveCopySet,
 } from '../src/lib/heal-check-wrapper';
-import { evalInNodeEsm } from './check-template-esm';
 
 describe('healCheckWrapper', () => {
   let root: string;
   let assetDir: string;
   let asset: string;
-  const BUNDLED = '#!/usr/bin/env node\nconsole.log("canonical check wrapper");\n';
+  const RELEASED = '#!/usr/bin/env node\nconsole.log("canonical check wrapper");\n';
 
   const readPkg = (): { scripts: Record<string, string> } => JSON.parse(filesystem.read(filesystem.path(root, 'package.json')) || '{}');
   const writePkg = (scripts: Record<string, string>): void => filesystem.write(filesystem.path(root, 'package.json'), { name: 'demo', scripts });
@@ -36,7 +35,7 @@ describe('healCheckWrapper', () => {
     root = mkdtempSync(join(tmpdir(), 'lt-heal-check-'));
     assetDir = mkdtempSync(join(tmpdir(), 'lt-heal-asset-'));
     asset = join(assetDir, 'check.mjs');
-    writeFileSync(asset, BUNDLED);
+    writeFileSync(asset, RELEASED);
   });
 
   afterEach(() => {
@@ -65,7 +64,7 @@ describe('healCheckWrapper', () => {
     const pkg = readPkg();
     expect(pkg.scripts.check).toBe('node scripts/check.mjs');
     expect(pkg.scripts['check:raw']).toBe('pnpm audit && pnpm run lint && pnpm test && pnpm run build');
-    expect(readScript()).toBe(BUNDLED);
+    expect(readScript()).toBe(RELEASED);
   });
 
   it('is idempotent (no changes on a second run)', () => {
@@ -82,12 +81,12 @@ describe('healCheckWrapper', () => {
     expect(pkg.scripts['check:raw']).toBe('CUSTOM existing raw chain');
   });
 
-  it('refreshes scripts/check.mjs when it drifts from the bundled asset', () => {
+  it('refreshes scripts/check.mjs when it drifts from the release asset', () => {
     writePkg({ check: 'node scripts/check.mjs', 'check:raw': 'pnpm test' });
     filesystem.write(filesystem.path(root, 'scripts', 'check.mjs'), 'OLD CONTENT');
     const changed = healCheckWrapper(root, asset);
     expect(changed).toEqual(['scripts/check.mjs']);
-    expect(readScript()).toBe(BUNDLED);
+    expect(readScript()).toBe(RELEASED);
   });
 
   it('no-ops when the package has no check script', () => {
@@ -96,7 +95,7 @@ describe('healCheckWrapper', () => {
     expect(filesystem.exists(filesystem.path(root, 'scripts', 'check.mjs'))).toBeFalsy();
   });
 
-  it('no-ops when the bundled asset is missing', () => {
+  it('no-ops when the release asset is missing', () => {
     writePkg({ check: 'pnpm test' });
     expect(healCheckWrapper(root, filesystem.path(root, 'does-not-exist.mjs'))).toEqual([]);
   });
@@ -110,7 +109,7 @@ describe('healCheckWrapper', () => {
   });
 
   describe('import closure', () => {
-    /** Give the bundled asset a relative import plus the file it names. */
+    /** Give the release asset a relative import plus the file it names. */
     const addSibling = (name: string, body = 'export const x = 1;\n', importer = asset): void => {
       writeFileSync(join(assetDir, name), body);
       writeFileSync(importer, `import { x } from "./${name}";\n${readFileSync(importer, 'utf8')}`);
@@ -140,7 +139,7 @@ describe('healCheckWrapper', () => {
       mkdirSync(join(assetDir, 'lib'));
       writeFileSync(join(assetDir, 'lib', 'ansi.mjs'), 'export const C = {};\n');
       writeFileSync(join(assetDir, 'lib', 'report.mjs'), "import { C } from './ansi.mjs';\nexport const r = C;\n");
-      writeFileSync(asset, `import {\n  r,\n} from './lib/report.mjs';\n${BUNDLED}`);
+      writeFileSync(asset, `import {\n  r,\n} from './lib/report.mjs';\n${RELEASED}`);
       writePkg({ check: 'pnpm test' });
 
       expect(resolveCopySet(asset).map((c) => c.rel).sort()).toEqual([
@@ -184,7 +183,7 @@ describe('healCheckWrapper', () => {
       expect(new Set(rels).size).toBe(rels.length);
     });
 
-    it('matches both quote styles — the bundled files are formatted by the consuming project', () => {
+    it('matches both quote styles — the release files are formatted by the consuming project', () => {
       writeFileSync(join(assetDir, 'single.mjs'), 'export const a = 1;\n');
       writeFileSync(join(assetDir, 'double.mjs'), 'export const b = 2;\n');
       writeFileSync(asset, "import { a } from './single.mjs';\nimport { b } from \"./double.mjs\";\n");
@@ -210,7 +209,7 @@ describe('healCheckWrapper', () => {
       writePkg({ check: 'node scripts/check.mjs' });
 
       expect(healCheckWrapper(root, asset)).toEqual([
-        "scripts/check.mjs (skipped: project wrapper 3.13.0 is newer than this CLI's 3.12.0 — update lt)",
+        'scripts/check.mjs (skipped: project wrapper 3.13.0 is newer than the lt-monorepo release 3.12.0 — kept)',
       ]);
       expect(readScript()).toContain('newer');
       expect(existsSync(join(root, 'scripts', 'check.mjs.bak'))).toBe(false);
@@ -227,7 +226,7 @@ describe('healCheckWrapper', () => {
       const changed = healCheckWrapper(root, asset);
 
       expect(changed).toHaveLength(1);
-      expect(changed[0]).toMatch(/skipped: project wrapper differs from this CLI's copy of the same release 3\.12\.0/);
+      expect(changed[0]).toMatch(/skipped: project wrapper differs from lt-monorepo release 3\.12\.0 with the same number/);
       expect(readScript()).toContain('main after the release');
     });
 
@@ -263,7 +262,7 @@ describe('healCheckWrapper', () => {
       expect(keptWrapperReason(root, asset)).toMatch(/unrecognised @lt-check-wrapper marker "next"/);
 
       installProjectWrapper(marked('3.12.0'));
-      expect(compareWrapperVersions(root, asset)).toEqual({ bundled: null, project: '3.12.0', relation: 'project-newer' });
+      expect(compareWrapperVersions(root, asset)).toEqual({ project: '3.12.0', relation: 'project-newer', release: null });
     });
 
     it('reads the marker in lt-monorepo\'s exact line format, CRLF included', () => {
@@ -304,15 +303,15 @@ describe('healCheckWrapper', () => {
       // skipping that sibling, the two would land on different versions and the
       // project's `check` would die on the import.
       writeFileSync(join(assetDir, 'gate.mjs'), 'export const gate = 1;\n');
-      writeFileSync(asset, `import { gate } from "./gate.mjs";\n${BUNDLED}`);
+      writeFileSync(asset, `import { gate } from "./gate.mjs";\n${RELEASED}`);
       writePkg({ check: 'pnpm test' });
       healCheckWrapper(root, asset);
       gitInit();
 
-      // Hand-edit the sibling only, then ship a new bundled version of BOTH.
+      // Hand-edit the sibling only, then ship a new release of BOTH.
       filesystem.write(filesystem.path(root, 'scripts', 'gate.mjs'), 'export const gate = "LOCAL EDIT";\n');
       writeFileSync(join(assetDir, 'gate.mjs'), 'export const gate = 3;\n');
-      writeFileSync(asset, `import { gate } from "./gate.mjs";\n${BUNDLED}// v3\n`);
+      writeFileSync(asset, `import { gate } from "./gate.mjs";\n${RELEASED}// v3\n`);
 
       const changed = healCheckWrapper(root, asset);
       expect(changed).toHaveLength(1);
@@ -328,7 +327,7 @@ describe('healCheckWrapper', () => {
       gitInit();
 
       expect(healCheckWrapper(root, asset)).toEqual(['scripts/check.mjs']);
-      expect(readScript()).toBe(BUNDLED);
+      expect(readScript()).toBe(RELEASED);
     });
 
     it('backs up an unversioned file instead of destroying it', () => {
@@ -341,7 +340,7 @@ describe('healCheckWrapper', () => {
       gitInit(false);
 
       expect(healCheckWrapper(root, asset)).toEqual(['scripts/check.mjs']);
-      expect(readScript()).toBe(BUNDLED);
+      expect(readScript()).toBe(RELEASED);
       expect(readFileSync(join(root, 'scripts', 'check.mjs.bak'), 'utf8')).toBe('UNVERSIONED CONTENT');
     });
 
@@ -349,7 +348,7 @@ describe('healCheckWrapper', () => {
       writePkg({ check: 'node scripts/check.mjs', 'check:raw': 'pnpm test' });
       filesystem.write(filesystem.path(root, 'scripts', 'check.mjs'), 'ORIGINAL');
       healCheckWrapper(root, asset);
-      writeFileSync(asset, `${BUNDLED}// newer\n`);
+      writeFileSync(asset, `${RELEASED}// newer\n`);
       healCheckWrapper(root, asset);
       expect(readFileSync(join(root, 'scripts', 'check.mjs.bak'), 'utf8')).toBe('ORIGINAL');
     });
@@ -396,48 +395,7 @@ describe('healCheckWrapper', () => {
       expect(healCheckWrapper(root, asset)).toEqual(expect.arrayContaining(['scripts/check.mjs']));
       expect(readFileSync(outside, 'utf8')).toBe('MUST NOT BE OVERWRITTEN');
       expect(lstatSync(join(root, 'scripts', 'check.mjs')).isFile()).toBe(true);
-      expect(readScript()).toBe(BUNDLED);
+      expect(readScript()).toBe(RELEASED);
     });
-  });
-
-  it('installs the REAL bundled wrapper asset (integration) as valid, complete content', () => {
-    const realAsset = filesystem.path(process.cwd(), 'src', 'templates', 'check', 'check.mjs');
-    writePkg({ check: 'pnpm test' });
-    const changed = healCheckWrapper(root, realAsset).sort();
-    // A superset check, not an exact match: a genuine new sibling must not break
-    // this test — that is what the closure assertion below is for.
-    expect(changed).toEqual(expect.arrayContaining(['package.json', 'scripts/check.mjs']));
-    const written = readScript();
-    expect(written).toContain('Running checks for'); // the wrapper's banner
-    expect(written).toContain('Check PASSED');
-    expect(written.length).toBeGreaterThan(500);
-
-    // Every relative import the wrapper makes has to have landed next to it.
-    // Shipping `check.mjs` alone installs a file that dies on its first import
-    // with ERR_MODULE_NOT_FOUND — before running a single step, so the project
-    // has no `check` at all. Derived from the file rather than hard-coded, so
-    // the next sibling is covered without touching this test.
-    //
-    // Both quote styles: these templates are formatted by the CONSUMING
-    // project's formatter, so their quote style is not ours to assume. Matching
-    // only one is how this assertion silently became vacuous once before.
-    //
-    // Matched on `from '…'` rather than on a whole `import … from …;` line: a
-    // multi-line import block has no such line, and a subdirectory import
-    // (`./lib/…`) was exactly what a basename-only match let slip through.
-    const specs = [...written.matchAll(/\bfrom\s+['"](\.\/[^'"]+)['"]/g)].map(([, spec]) => spec);
-    expect(specs.length).toBeGreaterThan(0); // the loop below must never be vacuous
-    for (const spec of specs) {
-      const target = spec.replace('./', '');
-      expect(changed).toContain(`scripts/${target}`);
-      expect(filesystem.exists(filesystem.path(root, 'scripts', target))).toBe('file');
-    }
-
-    // The decisive check: the INSTALLED wrapper loads in real Node, i.e. its
-    // whole transitive import graph resolved inside the project. Importing it
-    // does not start a check run (asserted in check-template.test.ts).
-    const url = `file://${filesystem.path(root, 'scripts', 'check.mjs')}`;
-    const loaded = evalInNodeEsm<boolean>(`const m = await import(${JSON.stringify(url)});\nreport(typeof m.buildGroups === 'function');`);
-    expect(loaded).toBe(true);
   });
 });

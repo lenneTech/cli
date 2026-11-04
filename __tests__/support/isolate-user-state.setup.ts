@@ -27,6 +27,10 @@ process.env.LT_DEV_CADDYFILE = join(root, 'Caddyfile');
 process.env.LT_DEV_REGISTRY_PATH = join(root, 'projects.json');
 process.env.LT_DEV_SESSION_SALT_PATH = join(root, 'dev-session-salt');
 process.env.LT_MARKETPLACE_CONFIG = join(root, 'claude-marketplaces.json');
+// Not per-user state, but the same rule: `lt fullstack update` and `lt dev doctor` fetch the check
+// wrapper from lt-monorepo. A path that does not exist fails fast and offline; a suite that needs
+// a release points this at its own fixture repository.
+process.env.LT_CHECK_WRAPPER_SOURCE = join(root, 'no-lt-monorepo');
 
 afterAll(() => {
   rmSync(root, { force: true, recursive: true });

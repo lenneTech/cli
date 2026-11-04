@@ -7,7 +7,7 @@ import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { execArgs, spawnArgs } from '../../lib/exec-args';
 import { failRun } from '../../lib/fail-run';
-import { setPackageName } from '../../lib/package-name';
+import { setPackageName, setPackageVersion } from '../../lib/package-name';
 import { removeTemplateAgentMemory } from '../../lib/template-agent-memory';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 import {
@@ -532,6 +532,10 @@ const NewCommand: GluegunCommand = {
     // this rename every lt-monorepo-based project would register as
     // `lt-monorepo` and collide on `https://lt-monorepo.localhost`.
     setPackageName({ filesystem, name: projectDir, packageJsonPath: `${projectDir}/package.json` });
+    // …and start it at its own version instead of the template's release
+    // (`3.17.2`), which `lt status` would otherwise report as the project's.
+    // `0.0.0` like the API's `src/meta.json`.
+    setPackageVersion({ filesystem, packageJsonPath: `${projectDir}/package.json`, version: '0.0.0' });
 
     // Always initialize git
     try {

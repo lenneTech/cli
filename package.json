@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.54.1",
+  "version": "1.55.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -38,7 +38,6 @@
     "start": "node bin/lt",
     "start:build": "npm run build && node bin/lt --compiled-build",
     "start:compiled": "node bin/lt --compiled-build",
-    "sync:check-template": "ts-node --transpile-only extras/sync-check-template.ts",
     "test": "vitest run",
     "test:e2e:service": "vitest run --config vitest.manual.config.mts __tests__/dev-service-e2e.manual.ts",
     "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",

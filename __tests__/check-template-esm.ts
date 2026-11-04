@@ -1,21 +1,13 @@
 /**
- * Run assertions against the bundled `src/templates/check/*.mjs` in a real Node
- * ESM process.
+ * Run assertions against an ES module in a real Node ESM process.
  *
- * These templates are shipped verbatim into generated projects and executed
- * there by plain `node`. Jest's transform turns `import()` into `require()`,
- * which cannot load them at all (`SyntaxError: Unexpected token 'export'`) —
- * and even if it could, it would be testing a CommonJS rewrite rather than the
- * artifact we ship. So the module under test is loaded by the same runtime that
- * runs it in production, and only the RESULT crosses back into Jest.
+ * The check wrapper (`scripts/check.mjs` of an lt-monorepo release) is installed
+ * verbatim into projects and executed there by plain `node`. A test transform
+ * that rewrites `import()` would test a CommonJS rewrite rather than the file
+ * the project runs. So the module under test is loaded by the same runtime that
+ * runs it in production, and only the RESULT crosses back into the test.
  */
 import { execFileSync } from 'child_process';
-import { join } from 'path';
-
-/** Absolute path of a bundled check template, as a URL-safe module specifier. */
-export function templateUrl(name: string): string {
-  return `file://${join(process.cwd(), 'src', 'templates', 'check', name)}`;
-}
 
 /**
  * Evaluate `body` as an ES module in a child `node` and return what it reports.

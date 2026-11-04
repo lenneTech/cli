@@ -1,4 +1,4 @@
-import { isUnmodifiedTemplateName, renameUnmodifiedTemplatePackage, setPackageName } from '../src/lib/package-name';
+import { isUnmodifiedTemplateName, renameUnmodifiedTemplatePackage, setPackageName, setPackageVersion } from '../src/lib/package-name';
 
 const { filesystem } = require('gluegun');
 
@@ -95,6 +95,57 @@ describe('setPackageName', () => {
     expect(pkg.pnpm.overrides).toEqual({ handlebars: '4.7.9' });
     expect(pkg.workspaces).toEqual(['projects/*']);
     expect(pkg.packageManager).toBe('pnpm@10.0.0');
+  });
+});
+
+describe('setPackageVersion', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = filesystem.path(
+      filesystem.cwd(),
+      '__tests__',
+      'temp-pkgversion-' + Date.now() + '-' + Math.random().toString(36).slice(2),
+    );
+    filesystem.dir(tempDir);
+  });
+
+  afterEach(() => {
+    if (filesystem.exists(tempDir)) {
+      filesystem.remove(tempDir);
+    }
+  });
+
+  const readJson = (path: string): any => JSON.parse(filesystem.read(path) || '{}');
+
+  it("replaces the template's release version and keeps everything else", () => {
+    const pkgPath = `${tempDir}/package.json`;
+    filesystem.write(pkgPath, `${JSON.stringify({ name: 'crm', private: true, version: '3.17.2' }, null, 2)}\n`);
+
+    expect(setPackageVersion({ filesystem, packageJsonPath: pkgPath, version: '0.0.0' })).toBe(true);
+    expect(readJson(pkgPath)).toEqual({ name: 'crm', private: true, version: '0.0.0' });
+  });
+
+  it('is a no-op when the version is already set, and false for a missing file', () => {
+    const pkgPath = `${tempDir}/package.json`;
+    filesystem.write(pkgPath, `${JSON.stringify({ name: 'crm', version: '0.0.0' }, null, 2)}\n`);
+    const before = filesystem.read(pkgPath);
+
+    expect(setPackageVersion({ filesystem, packageJsonPath: pkgPath, version: '0.0.0' })).toBe(false);
+    expect(filesystem.read(pkgPath)).toBe(before);
+    expect(setPackageVersion({ filesystem, packageJsonPath: `${tempDir}/missing.json`, version: '0.0.0' })).toBe(false);
+  });
+
+  it('is applied by `lt fullstack init` right after the rename', () => {
+    // A real init clones lt-monorepo from GitHub, so the wiring is pinned in the source: without
+    // this call every new project starts at the template's release number.
+    const initSource = filesystem.read(filesystem.path(filesystem.cwd(), 'src', 'commands', 'fullstack', 'init.ts')) || '';
+    const rename = initSource.indexOf('setPackageName({ filesystem, name: projectDir');
+    const reset = initSource.indexOf("setPackageVersion({ filesystem, packageJsonPath: `${projectDir}/package.json`, version: '0.0.0' })");
+
+    expect(rename).toBeGreaterThan(-1);
+    expect(reset).toBeGreaterThan(rename);
+    expect(initSource.slice(rename, reset).split('\n').length).toBeLessThan(8);
   });
 });
 

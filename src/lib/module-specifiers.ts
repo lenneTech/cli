@@ -11,7 +11,7 @@
  * in a plain `scan()` loop, and a template literal WITH a substitution cannot be read
  * that way: the scanner hands back `TemplateHead` and needs `reScanTemplateToken()` to
  * continue. Without it every token after the first `` `x${…}` `` is misread, so comments
- * from there on pass through verbatim. Bisected on `src/templates/check/check.mjs`: the
+ * from there on pass through verbatim. Bisected on lt-monorepo's `scripts/check.mjs`: the
  * first surviving comment appears right after `` `${s.toFixed(1)}s` `` on line 70, and a
  * two-line fixture reproduces it. A plain template without substitution is fine; regex
  * literals and division — the first suspects — are not the cause.

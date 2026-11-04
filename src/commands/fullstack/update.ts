@@ -2,6 +2,7 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { fetchCheckWrapperRelease } from '../../lib/check-wrapper-release';
 import { addToGitignore } from '../../lib/dev-patches';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
 import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
@@ -203,16 +204,32 @@ const NewCommand: GluegunCommand = {
     // ── Self-heal: install/refresh the report-driven `check` wrapper ──────
     //
     // `lt fullstack init` ships `scripts/check.mjs` via the template clone, but
-    // pre-existing projects predate it. This idempotently installs the bundled
-    // wrapper (and rewrites the root `check`/`check:raw`) so a migrated project
-    // gets the quiet, report-driven check too. No-op once already wired.
+    // pre-existing projects predate it, and every lt-monorepo release brings a
+    // newer one. This idempotently installs the wrapper of the newest
+    // lt-monorepo release (and rewrites the root `check`/`check:raw`) when the
+    // project's marker is older. No-op once current.
     //
-    // Only at a workspace root: the bundled file is lt-monorepo's ROOT wrapper.
+    // Only at a workspace root: the wrapper is lt-monorepo's ROOT wrapper.
     // `projects/api` and standalone starter projects ship their own, unmarked
     // `scripts/check.mjs`, which heal reads as legacy — run from there, this
     // replaced the API's check and the starter's tests failed on its content.
-    const checkAsset = join(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
-    const changedCheck = isWorkspace ? healCheckWrapper(cwd, checkAsset) : [];
+    let changedCheck: string[] = [];
+    let checkRelease = '';
+    if (isWorkspace) {
+      const { error, release } = fetchCheckWrapperRelease();
+      if (release) {
+        checkRelease = release.version;
+        try {
+          changedCheck = healCheckWrapper(cwd, release.assetPath);
+        } finally {
+          release.dispose();
+        }
+      } else {
+        info('');
+        warning(`  Check wrapper not compared: ${error}`);
+        info('    The project keeps its wrapper. Re-run `lt fullstack update` once lt-monorepo is reachable.');
+      }
+    }
     if (changedCheck.length > 0) {
       info('');
       // A skip entry is NOT a success — it means the wrapper stayed on its old
@@ -221,7 +238,7 @@ const NewCommand: GluegunCommand = {
       const skipped = changedCheck.filter((entry) => entry.includes('skipped'));
       const applied = changedCheck.filter((entry) => !entry.includes('skipped'));
       if (applied.length > 0) {
-        success(`  Installed/updated the check wrapper: ${applied.join(', ')}`);
+        success(`  Installed/updated the check wrapper (lt-monorepo ${checkRelease}): ${applied.join(', ')}`);
         info('    `check` now serialises build/typecheck against the test suites,');
         info('    so it takes longer in wall-clock but no longer destabilises API e2e runs.');
         info('    The wrapper imports its siblings — keep them together, or `check` will not start.');

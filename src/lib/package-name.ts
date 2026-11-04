@@ -90,3 +90,34 @@ export function setPackageName(options: {
   filesystem.write(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
   return true;
 }
+
+/**
+ * Set the `version` field of a package.json on disk.
+ *
+ * Used by `lt fullstack init` next to `setPackageName`: the cloned lt-monorepo
+ * root carries the TEMPLATE's release version (e.g. `3.17.2`), which a new
+ * project would otherwise start with and `lt status` would report as the
+ * project's version. It is easily mistaken for the `@lt-check-wrapper` marker
+ * in `scripts/check.mjs`, which names the same release but is a different thing:
+ * the marker stays tied to the check wrapper, the version belongs to the project.
+ *
+ * Same JSON handling and idempotency as `setPackageName`.
+ *
+ * @returns true if the file was written, false otherwise (missing/unreadable/unchanged)
+ */
+export function setPackageVersion(options: {
+  filesystem: GluegunFilesystem;
+  packageJsonPath: string;
+  version: string;
+}): boolean {
+  const { filesystem, packageJsonPath, version } = options;
+  if (!filesystem.exists(packageJsonPath)) return false;
+
+  const pkg = filesystem.read(packageJsonPath, 'json') as null | Record<string, unknown>;
+  if (!pkg || typeof pkg !== 'object' || Array.isArray(pkg)) return false;
+
+  if (pkg.version === version) return false;
+  pkg.version = version;
+  filesystem.write(packageJsonPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  return true;
+}

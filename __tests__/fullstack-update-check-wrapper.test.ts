@@ -1,6 +1,6 @@
 /**
- * `lt fullstack update` installs the bundled check wrapper — lt-monorepo's ROOT
- * wrapper — only at a workspace root.
+ * `lt fullstack update` installs the check wrapper of the newest lt-monorepo
+ * release — lt-monorepo's ROOT wrapper — only at a workspace root.
  *
  * Regression: run from `projects/api` (or in a standalone API project), the
  * command handed its cwd to `healCheckWrapper`. The starter ships its own,
@@ -12,30 +12,31 @@
  * Behavioural on purpose: `bin/lt` runs the TypeScript source through ts-node,
  * so this exercises the real command, not a predicate copied out of it.
  */
-import { spawnSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 const BIN = join(__dirname, '..', 'bin', 'lt');
-const BUNDLED = readFileSync(join(__dirname, '..', 'src', 'templates', 'check', 'check.mjs'), 'utf8');
+const RELEASED = '#!/usr/bin/env node\n// @lt-check-wrapper 9.9.9\nconsole.log("released wrapper");\n';
 const STARTER_WRAPPER = '#!/usr/bin/env node\n// starter wrapper — SHARED-WITH-CHECK-MJS\n';
 
 /** The hook variables git exports in a linked worktree must not reach the child. */
-function cleanEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
+function cleanEnv(source: string): NodeJS.ProcessEnv {
+  const env = { ...process.env, LT_CHECK_WRAPPER_SOURCE: source };
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[key];
   return env;
 }
 
-function runUpdate(cwd: string): void {
+function runUpdate(cwd: string, source: string): string {
   const result = spawnSync(process.execPath, [BIN, 'fullstack', 'update'], {
     cwd,
     encoding: 'utf8',
-    env: cleanEnv(),
+    env: cleanEnv(source),
     timeout: 120_000,
   });
   if (result.error) throw result.error;
+  return `${result.stdout}${result.stderr}`;
 }
 
 /** A project with its own (starter-shaped, unmarked) check wrapper. */
@@ -45,22 +46,41 @@ function writeSubProject(dir: string): void {
   writeFileSync(join(dir, 'scripts', 'check.mjs'), STARTER_WRAPPER);
 }
 
+/** A local stand-in for lt-monorepo with one release, v9.9.9. */
+function writeUpstream(dir: string): void {
+  const git = (...args: string[]): void => {
+    execFileSync('git', ['-C', dir, ...args], { env: cleanEnv(''), stdio: 'ignore' });
+  };
+  mkdirSync(join(dir, 'scripts'), { recursive: true });
+  writeFileSync(join(dir, 'scripts', 'check.mjs'), RELEASED);
+  // Like lt-monorepo itself: without it, `core.autocrlf=true` (the Windows CI job) clones CRLF.
+  writeFileSync(join(dir, '.gitattributes'), '* text=auto eol=lf\n');
+  execFileSync('git', ['init', '--quiet', dir], { env: cleanEnv(''), stdio: 'ignore' });
+  git('add', '-A');
+  git('-c', 'user.email=test@example.com', '-c', 'user.name=Test', 'commit', '--quiet', '-m', 'release');
+  git('tag', 'v9.9.9');
+}
+
 describe('lt fullstack update — check wrapper scope', () => {
   let tmp: string;
+  let upstream: string;
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), 'lt-update-wrapper-'));
+    upstream = mkdtempSync(join(tmpdir(), 'lt-update-upstream-'));
+    writeUpstream(upstream);
   });
 
   afterEach(() => {
     rmSync(tmp, { force: true, recursive: true });
+    rmSync(upstream, { force: true, recursive: true });
   });
 
   test("leaves a standalone API project's own wrapper alone", () => {
     writeSubProject(tmp);
     const pkgBefore = readFileSync(join(tmp, 'package.json'), 'utf8');
 
-    runUpdate(tmp);
+    runUpdate(tmp, upstream);
 
     expect(readFileSync(join(tmp, 'scripts', 'check.mjs'), 'utf8')).toBe(STARTER_WRAPPER);
     expect(readFileSync(join(tmp, 'package.json'), 'utf8')).toBe(pkgBefore);
@@ -71,7 +91,7 @@ describe('lt fullstack update — check wrapper scope', () => {
     const api = join(tmp, 'projects', 'api');
     writeSubProject(api);
 
-    runUpdate(api);
+    runUpdate(api, upstream);
 
     expect(readFileSync(join(api, 'scripts', 'check.mjs'), 'utf8')).toBe(STARTER_WRAPPER);
   }, 180_000);
@@ -80,11 +100,22 @@ describe('lt fullstack update — check wrapper scope', () => {
     writeFileSync(join(tmp, 'package.json'), `${JSON.stringify({ name: 'ws', scripts: { check: 'pnpm -r run check' } }, null, 2)}\n`);
     writeSubProject(join(tmp, 'projects', 'api'));
 
-    runUpdate(tmp);
+    runUpdate(tmp, upstream);
 
-    expect(readFileSync(join(tmp, 'scripts', 'check.mjs'), 'utf8')).toBe(BUNDLED);
+    expect(readFileSync(join(tmp, 'scripts', 'check.mjs'), 'utf8')).toBe(RELEASED);
     expect(JSON.parse(readFileSync(join(tmp, 'package.json'), 'utf8')).scripts.check).toBe('node scripts/check.mjs');
     // …and the sub-project it walked into keeps its own.
     expect(readFileSync(join(tmp, 'projects', 'api', 'scripts', 'check.mjs'), 'utf8')).toBe(STARTER_WRAPPER);
+  }, 180_000);
+
+  test('keeps the wrapper and says so when lt-monorepo is not reachable', () => {
+    writeFileSync(join(tmp, 'package.json'), `${JSON.stringify({ name: 'ws', scripts: { check: 'pnpm -r run check' } }, null, 2)}\n`);
+    writeSubProject(join(tmp, 'projects', 'api'));
+    const pkgBefore = readFileSync(join(tmp, 'package.json'), 'utf8');
+
+    const output = runUpdate(tmp, join(upstream, 'missing'));
+
+    expect(output).toMatch(/Check wrapper not compared: .* is not reachable/);
+    expect(readFileSync(join(tmp, 'package.json'), 'utf8')).toBe(pkgBefore);
   }, 180_000);
 });

@@ -189,10 +189,11 @@ const DoctorCommand: GluegunCommand = {
         line('OK', colors.green, 'global-setup allow-list is ticket + shard safe');
       }
 
-      // 7.5 check wrapper drift: the root wrapper is canonical (bundled with the
-      //     CLI, synced by `lt fullstack update`). A diverged copy silently
-      //     misses fixes (idle-watchdog, install hoisting, summed test
-      //     metrics) — surface it instead of letting copies drift apart.
+      // 7.5 check wrapper drift: the canonical root wrapper is the one of the
+      //     newest lt-monorepo release, which `lt fullstack update` installs.
+      //     A diverged copy silently misses fixes (idle-watchdog, install
+      //     hoisting, summed test metrics) — surface it instead of letting
+      //     copies drift apart.
       //
       //     Checked over the WHOLE copy set, not just `check.mjs`: the wrapper
       //     imports siblings, so a missing or stale one makes `check` die with
@@ -206,15 +207,22 @@ const DoctorCommand: GluegunCommand = {
       //     `scripts/check.mjs`, which is not a drifted copy of the root wrapper,
       //     and `lt fullstack update` deliberately leaves it alone.
       if (layout.workspace) {
+        let release: import('../../lib/check-wrapper-release').CheckWrapperRelease | null = null;
         try {
           const { readFileSync: read } = await import('fs');
           const { join: j } = await import('path');
+          const { fetchCheckWrapperRelease } = await import('../../lib/check-wrapper-release');
           const { keptWrapperReason, resolveCopySet } = await import('../../lib/heal-check-wrapper');
-          const bundledCheck = j(__dirname, '..', '..', 'templates', 'check', 'check.mjs');
-          if (filesystem.exists(bundledCheck)) {
+          const fetched = fetchCheckWrapperRelease();
+          release = fetched.release;
+          if (!release) {
+            line('INFO', colors.cyan, `check wrapper not compared: ${fetched.error}`);
+          } else {
+            const releaseCheck = release.assetPath;
+            const canonical = `lt-monorepo release ${release.version}`;
             const missing: string[] = [];
             const drifted: string[] = [];
-            for (const { rel, source } of resolveCopySet(bundledCheck)) {
+            for (const { rel, source } of resolveCopySet(releaseCheck)) {
               const target = j(layout.root, rel);
               if (!filesystem.exists(target)) {
                 missing.push(rel);
@@ -230,7 +238,7 @@ const DoctorCommand: GluegunCommand = {
             // A project wrapper that heal refuses to replace (newer release, or the same
             // release with other content) is not drift to fix: pointing at
             // `lt fullstack update` there would recommend a no-op or a downgrade.
-            const kept = keptWrapperReason(layout.root, bundledCheck);
+            const kept = keptWrapperReason(layout.root, releaseCheck);
             if (kept) {
               line('INFO', colors.cyan, `check wrapper: ${kept}`);
             } else if (missing.length > 0 && !wrapperDrifted) {
@@ -239,14 +247,16 @@ const DoctorCommand: GluegunCommand = {
             } else if (drifted.length > 0) {
               const outdated = [...drifted, ...missing.map((rel) => `${rel} (missing)`)];
               const verb = outdated.length === 1 ? 'differs' : 'differ';
-              line('WARN', colors.yellow, `${outdated.join(', ')} ${verb} from the canonical CLI version`);
+              line('WARN', colors.yellow, `${outdated.join(', ')} ${verb} from the ${canonical}`);
               line('WARN', colors.yellow, '  run `lt fullstack update` to sync it (skips uncommitted local edits)');
             } else if (filesystem.exists(j(layout.root, 'scripts', 'check.mjs'))) {
-              line('OK', colors.green, 'check wrapper matches the canonical CLI version');
+              line('OK', colors.green, `check wrapper matches the ${canonical}`);
             }
           }
         } catch {
           /* best-effort diagnostics */
+        } finally {
+          release?.dispose();
         }
       }
 

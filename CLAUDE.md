@@ -111,45 +111,51 @@ if (!noConfirm && !(await confirm('Proceed?'))) return;
   inline `check:vendor-freshness` one-liner in the generated `package.json`,
   and the sync / contribute flows are handled by the
   `nest-server-core-updater` / `nest-server-core-contributor` agents.
-- `src/templates/check/` ships the report-driven check runner
-  (`check.mjs` + the modules it imports, currently `build-test-gate.mjs`
-  and `lib/{ansi,audit-report,workspace-packages}.mjs`).
+- The report-driven check runner (`scripts/check.mjs` + the modules it
+  imports, currently `build-test-gate.mjs` and
+  `lib/{ansi,audit-report,workspace-packages}.mjs`) is NOT a template here.
+  lt-monorepo owns it, and nothing in this repo carries a copy.
   `lt fullstack init` delivers it via the `lt-monorepo` clone;
-  `lt fullstack update` installs/refreshes it through
-  `healCheckWrapper` (`src/lib/heal-check-wrapper.ts`), and
-  `lt dev doctor` reports drift over the same set. Byte-identical to
-  `lt-monorepo/scripts/` — **fix both repos or they silently diverge**.
-  They did: until 2026-09-14 the copy here lagged two lt-monorepo releases
-  behind, and because heal treats the CLI copy as canonical, every
-  `lt fullstack update` put the OLDER wrapper into a freshly created project.
-  `lt-monorepo` is the upstream. **Never edit the copy here**: change
-  lt-monorepo, then `npm run sync:check-template -- --ref <tag|sha>`
-  (`--from <local clone>` for an unpushed commit). It copies `check.mjs` plus
-  its import closure and writes `lt-monorepo-pin.json` (commit, marker
-  version, sha256 per file); `__tests__/check-template-sync.test.ts` fails on
-  any byte that differs from that pin, without network. Two guards, two jobs:
-  the pin stops drift here, the `// @lt-check-wrapper <version>` marker (line 2,
-  same regex as `MARKER_RE` in lt-monorepo's `scripts/check-wrapper-version.test.mjs`) stops damage
-  in projects. It names the lt-monorepo RELEASE, never a project's version. Heal
-  replaces a project wrapper only when the bundled release is NEWER or the
-  project wrapper is unmarked (markers start at the pinned commit, so every
-  unmarked wrapper predates the pin). A newer release, an unrecognised marker,
-  or the SAME release with different content is kept — the marker only moves on
-  a release, so lt-monorepo main after v3.12.0 still reads 3.12.0, and
-  overwriting on a tie would turn later fixes back. Doctor reports those cases
-  as INFO via the same `keptWrapperReason`, never as "run lt fullstack update".
+  `lt fullstack update` fetches the NEWEST lt-monorepo release tag at run time
+  (`fetchCheckWrapperRelease`, `src/lib/check-wrapper-release.ts`) and installs
+  it through `healCheckWrapper` (`src/lib/heal-check-wrapper.ts`); `lt dev
+  doctor` reports drift against the same release. Until 2026-11-04 the CLI
+  bundled a pinned copy (`src/templates/check/` + `lt-monorepo-pin.json`), so
+  every lt-monorepo release needed a CLI release before `update` passed it on,
+  and `init` (lt-monorepo main) and `update` (the pin) put different versions
+  into projects. Before the pin, the hand-kept copy once lagged two releases
+  behind and `update` DOWNGRADED new projects with it.
+  **A release TAG (`vX.Y.Z`, no prerelease), never main**: the marker only moves
+  on a release, so main after v3.17.2 still reads 3.17.2 with other content; a
+  tag names exactly one. The fetch fails CLOSED and the project keeps its
+  wrapper when the remote is unreachable (`ls-remote` exit code checked; an
+  empty list is not "no tags"), has no release tag, the marker on line 2 is not
+  the tag's version, or the wrapper STARTS a sibling it does not import
+  (`spawnedSiblings`, see the import-closure Gotcha). git runs with
+  `GIT_TERMINAL_PROMPT=0`, timeouts and without the hook `GIT_*` variables.
+  `LT_CHECK_WRAPPER_SOURCE` (git URL or local path) replaces GitHub, for a
+  mirror or a test fixture; the vitest setup points it at a path that does not
+  exist, so no test reaches the network.
+  The `// @lt-check-wrapper <version>` marker (same regex as `MARKER_RE` in
+  lt-monorepo's `scripts/check-wrapper-version.test.mjs`) names the lt-monorepo
+  RELEASE, never a project's version. To keep the two apart, `lt fullstack init`
+  resets the cloned root `package.json` version to `0.0.0` (`setPackageVersion`);
+  before, every new project started with the template's release number, which
+  `lt status` reported as the project's version. Heal replaces a project wrapper only when
+  the release is NEWER or the project wrapper is unmarked. A newer wrapper, an
+  unrecognised marker, or the SAME release with different content is kept —
+  overwriting on a tie would turn back later fixes in a project created from
+  main. Doctor reports those cases as INFO via the same `keptWrapperReason`,
+  never as "run lt fullstack update".
   Both act at a WORKSPACE ROOT only (`isWorkspace` in `update.ts`,
   `layout.workspace` in doctor): `projects/api` and standalone starters ship
   their own, unmarked `scripts/check.mjs`, which heal would read as legacy —
   `lt fullstack update` run from `projects/api` replaced the API's check with
   the root wrapper and the starter's own tests failed on its content.
-  Like the rest of `src/templates/**` it is ESLint-exempt, so its `.mjs`
-  files get no lint/tsc coverage at all; the guards that do cover them
-  are `__tests__/check-template.test.ts` and
-  `__tests__/build-test-gate.test.ts`, which load them in a real Node
-  ESM child (`__tests__/check-template-esm.ts`). That started as a Jest
-  workaround (its transform turned `import()` into `require()`); it stays
-  because a plain Node child is what the generated projects run.
+  The wrapper's CONTENT is tested in lt-monorepo (`scripts/*.test.mjs`); this
+  repo tests fetching and installing it, against fixture repositories.
+  `__tests__/check-wrapper-release-e2e.manual.ts` installs the real newest
+  release and loads it in Node (`npm run test:manual`, needs network).
   Mode-agnostic — it neither reads nor generates framework source, so it
   needs no row in the vendor/npm tables below.
 
@@ -1015,17 +1021,17 @@ template dir into a live namespace over the project's `scripts/`, so any file a 
 contributor drops there lands in every user project.
 **Rule 1b — an import is not the only way to need a file.** `resolveCopySet` follows
 IMPORTS. A sibling the wrapper STARTS (`node scripts/x.mjs`, `spawn`, `execSync`) is
-invisible to it: the file is never shipped, the pin test stays green, and only the
-generated project breaks. `spawnedSiblings` (`src/lib/check-template-sync.ts`) therefore
-scans for `scripts/<name>` inside string literals and makes both the sync and
-`verifyCheckTemplate` REFUSE rather than ship it silently — whether such a file belongs
-in the template or whether lt-monorepo should drop the call is a human decision, and a
+invisible to it: the file is never shipped, and only the generated project breaks.
+`spawnedSiblings` (`src/lib/check-wrapper-release.ts`) therefore scans for
+`scripts/<name>` inside string literals, and `fetchCheckWrapperRelease` REFUSES such a
+release rather than install it incomplete — whether the file belongs in the wrapper's
+import closure or whether lt-monorepo should drop the call is a human decision, and a
 wrong automatic answer in either direction is expensive.
 Two things that cost a draft each, both worth keeping:
 - **Skip comment LINES, do not trust `stripComments` here.** These templates document
   their own behaviour in backtick-quoted prose, and a backtick is a string delimiter to
   a regex: the first draft reported `bash scripts/audit.sh` out of a comment and would
-  have refused every sync from then on.
+  have refused every release from then on.
 - **`stripComments` silently degrades on this file.** Measured by stripping growing
   prefixes: a regex literal (`/^projects\//`, line 63) and a division (`ms / 1000`,
   line 66) are both handled — it breaks at line 67, ``return `${s.toFixed(1)}s` ``. A
@@ -1064,7 +1070,8 @@ skip matters more than the `wx`: `wx` alone turns a planted link into `EEXIST`, 
 **Rule 4 — every diagnostic that knows the old asset must learn the new set.**
 `lt dev doctor` compared only `check.mjs` and printed a green "matches the canonical
 CLI version" for a project whose `check` could not start at all — and doctor is exactly
-what people run at that moment.
+what people run at that moment. (The asset is now the newest lt-monorepo release, not a
+bundled copy; the rules hold unchanged.)
 
 ### Hoisting a settings-only `pnpm-workspace.yaml` DELETES it — so every field must be hoisted <!-- Added: 2026-07-31 -->
 `hoistFromSubWorkspaceYaml` removes a sub-project's settings-only
@@ -1411,7 +1418,7 @@ quote a needle. A live trap, not a live bug.
 **Cause-hunting note, because it cost a published claim.** The first diagnosis was "a
 regex literal followed by a division, which a scanner has no parser context to tell
 apart" — read off the offset where blanking stopped, and wrong: bisecting growing
-prefixes of `src/templates/check/check.mjs` shows the regex on line 63 and the division
+prefixes of the check wrapper (then bundled as `src/templates/check/check.mjs`) shows the regex on line 63 and the division
 on line 66 both handled, and the break at line 67's `` `${s.toFixed(1)}s` ``. Isolated
 per construct: interpolating template → leaks; plain template → clean; division alone →
 clean; regex-then-division → clean. It was the counter-test written from the wrong
