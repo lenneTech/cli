@@ -30,6 +30,14 @@ export interface CaddyRoute {
 }
 
 const CADDYFILE_PATH = process.env.LT_DEV_CADDYFILE || join(homedir(), '.lenneTech', 'Caddyfile');
+/**
+ * Address of the Caddy admin API that every probe, reload and stop uses. `LT_DEV_CADDY_ADMIN`
+ * overrides it, and the test setup points it at a port nothing listens on: a reload REPLACES the
+ * config of whatever answers there. During the TDD run of DEV-4005 one red test called the real
+ * `caddy reload` with a temp Caddyfile, and the developer's running Caddy dropped the routes of
+ * every `lt dev` stack on the machine until it was reloaded by hand.
+ */
+const CADDY_ADMIN = process.env.LT_DEV_CADDY_ADMIN || '127.0.0.1:2019';
 /** Upstream connection cap per route — well below the 128 of macOS `somaxconn` (see `renderProjectBlock`). */
 const UPSTREAM_MAX_CONNS = 32;
 const HEADER = '# Managed by `lt dev`. Per-project blocks are bounded by `# >>> lt-dev:<slug> >>>` markers.';
@@ -114,7 +122,7 @@ export async function caddyAvailable(): Promise<boolean> {
  * was the fault here; it was measured to resolve correctly on that machine.
  */
 export async function caddyDaemonRunning(): Promise<boolean> {
-  return (await httpStatus('http://127.0.0.1:2019/config/', 2000)) !== null;
+  return (await httpStatus(`http://${CADDY_ADMIN}/config/`, 2000)) !== null;
 }
 
 /**
@@ -203,7 +211,7 @@ export function loadedCaddyConfig(timeoutMs = 2000): Promise<null | string> {
       settled = true;
       resolve(value);
     };
-    const request = httpGet('http://127.0.0.1:2019/config/', { timeout: timeoutMs }, (response) => {
+    const request = httpGet(`http://${CADDY_ADMIN}/config/`, { timeout: timeoutMs }, (response) => {
       if (response.statusCode !== 200) {
         response.resume();
         done(null);
@@ -271,7 +279,7 @@ export function readCaddyfile(): string {
  * starting Caddy in the first place (typically via `lt dev install`).
  */
 export async function reloadCaddy(): Promise<CaddyResult> {
-  return runCaddy(['reload', '--config', CADDYFILE_PATH, '--adapter', 'caddyfile']);
+  return runCaddy(['reload', '--config', CADDYFILE_PATH, '--adapter', 'caddyfile', '--address', CADDY_ADMIN]);
 }
 
 /**
@@ -443,5 +451,6 @@ function runCaddy(args: string[]): Promise<CaddyResult> {
 
 /** Path constants for tests + status displays. */
 export const paths = {
+  admin: CADDY_ADMIN,
   caddyfile: CADDYFILE_PATH,
 };

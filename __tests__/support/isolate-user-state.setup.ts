@@ -27,6 +27,10 @@ process.env.LT_DEV_CADDYFILE = join(root, 'Caddyfile');
 process.env.LT_DEV_REGISTRY_PATH = join(root, 'projects.json');
 process.env.LT_DEV_SESSION_SALT_PATH = join(root, 'dev-session-salt');
 process.env.LT_MARKETPLACE_CONFIG = join(root, 'claude-marketplaces.json');
+// Not a file, but per-user state all the same: the developer's running Caddy. A reload replaces
+// its whole config, and one red test did exactly that on 2026-11-05 (DEV-4005). Port 1 has no
+// listener on a developer machine, so every probe reads "not running" and every reload fails.
+process.env.LT_DEV_CADDY_ADMIN = '127.0.0.1:1';
 // Not per-user state, but the same rule: `lt fullstack update` and `lt dev doctor` fetch the check
 // wrapper from lt-monorepo. A path that does not exist fails fast and offline; a suite that needs
 // a release points this at its own fixture repository.

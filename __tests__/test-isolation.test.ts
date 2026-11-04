@@ -39,6 +39,11 @@ describe('test isolation', () => {
     expect(outside).toEqual([]);
   });
 
+  it("keeps every test away from the developer's running Caddy", () => {
+    // A reload through this address replaces the whole config of whatever answers there.
+    expect(caddyPaths.admin).toBe('127.0.0.1:1');
+  });
+
   it('arms the isolation before every other setup file', () => {
     expect(config.test?.setupFiles?.[0]).toBe('__tests__/support/isolate-user-state.setup.ts');
   });

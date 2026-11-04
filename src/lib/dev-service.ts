@@ -459,7 +459,7 @@ async function installLinux(paths: ServicePaths, changed: boolean, existed: bool
 
 /** See `caddy.ts#caddyDaemonRunning` for why this is not a `curl` any more. */
 async function pingCaddyAdmin(): Promise<boolean> {
-  return (await httpStatus('http://127.0.0.1:2019/config/', 1000)) !== null;
+  return (await httpStatus(`http://${caddyPaths.admin}/config/`, 1000)) !== null;
 }
 
 function sleep(ms: number): Promise<void> {

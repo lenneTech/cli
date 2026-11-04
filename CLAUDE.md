@@ -1980,6 +1980,18 @@ session, 2026-11-04). `src/lib/dev-sql.ts` closes it. What it had to get right:
 - This repo's `tsconfig` has no `strictNullChecks`, so a `{ ok: false } | { ok: true }` union does
   not narrow; the results carry a nullable `failure` field instead.
 
+### A red TDD run executes the real side effect your fake was meant to replace <!-- Added: 2026-11-05 -->
+DEV-4005 wrote `reloadCaddy({ detectOwner, run })` tests before `reloadCaddy` took that argument.
+The red run called the OLD `reloadCaddy()`, which ignored the fakes and ran a real `caddy reload`
+with the suite's temp Caddyfile against the developer's running Caddy: every `lt dev` stack on the
+machine lost its route for ten minutes, until the real Caddyfile was reloaded by hand. A test that
+injects a fake for a destructive call is only safe once the code takes the injection, so the
+environment has to make the real call harmless as well: `LT_DEV_CADDY_ADMIN` (`paths.admin`) is
+the address every probe, reload and stop uses, the test setup points it at `127.0.0.1:1`, and
+`test-isolation.test.ts` pins that. **Rule:** a new destructive integration (an admin API, a
+daemon, a database) gets its isolation in `isolate-user-state.setup.ts` BEFORE its first test,
+not after the first incident.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash
