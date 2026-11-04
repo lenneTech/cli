@@ -9,6 +9,7 @@ import {
   findMissingTools,
   gitInstallHint,
   pnpmInstallHint,
+  pnpmMajorIssue,
 } from '../src/lib/toolchain-preflight';
 
 /** PATH lookup backed by a fixed set of tool names. */
@@ -26,7 +27,7 @@ describe('findMissingTools', () => {
     const issues = findMissingTools({ pnpm: true }, { findExecutable: onPath(), platform: 'win32' });
     expect(issues.map((i) => i.id)).toEqual(['git-missing', 'pnpm-missing']);
     expect(issues[0].fix).toEqual(['winget install --id Git.Git -e --source winget']);
-    expect(issues[1].fix).toEqual(['npm install -g pnpm']);
+    expect(issues[1].fix).toEqual(['npm install -g pnpm@11']);
     expect(issues[1].message).toContain('lt fullstack init');
   });
 
@@ -43,8 +44,29 @@ describe('install hints', () => {
     expect(gitInstallHint('win32')).not.toContain('brew');
   });
 
-  it('installs pnpm without admin rights (no corepack, which writes next to node.exe)', () => {
-    expect(pnpmInstallHint()).toBe('npm install -g pnpm');
+  it('installs pnpm 11 without admin rights (no corepack, which writes next to node.exe)', () => {
+    expect(pnpmInstallHint()).toBe('npm install -g pnpm@11');
+  });
+});
+
+describe('pnpmMajorIssue', () => {
+  it('accepts the pinned major', () => {
+    expect(pnpmMajorIssue('11.28.10\n', 'win32')).toBeNull();
+  });
+
+  it('explains another major (pnpm 12 downloads the pinned version as a native binary)', () => {
+    expect(pnpmMajorIssue('12.15.0', 'win32')).toContain('Smart App Control');
+    expect(pnpmMajorIssue('10.33.0', 'win32')).toContain('not pnpm 11');
+  });
+
+  it('stays silent when the version cannot be read', () => {
+    expect(pnpmMajorIssue('', 'win32')).toBeNull();
+    expect(pnpmMajorIssue('error', 'win32')).toBeNull();
+  });
+
+  it('says nothing on macOS and Linux, where a version switch is harmless', () => {
+    expect(pnpmMajorIssue('12.15.0', 'darwin')).toBeNull();
+    expect(pnpmMajorIssue('10.30.2', 'linux')).toBeNull();
   });
 });
 

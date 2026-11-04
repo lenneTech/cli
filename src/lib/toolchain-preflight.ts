@@ -14,6 +14,15 @@
 import { execArgs } from './exec-args';
 import { findExecutable } from './platform';
 
+/**
+ * The pnpm major the lt-monorepo template pins (`packageManager: pnpm@11.…`). Keep in step
+ * with it. Installed from npm, pnpm 11 is JavaScript run by the signed node.exe. pnpm 12 is a
+ * native binary, and in a project pinned to 11 it downloads the pinned version as another
+ * native binary (`@pnpm/exe`), which Windows Smart App Control blocked: CodeIntegrity event
+ * 3033, "did not meet the Enterprise signing level requirements" (DEV-3320, 2026-11-04).
+ */
+export const PNPM_MAJOR = 11;
+
 export interface ToolchainDeps {
   /** Resolve a binary on PATH, `null` when absent. Default: {@link findExecutable}. */
   findExecutable?: (name: string) => null | string;
@@ -108,11 +117,31 @@ export function gitInstallHint(platform: NodeJS.Platform = process.platform): st
 /**
  * Install command for pnpm. `npm install -g` needs no admin rights on any platform and puts
  * the shim next to `lt`; `corepack enable` writes next to node.exe, which on Windows sits in
- * `C:\Program Files` and needs an elevated shell.
+ * `C:\Program Files` and needs an elevated shell. Pinned to {@link PNPM_MAJOR}.
  */
 export function pnpmInstallHint(): string {
-  return 'npm install -g pnpm';
+  return `npm install -g pnpm@${PNPM_MAJOR}`;
 }
+
+/**
+ * Why a globally installed pnpm of another major is a problem, or `null` when it is fine
+ * (or the version cannot be read). Windows only: elsewhere a version switch is harmless, and
+ * on macOS/Linux a pnpm 10 that switches per project is common and works.
+ * @param version - Output of `pnpm --version`
+ * @param platform - Default: `process.platform`
+ */
+export function pnpmMajorIssue(version: string, platform: NodeJS.Platform = process.platform): null | string {
+  if (platform !== 'win32') {
+    return null;
+  }
+  const trimmed = String(version).trim();
+  const major = parseInt(trimmed.split('.')[0], 10);
+  if (!Number.isFinite(major) || major === PNPM_MAJOR) {
+    return null;
+  }
+  return `pnpm ${trimmed} is not pnpm ${PNPM_MAJOR}, which lt projects pin. It switches versions per project by downloading them; on Windows, Smart App Control can block that download.`;
+}
+
 
 /** First non-empty line, without git's `fatal: ` prefix. */
 function firstMeaningfulLine(text: string): string {

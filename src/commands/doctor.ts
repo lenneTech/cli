@@ -4,7 +4,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { spawnArgs } from '../lib/exec-args';
-import { checkGitIdentity, gitInstallHint, pnpmInstallHint } from '../lib/toolchain-preflight';
+import { checkGitIdentity, gitInstallHint, pnpmInstallHint, pnpmMajorIssue } from '../lib/toolchain-preflight';
 
 interface CheckResult {
   details?: string;
@@ -132,12 +132,25 @@ const DoctorCommand: GluegunCommand = {
       try {
         // Argument list, no shell: npm and pnpm are .cmd shims on Windows (see exec-args.ts).
         const pmVersion = await spawnArgs(manager, ['--version']);
-        pmSpinner.succeed(`${manager} ${pmVersion.trim()}`);
-        checks.push({ name: `Package Manager (${manager})`, status: 'ok' });
-      } catch {
-        pmSpinner.fail(`${manager} not found`);
+        const majorIssue = manager === 'pnpm' ? pnpmMajorIssue(pmVersion) : null;
+        if (majorIssue) {
+          pmSpinner.warn(`${manager} ${pmVersion.trim()}`);
+          checks.push({ details: majorIssue, fix: pnpmInstallHint(), name: `Package Manager (${manager})`, status: 'warning' });
+        } else {
+          pmSpinner.succeed(`${manager} ${pmVersion.trim()}`);
+          checks.push({ name: `Package Manager (${manager})`, status: 'ok' });
+        }
+      } catch (err) {
+        // "not found" only when it is missing. A pnpm that exists but fails to start (on Windows:
+        // the version it switches to was blocked by Smart App Control) gets its own first line.
+        const missing = (err as NodeJS.ErrnoException)?.code === 'ENOENT';
+        const reason = String((err as { stderr?: string })?.stderr ?? '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean);
+        pmSpinner.fail(missing ? `${manager} not found` : `${manager} failed to start`);
         checks.push({
-          details: manager === 'pnpm' ? 'lt fullstack init and lt dev need pnpm' : undefined,
+          details: missing ? (manager === 'pnpm' ? 'lt fullstack init and lt dev need pnpm' : undefined) : reason,
           fix: manager === 'pnpm' ? pnpmInstallHint() : `Install ${manager}`,
           name: `Package Manager (${manager})`,
           status: 'error',
