@@ -18,8 +18,14 @@
  *   - Linux:  systemd-user unit at
  *     `~/.config/systemd/user/lt-dev-caddy.service`, controlled via
  *     `systemctl --user`.
- *   - Anything else (Windows, BSDs without systemd-user): explicitly
- *     unsupported — the caller surfaces a clear message.
+ *   - Windows: no service. `lt dev install`, `lt dev up`, `lt dev test`
+ *     and `lt dev tunnel` start Caddy themselves as a detached background
+ *     process when none runs (`startCaddyOnDemand`). A Windows service
+ *     would run as another account with its own local CA, which the
+ *     user's browser does not trust, and Caddy binds :443 there without
+ *     admin rights. See `caddyLaunchMode`.
+ *   - Anything else (BSDs without systemd-user): explicitly unsupported —
+ *     the caller surfaces a clear message.
  *
  * Tests inject a `ShellRunner` to mock `launchctl` / `systemctl`
  * without touching the real OS. Render functions stay pure.
@@ -30,7 +36,7 @@ import { homedir, platform, userInfo } from 'os';
 import { dirname, join } from 'path';
 
 import { paths as caddyPaths } from './caddy';
-import { httpStatus } from './dev-process';
+import { httpStatus, spawnDetached } from './dev-process';
 import { findExecutable, type FindExecutableOptions } from './platform';
 
 /**
@@ -107,6 +113,19 @@ export interface UninstallServiceResult {
 }
 
 let activeRunner: ShellRunner = defaultShellRunner;
+
+/**
+ * How Caddy gets started on this platform.
+ *
+ * - `service`: a LaunchAgent / systemd-user unit owns it (`installService`).
+ * - `on-demand`: `lt dev` starts it itself when none runs (`startCaddyOnDemand`).
+ * - `manual`: the user starts it; lt dev only prints the command.
+ */
+export function caddyLaunchMode(p: NodeJS.Platform = platform()): 'manual' | 'on-demand' | 'service' {
+  if (p === 'darwin' || p === 'linux') return 'service';
+  if (p === 'win32') return 'on-demand';
+  return 'manual';
+}
 
 /** Compute the file-system locations for the service. Pure. */
 export function getServicePaths(home: string = userHome(), plat = platformSupported()): ServicePaths {
@@ -313,6 +332,42 @@ export function setShellRunner(runner: null | ShellRunner): void {
   activeRunner = runner ?? defaultShellRunner;
 }
 
+/**
+ * Start lt dev's Caddy as a detached background process, then wait for its admin API.
+ *
+ * Only for `caddyLaunchMode() === 'on-demand'`, and only when nothing answers on :2019: this
+ * starts a Caddy, it never replaces one. `caddy run` under our own detached spawn rather than
+ * `caddy start`: `caddy start` hands its own stdout/stderr to the background child, so a caller
+ * that captures them leaves the child writing into a pipe that closes when the CLI exits.
+ * `spawnDetached` sends both to `~/.lenneTech/caddy.log` instead.
+ * @param deps - Injection points (tests)
+ */
+export async function startCaddyOnDemand(
+  deps: {
+    resolveBin?: () => Promise<string | undefined>;
+    spawn?: typeof spawnDetached;
+    waitReady?: (timeoutMs: number) => Promise<boolean>;
+  } = {},
+): Promise<{ logFile: string; message: string; ok: boolean }> {
+  const logFile = getServicePaths().logFile;
+  const bin = await (deps.resolveBin ?? (() => resolveCaddyBin()))();
+  if (!bin) {
+    return { logFile, message: caddyMissingMessage(), ok: false };
+  }
+  const spawned = (deps.spawn ?? spawnDetached)(
+    bin,
+    ['run', '--config', caddyPaths.caddyfile, '--adapter', 'caddyfile'],
+    { cwd: userHome(), env: process.env, logFile },
+  );
+  if (!spawned) {
+    return { logFile, message: `Could not start ${bin}.`, ok: false };
+  }
+  if (!(await (deps.waitReady ?? waitForServiceReady)(8_000))) {
+    return { logFile, message: 'Caddy was started, but its admin API (:2019) did not answer within 8s.', ok: false };
+  }
+  return { logFile, message: `Started Caddy (pid ${spawned.pid}).`, ok: true };
+}
+
 /** Stop the service and remove the unit file. */
 export async function uninstallService(): Promise<UninstallServiceResult> {
   const plat = platformSupported();
@@ -459,7 +514,7 @@ async function installLinux(paths: ServicePaths, changed: boolean, existed: bool
 
 /** See `caddy.ts#caddyDaemonRunning` for why this is not a `curl` any more. */
 async function pingCaddyAdmin(): Promise<boolean> {
-  return (await httpStatus('http://127.0.0.1:2019/config/', 1000)) !== null;
+  return (await httpStatus(`http://${caddyPaths.admin}/config/`, 1000)) !== null;
 }
 
 function sleep(ms: number): Promise<void> {

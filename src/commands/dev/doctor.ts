@@ -7,13 +7,15 @@ import {
   caddyDaemonRunning,
   paths as caddyPaths,
   compareLoadedConfig,
+  detectCaddyOwner,
+  foreignCaddyLines,
   hasLegacyLoopbackBind,
   readCaddyfile,
   validateCaddyfile,
 } from '../../lib/caddy';
 import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
-import { getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
+import { caddyLaunchMode, getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
 import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
 
@@ -55,7 +57,13 @@ const DoctorCommand: GluegunCommand = {
 
     // 2. Service installed (LaunchAgent / systemd-user)
     const plat = platformSupported();
-    if (plat === 'unsupported') {
+    if (caddyLaunchMode() === 'on-demand') {
+      line(
+        'OK',
+        colors.green,
+        'no service on Windows: `lt dev install` and `lt dev up` start Caddy when it is not running',
+      );
+    } else if (plat === 'unsupported') {
       line('WARN', colors.yellow, `service management not supported on ${process.platform} — run caddy manually`);
     } else {
       const svc = await getServiceStatus();
@@ -73,12 +81,27 @@ const DoctorCommand: GluegunCommand = {
 
     // 3. Caddy daemon admin endpoint
     let daemon = false;
+    let foreign = false;
     if (hasCaddy) {
       daemon = await caddyDaemonRunning();
       if (daemon) line('OK', colors.green, 'caddy admin (:2019) reachable');
       else {
         line('FAIL', colors.red, 'caddy admin (:2019) unreachable — run `lt dev install`');
         fails++;
+      }
+    }
+
+    // 3a. Is it lt dev's Caddy? lt dev routes nothing through a Caddy it did not start, and it
+    //     never reloads or stops one, so this is a FAIL that names the commands, not a fix.
+    if (daemon) {
+      foreign = (await detectCaddyOwner()) === 'foreign';
+      if (foreign) {
+        const [first, ...rest] = foreignCaddyLines();
+        line('FAIL', colors.red, first);
+        rest.forEach((text) => info(`         ${text}`));
+        fails++;
+      } else {
+        line('OK', colors.green, 'caddy on :2019 is the one lt dev runs');
       }
     }
 
@@ -108,7 +131,7 @@ const DoctorCommand: GluegunCommand = {
     // 4b. Does the running Caddy serve this Caddyfile? A failed reload (a bind error, say) leaves
     //     Caddy on its previous config while the admin, validate and port checks all stay green,
     //     because `caddy validate` never binds. Read-only: compares, never reloads.
-    if (daemon && valid) {
+    if (daemon && valid && !foreign) {
       const loaded = await compareLoadedConfig();
       if (loaded === 'matches') {
         line('OK', colors.green, 'caddy serves the current Caddyfile');

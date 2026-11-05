@@ -14,6 +14,13 @@
  *
  * Lifecycle is owned by `lt dev install` (one-time setup) and
  * `lt dev up`/`lt dev down` (per-project block management).
+ *
+ * **`lt dev` never touches a Caddy it did not start.** Someone who runs Caddy runs it for
+ * something, possibly a client project. Reloading our config into it would silently take its
+ * sites away, and the person affected would look for the fault everywhere but here. So
+ * {@link reloadCaddy} and {@link stopOwnCaddy} ask {@link detectCaddyOwner} first, and a foreign
+ * instance gets a diagnosis plus the commands to act on it ({@link foreignCaddyLines}), never an
+ * action.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { get as httpGet } from 'http';
@@ -21,6 +28,7 @@ import { homedir } from 'os';
 import { dirname, join } from 'path';
 
 import { httpStatus } from './dev-process';
+import { loadRegistry } from './dev-state';
 import { spawnCmd } from './platform';
 
 /** Mapping from public hostname to internal upstream port. */
@@ -30,6 +38,14 @@ export interface CaddyRoute {
 }
 
 const CADDYFILE_PATH = process.env.LT_DEV_CADDYFILE || join(homedir(), '.lenneTech', 'Caddyfile');
+/**
+ * Address of the Caddy admin API that every probe, reload and stop uses. `LT_DEV_CADDY_ADMIN`
+ * overrides it, and the test setup points it at a port nothing listens on: a reload REPLACES the
+ * config of whatever answers there. During the TDD run of DEV-4005 one red test called the real
+ * `caddy reload` with a temp Caddyfile, and the developer's running Caddy dropped the routes of
+ * every `lt dev` stack on the machine until it was reloaded by hand.
+ */
+const CADDY_ADMIN = process.env.LT_DEV_CADDY_ADMIN || '127.0.0.1:2019';
 /** Upstream connection cap per route — well below the 128 of macOS `somaxconn` (see `renderProjectBlock`). */
 const UPSTREAM_MAX_CONNS = 32;
 const HEADER = '# Managed by `lt dev`. Per-project blocks are bounded by `# >>> lt-dev:<slug> >>>` markers.';
@@ -53,9 +69,47 @@ const LEGACY_LOOPBACK_BIND = /^[ \t]*default_bind[ \t]+127\.0\.0\.1[ \t]+\[::1\]
  */
 const LOOPBACK_ONLY = ['  @lt_remote not remote_ip 127.0.0.0/8 ::1', '  abort @lt_remote'];
 
+/** Content of a new Caddyfile, before any project is up. */
+export const CADDYFILE_STUB = '# lt dev — managed Caddyfile\n# Add per-project blocks via `lt dev up`.\n';
+
+/**
+ * Name of the logger that marks a running Caddy as lt dev's.
+ *
+ * Comments do not survive: Caddy adapts the Caddyfile to JSON and drops them, so the
+ * `# >>> lt-dev:<slug> >>>` markers never reach `GET /config/`. A named logger does, also in a
+ * Caddyfile without a single site, and `output discard` makes it inert. Measured with caddy
+ * v2.11.2: it adapts to `logging.logs["lt-dev-owner"]` and leaves the default logger as it was.
+ */
+export const OWNER_LOGGER = 'lt-dev-owner';
+const OWNER_DIRECTIVE = [`\tlog ${OWNER_LOGGER} {`, '\t\toutput discard', '\t}'];
+
+/** Caddy apps an lt dev config can contain. Any other app does something lt dev never configures. */
+const LT_DEV_APPS = ['http', 'pki', 'tls'];
+
+/** Status and body of the admin API's answer to `GET /config/`. */
+export interface AdminAnswer {
+  body: string;
+  status: number;
+}
+
+/** Who holds the Caddy admin API on :2019. */
+export type CaddyOwner = 'foreign' | 'none' | 'ours';
+
+/** Injection points for {@link detectCaddyOwner}, so every branch is testable without a daemon. */
+export interface CaddyOwnerDeps {
+  /** `caddy adapt` of our Caddyfile, parsed; undefined when it cannot be adapted. */
+  adaptOwn?: () => Promise<unknown>;
+  /** The admin API's answer to `GET /config/`, or null when nothing answers. */
+  fetchConfig?: () => Promise<AdminAnswer | null>;
+  /** Hostnames and slugs lt dev knows besides the adapted Caddyfile: registry and block markers. */
+  knownNames?: () => { hosts: string[]; slugs: string[] };
+}
+
 /** Outcome of a Caddy command. */
 export interface CaddyResult {
   exitCode: null | number;
+  /** Set when the command was not run because a Caddy lt dev did not start holds :2019. */
+  foreign?: boolean;
   ok: boolean;
   stderr: string;
   stdout: string;
@@ -114,7 +168,7 @@ export async function caddyAvailable(): Promise<boolean> {
  * was the fault here; it was measured to resolve correctly on that machine.
  */
 export async function caddyDaemonRunning(): Promise<boolean> {
-  return (await httpStatus('http://127.0.0.1:2019/config/', 2000)) !== null;
+  return (await httpStatus(`http://${CADDY_ADMIN}/config/`, 2000)) !== null;
 }
 
 /**
@@ -154,6 +208,57 @@ export async function compareLoadedConfig(
 }
 
 /**
+ * Decide whether the Caddy on :2019 is lt dev's: by what it has LOADED, never by which process it
+ * is. A process check would read the command line, which works differently on every platform, and
+ * a Caddy started by hand with our Caddyfile (the Windows way before `lt dev install` could start
+ * one) is ours although no lt dev process started it.
+ *
+ * - Nothing answers → `none`.
+ * - An answer that is not a readable config (an error status, not JSON) → `foreign`: something
+ *   holds the port, and it is not us.
+ * - The config carries the {@link OWNER_LOGGER} marker → `ours`. Every config lt dev loads has it.
+ * - Otherwise `ours` only when replacing the config cannot take a site away from anyone else: it
+ *   serves nothing, or every site it serves is a host lt dev knows (our Caddyfile, a registered
+ *   project, or a ticket/test stack of one). That covers every Caddy that runs from before the
+ *   marker, including one that kept its old routes after a failed reload, which an exact
+ *   comparison with the Caddyfile would call foreign.
+ * - A site without a host, an app lt dev never configures, or a host lt dev does not know →
+ *   `foreign`.
+ * @param deps - Injection points (tests)
+ */
+export async function detectCaddyOwner(deps: CaddyOwnerDeps = {}): Promise<CaddyOwner> {
+  const answer = await (deps.fetchConfig ?? (() => fetchAdminConfig()))();
+  if (answer === null) {
+    return 'none';
+  }
+  if (answer.status !== 200) {
+    return 'foreign';
+  }
+  let loaded: unknown;
+  try {
+    loaded = JSON.parse(answer.body);
+  } catch {
+    return 'foreign';
+  }
+  if (hasOwnerMarker(loaded)) {
+    return 'ours';
+  }
+  const served = servedSites(loaded);
+  if (served.unattributable) {
+    return 'foreign';
+  }
+  if (served.hosts.length === 0) {
+    return 'ours';
+  }
+  const own = await (deps.adaptOwn ?? adaptOwnCaddyfile)();
+  const names = (deps.knownNames ?? knownNames)();
+  const known = new Set(
+    [...(own === undefined ? [] : servedSites(own).hosts), ...names.hosts].map((h) => h.toLowerCase()),
+  );
+  return served.hosts.every((host) => isKnownHost(host, known, names.slugs)) ? 'ours' : 'foreign';
+}
+
+/**
  * Create the Caddyfile with `stub` when it is missing; otherwise repair it with
  * {@link migrateCaddyfile}. Never replaces an existing file: `lt dev install` used to write the
  * stub on every run, which dropped the routes of every registered project, although its own
@@ -167,6 +272,52 @@ export function ensureCaddyfile(stub: string): boolean {
     return true;
   }
   return healCaddyfile();
+}
+
+/**
+ * Add the {@link OWNER_LOGGER} marker to a Caddyfile. A global options block must come first in a
+ * Caddyfile, so the marker goes into an existing one or becomes a new one right after the leading
+ * comments. Pure and idempotent.
+ * @param content - Caddyfile content
+ * @returns Content whose global options carry the marker
+ */
+export function ensureOwnerMarker(content: string): string {
+  if (new RegExp(`^[ \\t]*log[ \\t]+${OWNER_LOGGER}\\b`, 'm').test(content)) {
+    return content;
+  }
+  const lines = content.split('\n');
+  // Leading comments stay above the global block, but a project's `# >>> lt-dev:` marker is a
+  // comment too, and it belongs to the block below it.
+  const isLeadingComment = (line: string): boolean =>
+    line === '' || (line.startsWith('#') && !line.startsWith('# >>> lt-dev:'));
+  let first = 0;
+  while (first < lines.length && isLeadingComment(lines[first].trim())) {
+    first++;
+  }
+  if (first < lines.length && lines[first].trim() === '{') {
+    lines.splice(first + 1, 0, ...OWNER_DIRECTIVE);
+    return lines.join('\n');
+  }
+  const head = lines.slice(0, first).join('\n').replace(/\n+$/, '');
+  const rest = lines.slice(first).join('\n').replace(/^\n+/, '');
+  const block = ['{', ...OWNER_DIRECTIVE, '}'].join('\n');
+  return [head, block, rest].filter((part) => part.length > 0).join('\n\n');
+}
+
+/**
+ * What to tell someone whose Caddy on :2019 is not lt dev's: the diagnosis and the commands to
+ * act on it. Deliberately no command that stops their Caddy: whether to end it, load our config
+ * into it, or leave lt dev aside is their decision.
+ * @param caddyfile - Path of lt dev's Caddyfile
+ */
+export function foreignCaddyLines(caddyfile: string = CADDYFILE_PATH): string[] {
+  return [
+    'A Caddy that `lt dev` did not start holds port 2019 (the Caddy admin API). lt dev left it untouched.',
+    `lt dev's Caddyfile: ${caddyfile}`,
+    "To load it into that Caddy (this replaces that Caddy's whole configuration):",
+    `  caddy reload --config "${caddyfile}" --adapter caddyfile`,
+    "Or, once port 2019 is free, start lt dev's own Caddy with `lt dev install`.",
+  ];
 }
 
 /**
@@ -195,42 +346,20 @@ export function healCaddyfile(): boolean {
 }
 
 /** The config the running Caddy serves (`GET /config/`), or null when the admin API does not answer 200. */
-export function loadedCaddyConfig(timeoutMs = 2000): Promise<null | string> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (value: null | string): void => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-    const request = httpGet('http://127.0.0.1:2019/config/', { timeout: timeoutMs }, (response) => {
-      if (response.statusCode !== 200) {
-        response.resume();
-        done(null);
-        return;
-      }
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => (body += chunk));
-      response.on('end', () => done(body));
-      response.on('error', () => done(null));
-    });
-    request.on('timeout', () => {
-      request.destroy();
-      done(null);
-    });
-    request.on('error', () => done(null));
-  });
+export async function loadedCaddyConfig(timeoutMs = 2000): Promise<null | string> {
+  const answer = await fetchAdminConfig(timeoutMs);
+  return answer?.status === 200 ? answer.body : null;
 }
 
 /**
- * Every repair lt applies to a Caddyfile it writes: drop the 1.51.x `default_bind` and give every
- * managed block the loopback guard, in ONE step, so no write ever leaves a stack without either.
+ * Every repair lt applies to a Caddyfile it writes: drop the 1.51.x `default_bind`, give every
+ * managed block the loopback guard, and carry the owner marker, in ONE step, so no write ever
+ * leaves a stack without them.
  * @param content - Caddyfile content
  * @returns The repaired content
  */
 export function migrateCaddyfile(content: string): string {
-  return addLoopbackGuards(removeLegacyLoopbackBind(content));
+  return ensureOwnerMarker(addLoopbackGuards(removeLegacyLoopbackBind(content)));
 }
 
 /**
@@ -267,11 +396,27 @@ export function readCaddyfile(): string {
 }
 
 /**
- * Reload Caddy with the global Caddyfile. Caller is responsible for
- * starting Caddy in the first place (typically via `lt dev install`).
+ * Reload Caddy with the global Caddyfile. A reload REPLACES the whole config of the running
+ * Caddy, so a Caddy lt dev did not start is never reloaded: the result then carries
+ * `foreign: true` and {@link foreignCaddyLines} as `stderr`. Starting Caddy is not this
+ * function's job (`lt dev install`, or the on-demand start on Windows).
+ * @param deps - Injection points (tests)
  */
-export async function reloadCaddy(): Promise<CaddyResult> {
-  return runCaddy(['reload', '--config', CADDYFILE_PATH, '--adapter', 'caddyfile']);
+export async function reloadCaddy(
+  deps: { detectOwner?: () => Promise<CaddyOwner>; run?: (args: string[]) => Promise<CaddyResult> } = {},
+): Promise<CaddyResult> {
+  if ((await (deps.detectOwner ?? (() => detectCaddyOwner()))()) === 'foreign') {
+    return { exitCode: null, foreign: true, ok: false, stderr: foreignCaddyLines().join('\n'), stdout: '' };
+  }
+  return (deps.run ?? runCaddy)([
+    'reload',
+    '--config',
+    CADDYFILE_PATH,
+    '--adapter',
+    'caddyfile',
+    '--address',
+    CADDY_ADMIN,
+  ]);
 }
 
 /**
@@ -382,6 +527,22 @@ export function sameCaddyConfig(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Stop the Caddy on :2019 through its admin API, but only when it is lt dev's. For Windows, where
+ * no service owns Caddy; a LaunchAgent / systemd unit is stopped through its service manager.
+ * @param deps - Injection points (tests)
+ * @returns Who held :2019, and the result of `caddy stop` when it was ours
+ */
+export async function stopOwnCaddy(
+  deps: { detectOwner?: () => Promise<CaddyOwner>; run?: (args: string[]) => Promise<CaddyResult> } = {},
+): Promise<{ owner: CaddyOwner; result?: CaddyResult }> {
+  const owner = await (deps.detectOwner ?? (() => detectCaddyOwner()))();
+  if (owner !== 'ours') {
+    return { owner };
+  }
+  return { owner, result: await (deps.run ?? runCaddy)(['stop', '--address', CADDY_ADMIN]) };
+}
+
+/**
  * Insert/replace a project block in the Caddyfile.
  *
  * Idempotent — re-applying with the same routes is a no-op.
@@ -424,6 +585,79 @@ export function writeCaddyfile(content: string): void {
   writeFileSync(CADDYFILE_PATH, next.endsWith('\n') ? next : `${next}\n`, 'utf8');
 }
 
+/** `caddy adapt` of our Caddyfile, parsed; undefined when it is missing or cannot be adapted. */
+async function adaptOwnCaddyfile(): Promise<unknown> {
+  if (!existsSync(CADDYFILE_PATH)) {
+    return undefined;
+  }
+  const result = await runCaddy(['adapt', '--config', CADDYFILE_PATH, '--adapter', 'caddyfile']);
+  if (!result.ok) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The admin API's answer to `GET /config/`, or null when nothing answers. */
+function fetchAdminConfig(timeoutMs = 2000): Promise<AdminAnswer | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: AdminAnswer | null): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const request = httpGet(`http://${CADDY_ADMIN}/config/`, { timeout: timeoutMs }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => (body += chunk));
+      response.on('end', () => done({ body, status: response.statusCode ?? 0 }));
+      response.on('error', () => done({ body, status: 0 }));
+    });
+    request.on('timeout', () => {
+      request.destroy();
+      done(null);
+    });
+    request.on('error', () => done(null));
+  });
+}
+
+function hasOwnerMarker(config: unknown): boolean {
+  const logs = (config as null | { logging?: { logs?: Record<string, unknown> } })?.logging?.logs;
+  return !!logs && Object.prototype.hasOwnProperty.call(logs, OWNER_LOGGER);
+}
+
+/**
+ * Whether lt dev knows `host`: from our Caddyfile or the registry (`known`), or as a stack of a
+ * registered project. Ticket and test stacks are `<slug>-<suffix>`, and their registry entries are
+ * gone once they are stopped, which is exactly when a failed reload leaves their route behind.
+ */
+function isKnownHost(host: string, known: Set<string>, slugs: string[]): boolean {
+  const name = host.toLowerCase();
+  if (known.has(name)) {
+    return true;
+  }
+  const match = /^(?:api\.)?([a-z0-9-]+)\.localhost$/.exec(name);
+  return !!match && slugs.some((slug) => match[1] === slug || match[1].startsWith(`${slug}-`));
+}
+
+/**
+ * Hostnames and slugs lt dev knows besides the adapted Caddyfile: every project registered with
+ * `lt dev`, and the slug of every `# >>> lt-dev:<slug> >>>` block in our Caddyfile, so a stack of a
+ * project counts even when that project's registry entry is gone.
+ */
+function knownNames(): { hosts: string[]; slugs: string[] } {
+  const projects = loadRegistry().projects;
+  const markerSlugs = [...readCaddyfile().matchAll(/^# >>> lt-dev:(\S+) >>>/gm)].map((m) => m[1]);
+  return {
+    hosts: Object.values(projects).flatMap((entry) => Object.values(entry.subdomains ?? {})),
+    slugs: [...Object.keys(projects), ...markerSlugs].map((slug) => slug.toLowerCase()),
+  };
+}
+
 /** Run a caddy subcommand and capture stdout/stderr. */
 function runCaddy(args: string[]): Promise<CaddyResult> {
   return new Promise((resolve) => {
@@ -441,7 +675,33 @@ function runCaddy(args: string[]): Promise<CaddyResult> {
   });
 }
 
+/**
+ * The hosts a Caddy JSON config serves. `unattributable` is set when it does something that is not
+ * a site with a host: a route that matches every host, or an app lt dev never configures.
+ */
+function servedSites(config: unknown): { hosts: string[]; unattributable: boolean } {
+  interface Route {
+    match?: Array<{ host?: string[] }>;
+  }
+  const apps = (config as null | { apps?: Record<string, unknown> })?.apps ?? {};
+  let unattributable = Object.keys(apps).some((app) => !LT_DEV_APPS.includes(app));
+  const servers = (apps.http as undefined | { servers?: Record<string, { routes?: Route[] }> })?.servers ?? {};
+  const hosts: string[] = [];
+  for (const server of Object.values(servers)) {
+    for (const route of server?.routes ?? []) {
+      // `match` is a list of alternatives: one without a host lets the route answer for every name.
+      const sets = route?.match ?? [];
+      if (sets.length === 0 || sets.some((set) => !set?.host?.length)) {
+        unattributable = true;
+      }
+      hosts.push(...sets.flatMap((set) => set?.host ?? []));
+    }
+  }
+  return { hosts, unattributable };
+}
+
 /** Path constants for tests + status displays. */
 export const paths = {
+  admin: CADDY_ADMIN,
   caddyfile: CADDYFILE_PATH,
 };

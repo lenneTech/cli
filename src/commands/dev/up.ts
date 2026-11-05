@@ -3,16 +3,10 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import {
-  caddyAvailable,
-  CaddyRoute,
-  healCaddyfile,
-  prepareCaddy,
-  reloadCaddy,
-  upsertProjectBlock,
-} from '../../lib/caddy';
+import { caddyAvailable, CaddyRoute, healCaddyfile, reloadCaddy, upsertProjectBlock } from '../../lib/caddy';
 import { CommandHelp } from '../../lib/command-help';
 import { isApiCompiledRequested, startCompiledApi } from '../../lib/dev-api-launch';
+import { caddyGateOutcome, ensureLtDevCaddy, printCaddyGate } from '../../lib/dev-caddy-gate';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
 import { buildIdentity } from '../../lib/dev-identity';
@@ -148,13 +142,15 @@ const UpCommand: GluegunCommand = {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: caddy missing';
     }
-    // Repairs the Caddyfile before asking whether Caddy runs (see prepareCaddy).
-    const caddyState = await prepareCaddy();
-    if (!caddyState.running) {
-      error('caddy daemon is not running. Run `lt dev install` to start the lt-dev service.');
+    // Repairs the Caddyfile, starts Caddy on Windows, and refuses a Caddy lt dev did not start.
+    const caddyState = await ensureLtDevCaddy();
+    if (!caddyState.ok) {
+      printCaddyGate(caddyState, { error, info });
       if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev up: caddy daemon down';
+      return `dev up: ${caddyGateOutcome(caddyState)}`;
     }
+    if (caddyState.started)
+      info(colors.dim('Started Caddy (no service on Windows; `lt dev up` starts it when needed).'));
 
     // Ticket-aware: in a `lt ticket` worktree (tagged by a `.lt-dev/ticket`
     // marker) — or with an explicit `--ticket <name>` — the slug / URLs / DB are

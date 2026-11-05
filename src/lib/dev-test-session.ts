@@ -873,7 +873,11 @@ export async function tearDownTestSession(
   const removed = removeProjectBlock(testIdentity.slug);
   if (removed) {
     const r = await reloadCaddy();
-    if (!r.ok && !opts.silent) log.warn(`Removed test Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+    if (r.foreign && !opts.silent) {
+      log.warn(`Removed the test block from lt dev's Caddyfile, but did not reload:\n${r.stderr}`);
+    } else if (!r.ok && !opts.silent) {
+      log.warn(`Removed test Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+    }
   }
 
   clearEnvBridge(layout.root, names.bridgeFile);

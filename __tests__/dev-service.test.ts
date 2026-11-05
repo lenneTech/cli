@@ -27,7 +27,10 @@ const { CADDYFILE_TMP } = await vi.hoisted(async () => {
   return { CADDYFILE_TMP: dir };
 });
 
+import type { FindExecutableOptions } from '../src/lib/platform';
+
 import {
+  caddyLaunchMode,
   getServicePaths,
   installService,
   platformSupported,
@@ -38,9 +41,9 @@ import {
   setShellRunner,
   ShellResult,
   ShellRunner,
+  startCaddyOnDemand,
   uninstallService,
 } from '../src/lib/dev-service';
-import type { FindExecutableOptions } from '../src/lib/platform';
 
 interface RecordedCall {
   args: string[];
@@ -87,11 +90,11 @@ describe('dev-service', () => {
 
   afterEach(() => {
     setShellRunner(null);
-    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpHome, { force: true, recursive: true });
   });
 
   afterAll(() => {
-    rmSync(CADDYFILE_TMP, { recursive: true, force: true });
+    rmSync(CADDYFILE_TMP, { force: true, recursive: true });
   });
 
   // ─── Pure helpers ────────────────────────────────────────────────────────
@@ -106,6 +109,64 @@ describe('dev-service', () => {
     test('returns a known platform identifier', () => {
       const plat = platformSupported();
       expect(['darwin', 'linux', 'unsupported']).toContain(plat);
+    });
+  });
+
+  describe('caddyLaunchMode', () => {
+    test('a service owns Caddy on macOS and Linux, lt dev starts it on Windows', () => {
+      expect(caddyLaunchMode('darwin')).toBe('service');
+      expect(caddyLaunchMode('linux')).toBe('service');
+      expect(caddyLaunchMode('win32')).toBe('on-demand');
+      expect(caddyLaunchMode('freebsd')).toBe('manual');
+    });
+  });
+
+  describe('startCaddyOnDemand', () => {
+    const spawned = { pid: 4242, rotated: { rotated: false } } as never;
+
+    test('runs `caddy run` with our Caddyfile, detached, logging to caddy.log', async () => {
+      const spawn = vi.fn(() => spawned);
+      const result = await startCaddyOnDemand({
+        resolveBin: async () => 'C:\\caddy\\caddy.exe',
+        spawn,
+        waitReady: async () => true,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.message).toContain('4242');
+      // `caddy start` would hand the background child the CLI's own stdout/stderr, a pipe that
+      // closes when the CLI exits; under our detached spawn both go to the log file instead.
+      expect(spawn).toHaveBeenCalledWith(
+        'C:\\caddy\\caddy.exe',
+        ['run', '--config', process.env.LT_DEV_CADDYFILE, '--adapter', 'caddyfile'],
+        expect.objectContaining({ logFile: join(tmpHome, '.lenneTech', 'caddy.log') }),
+      );
+    });
+
+    test('names the install command when caddy is missing, and starts nothing', async () => {
+      const spawn = vi.fn(() => spawned);
+      const result = await startCaddyOnDemand({ resolveBin: async () => undefined, spawn, waitReady: async () => true });
+      expect(result.ok).toBe(false);
+      expect(result.message).toMatch(/caddy not found/);
+      expect(spawn).not.toHaveBeenCalled();
+    });
+
+    test('a start whose admin API never answers is a failure, not a success', async () => {
+      const result = await startCaddyOnDemand({
+        resolveBin: async () => '/bin/caddy',
+        spawn: () => spawned,
+        waitReady: async () => false,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.logFile).toBe(join(tmpHome, '.lenneTech', 'caddy.log'));
+    });
+
+    test('a spawn that fails outright is reported', async () => {
+      const result = await startCaddyOnDemand({
+        resolveBin: async () => '/bin/caddy',
+        spawn: () => undefined,
+        waitReady: async () => true,
+      });
+      expect(result).toMatchObject({ ok: false });
     });
   });
 

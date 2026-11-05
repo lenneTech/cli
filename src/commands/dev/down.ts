@@ -93,7 +93,10 @@ const DownCommand: GluegunCommand = {
       if (removed) {
         const r = await reloadCaddy();
         if (r.ok) success(`Removed Caddy block for "${identity.slug}".`);
-        else warning(`Removed Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
+        else if (r.foreign) {
+          warning(`Removed the block for "${identity.slug}" from lt dev's Caddyfile, but did not reload:`);
+          r.stderr.split('\n').forEach((line) => info(colors.dim(`  ${line}`)));
+        } else warning(`Removed Caddy block but reload failed: ${r.stderr.split('\n')[0]}`);
       }
     }
 

@@ -1,8 +1,9 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { prepareCaddy } from '../../lib/caddy';
+import { reloadCaddy } from '../../lib/caddy';
 import { cloudflaredAvailable, spawnQuickTunnel } from '../../lib/cloudflared';
+import { caddyGateOutcome, ensureLtDevCaddy, printCaddyGate } from '../../lib/dev-caddy-gate';
 import { buildIdentity } from '../../lib/dev-identity';
 import { resolveLayout } from '../../lib/dev-project';
 import { loadRegistry } from '../../lib/dev-state';
@@ -74,11 +75,17 @@ const TunnelCommand: GluegunCommand = {
 
     // Pre-flight: Caddy must be up — without it cloudflared would forward
     // to a dead upstream and the public URL would 502.
-    // Repairs the Caddyfile before asking whether Caddy runs (see prepareCaddy).
-    if (!(await prepareCaddy()).running) {
-      error('Caddy daemon is not running — run `lt dev install` first.');
+    // Repairs the Caddyfile, starts Caddy on Windows, and refuses a Caddy lt dev did not start.
+    const caddy = await ensureLtDevCaddy();
+    if (!caddy.ok) {
+      printCaddyGate(caddy, { error, info });
       if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return 'dev tunnel: caddy down';
+      return `dev tunnel: ${caddyGateOutcome(caddy)}`;
+    }
+    if (caddy.healed) {
+      // The repaired Caddyfile (owner marker, loopback guards) reaches the running Caddy only now.
+      const reload = await reloadCaddy();
+      if (!reload.ok) warning(`caddy reload failed: ${reload.stderr.split('\n')[0]}`);
     }
     const registry = loadRegistry();
     if (!registry.projects[identity.slug]) {

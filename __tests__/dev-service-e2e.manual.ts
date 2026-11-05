@@ -48,6 +48,10 @@ const { CADDYFILE_TMP } = await vi.hoisted(async () => {
   const path = await import('node:path');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lt-dev-svc-e2e-'));
   process.env.LT_DEV_CADDYFILE = path.join(dir, 'Caddyfile');
+  // The test setup points the admin address at a dead port so no test reaches a running Caddy.
+  // This suite starts its own, so it gets an address of its own, and the Caddyfile below makes
+  // that Caddy listen there instead of on the :2019 of a developer's lt dev Caddy.
+  process.env.LT_DEV_CADDY_ADMIN = '127.0.0.1:29020';
   return { CADDYFILE_TMP: dir };
 });
 
@@ -84,7 +88,7 @@ describe('dev-service E2E (real launchctl + caddy)', () => {
     // Stub Caddyfile (the lib reads it at module init; rewriting it here
     // ensures we always have a valid file for `caddy run`).
     writeFileSync(process.env.LT_DEV_CADDYFILE!, '# test\n', 'utf8');
-    writeCaddyfile('# E2E test Caddyfile\n');
+    writeCaddyfile('# E2E test Caddyfile\n{\n\tadmin 127.0.0.1:29020\n}\n');
   });
 
   afterEach(async () => {
@@ -143,7 +147,7 @@ describe('dev-service E2E (real launchctl + caddy)', () => {
     // (we used curl inside the lib — here we re-confirm via curl with
     // explicit ipv4 to detect any ::1 vs 127.0.0.1 quirks).
     const adminCode = await new Promise<null | number>((resolve) => {
-      const c = spawn('curl', ['-fsS', '-o', '/dev/null', '--max-time', '2', 'http://127.0.0.1:2019/config/'], {
+      const c = spawn('curl', ['-fsS', '-o', '/dev/null', '--max-time', '2', 'http://127.0.0.1:29020/config/'], {
         stdio: 'ignore',
       });
       c.on('error', () => resolve(null));
