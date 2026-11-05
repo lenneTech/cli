@@ -46,6 +46,9 @@ describe('buildDirectusSyncArgs', () => {
     [['--dangerously-allow-delete']],
     [['--dangerously-allow-delete=true']],
     [['--dangerously-allow-delete', 'false']],
+    // d6s (commander) keeps the LAST value of a repeated option.
+    [['--mode', 'merge', '--mode', 'mirror']],
+    [['--mode=merge', '--mode=mirror']],
   ])('non-interactive push refuses deletions: %j', (passthrough) => {
     expect(buildDirectusSyncArgs('push', passthrough, true)).toHaveProperty('error');
   });

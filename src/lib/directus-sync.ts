@@ -56,7 +56,8 @@ export function buildDirectusSyncArgs(
   platform: NodeJS.Platform = process.platform,
 ): DirectusSyncPlan {
   const args = stripLtFlags(passthrough);
-  const mode = flagValue(args, '--mode')?.toLowerCase();
+  // Every value, not the first: d6s (commander) keeps the LAST of a repeated option.
+  const modes = flagValues(args, '--mode').map((value) => value.toLowerCase());
 
   // On Windows d6s always starts through a `.cmd` shim (npx, or an npm-installed d6s), which
   // re-reads its arguments through cmd.exe: `%` expands variables, `"` ends the quoting.
@@ -66,7 +67,7 @@ export function buildDirectusSyncArgs(
 
   // Fail closed: any spelling of a deleting push is refused, not only `=== true`
   if (action === 'push' && nonInteractive) {
-    if (mode === 'mirror' || hasFlag(args, '--dangerously-allow-delete')) {
+    if (modes.includes('mirror') || hasFlag(args, '--dangerously-allow-delete')) {
       return {
         error:
           'Refusing a deleting push in a non-interactive run. Use --mode merge, or run the mirror push interactively.',
@@ -86,18 +87,18 @@ export function buildDirectusSyncArgs(
 }
 
 /**
- * Value of `--name value` or `--name=value`, or undefined.
+ * Every value given as `--name value` or `--name=value`, in order.
  */
-export function flagValue(args: string[], name: string): string | undefined {
+export function flagValues(args: string[], name: string): string[] {
+  const values: string[] = [];
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith(`${name}=`)) {
-      return args[i].slice(name.length + 1);
-    }
-    if (args[i] === name) {
-      return args[i + 1];
+      values.push(args[i].slice(name.length + 1));
+    } else if (args[i] === name && args[i + 1] !== undefined) {
+      values.push(args[i + 1]);
     }
   }
-  return undefined;
+  return values;
 }
 
 /**
