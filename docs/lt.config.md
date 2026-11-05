@@ -478,6 +478,61 @@ lt deployment create MyProject --domain myproject.example.com --project myprojec
 
 ---
 
+### Directus Commands
+
+#### `lt directus docker-setup`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.directus.dockerSetup.database` | `string` | - | Database type: `postgres`, `mysql` or `sqlite` |
+| `commands.directus.dockerSetup.name` | `string` | - | Instance name |
+| `commands.directus.dockerSetup.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+| `commands.directus.dockerSetup.port` | `number` | next free from `8055` | Host port of the instance |
+| `commands.directus.dockerSetup.version` | `string` | - | Directus image version, e.g. `latest` or `12.5.0` |
+
+#### `lt directus remove`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.directus.remove.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+
+#### `lt directus sync`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.directus.sync.noConfirm` | `boolean` | `false` | Run the Directus CLI non-interactively. A deleting push (`--mode mirror`, `--dangerously-allow-delete`) is then refused |
+
+Profiles and tokens are not lt settings: instance URLs live in the project's `directus.config.json`, tokens in `DIRECTUS_<PROFILE>_TOKEN` (see [`lt directus sync`](./commands.md#lt-directus-sync)).
+
+#### `lt directus typegen`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `commands.directus.typegen.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
+| `commands.directus.typegen.output` | `string` | - | Output file path, e.g. `./directus-schema.ts` |
+| `commands.directus.typegen.token` | `string` | - | Directus API token. Prefer `--token`: a token in a committed `lt.config` is readable by everyone with the repository |
+| `commands.directus.typegen.url` | `string` | - | Directus API URL, e.g. `http://localhost:8055` |
+
+**Example:**
+```json
+{
+  "commands": {
+    "directus": {
+      "sync": {
+        "noConfirm": true
+      }
+    }
+  }
+}
+```
+
+**CLI Override:**
+```bash
+lt directus sync push --to production --noConfirm
+```
+
+---
+
 ### Frontend Commands
 
 #### `lt frontend angular`

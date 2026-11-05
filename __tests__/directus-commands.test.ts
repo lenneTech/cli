@@ -73,6 +73,29 @@ describe('Directus Commands', () => {
     });
   });
 
+  describe('lt directus sync', () => {
+    test('requires an action with --noConfirm', async () => {
+      await expect(cli('directus sync --noConfirm')).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringContaining('Action is required'),
+      });
+    });
+
+    test('rejects an unknown action', async () => {
+      await expect(cli('directus sync apply --noConfirm')).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringContaining('Unknown action'),
+      });
+    });
+
+    test('refuses a non-interactive mirror push before starting d6s', async () => {
+      await expect(cli('directus sync push --to prod --mode mirror --noConfirm')).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringContaining('Refusing a deleting push'),
+      });
+    });
+  });
+
   describe('lt directus typegen', () => {
     test('requires token with --noConfirm', async () => {
       try {
