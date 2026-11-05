@@ -6,9 +6,9 @@ import * as path from 'path';
  * `src/core/`, in both directions, and what `findStaleImports` scans afterwards.
  *
  * One list for all three. There used to be three copies, and each named only
- * `src/main.ts` and `src/config.env.ts` from the `src/` root. nest-server-starter
- * 12.4.0 added `src/config.env.spec.ts`, which imports from the package: the
- * vendor conversion left that import in place, the project failed
+ * `src/main.ts` and `src/config.env.ts` from the `src/` root. In nest-server-starter
+ * 12.4.0, `src/config.env.spec.ts` (there since 11.34.0) got its first import from
+ * the package: the vendor conversion left that import in place, the project failed
  * `typecheck:tests` with TS2307, and the stale-import check, reading the same
  * short list, reported nothing.
  *

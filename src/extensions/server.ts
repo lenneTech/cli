@@ -3,7 +3,7 @@ import { globSync } from 'glob';
 import { GluegunFilesystem } from 'gluegun';
 import { PromptOptions } from 'gluegun/build/types/toolbox/prompt-enquirer-types';
 import { GluegunAskResponse, GluegunEnquirer } from 'gluegun/build/types/toolbox/prompt-types';
-import { join } from 'path';
+import { join, relative, sep } from 'path';
 import * as ts from 'typescript';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
@@ -3030,7 +3030,9 @@ export class Server {
         // part of the AST at all.
         const specifiers = fileImportedSpecifiers(file, (path) => this.filesystem.read(path) || undefined);
         if (specifiers.some(matches)) {
-          stale.push(file.replace(`${dest}/`, ''));
+          // `relative`, not a replace of `${dest}/`: on Windows glob returns backslash
+          // paths, the prefix never matched, and the warning listed absolute paths.
+          stale.push(relative(dest, file).split(sep).join('/'));
         }
       }
     }

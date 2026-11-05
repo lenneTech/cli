@@ -1,10 +1,11 @@
 /**
  * The project's own code that a mode conversion rewrites, and that the
- * stale-import check scans afterwards. nest-server-starter 12.4.0 added
- * `src/config.env.spec.ts`, which imports from `@lenne.tech/nest-server`; the
- * file lists named only `src/main.ts` and `src/config.env.ts` from the `src/`
- * root, so every new vendor project failed `typecheck:tests` with TS2307 and
- * the check meant to catch a missed import said nothing.
+ * stale-import check scans afterwards. In nest-server-starter 12.4.0,
+ * `src/config.env.spec.ts` (there since 11.34.0) got its first import from
+ * `@lenne.tech/nest-server`; the file lists named only `src/main.ts` and
+ * `src/config.env.ts` from the `src/` root, so every new vendor project failed
+ * `typecheck:tests` with TS2307 and the check meant to catch a missed import
+ * said nothing.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { globSync } from 'glob';

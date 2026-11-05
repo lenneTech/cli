@@ -2043,9 +2043,9 @@ not after the first incident.
 ### The files a mode conversion rewrites are ONE list <!-- Added: 2026-11-05 -->
 The vendor codemod, its reverse in `convertToNpmMode` and `findStaleImports` each carried
 their own copy of "the project's own code", and each named only `src/main.ts` and
-`src/config.env.ts` from the `src/` root. nest-server-starter 12.4.0 added
-`src/config.env.spec.ts`, which imports from `@lenne.tech/nest-server`: every new vendor
-project failed `typecheck:tests` with TS2307, and the stale-import check, reading the same
+`src/config.env.ts` from the `src/` root. In nest-server-starter 12.4.0,
+`src/config.env.spec.ts` (there since 11.34.0) got its first import from
+`@lenne.tech/nest-server`: every new vendor project failed `typecheck:tests` with TS2307, and the stale-import check, reading the same
 short list, said nothing. All three now use `CONSUMER_SOURCE_GLOBS`
 (`src/lib/vendor-consumer-imports.ts`), with `src/*.ts` instead of named root files.
 **Rule:** a check that verifies a transform reads the transform's own file list, never a
