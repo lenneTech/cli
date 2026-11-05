@@ -9,6 +9,7 @@ import * as ts from 'typescript';
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { ServerProps } from '../interfaces/ServerProps.interface';
 import { adoptUpstreamBuildAllowlist } from '../lib/adopt-upstream-build-allowlist';
+import { adoptUpstreamPeerRules } from '../lib/adopt-upstream-peer-rules';
 import { alignFrameworkPins, withExplicitStrictForTs6 } from '../lib/align-framework-pins';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { ensureCrossEnvDependency } from '../lib/cross-env';
@@ -30,6 +31,7 @@ import {
 } from '../lib/vendor-claude-md';
 import { flattenRootIndexSpecifier, isCommonJsScopeMarker } from '../lib/vendor-flatten';
 import { isMissingCloneRef, starterPinnedFrameworkVersion } from '../lib/vendor-upstream-ref';
+import { pnpmSettingsDir } from '../lib/workspace-integration';
 
 type GluegunPromptAsk = <T = GluegunAskResponse>(
   questions:
@@ -1862,6 +1864,22 @@ export class Server {
         if (adoptedBuilds.length > 0) {
           this.toolbox.print.info(
             `  vendored core allowlist: adopted ${adoptedBuilds.length} build decision(s) from nest-server → ${adoptedBuilds.join(', ')}`,
+          );
+        }
+
+        // Same for the peer ranges nest-server scope-allows for those packages
+        // (`'typeorm>ioredis': '6'`), or `pnpm peers check` fails the first `check`.
+        // Written to the workspace root when an earlier hoist already moved the
+        // settings there (`lt fullstack convert-mode --to vendor`).
+        const adoptedPeerRules = adoptUpstreamPeerRules({
+          dest: pnpmSettingsDir(dest, filesystem),
+          filesystem,
+          projectPackages: [...Object.keys(deps), ...Object.keys(devDeps)],
+          upstreamWorkspaceYaml,
+        });
+        if (adoptedPeerRules.length > 0) {
+          this.toolbox.print.info(
+            `  vendored core peer rules: adopted ${adoptedPeerRules.length} allowedVersions rule(s) from nest-server → ${adoptedPeerRules.join(', ')}`,
           );
         }
 

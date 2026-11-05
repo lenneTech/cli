@@ -160,6 +160,16 @@ run_scenario() {
     [[ -f "${api_dir}/bin/migrate.js" ]] \
       && pass "bin/migrate.js present" \
       || fail "bin/migrate.js missing"
+    # The import closure makes framework-only packages direct dependencies, and their peer
+    # exceptions live in nest-server's pnpm-workspace.yaml (e.g. `'typeorm>ioredis': '6'`).
+    # A rule the conversion fails to carry over (adoptUpstreamPeerRules) fails the root
+    # `check:peers` step of the project's first `pnpm run check`.
+    if (cd "${project_root}" && pnpm peers check >/dev/null 2>&1); then
+      pass "pnpm peers check passes at the workspace root"
+    else
+      fail "pnpm peers check fails at the workspace root"
+      (cd "${project_root}" && pnpm peers check 2>&1 | tail -8) || true
+    fi
     # An ES module project ("type": "module", the starter from v12.0.0 on) has no CommonJS
     # bootstrap: the scripts name the core's loader directly, and migrate.js requires the
     # helper through createRequire (lt server convert-esm, VENDOR_ESM_STORE).

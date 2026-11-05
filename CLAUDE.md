@@ -170,7 +170,7 @@ source code must be mode-aware:
 | Detection | `src/lib/framework-detection.ts` | `isVendoredProject()`, `detectFrameworkMode()`, `getFrameworkImportSpecifier()`, `getFrameworkRootPath()`, `findProjectDir()` |
 | Init (fullstack) | `src/commands/fullstack/init.ts` | `--framework-mode npm\|vendor`, `--framework-upstream-branch`, `--dry-run`; resolves mode and plumbs to `setupServerForFullstack` |
 | Init (standalone) | `src/commands/server/create.ts` | Same flags; plumbs to `setupServer` |
-| Vendor transform | `src/extensions/server.ts#convertCloneToVendored` | Clones upstream nest-server, flatten-fixes core, rewrites consumer imports (ts-morph), merges deps dynamically and raises the pins the project shares with the core (`src/lib/align-framework-pins.ts`, the starter's `pnpm run update` rule), writes VENDOR.md, copies vendor scripts, hooks check:vendor-freshness |
+| Vendor transform | `src/extensions/server.ts#convertCloneToVendored` | Clones upstream nest-server, flatten-fixes core, rewrites consumer imports (ts-morph), merges deps dynamically and raises the pins the project shares with the core (`src/lib/align-framework-pins.ts`, the starter's `pnpm run update` rule), adopts every nest-server `allowBuilds` decision the project has not made yet, and its `peerDependencyRules.allowedVersions` rules for packages the project depends on after the merge (`adopt-upstream-{build-allowlist,peer-rules}.ts`), writes VENDOR.md, copies vendor scripts, hooks check:vendor-freshness |
 | Vendor core essentials | `src/extensions/server.ts#restoreVendorCoreEssentials` | Restores graphql-* deps after processApiMode REST strips them |
 | Runtime-helper config | `src/config/vendor-runtime-deps.json` | Upstream devDeps that must be promoted to dependencies (e.g. the better-auth trio) |
 | Vendor E-Mail templates | `src/extensions/server.ts#convertCloneToVendored` (copy mapping) | Upstream `src/templates/` is placed at `<project>/src/templates/` — deliberately **outside** `src/core/` — because the runtime resolver in `src/core/modules/better-auth/core-better-auth-email-verification.service.ts` uses `__dirname + '../../../templates'` and must match the relative layout of npm mode. Also keeps project-specific E-Mail customization outside the vendored framework tree. Never move these under `src/core/templates/`. |
@@ -779,6 +779,34 @@ clone during conversion is the only moment it can be read;
 decided" is judged on the RAW key, never on a boolean-narrowed copy: `loadYaml` uses the
 YAML 1.2 core schema, so `esbuild: no` / `off` are STRINGS, and narrowing first turned
 a maintainer's deny into "no opinion" and adopted upstream's `true`.
+
+The same file carries `peerDependencyRules`, and the same gap opened there (smoke test,
+CLI 1.56.0): the closure made `typeorm` 1.1.2 and `ioredis` 6 direct dependencies, typeorm
+peer-wants `ioredis ^5.0.4`, and nest-server's `'typeorm>ioredis': '6'` stayed behind, so
+the root `check:peers` failed the first `pnpm run check` of every vendor project.
+`adoptUpstreamPeerRules` (`src/lib/adopt-upstream-peer-rules.ts`) adopts an
+`allowedVersions` rule when the package it is about (the parent of `parent>peer`, else the
+peer) is a dependency of the project after the merge; additive like the build allowlist.
+`ignoreMissing` / `allowAny` name no parent and are not adopted. **When nest-server adds
+another workspace setting that its own dependencies need, the conversion has to carry it
+too**, and `scripts/test-vendor-init.sh` runs `pnpm peers check` at the root for that
+reason. Two traps the first version fell into, both found in review:
+- **Never re-dump a project's `pnpm-workspace.yaml` to add one entry.** `dump()` keeps only
+  what `extractKeyComments` carries (first-level entries and list items), so a standalone
+  vendor project (`lt server create --framework-mode vendor`, no hoist afterwards) lost about
+  240 lines of the starter's policy text, and `lt server convert-mode` the user's own. The
+  rule now goes in as TEXT, with its upstream comment, and the result is parsed back and
+  compared with the intended value; only a shape it cannot place (flow style) falls back to
+  the dump. `adoptUpstreamBuildAllowlist` still re-dumps; it adopts nothing against the
+  current starter, which is the only reason that has not bitten yet.
+- **After a hoist, `projects/api` has no settings file.** `lt fullstack convert-mode --to
+  vendor` on an npm-mode workspace runs the same conversion, finds nothing to extend and
+  never hoists again. `pnpmSettingsDir` (`workspace-integration.ts`) then targets the
+  workspace root, but only for the exact `<root>/projects/api|app` shape, so a marker in an
+  unrelated parent directory never receives the settings.
+
+In `lt fullstack init` the hoist still drops the comment above an adopted selector
+(`extractKeyComments` stops one level above `allowedVersions` entries); the value arrives.
 
 ### A `nuxt/schema` augmentation is harmless in node_modules and fatal as project source <!-- Added: 2026-08-23 -->
 nuxt-extensions' `runtime/types/module.ts` augments `PublicRuntimeConfig` under BOTH

@@ -266,6 +266,23 @@ export function isNonInteractive(noConfirmFlag: boolean): boolean {
 }
 
 /**
+ * The directory whose `pnpm-workspace.yaml` holds a project's pnpm settings.
+ *
+ * The project's own file when it has one: a standalone project, or `projects/api`
+ * during `lt fullstack init`, where the hoist runs later. In a workspace an
+ * earlier hoist has moved the settings to the root and deleted the sub-project's
+ * settings-only file, so a later conversion (`lt fullstack convert-mode --to
+ * vendor`) has to write there. Only the exact `<root>/projects/api|app` shape
+ * counts: a marker in some unrelated parent directory never receives the
+ * project's settings.
+ */
+export function pnpmSettingsDir(projectDir: string, filesystem: GluegunFilesystem): string {
+  if (filesystem.exists(`${projectDir}/pnpm-workspace.yaml`)) return projectDir;
+  const context = detectSubProjectContext(projectDir, filesystem);
+  return context && filesystem.path(projectDir) === context.subProjectDir ? context.workspaceRoot : projectDir;
+}
+
+/**
  * Reconfigure the cloned nest-base template's `.claude/upstream.json`
  * into its downstream shape.
  *

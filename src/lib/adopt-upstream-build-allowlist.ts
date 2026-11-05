@@ -106,6 +106,21 @@ export function adoptUpstreamBuildAllowlist(options: {
   return adopted;
 }
 
+/** Parse YAML into a plain object, or null on empty/malformed/non-object input. */
+export function parseYamlObject(raw: string): null | Record<string, unknown> {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = loadYaml(raw);
+  } catch {
+    // Malformed upstream YAML must not take the conversion down with it — the
+    // vendored project is still usable, it just does not inherit the framework settings.
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as Record<string, unknown>;
+}
+
 /** The value as a plain key/value map, or an empty one — no narrowing of values. */
 function asRawMap(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -126,19 +141,4 @@ function asStringBoolMap(value: unknown): Record<string, boolean> {
     if (typeof v === 'boolean') out[key] = v;
   }
   return out;
-}
-
-/** Parse YAML into a plain object, or null on empty/malformed/non-object input. */
-function parseYamlObject(raw: string): null | Record<string, unknown> {
-  if (!raw) return null;
-  let parsed: unknown;
-  try {
-    parsed = loadYaml(raw);
-  } catch {
-    // Malformed upstream YAML must not take the conversion down with it — the
-    // vendored project is still usable, it just does not inherit the allowlist.
-    return null;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  return parsed as Record<string, unknown>;
 }
