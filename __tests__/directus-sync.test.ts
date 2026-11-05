@@ -62,6 +62,19 @@ describe('buildDirectusSyncArgs', () => {
     });
   });
 
+  test.each([['--to', '%DIRECTUS_TOKEN%'], ['--to', 'prod"&calc'], ['--to', 'a\nb']])(
+    'on Windows, a value the npx/d6s shim would re-read through cmd.exe is refused: %j',
+    (...passthrough) => {
+      expect(buildDirectusSyncArgs('pull', passthrough, false, 'win32')).toHaveProperty('error');
+    },
+  );
+
+  test('the same values pass on macOS and Linux, where no shell reads them', () => {
+    expect(buildDirectusSyncArgs('pull', ['--to', '%x%'], false, 'darwin')).toEqual({
+      args: ['sync', 'pull', '--to', '%x%'],
+    });
+  });
+
   test('lt flags never reach d6s', () => {
     expect(buildDirectusSyncArgs('pull', ['--noConfirm', '--from', 'dev'], false)).toEqual({
       args: ['sync', 'pull', '--from', 'dev'],

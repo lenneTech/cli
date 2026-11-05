@@ -23,6 +23,7 @@
  */
 import { join } from 'path';
 
+import { hasCmdShimHazard } from './exec-args';
 import { findExecutable, FindExecutableOptions } from './platform';
 
 /**
@@ -46,14 +47,22 @@ const LT_ONLY_FLAGS = ['--fromGluegunMenu', '--noConfirm'];
  * @param action - pull, diff or push
  * @param passthrough - options the user gave after the action, forwarded verbatim
  * @param nonInteractive - true for CI, AI agents and `--noConfirm`
+ * @param platform - `process.platform`
  */
 export function buildDirectusSyncArgs(
   action: DirectusSyncAction,
   passthrough: string[],
   nonInteractive: boolean,
+  platform: NodeJS.Platform = process.platform,
 ): DirectusSyncPlan {
   const args = stripLtFlags(passthrough);
   const mode = flagValue(args, '--mode')?.toLowerCase();
+
+  // On Windows d6s always starts through a `.cmd` shim (npx, or an npm-installed d6s), which
+  // re-reads its arguments through cmd.exe: `%` expands variables, `"` ends the quoting.
+  if (args.some((arg) => hasCmdShimHazard(arg, platform))) {
+    return { error: 'd6s options must not contain ", % or line breaks on Windows.' };
+  }
 
   // Fail closed: any spelling of a deleting push is refused, not only `=== true`
   if (action === 'push' && nonInteractive) {
