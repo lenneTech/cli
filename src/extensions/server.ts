@@ -3,7 +3,7 @@ import { globSync } from 'glob';
 import { GluegunFilesystem } from 'gluegun';
 import { PromptOptions } from 'gluegun/build/types/toolbox/prompt-enquirer-types';
 import { GluegunAskResponse, GluegunEnquirer } from 'gluegun/build/types/toolbox/prompt-types';
-import { join } from 'path';
+import { join, relative, sep } from 'path';
 import * as ts from 'typescript';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
@@ -29,6 +29,11 @@ import {
   insertVendorBlockIfMissing,
   removeVendorBlock,
 } from '../lib/vendor-claude-md';
+import {
+  CONSUMER_SOURCE_GLOBS,
+  consumerSourceGlobs,
+  rewriteFrameworkImportsToCore,
+} from '../lib/vendor-consumer-imports';
 import { flattenRootIndexSpecifier, isCommonJsScopeMarker } from '../lib/vendor-flatten';
 import { isMissingCloneRef, starterPinnedFrameworkVersion } from '../lib/vendor-upstream-ref';
 import { pnpmSettingsDir } from '../lib/workspace-integration';
@@ -1145,7 +1150,8 @@ export class Server {
    * project's `package.json`, merge the framework's transitive deps into
    * the project's own deps, and run an AST-based codemod that rewrites
    * every `from '@lenne.tech/nest-server'` import in consumer code
-   * (src/server, src/main.ts, tests/, migrations/, scripts/) to a
+   * (`CONSUMER_SOURCE_GLOBS`: the src/ root, src/server, tests/, migrations/,
+   * migrations-utils/, scripts/) to a
    * relative path pointing at the vendored `src/core/`.
    *
    * The resulting tree matches the layout produced by the imo vendoring
@@ -1174,7 +1180,7 @@ export class Server {
     const filesystem = this.filesystem;
     const os = require('os');
     const path = require('path');
-    const { Project, SyntaxKind } = require('ts-morph');
+    const { Project } = require('ts-morph');
 
     const srcDir = `${dest}/src`;
     const coreDir = `${srcDir}/core`;
@@ -1537,70 +1543,12 @@ export class Server {
 
     // ── 4. Rewrite consumer imports: '@lenne.tech/nest-server' → relative ─
     //
-    // Every .ts file in the starter's src/server/, src/main.ts, tests/,
-    // migrations/, scripts/, migrations-utils/ currently imports from
-    // '@lenne.tech/nest-server'. After vendoring, these must use a
-    // relative path to src/core whose depth depends on the file location.
-    // We handle static imports, dynamic imports, and CJS require() calls.
-    const codemodGlobs = [
-      `${dest}/src/server/**/*.ts`,
-      `${dest}/src/main.ts`,
-      `${dest}/src/config.env.ts`,
-      `${dest}/tests/**/*.ts`,
-      `${dest}/migrations/**/*.ts`,
-      `${dest}/migrations-utils/*.ts`,
-      `${dest}/scripts/**/*.ts`,
-    ];
-    tsMorphProject.addSourceFilesAtPaths(codemodGlobs);
-    for (const file of tsMorphProject.getSourceFiles()) {
-      const filePath = file.getFilePath();
-      // Skip files inside src/core/ — those are the framework itself.
-      if (filePath.startsWith(coreDir)) continue;
-
-      const fromDir = path.dirname(filePath);
-      let relToCore = path.relative(fromDir, coreDir).split(path.sep).join('/');
-      if (!relToCore.startsWith('.')) {
-        relToCore = `./${relToCore}`;
-      }
-
-      let touched = false;
-
-      // Static import declarations
-      for (const decl of file.getImportDeclarations()) {
-        if (decl.getModuleSpecifierValue() === '@lenne.tech/nest-server') {
-          decl.setModuleSpecifier(relToCore);
-          touched = true;
-        }
-      }
-      // Static export declarations (re-exports)
-      for (const decl of file.getExportDeclarations()) {
-        if (decl.getModuleSpecifierValue() === '@lenne.tech/nest-server') {
-          decl.setModuleSpecifier(relToCore);
-          touched = true;
-        }
-      }
-      // Dynamic imports + CJS require('@lenne.tech/nest-server')
-      file.forEachDescendant((node) => {
-        if (node.getKind() !== SyntaxKind.CallExpression) return;
-        const call = node as any;
-        const expr = call.getExpression();
-        const exprText = expr.getText();
-        const args = call.getArguments();
-        if (args.length === 0) return;
-        const firstArg = args[0];
-        if (firstArg.getKind() !== SyntaxKind.StringLiteral) return;
-        if (firstArg.getLiteralText() !== '@lenne.tech/nest-server') return;
-
-        if (exprText === 'require' || exprText === 'import' || expr.getKind() === SyntaxKind.ImportKeyword) {
-          firstArg.replaceWithText(`'${relToCore}'`);
-          touched = true;
-        }
-      });
-
-      if (touched) {
-        file.saveSync();
-      }
-    }
+    // Every .ts file of the project's own code (CONSUMER_SOURCE_GLOBS: the
+    // src/ root, src/server/, tests/, migrations/, migrations-utils/, scripts/)
+    // may import from '@lenne.tech/nest-server'. After vendoring, these must use
+    // a relative path to src/core whose depth depends on the file location.
+    // Static imports, re-exports, dynamic imports and CJS require() calls.
+    rewriteFrameworkImportsToCore({ coreDir, dest });
 
     // Also patch migrations-utils/*.js (CJS require) via raw string replace
     // because ts-morph doesn't load .js files in our Project instance.
@@ -2829,18 +2777,7 @@ export class Server {
 
     // ── 2. Rewrite consumer imports: relative → @lenne.tech/nest-server ─
     const project = new Project({ skipAddingFilesFromTsConfig: true });
-    const globs = [
-      `${srcDir}/server/**/*.ts`,
-      `${srcDir}/main.ts`,
-      `${srcDir}/config.env.ts`,
-      `${dest}/tests/**/*.ts`,
-      `${dest}/migrations/**/*.ts`,
-      `${dest}/migrations-utils/*.ts`,
-      `${dest}/scripts/**/*.ts`,
-    ];
-    for (const glob of globs) {
-      project.addSourceFilesAtPaths(glob);
-    }
+    project.addSourceFilesAtPaths(consumerSourceGlobs(dest));
 
     const targetSpecifier = '@lenne.tech/nest-server';
     const coreAbsPath = path.resolve(coreDir);
@@ -3080,16 +3017,8 @@ export class Server {
     // function would then report "no stale imports" for a project that has them —
     // a false clean bill of health on the one check meant to catch a broken
     // conversion. See the same fix at the vendored-express patch above.
-    const globs = [
-      'src/server/**/*.ts',
-      'src/main.ts',
-      'src/config.env.ts',
-      'tests/**/*.ts',
-      'migrations/**/*.ts',
-      'scripts/**/*.ts',
-    ];
     const stale: string[] = [];
-    for (const glob of globs) {
+    for (const glob of CONSUMER_SOURCE_GLOBS) {
       const files = globSync(glob, { absolute: true, cwd: dest, dot: true, nodir: true });
       for (const file of files) {
         // Ask the parser for the file's module specifiers rather than searching its
@@ -3101,7 +3030,9 @@ export class Server {
         // part of the AST at all.
         const specifiers = fileImportedSpecifiers(file, (path) => this.filesystem.read(path) || undefined);
         if (specifiers.some(matches)) {
-          stale.push(file.replace(`${dest}/`, ''));
+          // `relative`, not a replace of `${dest}/`: on Windows glob returns backslash
+          // paths, the prefix never matched, and the warning listed absolute paths.
+          stale.push(relative(dest, file).split(sep).join('/'));
         }
       }
     }

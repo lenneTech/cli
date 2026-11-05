@@ -2040,6 +2040,18 @@ the address every probe, reload and stop uses, the test setup points it at `127.
 daemon, a database) gets its isolation in `isolate-user-state.setup.ts` BEFORE its first test,
 not after the first incident.
 
+### The files a mode conversion rewrites are ONE list <!-- Added: 2026-11-05 -->
+The vendor codemod, its reverse in `convertToNpmMode` and `findStaleImports` each carried
+their own copy of "the project's own code", and each named only `src/main.ts` and
+`src/config.env.ts` from the `src/` root. In nest-server-starter 12.4.0,
+`src/config.env.spec.ts` (there since 11.34.0) got its first import from
+`@lenne.tech/nest-server`: every new vendor project failed `typecheck:tests` with TS2307, and the stale-import check, reading the same
+short list, said nothing. All three now use `CONSUMER_SOURCE_GLOBS`
+(`src/lib/vendor-consumer-imports.ts`), with `src/*.ts` instead of named root files.
+**Rule:** a check that verifies a transform reads the transform's own file list, never a
+copy: a copy misses exactly what the transform missed. When a starter adds project code
+outside `src/server/`, add its directory there once.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash
