@@ -2030,7 +2030,7 @@ Pulls, diffs and pushes Directus schema and configuration through JSON files in 
 lt directus sync <pull|diff|push> [d6s options]
 ```
 
-**What is synced:** collections, fields, relations, roles, policies, permissions, flows with operations, dashboards with panels, translations, folders and settings. Users only with `--all`. **Not synced:** presets/bookmarks and content.
+**What is synced:** collections, fields, relations, roles, policies, permissions, flows with operations, dashboards with panels, translations, folders, settings, and global and role presets (bookmarks and default views; since `@directus/cli` 12.5.0, leave them out with `pull --no-presets`). Users only with `--all`. **Not synced:** personal presets and content.
 
 **Options (passed through to d6s):**
 | Option | Description |
@@ -2072,7 +2072,7 @@ lt directus sync diff --to production
 lt directus sync push --to production
 ```
 
-**GitLab CI example** (preview in the merge request, push in the deploy job; tokens as masked CI/CD variables):
+**GitLab CI example** (preview in the merge request, push in the deploy job):
 ```yaml
 directus:diff:
   stage: test
@@ -2081,7 +2081,7 @@ directus:diff:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes: [directus/**/*]
   script:
-    - npx --yes @lenne.tech/cli directus sync diff --to production --noConfirm
+    - npx --yes @lenne.tech/cli directus sync diff --to staging --noConfirm
 
 directus:push:
   stage: deploy
@@ -2090,9 +2090,10 @@ directus:push:
     - if: $CI_COMMIT_BRANCH == "main"
       changes: [directus/**/*]
   script:
+    - npx --yes @lenne.tech/cli directus sync diff --to production --noConfirm
     - npx --yes @lenne.tech/cli directus sync push --to production --noConfirm
 ```
-`DIRECTUS_PRODUCTION_TOKEN` must be set as a CI/CD variable. Run the push job after the Directus instance of that stage is deployed.
+Both `diff` and `push` need an admin token for their target. Set `DIRECTUS_PRODUCTION_TOKEN` as a **protected and masked** CI/CD variable, so only pipelines on protected branches (the push job on `main`) receive it. Merge-request pipelines run on unprotected branches and do not get it, which is why the preview compares against `staging` (`DIRECTUS_STAGING_TOKEN`, masked). Do not unprotect the production token to make an MR job pass: every pipeline on any branch would then hold it, and anyone who can push a branch could push to production. The push job prints the production diff before it applies it. Run it after the Directus instance of that stage is deployed.
 
 ---
 
