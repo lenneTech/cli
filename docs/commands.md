@@ -2050,7 +2050,7 @@ Run `npx @directus/cli sync <action> --help` for every d6s option.
 - Non-interactive runs (`--noConfirm`, CI, piped stdin) pass `--no-interactive`, and `push` also `--yes`.
 - A non-interactive `push` refuses `--mode mirror` and `--dangerously-allow-delete`. Columns without Directus metadata are missing from a snapshot, so a mirror push would drop them on the target. Run deleting pushes interactively.
 
-**Which d6s runs:** a local install (`node_modules/.bin/d6s`) or a global one, otherwise `npx @directus/cli@12.3.1`.
+**Which d6s runs:** a local install (`node_modules/.bin/d6s`) or a global one, otherwise `npx @directus/cli@12.5.0`.
 
 **Profiles and tokens:** instance URLs live in `directus.config.json` (create with `npx @directus/cli profile add <name> --url <url>`). The token comes from `DIRECTUS_<PROFILE>_TOKEN` (e.g. `DIRECTUS_PRODUCTION_TOKEN`) or the d6s credential store; with `CI` set, d6s never reads the store. lt never handles tokens.
 

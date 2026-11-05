@@ -30,7 +30,7 @@ import { findExecutable, FindExecutableOptions } from './platform';
  * `@directus/cli` version run via npx when the project has no local install.
  * The CLI is versioned independently of Directus and needs Directus >= 12.2.0.
  */
-export const DIRECTUS_CLI_VERSION = '12.3.1';
+export const DIRECTUS_CLI_VERSION = '12.5.0';
 
 export const DIRECTUS_SYNC_ACTIONS = ['diff', 'pull', 'push'] as const;
 
