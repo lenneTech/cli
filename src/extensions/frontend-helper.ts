@@ -4,6 +4,27 @@ import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness
 import { execArgs } from '../lib/exec-args';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
+import {
+  applyLocalNgBaseDependency,
+  applyVendorDependencies,
+  buildNgBaseVendorMd,
+  copyNgBaseSource,
+  isVendoredNgBaseProject,
+  NG_BASE_CORE_DIR,
+  NG_BASE_PACKAGE,
+  NG_BASE_REPO_URL,
+  ngBaseEntryPoints,
+  ngBaseTag,
+  ngBaseTsconfigPaths,
+  pinnedNgBaseVersion,
+  removeVendoredNgBase,
+  resolveLocalNgBaseBuild,
+  resolveNgBaseLibraryDir,
+  rewriteNgBaseStyleImports,
+  setNgBaseTsconfigPaths,
+  vendoredNgBaseVersion,
+  vendorFreshnessScript,
+} from '../lib/ng-base-vendor';
 import { stripVendorSchemaAugmentation } from '../lib/strip-vendor-schema-augmentation';
 import {
   buildFrontendVendorBlock,
@@ -21,10 +42,37 @@ export interface AngularSetupOptions {
   gitLink?: string;
   linkPath?: string;
   localize?: boolean;
+  /**
+   * npm mode against a LOCAL ng-base build (the `distDir` from `resolveLocalNgBaseBuild`):
+   * `@lenne.tech/ng-base` becomes an injected `file:` dependency, applied before any
+   * install. For testing unreleased ng-base work without vendoring it.
+   */
+  localNgBaseBuild?: string;
   skipGitInit?: boolean;
   skipHuskyRemoval?: boolean;
   skipInstall?: boolean;
+  /**
+   * Vendor `@lenne.tech/ng-base` into `src/core/` before the install (standalone
+   * `lt frontend angular --framework-mode vendor`). The workspace commands vendor after
+   * setup themselves. A failed conversion is reported and the app stays in npm mode.
+   */
+  vendor?: { localSource?: string };
+  /**
+   * The app becomes `projects/app` of a fullstack workspace: package renamed to `app`,
+   * husky and the starter's own lockfile removed, repo-only files dropped (see
+   * {@link ANGULAR_STARTER_REPO_ONLY}). The workspace owns git, hooks and the install.
+   */
+  workspace?: boolean;
 }
+
+/**
+ * Files of the ng-base-starter repository that describe the STARTER, not an app made
+ * from it: its release tooling, its migration guides and its own CI (a workspace
+ * brings its own). The starter is flat (repo root = app), so unlike nuxt-base-starter
+ * there is no wrapper to cut away; these are removed one by one instead. The list is
+ * the contract agreed with ng-base-starter (plan.md §5.6) and is exhaustive.
+ */
+export const ANGULAR_STARTER_REPO_ONLY = ['.github', 'CHANGELOG.md', 'extras', 'migration-guides'];
 
 /**
  * Result of frontend setup operation
@@ -95,8 +143,9 @@ export class FrontendHelper {
       return;
     }
 
-    // Replace NUXT_PUBLIC_STORAGE_PREFIX value with project-specific prefix
-    content = content.replace(/^(NUXT_PUBLIC_STORAGE_PREFIX=).*$/m, `$1${projectName}-local`);
+    // Replace the storage prefix with a project-specific one: NUXT_PUBLIC_STORAGE_PREFIX in a
+    // Nuxt app, NG_PUBLIC_STORAGE_PREFIX in an Angular app (ng-base-starter).
+    content = content.replace(/^((?:NUXT|NG)_PUBLIC_STORAGE_PREFIX=).*$/gm, `$1${projectName}-local`);
 
     filesystem.write(envPath, content);
   }
@@ -271,6 +320,31 @@ export class FrontendHelper {
       return { method: 'link', path: result.path, success: true };
     }
 
+    if (options.workspace) {
+      this.removeAngularStarterRepoFiles(dest);
+      await this.fixPackageName(dest);
+    }
+
+    if (options.localNgBaseBuild && !options.vendor) {
+      const pkg = filesystem.read(`${dest}/package.json`, 'json') as Record<string, any>;
+      if (pkg && typeof pkg === 'object') {
+        applyLocalNgBaseDependency(pkg, options.localNgBaseBuild);
+        filesystem.write(`${dest}/package.json`, `${JSON.stringify(pkg, null, 2)}\n`);
+      }
+    }
+
+    if (options.vendor) {
+      try {
+        await this.convertAngularAppToVendored({
+          dest,
+          localSource: options.vendor.localSource,
+          source: '`lt frontend angular`',
+        });
+      } catch (err) {
+        this.toolbox.print.warning(`Vendor conversion failed, continuing in npm mode: ${(err as Error).message}`);
+      }
+    }
+
     // Install packages
     if (!skipInstall) {
       try {
@@ -298,8 +372,9 @@ export class FrontendHelper {
       }
     }
 
-    // Remove husky
-    if (!skipHuskyRemoval) {
+    // Remove husky. A workspace keeps one set of git hooks at its root; a husky inside
+    // projects/app would rewrite the workspace's `core.hooksPath` on install.
+    if (!skipHuskyRemoval || options.workspace) {
       filesystem.remove(`${dest}/.husky`);
       await patching.update(`${dest}/package.json`, (data: Record<string, unknown>) => {
         if (data.scripts && typeof data.scripts === 'object') {
@@ -332,6 +407,263 @@ export class FrontendHelper {
     }
 
     return { method: result.method, path: dest, success: true };
+  }
+
+  /**
+   * Removes the starter's repo-only files ({@link ANGULAR_STARTER_REPO_ONLY}, release
+   * configs, release scripts) and its npm lockfile, which a pnpm workspace replaces
+   * with its root lockfile. Never follows a symlink.
+   */
+  public removeAngularStarterRepoFiles(dest: string): string[] {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const removed: string[] = [];
+    const remove = (rel: string): void => {
+      const target = path.join(dest, rel);
+      try {
+        fs.lstatSync(target);
+      } catch {
+        return;
+      }
+      fs.rmSync(target, { force: true, recursive: true });
+      removed.push(rel);
+    };
+    for (const rel of [...ANGULAR_STARTER_REPO_ONLY, 'package-lock.json']) {
+      remove(rel);
+    }
+    const listDir = (dir: string): string[] => {
+      try {
+        return fs.readdirSync(path.join(dest, dir));
+      } catch {
+        return [];
+      }
+    };
+    for (const name of listDir('.')) {
+      if (name.startsWith('.release-it')) remove(name);
+    }
+    for (const name of listDir('scripts')) {
+      if (name.startsWith('release')) remove(path.join('scripts', name));
+    }
+    return removed;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Frontend Vendor Mode — @lenne.tech/ng-base (Angular)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  /**
+   * Vendors `@lenne.tech/ng-base` into an Angular app (`src/core/`), see
+   * `src/lib/ng-base-vendor.ts` for the layout and why no import is rewritten.
+   *
+   * Source, by priority: `localSource` (a local ng-base checkout, copied from its
+   * working tree, for testing unreleased work), else a clone of `upstreamRef`, else of
+   * the tag of the version the app pins (`v<version>`), else of the default branch.
+   */
+  async convertAngularAppToVendored(options: {
+    dest: string;
+    localSource?: string;
+    source?: string;
+    upstreamRef?: string;
+    upstreamRepoUrl?: string;
+  }): Promise<{ added: string[]; entryPoints: string[]; version?: string }> {
+    const { dest, localSource, upstreamRef, upstreamRepoUrl = NG_BASE_REPO_URL } = options;
+    const path = require('node:path');
+    const { filesystem, print } = this.toolbox;
+
+    if (isVendoredNgBaseProject(dest)) {
+      throw new Error('Project is already in vendor mode (src/core/VENDOR.md exists).');
+    }
+    const pkgPath = path.join(dest, 'package.json');
+    const pkg = filesystem.read(pkgPath, 'json') as Record<string, any>;
+    if (!pkg || typeof pkg !== 'object') {
+      throw new Error(`Cannot read ${pkgPath}`);
+    }
+
+    let libraryDir: string | undefined;
+    let tmpClone: string | undefined;
+    let commit = '';
+    if (localSource) {
+      libraryDir = resolveNgBaseLibraryDir(localSource);
+      if (!libraryDir) {
+        throw new Error(
+          `${localSource} is no ng-base source: expected projects/ng-base/index.ts + ng-package.json below it, or the library directory itself.`,
+        );
+      }
+      try {
+        commit = (await execArgs('git', ['-C', libraryDir, 'rev-parse', 'HEAD'])).trim();
+      } catch {
+        // Not a git checkout — the baseline then names no commit.
+      }
+    } else {
+      const pinned = pinnedNgBaseVersion(pkg);
+      const ref = upstreamRef || (pinned ? ngBaseTag(pinned) : undefined);
+      if (!ref) {
+        print.warning(`  ${NG_BASE_PACKAGE} has no version pin in package.json — vendoring the default branch.`);
+      }
+      tmpClone = path.join(require('os').tmpdir(), `lt-vendor-ng-base-${Date.now()}-${process.pid}`);
+      try {
+        // Argument list, no shell: the ref comes from a CLI flag or lt.config (see exec-args.ts).
+        await execArgs('git', [
+          'clone',
+          '--depth',
+          '1',
+          ...(ref ? ['--branch', ref] : []),
+          '--',
+          upstreamRepoUrl,
+          tmpClone,
+        ]);
+        commit = (await execArgs('git', ['-C', tmpClone, 'rev-parse', 'HEAD'])).trim();
+      } catch (err) {
+        filesystem.remove(tmpClone);
+        const hint = ref ? ` ng-base tags carry a "v" (e.g. "v22.0.0"); check ${upstreamRepoUrl} for "${ref}".` : '';
+        throw new Error(
+          `Failed to clone ${upstreamRepoUrl}${ref ? ` (${ref})` : ''}: ${(err as Error).message}${hint}`,
+        );
+      }
+      libraryDir = resolveNgBaseLibraryDir(tmpClone);
+      if (!libraryDir) {
+        filesystem.remove(tmpClone);
+        throw new Error(
+          `${upstreamRepoUrl}${ref ? ` (${ref})` : ''} has no projects/ng-base/index.ts — ng-base before 22.0.0 cannot be vendored.`,
+        );
+      }
+    }
+
+    const coreDir = path.join(dest, NG_BASE_CORE_DIR);
+    let library: Record<string, any> = {};
+    let entryPoints: string[] = [];
+    try {
+      library = (filesystem.read(path.join(libraryDir, 'package.json'), 'json') as Record<string, any>) || {};
+      if (!removeVendoredNgBase(dest) && filesystem.exists(coreDir)) {
+        throw new Error(`${coreDir} is a symlink — refusing to replace it.`);
+      }
+      copyNgBaseSource(libraryDir, coreDir);
+      const license = path.join(libraryDir, '..', '..', 'LICENSE');
+      if (filesystem.exists(license)) {
+        filesystem.copy(license, path.join(coreDir, 'LICENSE'), { overwrite: true });
+      }
+      entryPoints = ngBaseEntryPoints(coreDir);
+    } finally {
+      if (tmpClone) {
+        filesystem.remove(tmpClone);
+      }
+    }
+
+    const tsconfig = setNgBaseTsconfigPaths(dest, 'vendor');
+    if (tsconfig === 'missing' || tsconfig === 'unparseable') {
+      const wanted = Object.entries(ngBaseTsconfigPaths(coreDir))
+        .map(([key, [target]]) => `${key} → ${target}`)
+        .join(', ');
+      print.warning(
+        `  ⚠ tsconfig.json is ${tsconfig === 'missing' ? 'missing' : 'not parseable'} — add these compilerOptions.paths by hand: ${wanted}`,
+      );
+    } else if (tsconfig === 'no-entries') {
+      // resolveNgBaseLibraryDir already demanded a root ng-package.json with an existing entry
+      // file, so this only happens when the copy itself went wrong. Nothing else was changed
+      // yet: take the copy back so the app is left as it was.
+      removeVendoredNgBase(dest);
+      throw new Error(`${coreDir} has no ng-package.json with an existing lib.entryFile — nothing to map.`);
+    }
+
+    // The tsconfig mapping reaches TypeScript only; the stylesheet imports need the vendored path too.
+    rewriteNgBaseStyleImports(dest, 'vendor');
+
+    const added = applyVendorDependencies(pkg, library);
+    if (pkg.scripts && typeof pkg.scripts === 'object') {
+      pkg.scripts['check:vendor-freshness'] = vendorFreshnessScript('src/core/VENDOR.md', NG_BASE_PACKAGE);
+      hookCheckFreshness(pkg.scripts);
+    }
+    filesystem.write(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+    filesystem.write(
+      path.join(coreDir, 'VENDOR.md'),
+      buildNgBaseVendorMd({
+        commit,
+        date: new Date().toISOString().slice(0, 10),
+        source: options.source || '`lt frontend convert-mode --to vendor`',
+        version: library.version,
+      }),
+    );
+
+    const claudeMdPath = path.join(dest, 'CLAUDE.md');
+    if (filesystem.exists(claudeMdPath)) {
+      const existing = filesystem.read(claudeMdPath) || '';
+      const patched = insertVendorBlockIfMissing(existing, FRONTEND_VENDOR_MARKER, buildFrontendVendorBlock('angular'));
+      if (patched !== existing) {
+        filesystem.write(claudeMdPath, patched);
+      }
+    }
+
+    return { added, entryPoints, version: library.version };
+  }
+
+  /**
+   * Reverse of {@link convertAngularAppToVendored}: removes `src/core/` and the tsconfig
+   * mapping and restores the `@lenne.tech/ng-base` dependency at the baseline version
+   * (or `targetVersion`). The peers vendor mode added stay: they are valid npm-mode
+   * dependencies too.
+   */
+  async convertAngularAppToNpmMode(options: {
+    dest: string;
+    localSource?: string;
+    targetVersion?: string;
+  }): Promise<{ version: string }> {
+    const { dest, localSource, targetVersion } = options;
+    const path = require('node:path');
+    const { filesystem, print } = this.toolbox;
+
+    if (!isVendoredNgBaseProject(dest)) {
+      throw new Error('Project is not in vendor mode (src/core/VENDOR.md naming @lenne.tech/ng-base not found).');
+    }
+    // A local build instead of the registry version: refuse before anything is removed.
+    const localBuild = localSource ? resolveLocalNgBaseBuild(localSource) : undefined;
+    if (localBuild?.error) {
+      throw new Error(localBuild.error);
+    }
+    const version = targetVersion || vendoredNgBaseVersion(dest);
+    if (!version) {
+      throw new Error('Cannot determine target version. Specify --version or ensure VENDOR.md has a Baseline-Version.');
+    }
+    const vendorMd = filesystem.read(path.join(dest, NG_BASE_CORE_DIR, 'VENDOR.md')) || '';
+    if (/\|\s*\d{4}-[^|]*\|[^|]*\|[^|]*\|/.test(vendorMd.split(/## Local changes/i)[1] || '')) {
+      print.warning('VENDOR.md documents local patches in src/core/ that will be LOST.');
+      print.warning('Consider running /lt-dev:frontend:contribute-ng-base-core first to upstream them.');
+    }
+
+    if (!removeVendoredNgBase(dest)) {
+      throw new Error(`${path.join(dest, NG_BASE_CORE_DIR)} is a symlink — refusing to remove it.`);
+    }
+    setNgBaseTsconfigPaths(dest, 'npm');
+    rewriteNgBaseStyleImports(dest, 'npm');
+
+    const pkgPath = path.join(dest, 'package.json');
+    const pkg = filesystem.read(pkgPath, 'json') as Record<string, any>;
+    if (pkg && typeof pkg === 'object') {
+      if (localBuild?.distDir) {
+        applyLocalNgBaseDependency(pkg, localBuild.distDir);
+      } else {
+        // EXACT, not `^`: ng-base-starter pins it exactly (vendor mode clones the tag of that
+        // pin), and its `check-ng-base-pin.mjs` fails a range in CI.
+        pkg.dependencies = { ...(pkg.dependencies || {}), [NG_BASE_PACKAGE]: version };
+        pkg.dependencies = Object.fromEntries(
+          Object.entries(pkg.dependencies as Record<string, string>).sort(([a], [b]) => a.localeCompare(b)),
+        );
+      }
+      if (pkg.scripts && typeof pkg.scripts === 'object') {
+        unhookCheckFreshness(pkg.scripts);
+      }
+      filesystem.write(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+    }
+
+    const claudeMdPath = path.join(dest, 'CLAUDE.md');
+    if (filesystem.exists(claudeMdPath)) {
+      const content = filesystem.read(claudeMdPath) || '';
+      const cleaned = removeVendorBlock(content, FRONTEND_VENDOR_MARKER);
+      if (cleaned !== content) {
+        filesystem.write(claudeMdPath, cleaned);
+      }
+    }
+    return { version };
   }
 
   // ═══════════════════════════════════════════════════════════════════════

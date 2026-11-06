@@ -1,6 +1,8 @@
 import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { failRun } from '../../lib/fail-run';
+import { resolveLocalNgBaseBuild } from '../../lib/ng-base-vendor';
 import { runStandaloneWorkspaceGate } from '../../lib/workspace-integration';
 
 /**
@@ -22,6 +24,20 @@ export const help = {
     { description: 'Copy from local template directory', flag: '--copy', required: false, type: 'string' },
     { description: 'Symlink to local template directory', flag: '--link', required: false, type: 'string' },
     { description: 'Initialize Angular localize', flag: '--localize', required: false, type: 'boolean' },
+    {
+      description: '@lenne.tech/ng-base as npm dependency or vendored into src/core/ (default: npm)',
+      flag: '--framework-mode',
+      required: false,
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      description:
+        'Local ng-base checkout: vendor mode copies its source, npm mode uses its build as injected file: dependency',
+      flag: '--frontend-framework-copy',
+      required: false,
+      type: 'string',
+    },
     {
       description: 'Skip Angular localize initialisation',
       flag: '--noLocalize',
@@ -88,6 +104,7 @@ const NewCommand: GluegunCommand = {
     const configBranch = ltConfig?.commands?.frontend?.angular?.branch;
     const configCopy = ltConfig?.commands?.frontend?.angular?.copy;
     const configLink = ltConfig?.commands?.frontend?.angular?.link;
+    const configFrameworkMode = ltConfig?.commands?.frontend?.angular?.frameworkMode;
 
     // Parse CLI arguments
     const cliBranch = parameters.options.branch || parameters.options.b;
@@ -98,6 +115,27 @@ const NewCommand: GluegunCommand = {
     const cliForce = parameters.options.force;
     const dryRun = cliDryRun === true || cliDryRun === 'true';
     const force = cliForce === true || cliForce === 'true';
+
+    // Framework mode: CLI > config > npm (the standalone default, like `lt server create`)
+    const cliFrameworkMode = parameters.options['framework-mode'];
+    if (cliFrameworkMode !== undefined && cliFrameworkMode !== 'npm' && cliFrameworkMode !== 'vendor') {
+      error(`Invalid --framework-mode value "${String(cliFrameworkMode)}". Use "npm" or "vendor".`);
+      failRun(toolbox);
+      return;
+    }
+    const frameworkMode: 'npm' | 'vendor' = cliFrameworkMode || (configFrameworkMode === 'vendor' ? 'vendor' : 'npm');
+    const frameworkCopy = parameters.options['frontend-framework-copy'] as string | undefined;
+    // npm mode with a local ng-base: an injected file: dependency on its build (ng-base-vendor.ts).
+    let localNgBaseBuild: string | undefined;
+    if (frameworkMode === 'npm' && frameworkCopy) {
+      const build = resolveLocalNgBaseBuild(frameworkCopy);
+      if (build.error) {
+        error(build.error);
+        failRun(toolbox);
+        return;
+      }
+      localNgBaseBuild = build.distDir;
+    }
 
     // Determine branch and copy/link paths with priority: CLI > config
     const branch = cliBranch || configBranch;
@@ -196,6 +234,7 @@ const NewCommand: GluegunCommand = {
       info(`  copy:                       ${copyPath || '(none)'}`);
       info(`  link:                       ${linkPath || '(none)'}`);
       info(`  localize:                   ${localize}`);
+      info(`  frameworkMode:              ${frameworkMode}${frameworkCopy ? ` (from ${frameworkCopy})` : ''}`);
       info(`  gitLink:                    ${gitLink || '(none)'}`);
       info('');
       info('Would execute:');
@@ -206,8 +245,13 @@ const NewCommand: GluegunCommand = {
       } else {
         info(`  1. clone ng-base-starter${branch ? ` (branch: ${branch})` : ''} → ./${projectDir}`);
       }
-      info(`  2. pnpm install + git init + remove husky`);
-      if (gitLink) info(`  3. push initial commit to ${gitLink}`);
+      if (frameworkMode === 'vendor') {
+        info(`  2. vendor @lenne.tech/ng-base → src/core/ + tsconfig paths`);
+      } else if (localNgBaseBuild) {
+        info(`  2. @lenne.tech/ng-base as injected file: dependency on ${localNgBaseBuild}`);
+      }
+      info(`  3. pnpm install + git init + remove husky`);
+      if (gitLink) info(`  4. push initial commit to ${gitLink}`);
       info('');
       if (!toolbox.parameters.options.fromGluegunMenu) {
         process.exit();
@@ -226,6 +270,8 @@ const NewCommand: GluegunCommand = {
       gitLink,
       linkPath,
       localize,
+      localNgBaseBuild,
+      vendor: frameworkMode === 'vendor' ? { localSource: frameworkCopy } : undefined,
     });
 
     if (!result.success) {
@@ -253,8 +299,8 @@ const NewCommand: GluegunCommand = {
     info('Next:');
     info(`  Test and run ${name}:`);
     info(`  $ cd ${projectDir}`);
-    info('  $ npm run test');
-    info('  $ npm run start');
+    info(`  $ ${toolbox.pm.run('test', toolbox.pm.detect(projectDir))}`);
+    info(`  $ ${toolbox.pm.run('dev', toolbox.pm.detect(projectDir))}`);
     info('');
 
     if (!toolbox.parameters.options.fromGluegunMenu) {

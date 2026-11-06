@@ -7,6 +7,9 @@ import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { execArgs, spawnArgs } from '../../lib/exec-args';
 import { failRun } from '../../lib/fail-run';
+import { selectFrontendBlocks } from '../../lib/frontend-claude-blocks';
+import { resolveFrontendFrameworkMode } from '../../lib/frontend-mode-resolution';
+import { resolveLocalNgBaseBuild } from '../../lib/ng-base-vendor';
 import { setPackageName, setPackageVersion } from '../../lib/package-name';
 import { removeTemplateAgentMemory } from '../../lib/template-agent-memory';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
@@ -53,7 +56,7 @@ const NewCommand: GluegunCommand = {
 
     // Hint for non-interactive callers (e.g. Claude Code)
     toolbox.tools.nonInteractiveHint(
-      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor: workspace-wide, applies to API and frontend> [--frontend-framework-mode <npm|vendor>: overrides --framework-mode for the frontend only] [--framework-upstream-branch <ref>] [--next: implies nuxt-base-starter#next unless --frontend-branch overrides] [--dry-run] --noConfirm',
+      'lt fullstack init --name <name> --frontend <nuxt|angular> --api-mode <Rest|GraphQL|Both> --framework-mode <npm|vendor: workspace-wide, applies to API and frontend> [--frontend-framework-mode <npm|vendor>: overrides --framework-mode for the frontend only] [--framework-upstream-branch <ref>] [--frontend-framework-copy <path>: local ng-base checkout for Angular (vendor: copied source, npm: injected file: dependency on its build)] [--next: implies nuxt-base-starter#next unless --frontend-branch overrides] [--dry-run] --noConfirm',
     );
 
     // Check git
@@ -74,6 +77,7 @@ const NewCommand: GluegunCommand = {
     const configFrontendCopy = ltConfig?.commands?.fullstack?.frontendCopy;
     const configApiLink = ltConfig?.commands?.fullstack?.apiLink;
     const configFrontendLink = ltConfig?.commands?.fullstack?.frontendLink;
+    const configFrontendFrameworkCopy = ltConfig?.commands?.fullstack?.frontendFrameworkCopy;
     const configFrameworkMode = ltConfig?.commands?.fullstack?.frameworkMode as 'npm' | 'vendor' | undefined;
 
     // Parse CLI arguments
@@ -88,6 +92,7 @@ const NewCommand: GluegunCommand = {
       frontend: cliFrontend,
       'frontend-branch': cliFrontendBranch,
       'frontend-copy': cliFrontendCopy,
+      'frontend-framework-copy': cliFrontendFrameworkCopy,
       'frontend-framework-mode': cliFrontendFrameworkMode,
       'frontend-link': cliFrontendLink,
       git: cliGit,
@@ -290,33 +295,23 @@ const NewCommand: GluegunCommand = {
     const configFrontendFrameworkMode = ltConfig?.commands?.fullstack?.frontendFrameworkMode as
       'npm' | 'vendor' | undefined;
 
-    // Precedence: frontend-specific CLI flag > workspace-wide CLI flag >
-    // frontend-specific config > workspace-wide config > vendor default.
-    //
-    // `--framework-mode` is the workspace-wide default and MUST propagate here.
-    // Without that inheritance, `--framework-mode npm` silently produced an
-    // npm API next to a vendored frontend — visible only as the M1..M3 steps in
-    // a `--dry-run` plan, or afterwards as an unexpected `app/core/` tree.
-    // Consumers who genuinely want mixed modes pass `--frontend-framework-mode`.
-    let frontendFrameworkMode: 'npm' | 'vendor';
-    if (cliFrontendFrameworkMode === 'npm' || cliFrontendFrameworkMode === 'vendor') {
-      frontendFrameworkMode = cliFrontendFrameworkMode;
-    } else if (cliFrontendFrameworkMode) {
-      error(`Invalid --frontend-framework-mode value "${cliFrontendFrameworkMode}". Use "npm" or "vendor".`);
+    // Same rule as `lt fullstack add-app` (see frontend-mode-resolution.ts): the
+    // frontend-specific flag, then the workspace-wide `--framework-mode`, then config,
+    // then vendor. Consumers who genuinely want mixed modes pass `--frontend-framework-mode`.
+    const frontendModeResolution = resolveFrontendFrameworkMode({
+      cliFrameworkMode,
+      cliFrontendFrameworkMode,
+      configFrameworkMode,
+      configFrontendFrameworkMode,
+    });
+    if (frontendModeResolution.error) {
+      error(frontendModeResolution.error);
       failRun(toolbox);
       return;
-    } else if (cliFrameworkMode === 'npm' || cliFrameworkMode === 'vendor') {
-      frontendFrameworkMode = cliFrameworkMode;
-      info(`Using frontend framework mode from --framework-mode: ${frontendFrameworkMode}`);
-    } else if (configFrontendFrameworkMode === 'npm' || configFrontendFrameworkMode === 'vendor') {
-      frontendFrameworkMode = configFrontendFrameworkMode;
-      info(`Using frontend framework mode from lt.config: ${frontendFrameworkMode}`);
-    } else if (configFrameworkMode === 'npm' || configFrameworkMode === 'vendor') {
-      frontendFrameworkMode = configFrameworkMode;
-      info(`Using frontend framework mode from lt.config frameworkMode: ${frontendFrameworkMode}`);
-    } else {
-      // Default to vendor without asking (unless user sets it explicitly)
-      frontendFrameworkMode = 'vendor';
+    }
+    const frontendFrameworkMode = frontendModeResolution.mode;
+    if (frontendModeResolution.source && frontendModeResolution.source !== '--frontend-framework-mode') {
+      info(`Using frontend framework mode from ${frontendModeResolution.source}: ${frontendFrameworkMode}`);
     }
 
     // Determine remote push settings with priority: CLI > config > interactive
@@ -390,8 +385,28 @@ const NewCommand: GluegunCommand = {
     // branch — that branch ships an auth basePath (`/api/auth`) that
     // matches the experimental nest-base API. Explicit
     // `--frontend-branch` (or lt.config) still wins so consumers can
-    // target a custom branch on either line.
-    const frontendBranch = cliFrontendBranch || configFrontendBranch || (experimental ? 'next' : undefined);
+    // target a custom branch on either line. Nuxt only: ng-base-starter
+    // has no `next` branch, and cloning it would fail.
+    const frontendBranch =
+      cliFrontendBranch || configFrontendBranch || (experimental && frontend === 'nuxt' ? 'next' : undefined);
+    const frontendFrameworkCopy =
+      typeof cliFrontendFrameworkCopy === 'string' && cliFrontendFrameworkCopy
+        ? cliFrontendFrameworkCopy
+        : configFrontendFrameworkCopy;
+
+    // A local ng-base in npm mode (Angular only, Nuxt ignores the option): an injected
+    // `file:` dependency on its build. Refused here, before anything is written, when the
+    // build is missing.
+    let localNgBaseBuild: string | undefined;
+    if (frontend === 'angular' && frontendFrameworkMode === 'npm' && frontendFrameworkCopy) {
+      const build = resolveLocalNgBaseBuild(frontendFrameworkCopy);
+      if (build.error) {
+        error(build.error);
+        failRun(toolbox);
+        return;
+      }
+      localNgBaseBuild = build.distDir;
+    }
     const apiCopy = cliApiCopy || configApiCopy;
     const apiLink = cliApiLink || configApiLink;
     const frontendCopy = cliFrontendCopy || configFrontendCopy;
@@ -419,6 +434,9 @@ const NewCommand: GluegunCommand = {
       info(`  apiLink:                    ${apiLink || '(none)'}`);
       info(`  frontendCopy:               ${frontendCopy || '(none)'}`);
       info(`  frontendLink:               ${frontendLink || '(none)'}`);
+      if (frontendFrameworkCopy && frontend === 'angular') {
+        info(`  frontendFrameworkCopy:      ${frontendFrameworkCopy}`);
+      }
       info(`  pushToRemote:               ${pushToRemote}`);
       if (pushToRemote) {
         info(`  gitLink:                    ${gitLink || '(unset — would abort at run-time)'}`);
@@ -444,7 +462,16 @@ const NewCommand: GluegunCommand = {
         info(`  3. clone nest-server-starter → ${projectDir}/projects/api`);
         info(`  4. run processApiMode(${apiMode})`);
       }
-      if (frontendFrameworkMode === 'vendor') {
+      if (localNgBaseBuild) {
+        info(`  M1. @lenne.tech/ng-base as injected file: dependency on ${localNgBaseBuild}`);
+      } else if (frontendFrameworkMode === 'vendor' && frontend === 'angular') {
+        info(
+          frontendFrameworkCopy
+            ? `  M1. copy @lenne.tech/ng-base from ${frontendFrameworkCopy} (working tree)`
+            : `  M1. clone @lenne.tech/ng-base (tag of the version the starter pins) → /tmp`,
+        );
+        info(`  M2. vendor projects/ng-base → projects/app/src/core/ + tsconfig paths (no import rewrite)`);
+      } else if (frontendFrameworkMode === 'vendor') {
         info(`  M1. clone @lenne.tech/nuxt-extensions → /tmp`);
         info(`  M2. vendor app/core/ (module.ts + runtime/) + codemod consumer imports`);
         info(`  M3. rewrite nuxt.config.ts module entry`);
@@ -516,6 +543,13 @@ const NewCommand: GluegunCommand = {
       const claudeMdPath = `${projectDir}/CLAUDE.md`;
       if (filesystem.exists(claudeMdPath)) {
         const frontendName = frontend === 'nuxt' ? 'Nuxt 4' : 'Angular';
+        // Keep only the chosen frontend's `<!-- lt:frontend … -->` blocks (lt-monorepo).
+        const selection = selectFrontendBlocks(filesystem.read(claudeMdPath) || '', frontend as 'angular' | 'nuxt');
+        if (selection.problem) {
+          warning(`CLAUDE.md: ${selection.problem} — left all frontend blocks in place.`);
+        } else {
+          filesystem.write(claudeMdPath, selection.content);
+        }
         await patching.update(claudeMdPath, (content: string) =>
           content
             .replace(/\{\{PROJECT_NAME\}\}/g, () => name)
@@ -575,9 +609,10 @@ const NewCommand: GluegunCommand = {
         branch: frontendBranch,
         copyPath: frontendCopy,
         linkPath: frontendLink,
+        localNgBaseBuild,
         skipGitInit: true, // Git is handled at monorepo level
-        skipHuskyRemoval: true, // Will handle at monorepo level if needed
         skipInstall: true, // Will install at monorepo level
+        workspace: true, // `app` package name, no husky, no nested lockfile, no repo-only files
       });
     }
 
@@ -593,14 +628,30 @@ const NewCommand: GluegunCommand = {
     }
 
     // ── Frontend vendoring (if requested) ───────────────────────────────
-    if (isNuxt && frontendFrameworkMode === 'vendor' && frontendResult.method !== 'link') {
+    // Set only when the conversion succeeded: a failed one continues in npm mode, and the
+    // vendor notices below must then not claim a `core/` tree that does not exist.
+    let frontendVendored = false;
+    if (frontendFrameworkMode === 'vendor' && frontendResult.method !== 'link') {
       const vendorSpinner = spin('Converting frontend to vendor mode...');
       try {
-        await frontendHelper.convertAppCloneToVendored({
-          dest: frontendDest,
-          projectName: name,
-        });
-        vendorSpinner.succeed('Frontend converted to vendor mode (app/core/)');
+        if (isNuxt) {
+          await frontendHelper.convertAppCloneToVendored({
+            dest: frontendDest,
+            projectName: name,
+          });
+          vendorSpinner.succeed('Frontend converted to vendor mode (app/core/)');
+          frontendVendored = true;
+        } else {
+          const vendored = await frontendHelper.convertAngularAppToVendored({
+            dest: frontendDest,
+            localSource: frontendFrameworkCopy,
+            source: '`lt fullstack init`',
+          });
+          vendorSpinner.succeed(
+            `Frontend converted to vendor mode (src/core/, @lenne.tech/ng-base ${vendored.version || '(version not detected)'})`,
+          );
+          frontendVendored = true;
+        }
       } catch (err) {
         vendorSpinner.fail(`Frontend vendor conversion failed: ${(err as Error).message}`);
         toolbox.print.warning('Continuing with npm mode for frontend.');
@@ -768,7 +819,7 @@ const NewCommand: GluegunCommand = {
       if (!experimental && apiMode && filesystem.isDirectory(`${projectDir}/projects/api`)) {
         await toolbox.apiMode.formatProject(`${projectDir}/projects/api`);
       }
-      if (!experimental && isNuxt && filesystem.isDirectory(`${projectDir}/projects/app`)) {
+      if (!experimental && filesystem.isDirectory(`${projectDir}/projects/app`)) {
         await toolbox.apiMode.formatProject(`${projectDir}/projects/app`);
       }
 
@@ -780,7 +831,8 @@ const NewCommand: GluegunCommand = {
         apiDir: `${projectDir}/projects/api`,
         appDir: `${projectDir}/projects/app`,
         backendVendor: frameworkMode === 'vendor',
-        frontendVendor: frontendFrameworkMode === 'vendor',
+        frontendKind: isNuxt ? 'nuxt' : 'angular',
+        frontendVendor: frontendVendored,
         workspaceRoot: projectDir,
       });
 

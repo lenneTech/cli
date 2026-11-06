@@ -25,7 +25,7 @@ import { loadRegistry } from './dev-state';
 
 /**
  * True if this path is an lt-dev-capable project — i.e. `resolveLayout`
- * found an API (`src/config.env.ts`) and/or App (`nuxt.config.ts`).
+ * found an API (`src/config.env.ts`) and/or App (`nuxt.config.ts` or `angular.json`).
  * Used by `lt dev install` to decide whether an auto-init makes sense.
  */
 export function isLtDevProject(layout: DevProjectLayout): boolean {

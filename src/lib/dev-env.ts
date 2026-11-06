@@ -8,8 +8,9 @@
  *
  * Cross-wiring protection:
  * - `BASE_URL`/`APP_URL` lock the API to its own App origin (CORS + BetterAuth)
- * - `NUXT_PUBLIC_*` lock the App to its own API
- * - `NUXT_PUBLIC_STORAGE_PREFIX` namespaces localStorage/sessionStorage
+ * - `NUXT_PUBLIC_*` lock the App to its own API (`NG_PUBLIC_*` / `NG_API_URL` carry the
+ *   same values for an Angular app; both sets go to every app)
+ * - `NUXT_PUBLIC_STORAGE_PREFIX` / `NG_PUBLIC_STORAGE_PREFIX` namespace localStorage/sessionStorage
  * - `NSC__MONGOOSE__URI` / `DATABASE_URL` namespace the database per project
  * - `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL` (API only) give a project on
  *   PostgreSQL / MySQL / MariaDB its own database per stack (see `dev-sql.ts`)
@@ -155,6 +156,15 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         // same-origin trickery is no longer required.
         NUXT_PUBLIC_API_PROXY: 'false',
         NUXT_PUBLIC_STORAGE_PREFIX: identity.slug,
+        // The same values under the names an Angular app (ng-base-starter) reads. Set for
+        // every app, whatever its framework: the SSR server of either one reads only its own
+        // prefix, and choosing by framework here would make a stack depend on a detection
+        // that a hand-built app can defeat.
+        ...(apiUrl ? { NG_PUBLIC_API_URL: apiUrl } : {}),
+        ...(apiInternal || apiUrl ? { NG_API_URL: apiInternal || apiUrl } : {}),
+        ...(appUrl ? { NG_PUBLIC_SITE_URL: appUrl } : {}),
+        NG_PUBLIC_API_PROXY: 'false',
+        NG_PUBLIC_STORAGE_PREFIX: identity.slug,
         // Nuxt/h3 sessions need a password of at least 32 characters. An ABSENT one makes
         // every login answer 500 `H3Error: Empty password`; a SHORT one answers `Password
         // string too short (min 32 characters required)` — two distinct errors from

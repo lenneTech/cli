@@ -2,7 +2,7 @@ import { GluegunCommand } from 'gluegun';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { failRun } from '../../lib/fail-run';
-import { detectFrontendFrameworkMode, findAppDir } from '../../lib/frontend-framework-detection';
+import { detectFrontendFramework, findFrontendAppDir } from '../../lib/frontend-kind';
 import { findUnknownOptions, formatUnknownOptions } from '../../lib/unknown-options';
 
 /** The flag names `lt fullstack convert-mode` uses for the same thing, mapped to the real ones for the error message. */
@@ -13,6 +13,9 @@ const RENAMED_FLAGS: Record<string, string> = {
 
 /**
  * Convert an existing frontend project between npm mode and vendor mode.
+ *
+ * Nuxt apps vendor `@lenne.tech/nuxt-extensions` into `app/core/`, Angular apps
+ * `@lenne.tech/ng-base` into `src/core/` (see `src/lib/ng-base-vendor.ts`).
  *
  * Usage:
  *   lt frontend convert-mode --to vendor [--upstream-branch 1.5.3]
@@ -36,7 +39,14 @@ export const help = {
       type: 'string',
     },
     {
-      description: 'nuxt-extensions version to install (only with --to npm, default: from VENDOR.md baseline)',
+      description:
+        'Angular: local ng-base checkout (--to vendor: its source is copied; --to npm: injected file: dependency on its build)',
+      flag: '--frontend-framework-copy',
+      required: false,
+      type: 'string',
+    },
+    {
+      description: 'Library version to install (only with --to npm, default: from VENDOR.md baseline)',
       flag: '--version',
       required: false,
       type: 'string',
@@ -94,15 +104,20 @@ const ConvertModeCommand: GluegunCommand = {
 
     // Find the frontend project root
     const cwd = filesystem.cwd();
-    const appDir = findAppDir(cwd);
+    const appDir = findFrontendAppDir(cwd);
     if (!appDir) {
-      error('Could not find a nuxt.config.ts in the current directory or any parent. Are you inside a Nuxt project?');
+      error(
+        'Could not find a nuxt.config.ts or angular.json in the current directory or any parent. Are you inside a frontend project?',
+      );
       return;
     }
+    const framework = detectFrontendFramework(appDir);
+    const angular = framework?.kind === 'angular';
+    const frameworkCopy = parameters.options['frontend-framework-copy'] as string | undefined;
 
     // Detect current mode
-    const currentMode = detectFrontendFrameworkMode(appDir);
-    info(`Detected current mode: ${currentMode}`);
+    const currentMode = framework?.mode === 'vendor' ? 'vendor' : 'npm';
+    info(`Detected current mode: ${currentMode}${angular ? ' (Angular, @lenne.tech/ng-base)' : ''}`);
 
     if (currentMode === targetMode) {
       warning(`Project is already in ${targetMode} mode. Nothing to do.`);
@@ -117,7 +132,35 @@ const ConvertModeCommand: GluegunCommand = {
       info(`  appDir:       ${appDir}`);
       info(`  currentMode:  ${currentMode}`);
       info(`  targetMode:   ${targetMode}`);
-      if (targetMode === 'vendor') {
+      if (angular && targetMode === 'vendor') {
+        const upstreamBranch = parameters.options['upstream-branch'] as string | undefined;
+        info(`  source:       ${frameworkCopy || upstreamBranch || '(tag of the version package.json pins)'}`);
+        info('');
+        info('Would execute:');
+        info(
+          frameworkCopy
+            ? `  1. Copy @lenne.tech/ng-base from ${frameworkCopy} (working tree)`
+            : '  1. Clone @lenne.tech/ng-base → /tmp/lt-vendor-ng-base-*',
+        );
+        info('  2. Copy projects/ng-base/ → src/core/ (without build and test files)');
+        info(
+          '  3. Map @lenne.tech/ng-base and each @lenne.tech/ng-base/<entry> to its ng-package.json entry file in tsconfig.json (no import rewrite)',
+        );
+        info("  4. Replace the @lenne.tech/ng-base dependency with the library's own peers");
+        info('  5. Add check:vendor-freshness script');
+        info('  6. Create src/core/VENDOR.md with baseline metadata');
+        info('  7. Prepend vendor-mode notice to CLAUDE.md');
+      } else if (angular) {
+        const targetVersion = parameters.options.version as string | undefined;
+        info(`  targetVersion: ${targetVersion || '(from VENDOR.md baseline)'}`);
+        info('');
+        info('Would execute:');
+        info('  1. Read baseline version from src/core/VENDOR.md');
+        info('  2. Warn if local patches exist in VENDOR.md');
+        info('  3. Delete src/core/ and remove the @lenne.tech/ng-base paths from tsconfig.json');
+        info('  4. Restore @lenne.tech/ng-base in package.json');
+        info('  5. Remove vendor scripts and CLAUDE.md marker');
+      } else if (targetMode === 'vendor') {
         const upstreamBranch = parameters.options['upstream-branch'] as string | undefined;
         info(`  upstreamBranch: ${upstreamBranch || '(auto-detect from package.json)'}`);
         info('');
@@ -150,10 +193,13 @@ const ConvertModeCommand: GluegunCommand = {
     // Confirm
     const noConfirm = parameters.options.noConfirm;
     if (!noConfirm) {
+      const touched = angular
+        ? 'src/core/, tsconfig.json, package.json, and CLAUDE.md'
+        : 'nuxt.config.ts, package.json, imports, and CLAUDE.md';
       const proceed = await confirm(
         `Convert project from ${currentMode} mode to ${targetMode} mode?\n` +
           `  Project: ${appDir}\n` +
-          `  This will modify nuxt.config.ts, package.json, imports, and CLAUDE.md.`,
+          `  This will modify ${touched}.`,
       );
       if (!proceed) {
         info('Aborted.');
@@ -162,7 +208,36 @@ const ConvertModeCommand: GluegunCommand = {
     }
 
     // Execute conversion
-    if (targetMode === 'vendor') {
+    if (angular) {
+      const spinner = spin(`Converting to ${targetMode} mode...`);
+      try {
+        if (targetMode === 'vendor') {
+          const result = await frontendHelper.convertAngularAppToVendored({
+            dest: appDir,
+            localSource: frameworkCopy,
+            upstreamRef: parameters.options['upstream-branch'] as string | undefined,
+          });
+          spinner.succeed(`Converted to vendor mode (src/core/, @lenne.tech/ng-base ${result.version || '?'}).`);
+          if (result.added.length > 0) {
+            info(`  added the library's peers as dependencies: ${result.added.join(', ')}`);
+          }
+        } else {
+          const result = await frontendHelper.convertAngularAppToNpmMode({
+            dest: appDir,
+            localSource: frameworkCopy,
+            targetVersion: parameters.options.version as string | undefined,
+          });
+          spinner.succeed(`Converted to npm mode (@lenne.tech/ng-base ${result.version}).`);
+        }
+        success('\nNext steps:');
+        info('  1. Run: pnpm install');
+        info('  2. Run: pnpm run build');
+        info('  3. Commit the changes');
+      } catch (err) {
+        spinner.fail(`Conversion failed: ${(err as Error).message}`);
+        failRun(toolbox);
+      }
+    } else if (targetMode === 'vendor') {
       // npm → vendor
       const upstreamBranch = parameters.options['upstream-branch'] as string | undefined;
 

@@ -1,6 +1,6 @@
 {
   "name": "@lenne.tech/cli",
-  "version": "1.56.2",
+  "version": "1.57.0",
   "description": "lenne.Tech CLI: lt",
   "keywords": [
     "lenne.Tech",
@@ -40,6 +40,7 @@
     "start:compiled": "node bin/lt --compiled-build",
     "test": "vitest run",
     "test:e2e:service": "vitest run --config vitest.manual.config.mts __tests__/dev-service-e2e.manual.ts",
+    "test:angular-init": "bash scripts/test-angular-init.sh",
     "test:frontend-vendor-init": "bash scripts/test-frontend-vendor-init.sh",
     "test:incremental-fullstack": "bash scripts/test-incremental-fullstack.sh",
     "test:manual": "vitest run --config vitest.manual.config.mts",

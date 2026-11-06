@@ -199,6 +199,29 @@ instead of `src/core/`. No flatten-fix is needed.
 | Status command | `src/commands/status.ts` | Reports frontend framework mode |
 | Runtime-helper config | `src/config/vendor-frontend-runtime-deps.json` | Currently empty (nuxt-extensions has minimal deps) |
 
+### Angular frontend (ng-base-starter + `@lenne.tech/ng-base`) — key touchpoints
+
+Angular is a first-class alternative to Nuxt (plan settled 2026-11-05/06 with the
+ng-base, ng-base-starter and lt-monorepo sessions). The starter is FLAT (repo root
+= app). ng-base vendors into `projects/app/src/core/` and is reached through
+tsconfig `paths`, so **no import is rewritten** in either direction. The mapping is
+DERIVED from every `ng-package.json` in the vendored tree (root → `@lenne.tech/ng-base`,
+`<entry>/` → `@lenne.tech/ng-base/<entry>`, each onto its `lib.entryFile`, default
+`src/public-api.ts`; the `ng g library` layout), never assumed. ng-base tags
+carry a `v` (`v22.0.0`), nuxt-extensions tags do not. lt-dev commands (W5):
+`/lt-dev:frontend:update-ng-base-core` and `/lt-dev:frontend:contribute-ng-base-core`
+(agents `ng-base-core-updater` / `-contributor`), which the vendor notices name.
+
+| Concern | File | Notes |
+|---|---|---|
+| Framework detection | `src/lib/frontend-kind.ts` | `detectFrontendKind()` (`nuxt.config.*` / `angular.json`, then the framework package), `detectFrontendFramework()` (kind + lt-library mode), `findFrontendAppDir()`. Used by status, update, both convert-modes, deployment create, lt dev |
+| Vendor transform (both ways) | `src/lib/ng-base-vendor.ts` + `frontend-helper.ts#convertAngularAppToVendored` / `#convertAngularAppToNpmMode` | Source: `--frontend-framework-copy <path>` (local checkout, WORKING TREE, for unreleased work), else `--upstream-branch`, else the tag of the pinned version, else the default branch. Copies `projects/ng-base/` minus `package.json`/`tsconfig*`/specs/`test-setup.ts`/README (the `ng-package.json` files stay), never through a symlink; JSONC-safe tsconfig edit; stylesheet `@import`s of the package are rewritten too (`rewriteNgBaseStyleImports`: tsconfig `paths` reach TypeScript only, `@tailwindcss/postcss` resolves CSS from `node_modules` only, so without it a vendored app fails `ng build`); the library's peers become app dependencies (`@playwright/test` → dev). A library `CLAUDE.md` / `AGENTS.md` is not copied (it would hand the app's agents the library's own dev rules). npm mode with `--frontend-framework-copy` makes the dependency an INJECTED `file:<dist>` (`applyLocalNgBaseDependency`), never a link: a linked dist resolves `@angular/core` from the ng-base checkout, two Angular copies run, SSR fails with NG0203. An ng-base `VENDOR.md` must never name `@lenne.tech/nest-server`: `isVendoredProject` would read the app as a vendored API (both live in `src/core/`, test pins it) |
+| Workspace setup | `frontend-helper.ts#setupAngular({ workspace: true })` | Package renamed `app`, husky removed, `removeAngularStarterRepoFiles` (`ANGULAR_STARTER_REPO_ONLY`: `.github`, `CHANGELOG.md`, `extras`, `migration-guides`, `.release-it*`, `scripts/release*`, `package-lock.json`, the agreed exhaustive list). simple-git-hooks/lint-staged stay, as in the Nuxt template |
+| Mode default | `src/lib/frontend-mode-resolution.ts` | One chain for init AND add-app (add-app defaulted to npm before): `--frontend-framework-mode` > `--framework-mode` > config > `vendor`. Standalone `lt frontend angular` defaults to npm, like `lt server create` |
+| Root CLAUDE.md | `src/lib/frontend-claude-blocks.ts` | `<!-- lt:frontend nuxt\|angular -->…<!-- /lt:frontend -->` (lt-monorepo owns the file, its `scripts/claude-md-frontend-blocks.test.mjs` mirrors the START/END regexes: change both together). Unbalanced markers → file untouched + warning |
+| lt dev | `dev-env.ts`, `dev-identity.ts#detectStandaloneKind`, `dev-test-session.ts#buildTestAppEnv`, `dev-patches.ts#patchClaudeMd` | `NG_*` next to `NUXT_*` for every app; `angular.json` marks an app; the test build gets `NG_OUTPUT_DIR=.output-test` (shim `<dir>/server/index.mjs`, so entry lookup and teardown need no Angular case); the CLAUDE.md URL block names `NG_*` only for an Angular app, a Nuxt block stays byte-identical. `.angular` is in `GENERATED_PATHS` and `**/.angular` in the root `.dockerignore` |
+| Deployment | `src/commands/deployment/create.ts` | Prints `NG_PUBLIC_API_URL`/`NG_API_URL`/`NG_PUBLIC_SITE_URL` as stage env; nothing is patched (the former `angular-environments.ts` patcher is gone, see the Gotcha below) |
+
 **Golden rule:** Never hard-code `'@lenne.tech/nest-server'` as a
 specifier in generated code or `node_modules/@lenne.tech/nest-server/`
 as a path in command logic. Always derive the specifier via
@@ -257,7 +280,7 @@ ports. Developers and Claude Code never see the internal ports.
 | Concern | File | Notes |
 |---|---|---|
 | Identity (slug + subdomains) | `src/lib/dev-identity.ts` | `projectSlug` reads `package.json` "name" (scope stripped, slugified); `buildIdentity` enumerates `projects/api`/`projects/app` (monorepo) or detects `config.env.ts`/`nuxt.config.ts` (standalone). |
-| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`, and — API only, from the optional `databases` input — `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL`. `databases.mongo: false` (an API on SQL alone) suppresses `NSC__MONGOOSE__URI`; a SQL project (`sql` or `sqlProblem`) gets no `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
+| ENV builder | `src/lib/dev-env.ts` | Single source of truth for `BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_*`, their Angular counterparts `NG_API_URL` / `NG_PUBLIC_*` (same values, set for every app), `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`, and — API only, from the optional `databases` input — `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL`. `databases.mongo: false` (an API on SQL alone) suppresses `NSC__MONGOOSE__URI`; a SQL project (`sql` or `sqlProblem`) gets no `DATABASE_URL`. **Always URLs, never bare ports.** `NUXT_PUBLIC_API_PROXY=false` because Caddy + cookie-domain make vite-proxy obsolete. `NUXT_SESSION_PASSWORD` resolves shell export → the app's own `.env` (via the optional `appDir` input) → a fallback derived as `HMAC-SHA256(machine salt, 'lt-dev:session:<slug>')`, 32 hex chars; the salt lives at `~/.lenneTech/dev-session-salt` (0600, override `LT_DEV_SESSION_SALT_PATH`). |
 | SQL databases (nest-server 12.1+) | `src/lib/dev-sql.ts` + `src/templates/dev-sql/runner.cjs` | Projects on PostgreSQL / MySQL / MariaDB. `detectDatabaseSetup` reads the SQL URL in the API's own precedence (shell → API `.env` → `database` literal in `config.env.ts`, from the AST) — never from a `pg`/`mysql2` dependency. `planStackDatabases` derives the stack's URLs (only the database path changes; the base dev stack keeps the configured database, tickets/test stacks get `dbName`), refuses a non-local host, a name PostgreSQL would truncate (>63) and a stack name equal to the configured database. `ensureSqlDatabase` creates it as the owner role and grants the app role (`CONNECT` / row privileges); `listSqlDatabaseNames` / `dropSqlDatabases` serve `lt ticket stop`, `lt dev prune` and the `lt dev up` sweep, behind `localSqlSource` (local servers only) and `sqlRemovalTargets` (never the configured database, re-checked inside `dropSqlDatabases`). The runner is a plain `.cjs` started with `process.execPath`, loads the PROJECT's driver, takes every value from env, quotes identifiers and passes accounts as parameters. Real-server check: `__tests__/dev-sql-e2e.manual.ts`. Registry entries of SQL projects carry credential-free `dbUrls` (`registryDbUrls`). |
 | Registry + session state | `src/lib/dev-state.ts` | Central registry `~/.lenneTech/projects.json` (override via `LT_DEV_REGISTRY_PATH`); per-project session at `<root>/.lt-dev/state.json`. Atomic writes; PID validation gate via `isValidPid` / `isPidAlive`. |
 | Caddy integration | `src/lib/caddy.ts` | One block per project, marked with `# >>> lt-dev:<slug> >>>`/`# <<<`. `upsertProjectBlock` is idempotent; `removeProjectBlock` is a no-op when absent. Caddyfile path overridable via `LT_DEV_CADDYFILE`. Every site block carries `@lt_remote not remote_ip 127.0.0.0/8 ::1` + `abort @lt_remote`, so stacks are not reachable from the LAN (the `lt dev test` seed admin's password is in this public repo). **Never** use a global `default_bind 127.0.0.1 [::1]` instead: see the Gotcha "`caddy validate` passing is not Caddy binding". Every write goes through `migrateCaddyfile`: it deletes the line 1.51.0/1.51.1 wrote, adds the guard to every block between lt's markers AND the owner marker (`log lt-dev-owner { output discard }`), in one step. `reloadCaddy` / `stopOwnCaddy` act only on a Caddy `detectCaddyOwner` calls ours: see the Gotcha "`lt dev` never touches a Caddy it did not start". The admin API address is `paths.admin` (`LT_DEV_CADDY_ADMIN`, default `127.0.0.1:2019`); the test setup points it at a dead port. The daemon is owned by `lt dev install` (see `dev-service.ts`) — **never** rely on `brew services caddy`: its plist hardcodes `--config /opt/homebrew/etc/Caddyfile` and crash-loops against our location, which is the bug that originally blocked the first real `lt dev install`. |
@@ -287,7 +310,7 @@ ports. Developers and Claude Code never see the internal ports.
 8. **`lt dev test [--api] [--keep] [--debug] [-- args]`** / **`lt dev test down`** — App mode (default) brings up an ISOLATED parallel stack (`<slug>-test.localhost` / `api.<slug>-test.localhost`, DB `<…>-test`), runs Playwright against it, then tears it down. The dev `lt dev up` session is never touched. `--keep` leaves the test stack up for debugging; `lt dev test down` tears a leftover stack down. `--api` runs the API E2E suite in the api project instead (already DB-isolated, no stack needed). Forwards args after `--` to the test runner.
 9. **`lt dev tunnel [--api]`** — Cloudflare Quick Tunnel: foreground `cloudflared tunnel --url https://<slug>.localhost --http-host-header <slug>.localhost --no-tls-verify`, prints the public `*.trycloudflare.com` URL. The host-header rewrite is mandatory — without it Caddy's vhost match fails for the random tunnel URL. Tunnels only expose ONE subdomain at a time; start a second `lt dev tunnel --api` in another shell for full external usage.
 
-**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>`; Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`; a project on PostgreSQL / MySQL / MariaDB gets its own SQL database per stack via `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL` (API only, created on the local server when missing; the base dev stack keeps the configured one); h3 session cookies are namespaced via `NUXT_SESSION_PASSWORD`, keyed per slug so a cookie sealed by one stack cannot be unsealed by another (dev, `-test` and every `-test-N` shard stack differ). The isolated `lt dev test` stack reuses the same protections under a `-test` suffix (slug `<…>-test`, DB `<…>-test`, prefix `<…>-test`, port band 4500+) so it can run literally side-by-side with the dev session.
+**Cross-wiring protection:** API gets `APP_URL` so Better-Auth `trustedOrigins` only includes its own App; App gets `BASE_URL` so it only talks to its own API; localStorage is namespaced via `NUXT_PUBLIC_STORAGE_PREFIX=<slug>` (`NG_PUBLIC_STORAGE_PREFIX` for an Angular app); Mongo URI is namespaced via `NSC__MONGOOSE__URI=mongodb://127.0.0.1/<dbName>`; a project on PostgreSQL / MySQL / MariaDB gets its own SQL database per stack via `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL` (API only, created on the local server when missing; the base dev stack keeps the configured one); h3 session cookies are namespaced via `NUXT_SESSION_PASSWORD`, keyed per slug so a cookie sealed by one stack cannot be unsealed by another (dev, `-test` and every `-test-N` shard stack differ). The isolated `lt dev test` stack reuses the same protections under a `-test` suffix (slug `<…>-test`, DB `<…>-test`, prefix `<…>-test`, port band 4500+) so it can run literally side-by-side with the dev session.
 
 ### Vendor Modification Policy (for CLI-generated content)
 
@@ -501,27 +524,15 @@ missed it because they only used untracked (`??`, no leading space) files. Alway
 read porcelain via `gitStatusPorcelain` (no per-line trim), never the trimming
 `git()`.
 
-### Angular bakes deploy URLs into the bundle; Nuxt reads them at runtime <!-- Added: 2026-07-10 -->
-`lt deployment create` writes `.turboops.json` and — for **Angular** apps only —
-rewrites `projects/app/src/environments/environment.{prod,develop,test}.ts`
-(`src/environments/…` for standalone). Reason: a Nuxt app gets its API URL from
-the TurboOps stage env at runtime (`NUXT_PUBLIC_API_URL`), but
-`ng build --configuration production` BAKES `environment.prod.ts` into the
-bundle — an unpatched deploy ships `apiUrl: 'http://127.0.0.1:3000/graphql'` and
-calls the end user's own machine. The command therefore also prints a
-stack-specific checklist (no `NUXT_*` vars for Angular; "commit the patched
-environment.*.ts" instead).
-**Stage mapping** (TurboOps has exactly two stages): `environment.prod.ts` →
-`production` (`<domain>` + `api.<domain>`); `environment.develop.ts` AND
-`environment.test.ts` → `dev` (`dev.<domain>` + `api.dev.<domain>`) — the two are
-byte-identical in ng-base-starter and there is no TurboOps "test" stage.
-`environment.ts` (local) is never touched.
-**Patch shape** (`src/lib/angular-environments.ts`): replace only the URL
-**origin** (scheme + host + port) per property (`apiUrl`, `restUrl`, `wsUrl`,
-`appUrl`), keeping the path — so `/v2/graphql` survives, `logoPath` is untouched,
-the patch is idempotent, AND a re-run with a NEW domain actually updates the
-files. The old implementation replaced the literal `http://127.0.0.1:3000`, which
-silently did **nothing** on a second run and left the previous domain baked in.
+### Angular reads its deploy URLs at runtime now — no environment patching <!-- Added: 2026-07-10, rewritten: 2026-11-06 -->
+`lt deployment create` used to rewrite an Angular app's `environment.{prod,develop,test}.ts`
+(`src/lib/angular-environments.ts`), because the Angular 14 ng-base-starter baked its API URL
+into the bundle: one image per branch could not be promoted, and an unpatched deploy called
+`http://127.0.0.1:3000` on the end user's machine. ng-base-starter 22 renders server-side and
+reads `NG_*` from the stage env at request time (handed to the browser via `TransferState`),
+exactly like a Nuxt app reads `NUXT_*`, so the patcher was removed and the checklist prints the
+`NG_*` names. Legacy Angular 14 projects are out of scope of the Angular plan; they keep their
+committed environment files, which the CLI no longer touches.
 
 ### A flag that PREVENTS destruction must fail closed — `=== true` fails open <!-- Added: 2026-07-14 -->
 gluegun parses argv with **`yargs-parser` and declares no booleans**

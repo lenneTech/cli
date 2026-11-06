@@ -230,10 +230,11 @@ describe('dev-test-session', () => {
       expect(TEST_NITRO_OUTPUT_DIR).not.toBe('.output');
     });
 
-    test('buildTestAppEnv pins NITRO_OUTPUT_DIR alongside NUXT_BUILD_DIR', () => {
+    test('buildTestAppEnv pins NITRO_OUTPUT_DIR and NG_OUTPUT_DIR alongside NUXT_BUILD_DIR', () => {
       const base = { NUXT_PUBLIC_API_PROXY: 'false', PORT: '4501' };
       expect(buildTestAppEnv(base)).toEqual({
         ...base,
+        NG_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR,
         NITRO_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR,
         NUXT_BUILD_DIR: TEST_NUXT_BUILD_DIR,
       });
@@ -244,6 +245,13 @@ describe('dev-test-session', () => {
       // from `process.env`, so an exported value would otherwise hand the test
       // stack the shared output tree straight back.
       expect(buildTestAppEnv({ NITRO_OUTPUT_DIR: '.output' }).NITRO_OUTPUT_DIR).toBe(TEST_NITRO_OUTPUT_DIR);
+    });
+
+    test('an Angular app builds into the same isolated dir via NG_OUTPUT_DIR, inherited value or not', () => {
+      // ng-base-starter's `build` honours NG_OUTPUT_DIR and writes the same
+      // `server/index.mjs` shim, so the entry lookup and the teardown need no Angular case.
+      expect(buildTestAppEnv({}).NG_OUTPUT_DIR).toBe(TEST_NITRO_OUTPUT_DIR);
+      expect(buildTestAppEnv({ NG_OUTPUT_DIR: '.output' }).NG_OUTPUT_DIR).toBe(TEST_NITRO_OUTPUT_DIR);
     });
 
     // THE trap of this ticket. Redirecting the build without redirecting the
@@ -270,7 +278,9 @@ describe('dev-test-session', () => {
         // exists. With the shared dir first, an updated project would serve that
         // stale bundle while its fresh build sat unused in `.output-test`.
         const candidates = testAppEntryCandidates();
-        expect(candidates.indexOf(`${TEST_NITRO_OUTPUT_DIR}/server/index.mjs`)).toBeLessThan(candidates.indexOf('.output/server/index.mjs'));
+        expect(candidates.indexOf(`${TEST_NITRO_OUTPUT_DIR}/server/index.mjs`)).toBeLessThan(
+          candidates.indexOf('.output/server/index.mjs'),
+        );
       });
     });
 

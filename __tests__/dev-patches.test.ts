@@ -48,12 +48,17 @@ describe('dev-patches', () => {
     });
     test('replaces the localConfig NSC__PORT pattern', () => {
       const f = join(tmp, 'config.env.ts');
-      writeFileSync(f, 'export default {\n    port: process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000,\n};');
+      writeFileSync(
+        f,
+        'export default {\n    port: process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000,\n};',
+      );
       const r = patchApiConfig(f);
       expect(r.patched).toBe(true);
       expect(r.replacements).toBe(1);
       const out = readFileSync(f, 'utf8');
-      expect(out).toContain('port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),');
+      expect(out).toContain(
+        'port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),',
+      );
     });
     test('patches both deployedConfig literal and localConfig NSC__PORT pattern', () => {
       const f = join(tmp, 'config.env.ts');
@@ -68,7 +73,10 @@ describe('dev-patches', () => {
     });
     test('idempotent on already-patched NSC__PORT pattern', () => {
       const f = join(tmp, 'config.env.ts');
-      writeFileSync(f, '    port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),');
+      writeFileSync(
+        f,
+        '    port: Number(process.env.PORT) || (process.env.NSC__PORT ? parseInt(process.env.NSC__PORT, 10) : 3000),',
+      );
       const r = patchApiConfig(f);
       expect(r.patched).toBe(false);
     });
@@ -118,7 +126,7 @@ describe('dev-patches', () => {
       const out = readFileSync(f, 'utf8');
       expect(out).toMatch(/^\/\/ >>> lt-dev:bridge v\d+ >>>/);
       expect(out).toMatch(/\/\/ <<< lt-dev:bridge v\d+ <<</);
-      expect(out).toContain(".lt-dev/.env");
+      expect(out).toContain('.lt-dev/.env');
       expect(out).toMatch(/process\.env\[.+\] === undefined/); // existing env wins
     });
 
@@ -296,7 +304,10 @@ describe('dev-patches', () => {
       const hoisted = readFileSync(f, 'utf8');
       const importLines = (hoisted.match(/^import \{[^}]*__ltDev[^}]*\} from '[^']*';$/gm) || []).join('\n');
       expect(importLines).not.toBe('');
-      writeFileSync(f, `${importLines}\n${hoisted.replace(/\/\/ >>> lt-dev:bridge v\d+ >>>/, '// >>> lt-dev:bridge >>>')}`);
+      writeFileSync(
+        f,
+        `${importLines}\n${hoisted.replace(/\/\/ >>> lt-dev:bridge v\d+ >>>/, '// >>> lt-dev:bridge >>>')}`,
+      );
 
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
@@ -308,7 +319,12 @@ describe('dev-patches', () => {
       const f = join(tmp, 'playwright.config.ts');
       writeFileSync(
         f,
-        ['// <<< lt-dev:bridge <<<', "const keep = 'USER CODE';", '// >>> lt-dev:bridge >>>', 'export default {};'].join('\n'),
+        [
+          '// <<< lt-dev:bridge <<<',
+          "const keep = 'USER CODE';",
+          '// >>> lt-dev:bridge >>>',
+          'export default {};',
+        ].join('\n'),
       );
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
@@ -360,7 +376,10 @@ describe('dev-patches', () => {
 
     test('wraps an unguarded webServer array in an LT_DEV_ACTIVE guard', () => {
       const f = join(tmp, 'playwright.config.ts');
-      writeFileSync(f, ['export default {', '  webServer: [', "    { command: 'npm run start' },", '  ],', '};'].join('\n'));
+      writeFileSync(
+        f,
+        ['export default {', '  webServer: [', "    { command: 'npm run start' },", '  ],', '};'].join('\n'),
+      );
       const r = patchPlaywrightConfig(f);
       expect(r.patched).toBe(true);
       const out = readFileSync(f, 'utf8');
@@ -371,7 +390,10 @@ describe('dev-patches', () => {
 
     test('wraps an unguarded webServer object too', () => {
       const f = join(tmp, 'playwright.config.ts');
-      writeFileSync(f, ['export default {', '  webServer: {', "    command: 'npm run start',", '  },', '};'].join('\n'));
+      writeFileSync(
+        f,
+        ['export default {', '  webServer: {', "    command: 'npm run start',", '  },', '};'].join('\n'),
+      );
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
       expect(out).toContain('webServer: process.env.LT_DEV_ACTIVE ? undefined : {');
@@ -381,7 +403,13 @@ describe('dev-patches', () => {
       const f = join(tmp, 'playwright.config.ts');
       writeFileSync(
         f,
-        ['export default {', '  webServer: process.env.LT_DEV_ACTIVE ? undefined : [', "    { command: 'npm run start' },", '  ],', '};'].join('\n'),
+        [
+          'export default {',
+          '  webServer: process.env.LT_DEV_ACTIVE ? undefined : [',
+          "    { command: 'npm run start' },",
+          '  ],',
+          '};',
+        ].join('\n'),
       );
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
@@ -441,11 +469,12 @@ describe('dev-patches', () => {
       patchPlaywrightConfig(f);
       const out = readFileSync(f, 'utf8');
       const block = out.slice(out.indexOf('// >>>'), out.indexOf('// <<<'));
-      const literals = block
-        .split(/\r?\n/)
-        .filter((l) => !l.trim().startsWith('//'))
-        .join('\n')
-        .match(/'[^']*'|"[^"]*"/g) || [];
+      const literals =
+        block
+          .split(/\r?\n/)
+          .filter((l) => !l.trim().startsWith('//'))
+          .join('\n')
+          .match(/'[^']*'|"[^"]*"/g) || [];
       expect(literals.length).toBeGreaterThan(0);
       for (const lit of literals) {
         expect(lit.slice(1, -1)).not.toMatch(/['"\s]/);
@@ -488,6 +517,23 @@ describe('dev-patches', () => {
   });
 
   describe('patchClaudeMd', () => {
+    test('an Angular app is told about NG_*, a Nuxt app keeps its block byte for byte', () => {
+      const nuxtFile = join(tmp, 'CLAUDE.nuxt.md');
+      const ngFile = join(tmp, 'CLAUDE.ng.md');
+      const defaultFile = join(tmp, 'CLAUDE.default.md');
+      for (const f of [nuxtFile, ngFile, defaultFile]) writeFileSync(f, '# Project notes\n');
+      patchClaudeMd(nuxtFile, { dbName: 'crm-local', frontend: 'nuxt', identity: fullIdentity });
+      patchClaudeMd(ngFile, { dbName: 'crm-local', frontend: 'angular', identity: fullIdentity });
+      patchClaudeMd(defaultFile, { dbName: 'crm-local', identity: fullIdentity });
+      const nuxt = readFileSync(nuxtFile, 'utf8');
+      const ng = readFileSync(ngFile, 'utf8');
+      expect(nuxt).toBe(readFileSync(defaultFile, 'utf8'));
+      expect(nuxt).toContain('`NUXT_PUBLIC_API_URL`');
+      expect(nuxt).not.toContain('NG_');
+      expect(ng).toContain('`NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_STORAGE_PREFIX`');
+      expect(ng).not.toContain('NUXT_');
+    });
+
     test('appends URL block to existing CLAUDE.md', () => {
       const f = join(tmp, 'CLAUDE.md');
       writeFileSync(f, '# Project notes\n');

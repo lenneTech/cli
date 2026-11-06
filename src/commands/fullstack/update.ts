@@ -5,7 +5,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { fetchCheckWrapperRelease } from '../../lib/check-wrapper-release';
 import { addToGitignore } from '../../lib/dev-patches';
 import { detectFrameworkMode, isVendoredProject } from '../../lib/framework-detection';
-import { detectFrontendFrameworkMode, isVendoredAppProject } from '../../lib/frontend-framework-detection';
+import { detectFrontendFramework } from '../../lib/frontend-kind';
 import { healCheckWrapper } from '../../lib/heal-check-wrapper';
 import { healDangerousOxlintFixFlags, healOxlintrcFilename } from '../../lib/heal-oxlintrc';
 import { healVendorMigrateStore, healVendorTsCompiler } from '../../lib/heal-vendor-migrate-store';
@@ -148,31 +148,36 @@ const NewCommand: GluegunCommand = {
       }
     }
 
+    // Nuxt (nuxt-extensions in app/core/) or Angular (ng-base in src/core/).
+    const appFramework = appDir ? detectFrontendFramework(appDir) : undefined;
+    const frontendMode = appFramework?.mode === 'vendor' ? 'vendor' : 'npm';
     if (appDir) {
-      const frontendMode = detectFrontendFrameworkMode(appDir);
-      const frontendVendored = isVendoredAppProject(appDir);
+      const angular = appFramework?.kind === 'angular';
+      const coreDir = angular ? 'src/core/' : 'app/core/';
 
-      info(`  App project: ${appDir}`);
-      info(`  Frontend framework mode: ${frontendMode}${frontendVendored ? ' (app/core/VENDOR.md present)' : ''}`);
+      info(`  App project: ${appDir}${appFramework ? ` (${angular ? 'Angular' : 'Nuxt'})` : ''}`);
+      info(
+        `  Frontend framework mode: ${frontendMode}${frontendMode === 'vendor' ? ` (${coreDir}VENDOR.md present)` : ''}`,
+      );
       info('');
 
       if (frontendMode === 'vendor') {
         info(colors.bold('Frontend vendor-mode update flow:'));
         info('');
-        info('  The nuxt-extensions module lives directly in this project at');
-        info('    app/core/');
+        info(`  The ${angular ? 'ng-base library' : 'nuxt-extensions module'} lives directly in this project at`);
+        info(`    ${coreDir}`);
         info('  and is managed as first-class project code.');
         info('');
         info(colors.bold('  Recommended update commands:'));
         info('');
-        info('    /lt-dev:frontend:update-nuxt-extensions-core');
+        info(angular ? '    /lt-dev:frontend:update-ng-base-core' : '    /lt-dev:frontend:update-nuxt-extensions-core');
         info('');
       } else {
         info(colors.bold('Frontend npm-mode update flow:'));
         info('');
         info('    /lt-dev:fullstack:update --skip-backend');
         info('');
-        info('    (or manually: pnpm update @lenne.tech/nuxt-extensions)');
+        info(`    (or manually: pnpm update ${angular ? '@lenne.tech/ng-base' : '@lenne.tech/nuxt-extensions'})`);
         info('');
       }
     }
@@ -184,13 +189,13 @@ const NewCommand: GluegunCommand = {
     // pointers — backend `projects/api/CLAUDE.md`, frontend
     // `projects/app/CLAUDE.md`, and the monorepo root `CLAUDE.md` (the entry
     // point Claude reads first). Idempotent: a no-op when already correct.
-    const frontendModeForHeal = appDir ? detectFrontendFrameworkMode(appDir) : undefined;
     const isWorkspace = apiDir !== cwd || (!!appDir && appDir !== cwd);
     const changedClaudeMd = healVendorClaudeMd(filesystem, {
       apiDir,
       appDir,
       backendVendor: mode === 'vendor',
-      frontendVendor: frontendModeForHeal === 'vendor',
+      frontendKind: appFramework?.kind,
+      frontendVendor: appFramework?.mode === 'vendor',
       workspaceRoot: isWorkspace ? cwd : undefined,
     });
     if (changedClaudeMd.length > 0) {
@@ -343,7 +348,7 @@ const NewCommand: GluegunCommand = {
     info('');
     info(colors.dim('─'.repeat(60)));
     info('');
-    return `fullstack update (backend: ${mode}, frontend: ${appDir ? detectFrontendFrameworkMode(appDir) : 'not found'})`;
+    return `fullstack update (backend: ${mode}, frontend: ${appDir ? frontendMode : 'not found'})`;
   },
 };
 

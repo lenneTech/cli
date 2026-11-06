@@ -24,6 +24,8 @@ const REQUIRED_PATTERNS = [
   '**/.output-*',
   '**/.nuxt',
   '**/.nuxt-*',
+  // The Angular CLI's build cache (ng-base-starter); hundreds of MB and machine-specific.
+  '**/.angular',
   '**/dist',
   // `**/.env` matches a path component EXACTLY, so it does NOT cover
   // `.env.production` / `.env.staging` / `.env.test` — all of which routinely

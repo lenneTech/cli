@@ -3,6 +3,12 @@ import { GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
 import { failRun } from '../../lib/fail-run';
+import { isVendoredProject } from '../../lib/framework-detection';
+import { selectFrontendBlocks } from '../../lib/frontend-claude-blocks';
+import { frontendKindLabel } from '../../lib/frontend-kind';
+import { resolveFrontendFrameworkMode } from '../../lib/frontend-mode-resolution';
+import { resolveLocalNgBaseBuild } from '../../lib/ng-base-vendor';
+import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 import {
   detectWorkspaceLayout,
   finalizeWorkspaceRoot,
@@ -26,15 +32,27 @@ export const help = {
   options: [
     { description: 'Frontend framework', flag: '--frontend', type: 'string', values: ['nuxt', 'angular'] },
     {
-      description: 'Frontend framework consumption mode',
+      description: 'Frontend framework consumption mode (default: vendor, as in `lt fullstack init`)',
       flag: '--frontend-framework-mode',
       type: 'string',
       values: ['npm', 'vendor'],
     },
+    {
+      description: 'Workspace-wide framework mode; applies when --frontend-framework-mode is not given',
+      flag: '--framework-mode',
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      description:
+        'Angular: local ng-base checkout (vendor: its source is copied; npm: injected file: dependency on its build)',
+      flag: '--frontend-framework-copy',
+      type: 'string',
+    },
     { description: 'Branch of the frontend starter to clone', flag: '--frontend-branch', type: 'string' },
     { description: 'Path to local frontend template to copy from', flag: '--frontend-copy', type: 'string' },
     { description: 'Path to local frontend template to symlink', flag: '--frontend-link', type: 'string' },
-    { description: 'Use experimental nuxt-base-starter `next` branch', flag: '--next', type: 'boolean' },
+    { description: 'Use experimental nuxt-base-starter `next` branch (Nuxt only)', flag: '--next', type: 'boolean' },
     { description: 'Workspace root (defaults to cwd)', flag: '--workspace-dir', type: 'string' },
     { description: 'Skip install / format after app integration', flag: '--skip-install', type: 'boolean' },
     {
@@ -86,6 +104,7 @@ const NewCommand: GluegunCommand = {
     const cliFrontendBranch = parameters.options['frontend-branch'] as string | undefined;
     const cliFrontendCopy = parameters.options['frontend-copy'] as string | undefined;
     const cliFrontendLink = parameters.options['frontend-link'] as string | undefined;
+    const cliFrontendFrameworkCopy = parameters.options['frontend-framework-copy'] as string | undefined;
     const cliWorkspaceDir = parameters.options['workspace-dir'] as string | undefined;
     const cliDryRun = parameters.options['dry-run'];
     const cliSkipInstall = parameters.options['skip-install'];
@@ -105,6 +124,8 @@ const NewCommand: GluegunCommand = {
     const configFrontendBranch = ltConfig?.commands?.fullstack?.frontendBranch;
     const configFrontendCopy = ltConfig?.commands?.fullstack?.frontendCopy;
     const configFrontendLink = ltConfig?.commands?.fullstack?.frontendLink;
+    const configFrontendFrameworkCopy = ltConfig?.commands?.fullstack?.frontendFrameworkCopy;
+    const configFrameworkMode = ltConfig?.commands?.fullstack?.frameworkMode;
 
     // Workspace detection — same priority as `add-api`:
     //   1. explicit `--workspace-dir <path>` always wins
@@ -171,19 +192,23 @@ const NewCommand: GluegunCommand = {
       frontend = (choice.frontend === 'angular' ? 'angular' : 'nuxt') as 'angular' | 'nuxt';
     }
 
-    // Resolve frontend framework mode.
-    let frontendFrameworkMode: 'npm' | 'vendor';
-    if (cliFrontendFrameworkMode === 'npm' || cliFrontendFrameworkMode === 'vendor') {
-      frontendFrameworkMode = cliFrontendFrameworkMode;
-    } else if (cliFrontendFrameworkMode) {
-      error(`Invalid --frontend-framework-mode value "${cliFrontendFrameworkMode}". Use "npm" or "vendor".`);
+    // Resolve frontend framework mode — the same rule as `lt fullstack init`
+    // (frontend-mode-resolution.ts), so an app added later gets the mode a fresh
+    // workspace would have given it. Default: vendor.
+    const modeResolution = resolveFrontendFrameworkMode({
+      cliFrameworkMode: parameters.options['framework-mode'],
+      cliFrontendFrameworkMode,
+      configFrameworkMode,
+      configFrontendFrameworkMode,
+    });
+    if (modeResolution.error) {
+      error(modeResolution.error);
       failRun(toolbox);
       return;
-    } else if (configFrontendFrameworkMode === 'npm' || configFrontendFrameworkMode === 'vendor') {
-      frontendFrameworkMode = configFrontendFrameworkMode;
-      info(`Using frontend framework mode from lt.config: ${frontendFrameworkMode}`);
-    } else {
-      frontendFrameworkMode = 'npm';
+    }
+    const frontendFrameworkMode = modeResolution.mode;
+    if (modeResolution.source && modeResolution.source !== '--frontend-framework-mode') {
+      info(`Using frontend framework mode from ${modeResolution.source}: ${frontendFrameworkMode}`);
     }
 
     // Branch / copy / link with the same `--next` default that init.ts
@@ -193,6 +218,20 @@ const NewCommand: GluegunCommand = {
       cliFrontendBranch || configFrontendBranch || (experimental && frontend === 'nuxt' ? 'next' : undefined);
     const frontendCopy = cliFrontendCopy || configFrontendCopy;
     const frontendLink = cliFrontendLink || configFrontendLink;
+    const frontendFrameworkCopy = cliFrontendFrameworkCopy || configFrontendFrameworkCopy;
+
+    // A local ng-base in npm mode (Angular only, Nuxt ignores the option): an injected
+    // `file:` dependency on its build, refused before anything is written when it is missing.
+    let localNgBaseBuild: string | undefined;
+    if (frontend === 'angular' && frontendFrameworkMode === 'npm' && frontendFrameworkCopy) {
+      const build = resolveLocalNgBaseBuild(frontendFrameworkCopy);
+      if (build.error) {
+        error(build.error);
+        failRun(toolbox);
+        return;
+      }
+      localNgBaseBuild = build.distDir;
+    }
 
     // Derive a project name (kebab-case workspace slug) for env patching.
     let projectName = parameters.options.name as string | undefined;
@@ -228,8 +267,17 @@ const NewCommand: GluegunCommand = {
         info(`  2. clone @lenne.tech/nuxt-extensions → /tmp`);
         info(`  3. vendor app/core/ (module.ts + runtime/)`);
         info(`  4. rewrite nuxt.config.ts module entry`);
+      } else if (localNgBaseBuild) {
+        info(`  2. @lenne.tech/ng-base as injected file: dependency on ${localNgBaseBuild}`);
+      } else if (frontendFrameworkMode === 'vendor') {
+        info(
+          frontendFrameworkCopy
+            ? `  2. copy @lenne.tech/ng-base from ${frontendFrameworkCopy} (working tree)`
+            : `  2. clone @lenne.tech/ng-base (tag of the version the starter pins) → /tmp`,
+        );
+        info(`  3. vendor projects/ng-base → projects/app/src/core/ + tsconfig paths (no import rewrite)`);
       }
-      info(`  N. patch projects/app/.env with NUXT_PUBLIC_STORAGE_PREFIX`);
+      info(`  N. patch projects/app/.env with the storage prefix and CLAUDE.md with the frontend blocks`);
       if (!skipInstall) info(`  M. pnpm install + format projects/app`);
       info('');
       return `fullstack add-app dry-run (${frontend} / ${frontendFrameworkMode})`;
@@ -252,9 +300,10 @@ const NewCommand: GluegunCommand = {
           branch: frontendBranch,
           copyPath: frontendCopy,
           linkPath: frontendLink,
+          localNgBaseBuild,
           skipGitInit: true,
-          skipHuskyRemoval: true,
           skipInstall: true,
+          workspace: true,
         });
 
     if (!result.success) {
@@ -271,19 +320,55 @@ const NewCommand: GluegunCommand = {
 
     // Vendor frontend if requested. Skipped on link mode for the same
     // reason as `init.ts`.
-    if (isNuxt && frontendFrameworkMode === 'vendor' && result.method !== 'link') {
+    let frontendVendored = false;
+    if (frontendFrameworkMode === 'vendor' && result.method !== 'link') {
       const vendorSpinner = spin('Converting frontend to vendor mode...');
       try {
-        await frontendHelper.convertAppCloneToVendored({
-          dest: appDest,
-          projectName,
-        });
-        vendorSpinner.succeed('Frontend converted to vendor mode (app/core/)');
+        if (isNuxt) {
+          await frontendHelper.convertAppCloneToVendored({
+            dest: appDest,
+            projectName,
+          });
+          vendorSpinner.succeed('Frontend converted to vendor mode (app/core/)');
+        } else {
+          const vendored = await frontendHelper.convertAngularAppToVendored({
+            dest: appDest,
+            localSource: frontendFrameworkCopy,
+            source: '`lt fullstack add-app`',
+          });
+          vendorSpinner.succeed(
+            `Frontend converted to vendor mode (src/core/, @lenne.tech/ng-base ${vendored.version || '(version not detected)'})`,
+          );
+        }
+        frontendVendored = true;
       } catch (err) {
         vendorSpinner.fail(`Frontend vendor conversion failed: ${(err as Error).message}`);
         warning('Continuing with npm mode for frontend.');
       }
     }
+
+    // The workspace CLAUDE.md: keep only this frontend's `<!-- lt:frontend … -->`
+    // blocks, fill `{{FRONTEND_FRAMEWORK}}`, and sync the vendor notices — the same
+    // state `lt fullstack init` leaves behind.
+    const rootClaudeMd = filesystem.path(workspaceDir, 'CLAUDE.md');
+    if (filesystem.exists(rootClaudeMd)) {
+      const selection = selectFrontendBlocks(filesystem.read(rootClaudeMd) || '', frontend);
+      if (selection.problem) {
+        warning(`CLAUDE.md: ${selection.problem} — left all frontend blocks in place.`);
+      }
+      const next = selection.content.replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendKindLabel(frontend));
+      if (next !== filesystem.read(rootClaudeMd)) {
+        filesystem.write(rootClaudeMd, next);
+      }
+    }
+    healVendorClaudeMd(filesystem, {
+      apiDir: filesystem.path(workspaceDir, 'projects', 'api'),
+      appDir: appDest,
+      backendVendor: isVendoredProject(filesystem.path(workspaceDir, 'projects', 'api')),
+      frontendKind: frontend,
+      frontendVendor: frontendVendored,
+      workspaceRoot: workspaceDir,
+    });
 
     // Normalize the workspace root: hoist pnpm config (frontend templates may
     // carry pnpm.overrides too), drop the frontend starter's standalone
@@ -312,7 +397,7 @@ const NewCommand: GluegunCommand = {
         warning('Run install manually after fixing the issue.');
       }
 
-      if (isNuxt && filesystem.isDirectory(appDest)) {
+      if (filesystem.isDirectory(appDest)) {
         await toolbox.apiMode.formatProject(appDest);
       }
     }

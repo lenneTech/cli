@@ -4,7 +4,8 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { failRun } from '../../lib/fail-run';
 import { detectFrameworkMode } from '../../lib/framework-detection';
-import { detectFrontendFrameworkMode } from '../../lib/frontend-framework-detection';
+import { detectFrontendFramework } from '../../lib/frontend-kind';
+import { resolveLocalNgBaseBuild, resolveNgBaseLibraryDir } from '../../lib/ng-base-vendor';
 import { findUnknownOptions, formatUnknownOptions } from '../../lib/unknown-options';
 import { healVendorClaudeMd } from '../../lib/vendor-claude-md';
 
@@ -52,6 +53,13 @@ export const help = {
     {
       description: 'Frontend upstream branch/tag (only with --to vendor, e.g. "1.5.3")',
       flag: '--frontend-framework-upstream-branch',
+      required: false,
+      type: 'string',
+    },
+    {
+      description:
+        'Angular frontend: local ng-base checkout (--to vendor: its source is copied; --to npm: injected file: dependency on its build)',
+      flag: '--frontend-framework-copy',
       required: false,
       type: 'string',
     },
@@ -173,12 +181,34 @@ const ConvertModeCommand: GluegunCommand = {
 
     // Detect current modes
     const backendCurrentMode = backendDir ? detectFrameworkMode(backendDir) : null;
-    const frontendCurrentMode = frontendDir ? detectFrontendFrameworkMode(frontendDir) : null;
+    // Nuxt (nuxt-extensions, app/core/) or Angular (ng-base, src/core/).
+    const frontendFramework = frontendDir ? detectFrontendFramework(frontendDir) : undefined;
+    const frontendAngular = frontendFramework?.kind === 'angular';
+    const frontendCurrentMode = frontendDir ? (frontendFramework?.mode === 'vendor' ? 'vendor' : 'npm') : null;
 
     // Decide what will actually happen
     const willConvertBackend = !skipBackend && backendDir && backendCurrentMode && backendCurrentMode !== targetMode;
     const willConvertFrontend =
       !skipFrontend && frontendDir && frontendCurrentMode && frontendCurrentMode !== targetMode;
+
+    // A local ng-base that cannot be used is refused HERE, before the plan, the
+    // confirmation and the backend step: the backend runs first, so a refusal inside the
+    // frontend converter left the workspace half converted (API in the target mode, app not).
+    const frontendCopy = parameters.options['frontend-framework-copy'];
+    if (willConvertFrontend && frontendAngular && frontendCopy !== undefined) {
+      const source = typeof frontendCopy === 'string' ? frontendCopy : '';
+      const problem =
+        targetMode === 'npm'
+          ? resolveLocalNgBaseBuild(source).error
+          : resolveNgBaseLibraryDir(source)
+            ? undefined
+            : `${source || '--frontend-framework-copy'} is no ng-base source: expected projects/ng-base/ng-package.json with an existing entry file.`;
+      if (problem) {
+        error(problem);
+        failRun(toolbox);
+        return 'fullstack convert-mode: unusable --frontend-framework-copy';
+      }
+    }
 
     // ── Plan output ─────────────────────────────────────────────────────
     info('');
@@ -230,7 +260,10 @@ const ConvertModeCommand: GluegunCommand = {
         }
       }
       if (willConvertFrontend) {
-        if (targetMode === 'vendor') {
+        const copy = parameters.options['frontend-framework-copy'];
+        if (targetMode === 'vendor' && frontendAngular && copy) {
+          info(`  [Frontend] lt frontend convert-mode --to vendor --frontend-framework-copy ${copy} --noConfirm`);
+        } else if (targetMode === 'vendor') {
           const branch = parameters.options['frontend-framework-upstream-branch'] || '(auto-detect from package.json)';
           info(`  [Frontend] lt frontend convert-mode --to vendor --upstream-branch ${branch} --noConfirm`);
         } else {
@@ -318,7 +351,30 @@ const ConvertModeCommand: GluegunCommand = {
       info('');
       info(colors.bold(`[2/2] Frontend: ${frontendCurrentMode} → ${targetMode}`));
 
-      if (targetMode === 'vendor') {
+      if (frontendAngular) {
+        const spinner = spin(`  Converting frontend to ${targetMode} mode...`);
+        try {
+          if (targetMode === 'vendor') {
+            await frontendHelper.convertAngularAppToVendored({
+              dest: frontendDir,
+              localSource: parameters.options['frontend-framework-copy'] as string | undefined,
+              source: '`lt fullstack convert-mode --to vendor`',
+              upstreamRef: parameters.options['frontend-framework-upstream-branch'] as string | undefined,
+            });
+          } else {
+            await frontendHelper.convertAngularAppToNpmMode({
+              dest: frontendDir,
+              localSource: parameters.options['frontend-framework-copy'] as string | undefined,
+              targetVersion: parameters.options['frontend-framework-version'] as string | undefined,
+            });
+          }
+          spinner.succeed(`  Frontend converted to ${targetMode} mode`);
+          results.push({ part: 'frontend', status: 'ok' });
+        } catch (err) {
+          spinner.fail(`  Frontend conversion failed: ${(err as Error).message}`);
+          results.push({ message: (err as Error).message, part: 'frontend', status: 'failed' });
+        }
+      } else if (targetMode === 'vendor') {
         let branch = parameters.options['frontend-framework-upstream-branch'] as string | undefined;
         if (!branch) {
           try {
@@ -398,11 +454,12 @@ const ConvertModeCommand: GluegunCommand = {
     // converters; this additionally maintains the workspace root CLAUDE.md —
     // the entry point Claude reads first — and keeps everything idempotent.
     const backendVendorNow = backendDir ? detectFrameworkMode(backendDir) === 'vendor' : false;
-    const frontendVendorNow = frontendDir ? detectFrontendFrameworkMode(frontendDir) === 'vendor' : false;
+    const frontendVendorNow = frontendDir ? detectFrontendFramework(frontendDir)?.mode === 'vendor' : false;
     const changedClaudeMd = healVendorClaudeMd(filesystem, {
       apiDir: backendDir,
       appDir: frontendDir,
       backendVendor: backendVendorNow,
+      frontendKind: frontendFramework?.kind,
       frontendVendor: frontendVendorNow,
       workspaceRoot: cwd,
     });

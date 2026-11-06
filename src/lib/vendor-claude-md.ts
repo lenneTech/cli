@@ -25,6 +25,8 @@
 
 import { join } from 'path';
 
+import { FrontendKind } from './frontend-kind';
+
 export const BACKEND_VENDOR_MARKER = '<!-- lt-vendor-marker -->';
 export const FRONTEND_VENDOR_MARKER = '<!-- lt-vendor-marker-frontend -->';
 export const ROOT_VENDOR_MARKER = '<!-- lt-vendor-marker-root -->';
@@ -44,7 +46,12 @@ export interface VendorClaudeMdState {
   appDir?: string;
   /** True when the backend (`@lenne.tech/nest-server`) runs in vendor mode. */
   backendVendor: boolean;
-  /** True when the frontend (`@lenne.tech/nuxt-extensions`) runs in vendor mode. */
+  /**
+   * The app's framework (`frontend-kind.ts`). Decides which vendor notice the app and the root
+   * get: nuxt-extensions in `app/core/` or ng-base in `src/core/`. Defaults to `nuxt`.
+   */
+  frontendKind?: FrontendKind;
+  /** True when the frontend (`@lenne.tech/nuxt-extensions` or `@lenne.tech/ng-base`) runs in vendor mode. */
   frontendVendor: boolean;
   /** Monorepo root dir (contains the workspace CLAUDE.md), if this is a workspace. */
   workspaceRoot?: string;
@@ -86,7 +93,31 @@ export function buildBackendVendorBlock(): string {
 /**
  * Vendor-mode notice for the frontend app project (`projects/app/CLAUDE.md`).
  */
-export function buildFrontendVendorBlock(): string {
+export function buildFrontendVendorBlock(kind: FrontendKind = 'nuxt'): string {
+  if (kind === 'angular') {
+    return block([
+      FRONTEND_VENDOR_MARKER,
+      '',
+      '# Vendor-Mode Notice (Frontend)',
+      '',
+      'This frontend project runs in **vendor mode**: the `@lenne.tech/ng-base` library',
+      'has been copied directly into `src/core/` as first-class project code. There is',
+      '**no** `@lenne.tech/ng-base` npm dependency.',
+      '',
+      '- **Read framework code from `src/core/**`** — not from `node_modules/`.',
+      '- **Imports stay the package specifiers** (`@lenne.tech/ng-base`,',
+      '  `@lenne.tech/ng-base/auth`, …): `tsconfig.json` maps them onto `src/core/`.',
+      '- **Baseline + patch log** live in `src/core/VENDOR.md`. Log any substantial',
+      '  local change there so the `ng-base-core-updater` agent can classify it at',
+      '  sync time.',
+      '- **Update flow:** run `/lt-dev:frontend:update-ng-base-core`. The update also',
+      '  raises npm packages to at least the upstream baseline (via',
+      '  `/lt-dev:maintenance:maintain`).',
+      '- **Contribute back:** run `/lt-dev:frontend:contribute-ng-base-core`.',
+      '- **Freshness check:** `pnpm run check:vendor-freshness` warns when',
+      '  upstream has a newer release than the baseline.',
+    ]);
+  }
   return block([
     FRONTEND_VENDOR_MARKER,
     '',
@@ -133,8 +164,13 @@ export function buildFrontendVendorBlock(): string {
  * commands. At least one of `backend` / `frontend` must be true; otherwise the
  * caller should {@link removeVendorBlock} instead of writing an empty notice.
  */
-export function buildRootVendorBlock(opts: { backend: boolean; frontend: boolean }): string {
-  const { backend, frontend } = opts;
+export function buildRootVendorBlock(opts: {
+  backend: boolean;
+  frontend: boolean;
+  frontendKind?: FrontendKind;
+}): string {
+  const { backend, frontend, frontendKind = 'nuxt' } = opts;
+  const angular = frontendKind === 'angular';
   const lines: string[] = [
     ROOT_VENDOR_MARKER,
     '',
@@ -155,8 +191,15 @@ export function buildRootVendorBlock(opts: { backend: boolean; frontend: boolean
   }
   if (frontend) {
     lines.push(
-      '- **Frontend** (`@lenne.tech/nuxt-extensions`): `projects/app/app/core/` —',
-      '  details in `projects/app/CLAUDE.md` and `projects/app/app/core/VENDOR.md`.',
+      ...(angular
+        ? [
+            '- **Frontend** (`@lenne.tech/ng-base`): `projects/app/src/core/` —',
+            '  details in `projects/app/CLAUDE.md` and `projects/app/src/core/VENDOR.md`.',
+          ]
+        : [
+            '- **Frontend** (`@lenne.tech/nuxt-extensions`): `projects/app/app/core/` —',
+            '  details in `projects/app/CLAUDE.md` and `projects/app/app/core/VENDOR.md`.',
+          ]),
     );
   }
   lines.push(
@@ -168,14 +211,22 @@ export function buildRootVendorBlock(opts: { backend: boolean; frontend: boolean
     lines.push('- Backend: `/lt-dev:backend:update-nest-server-core`');
   }
   if (frontend) {
-    lines.push('- Frontend: `/lt-dev:frontend:update-nuxt-extensions-core`');
+    lines.push(
+      angular
+        ? '- Frontend: `/lt-dev:frontend:update-ng-base-core`'
+        : '- Frontend: `/lt-dev:frontend:update-nuxt-extensions-core`',
+    );
   }
   lines.push('', '**Contribute back** generally-useful core fixes as upstream PRs:');
   if (backend) {
     lines.push('- Backend: `/lt-dev:backend:contribute-nest-server-core`');
   }
   if (frontend) {
-    lines.push('- Frontend: `/lt-dev:frontend:contribute-nuxt-extensions-core`');
+    lines.push(
+      angular
+        ? '- Frontend: `/lt-dev:frontend:contribute-ng-base-core`'
+        : '- Frontend: `/lt-dev:frontend:contribute-nuxt-extensions-core`',
+    );
   }
   lines.push(
     '',
@@ -234,7 +285,7 @@ export function healVendorClaudeMd(fs: VendorClaudeMdFs, state: VendorClaudeMdSt
     apply(
       join(state.appDir, 'CLAUDE.md'),
       FRONTEND_VENDOR_MARKER,
-      state.frontendVendor ? buildFrontendVendorBlock() : null,
+      state.frontendVendor ? buildFrontendVendorBlock(state.frontendKind) : null,
     );
   }
 
@@ -243,7 +294,13 @@ export function healVendorClaudeMd(fs: VendorClaudeMdFs, state: VendorClaudeMdSt
     apply(
       join(state.workspaceRoot, 'CLAUDE.md'),
       ROOT_VENDOR_MARKER,
-      anyVendor ? buildRootVendorBlock({ backend: state.backendVendor, frontend: state.frontendVendor }) : null,
+      anyVendor
+        ? buildRootVendorBlock({
+            backend: state.backendVendor,
+            frontend: state.frontendVendor,
+            frontendKind: state.frontendKind,
+          })
+        : null,
     );
   }
 

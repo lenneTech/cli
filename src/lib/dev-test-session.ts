@@ -586,7 +586,8 @@ export function buildShardPlaywrightInvocation(
 
 /**
  * The env the test stack's APP process runs with: the isolated dev env plus its
- * own Nuxt build dir.
+ * own build and output dirs (Nuxt: `NUXT_BUILD_DIR` + `NITRO_OUTPUT_DIR`, Angular:
+ * `NG_OUTPUT_DIR`).
  *
  * The pin goes LAST on purpose — unlike `TEST_INITIAL_ADMIN_ENV`, which is
  * spread first so a deliberately inherited credential still wins. Here the
@@ -596,7 +597,15 @@ export function buildShardPlaywrightInvocation(
  * straight back, and the collision returns silently.
  */
 export function buildTestAppEnv(appEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return { ...appEnv, NITRO_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR, NUXT_BUILD_DIR: TEST_NUXT_BUILD_DIR };
+  return {
+    ...appEnv,
+    // ng-base-starter's `build` writes to `NG_OUTPUT_DIR` (default `.output`) and puts the
+    // same `server/index.mjs` shim there, so one directory name serves both frameworks:
+    // `testAppEntryCandidates()` and the teardown need no Angular case.
+    NG_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR,
+    NITRO_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR,
+    NUXT_BUILD_DIR: TEST_NUXT_BUILD_DIR,
+  };
 }
 
 /** True when a test session file exists (used by status/down). */

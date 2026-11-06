@@ -16,6 +16,7 @@ import { addToGitignore, autoPatch, patchClaudeMd, PatchResult } from './dev-pat
 import { deriveDbName, DevProjectLayout } from './dev-project';
 import { planStackDatabases } from './dev-sql';
 import { loadRegistry, ProjectsRegistryEntry, saveRegistry } from './dev-state';
+import { detectFrontendKind } from './frontend-kind';
 import { renameUnmodifiedTemplatePackage } from './package-name';
 
 export interface MigrateInput {
@@ -147,7 +148,14 @@ export function runMigrate(input: MigrateInput): MigrateResult {
   ];
   const claudePatches = claudeCandidates
     .filter((f) => existsSync(f))
-    .map((f) => patchClaudeMd(f, { databases, dbName, identity }));
+    .map((f) =>
+      patchClaudeMd(f, {
+        databases,
+        dbName,
+        frontend: layout.appDir ? detectFrontendKind(layout.appDir) : undefined,
+        identity,
+      }),
+    );
 
   // 3. Registry — only write when something actually changed.
   const reg = loadRegistry();

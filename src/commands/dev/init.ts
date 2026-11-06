@@ -47,7 +47,7 @@ const InitCommand: GluegunCommand = {
     if (!layout.apiDir && !layout.appDir) {
       error(
         'No lt project detected at this path. Expected an API (src/config.env.ts or nest-cli.json), ' +
-          'an App (nuxt.config.ts), or a monorepo with projects/api and/or projects/app.',
+          'an App (nuxt.config.ts or angular.json), or a monorepo with projects/api and/or projects/app.',
       );
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev init: not a project';

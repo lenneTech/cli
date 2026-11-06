@@ -86,6 +86,12 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
     'NUXT_PUBLIC_SITE_URL',
     'NUXT_PUBLIC_STORAGE_PREFIX',
     'NUXT_PUBLIC_API_PROXY',
+    // The same values for an Angular app (see dev-env.ts).
+    'NG_API_URL',
+    'NG_PUBLIC_API_URL',
+    'NG_PUBLIC_SITE_URL',
+    'NG_PUBLIC_STORAGE_PREFIX',
+    'NG_PUBLIC_API_PROXY',
     // Not needed by the runner itself, but external suites check it to tell a stack that
     // can log in from one that will 500 on every login, and a suite that seals its own
     // session cookie to skip the login form needs the value (see dev-env.ts). This is the

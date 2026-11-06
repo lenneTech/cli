@@ -543,6 +543,7 @@ Creates a new Angular frontend project using ng-base-starter.
 |-------|------|---------|-------------|
 | `commands.frontend.angular.branch` | `string` | - | Branch of ng-base-starter to use as template |
 | `commands.frontend.angular.copy` | `string` | - | Path to local template directory to copy instead of cloning |
+| `commands.frontend.angular.frameworkMode` | `'npm'` \| `'vendor'` | `'npm'` | `@lenne.tech/ng-base` as npm dependency or vendored into `src/core/` |
 | `commands.frontend.angular.link` | `string` | - | Path to local template directory to symlink (fastest, changes affect original) |
 | `commands.frontend.angular.localize` | `boolean` | - | Enable Angular localize by default |
 | `commands.frontend.angular.noConfirm` | `boolean` | `false` | Skip confirmation prompts |
@@ -623,7 +624,8 @@ Creates a new fullstack workspace with API and frontend.
 | `commands.fullstack.frontendCopy` | `string` | - | Path to local frontend template directory to copy instead of cloning |
 | `commands.fullstack.frontendLink` | `string` | - | Path to local frontend template directory to symlink (fastest, changes affect original) |
 | `commands.fullstack.frameworkMode` | `'npm'` \| `'vendor'` | `'npm'` | Backend framework consumption mode (npm dependency vs. vendored core in `src/core/`) |
-| `commands.fullstack.frontendFrameworkMode` | `'npm'` \| `'vendor'` | `'npm'` | Frontend framework consumption mode (npm dependency vs. vendored module in `app/core/`) |
+| `commands.fullstack.frontendFrameworkCopy` | `string` | - | Local `@lenne.tech/ng-base` checkout for unreleased versions (Angular only): vendor mode copies its working tree, npm mode uses its build as injected `file:` dependency |
+| `commands.fullstack.frontendFrameworkMode` | `'npm'` \| `'vendor'` | `'vendor'` | Frontend framework consumption mode: npm dependency, or vendored (`app/core/` for Nuxt, `src/core/` for Angular) |
 | `commands.fullstack.git` | `boolean` | - | Push initial commit to remote repository (git is always initialized with `dev` branch) |
 | `commands.fullstack.gitLink` | `string` | - | Git remote repository URL (required when `git` is true) |
 

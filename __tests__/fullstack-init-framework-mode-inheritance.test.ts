@@ -45,7 +45,18 @@ describe('Fullstack init framework-mode inheritance — resolved VALUE', () => {
     try {
       const res = spawnSync(
         process.execPath,
-        [nodePath.join(__dirname, '..', 'bin', 'lt'), 'fullstack', 'init', '--name', 'probe', '--frontend', 'nuxt', '--dry-run', '--noConfirm', ...args],
+        [
+          nodePath.join(__dirname, '..', 'bin', 'lt'),
+          'fullstack',
+          'init',
+          '--name',
+          'probe',
+          '--frontend',
+          'nuxt',
+          '--dry-run',
+          '--noConfirm',
+          ...args,
+        ],
         { cwd: tmp, encoding: 'utf8', timeout: 120_000 },
       );
       const out = `${res.stdout}${res.stderr}`;
@@ -81,26 +92,31 @@ describe('Fullstack init framework-mode inheritance', () => {
   // `fullstack-init-next-frontend-branch.test.ts`).
   const nodeFs = require('fs');
   const nodePath = require('path');
-  const initSource: string = nodeFs.readFileSync(
-    nodePath.join(__dirname, '..', 'src', 'commands', 'fullstack', 'init.ts'),
-    'utf8',
-  );
+  const read = (...segments: string[]): string =>
+    nodeFs.readFileSync(nodePath.join(__dirname, '..', ...segments), 'utf8');
+  const initSource: string = read('src', 'commands', 'fullstack', 'init.ts');
+  // The chain lives in one function since `add-app` shares it (frontend-mode-resolution.ts);
+  // its values are unit-tested in frontend-kind.test.ts, its order is pinned here.
+  const resolverSource: string = read('src', 'lib', 'frontend-mode-resolution.ts');
 
-  /** The `let frontendFrameworkMode` resolution chain, up to the closing brace. */
+  /** The body of `resolveFrontendFrameworkMode`. */
   const resolutionBlock = (): string => {
-    const start = initSource.indexOf("let frontendFrameworkMode: 'npm' | 'vendor';");
+    const start = resolverSource.indexOf('export function resolveFrontendFrameworkMode(');
     expect(start).toBeGreaterThanOrEqual(0);
-    // The chain ends at the first blank line followed by a non-indented-else
-    // construct; bounding on the next top-level comment banner is stable enough.
-    const rest = initSource.slice(start);
-    const end = rest.indexOf('\n\n    //');
-    return end > 0 ? rest.slice(0, end) : rest.slice(0, 2000);
+    return resolverSource.slice(resolverSource.indexOf('): FrontendFrameworkModeResolution {', start));
   };
+
+  test('init and add-app both hand the workspace-wide flag to the shared chain', () => {
+    expect(initSource).toMatch(/resolveFrontendFrameworkMode\(\{[^}]*cliFrameworkMode,/s);
+    expect(read('src', 'commands', 'fullstack', 'add-app.ts')).toMatch(
+      /resolveFrontendFrameworkMode\(\{[^}]*cliFrameworkMode: parameters\.options\['framework-mode'\]/s,
+    );
+  });
 
   test('explicit --frontend-framework-mode is checked before anything else', () => {
     const block = resolutionBlock();
-    const explicitIdx = block.indexOf('cliFrontendFrameworkMode');
-    const inheritedIdx = block.indexOf('cliFrameworkMode');
+    const explicitIdx = block.indexOf('valid(cliFrontendFrameworkMode)');
+    const inheritedIdx = block.indexOf('valid(cliFrameworkMode)');
     expect(explicitIdx).toBeGreaterThanOrEqual(0);
     expect(inheritedIdx).toBeGreaterThan(explicitIdx);
   });
@@ -108,19 +124,17 @@ describe('Fullstack init framework-mode inheritance', () => {
   test('--framework-mode propagates to the frontend when no frontend-specific flag is given', () => {
     // This is the actual bug: without a reference to the workspace-wide
     // `cliFrameworkMode`, `--framework-mode npm` leaves the frontend vendored.
-    const block = resolutionBlock();
-    expect(block).toMatch(/cliFrameworkMode/);
+    expect(resolutionBlock()).toMatch(/valid\(cliFrameworkMode\)/);
   });
 
   test('config values are still honoured', () => {
-    const block = resolutionBlock();
-    expect(block).toMatch(/configFrontendFrameworkMode/);
+    expect(resolutionBlock()).toMatch(/valid\(configFrontendFrameworkMode\)/);
   });
 
   test("the hard-coded 'vendor' default comes last in the chain", () => {
     const block = resolutionBlock();
-    const inheritedIdx = block.indexOf('cliFrameworkMode');
-    const defaultIdx = block.lastIndexOf("frontendFrameworkMode = 'vendor'");
+    const inheritedIdx = block.indexOf('valid(cliFrameworkMode)');
+    const defaultIdx = block.lastIndexOf("return { mode: 'vendor' };");
     expect(defaultIdx).toBeGreaterThan(inheritedIdx);
   });
 

@@ -32,6 +32,21 @@ describe('vendor-claude-md block builders', () => {
     expect(b.trimEnd().endsWith('---')).toBe(true);
   });
 
+  it('Angular blocks point at ng-base in src/core/, not at nuxt-extensions', () => {
+    const app = buildFrontendVendorBlock('angular');
+    expect(app.startsWith(FRONTEND_VENDOR_MARKER)).toBe(true);
+    expect(app).toContain('src/core/VENDOR.md');
+    expect(app).toContain('/lt-dev:frontend:update-ng-base-core');
+    expect(app).toContain('/lt-dev:frontend:contribute-ng-base-core');
+    expect(app).not.toContain('nuxt');
+    const rootBlock = buildRootVendorBlock({ backend: true, frontend: true, frontendKind: 'angular' });
+    expect(rootBlock).toContain('projects/app/src/core/');
+    expect(rootBlock).toContain('/lt-dev:frontend:contribute-ng-base-core');
+    expect(rootBlock).toContain('/lt-dev:frontend:update-ng-base-core');
+    expect(rootBlock).not.toContain('nuxt-extensions');
+    expect(rootBlock).toContain('/lt-dev:backend:update-nest-server-core');
+  });
+
   it('root block includes both halves when both are vendored', () => {
     const b = buildRootVendorBlock({ backend: true, frontend: true });
     expect(b.startsWith(ROOT_VENDOR_MARKER)).toBe(true);

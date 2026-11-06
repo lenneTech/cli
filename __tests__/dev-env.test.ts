@@ -52,6 +52,19 @@ describe('dev-env / buildDevEnv', () => {
     expect(env.app.env.NUXT_PUBLIC_STORAGE_PREFIX).toBe('crm');
   });
 
+  test('an Angular app gets the same values under NG_* (both sets go to every app)', () => {
+    const env = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, dbName: 'crm', identity: fullIdentity });
+    expect(env.app.env.NG_PUBLIC_API_URL).toBe(env.app.env.NUXT_PUBLIC_API_URL);
+    expect(env.app.env.NG_API_URL).toBe(env.app.env.NUXT_API_URL);
+    expect(env.app.env.NG_PUBLIC_SITE_URL).toBe(env.app.env.NUXT_PUBLIC_SITE_URL);
+    expect(env.app.env.NG_PUBLIC_STORAGE_PREFIX).toBe('crm');
+    expect(env.app.env.NG_PUBLIC_API_PROXY).toBe('false');
+    // The browser address and the Node address stay apart, as for Nuxt.
+    expect(env.app.env.NG_API_URL).not.toBe(env.app.env.NG_PUBLIC_API_URL);
+    // App only: the API reads none of them.
+    expect(env.api.env.NG_PUBLIC_API_URL).toBeUndefined();
+  });
+
   test('server-side and browser-side API addresses are NOT the same value', () => {
     // The split AP-3 exists for. `NUXT_API_URL` is read by Node (the Vite/Nitro
     // proxy target, and what nuxt-extensions' `buildLtApiUrl()` prefers during
@@ -214,15 +227,15 @@ describe('dev-env / buildDevEnv', () => {
     // The slug is public: the app publishes it as `NUXT_PUBLIC_STORAGE_PREFIX` in every SSR
     // payload, and `lt dev tunnel` can put that app on a public URL. If the slug were the only
     // input, any visitor could recompute the key that seals the stack's session cookies.
-    const withFirstSalt = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity })
-      .app.env.NUXT_SESSION_PASSWORD;
+    const withFirstSalt = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity }).app.env
+      .NUXT_SESSION_PASSWORD;
 
     const otherMachine = mkdtempSync(join(tmpdir(), 'lt-salt-'));
     const previous = process.env.LT_DEV_SESSION_SALT_PATH;
     try {
       process.env.LT_DEV_SESSION_SALT_PATH = join(otherMachine, 'dev-session-salt');
-      const withSecondSalt = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity })
-        .app.env.NUXT_SESSION_PASSWORD;
+      const withSecondSalt = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity }).app
+        .env.NUXT_SESSION_PASSWORD;
 
       // Same slug, different machine → different value
       expect(withSecondSalt).not.toBe(withFirstSalt);

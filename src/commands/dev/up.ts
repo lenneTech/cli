@@ -47,6 +47,7 @@ import {
   mainCheckoutApiDir,
   resolveDevIdentity,
 } from '../../lib/dev-ticket';
+import { detectFrontendKind } from '../../lib/frontend-kind';
 
 /**
  * Start API + App behind Caddy with project-specific URLs.
@@ -130,7 +131,7 @@ const UpCommand: GluegunCommand = {
     if (!layout.apiDir && !layout.appDir) {
       error(
         'No lt project detected at this path. Expected an API (src/config.env.ts or nest-cli.json), ' +
-          'an App (nuxt.config.ts), or a monorepo with projects/api and/or projects/app.',
+          'an App (nuxt.config.ts or angular.json), or a monorepo with projects/api and/or projects/app.',
       );
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: not a project';
@@ -346,7 +347,14 @@ const UpCommand: GluegunCommand = {
         ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
       ];
       const patched = claudeCandidates
-        .map((f) => patchClaudeMd(f, { databases, dbName, identity }))
+        .map((f) =>
+          patchClaudeMd(f, {
+            databases,
+            dbName,
+            frontend: layout.appDir ? detectFrontendKind(layout.appDir) : undefined,
+            identity,
+          }),
+        )
         .filter((r) => r.patched);
       if (patched.length > 0) {
         info(colors.dim(`updated CLAUDE.md URL block in ${patched.length} file(s)`));

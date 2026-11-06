@@ -503,6 +503,7 @@ lt dev up
 | `NUXT_PUBLIC_SITE_URL` | Nuxt `useRuntimeConfig().public.siteUrl` + Playwright | `https://crm.localhost` |
 | `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage | `crm` |
 | `NUXT_PUBLIC_API_PROXY` | always `false` — Caddy + cookie-domain make it obsolete | `false` |
+| `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_STORAGE_PREFIX`, `NG_PUBLIC_API_PROXY` | the same values for an Angular app (ng-base-starter reads `NG_*`); set for every app, whatever its framework | as their `NUXT_*` counterparts |
 | `NUXT_SESSION_PASSWORD` | Nuxt/h3 `useSession` — only projects that added h3 sessions or `nuxt-auth-utils` read it; the Better-Auth default stack ignores it | `a1b2…` (32 hex chars) |
 | `NSC__MONGOOSE__URI` | nest-server Mongoose URI — not for an API on SQL alone (see below) | `mongodb://127.0.0.1/crm-local` |
 | `NSC__DATABASE__URL` | nest-server `database.url` (API only, projects on PostgreSQL / MySQL / MariaDB) | the project's URL, database replaced: `postgres://crm_app:…@127.0.0.1:5432/crm-2314` |
@@ -790,6 +791,7 @@ The test DB outlives the run: the CLI never drops it. That is why step 2 migrate
 | `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL` | Same URLs for Nuxt |
 | `NUXT_PUBLIC_STORAGE_PREFIX` | Project slug |
 | `NUXT_PUBLIC_API_PROXY` | Always `false` under `lt dev` |
+| `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_STORAGE_PREFIX`, `NG_PUBLIC_API_PROXY` | The same values for an Angular app |
 | `NUXT_SESSION_PASSWORD` | The app process's h3 session password — lets a suite tell a stack that can log in from one that 500s on every login, and seal its own cookie to skip the login form |
 | `NSC__MONGOOSE__URI`, `DATABASE_URL` | Project-namespaced DB URI (when `dbName` known) |
 | `LT_DEV_ACTIVE`, `LT_DEV_DB_NAME` | Marker keys for consumers |
@@ -1220,7 +1222,8 @@ lt fullstack init [options]
 | `--frontend-link <path>` | Symlink frontend to local template (fastest, changes affect original) |
 | `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (pilot, core copied to `src/core/`) |
 | `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag to vendor from (only with `--framework-mode vendor`). Default: the version the starter pins |
-| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (nuxt-extensions copied to `app/core/`) |
+| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (default; Nuxt: nuxt-extensions copied to `app/core/`, Angular: ng-base copied to `src/core/`) |
+| `--frontend-framework-copy <path>` | Angular only, for testing unreleased ng-base work with a local checkout. Vendor mode copies its working tree instead of cloning the release tag the starter pins; npm mode makes `@lenne.tech/ng-base` an injected `file:` dependency on its build (the `dest` of its `ng-package.json`, `dist/ng-base`) and refuses when that build is missing. Rerun `pnpm install` after every ng-base build. Nuxt ignores the option |
 | `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) for the API instead of `nest-server-starter`. Forces `--api-mode Rest` and `--framework-mode npm`, skips workspace install (run `pnpm install` for app and `bun install` for api manually). |
 | `--dry-run` | Print the resolved plan without making any changes |
 | `--git` | Push initial commit to remote repository (git is always initialized) |
@@ -1306,11 +1309,13 @@ lt fullstack add-app [options]
 | Option | Description |
 |--------|-------------|
 | `--frontend <type>` | Frontend framework: `nuxt` or `angular` |
-| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (nuxt-extensions copied to `app/core/`) |
+| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor`. Default `vendor`, the same rule as `lt fullstack init` (it was `npm` here before) |
+| `--framework-mode <mode>` | Workspace-wide mode; applies when `--frontend-framework-mode` is not given |
+| `--frontend-framework-copy <path>` | Angular only: local ng-base checkout (vendor: its working tree is copied; npm: injected `file:` dependency on its build), as in `lt fullstack init` |
 | `--frontend-branch <branch>` | Branch of the frontend starter to clone (`ng-base-starter` or `nuxt-base-starter`) |
 | `--frontend-copy <path>` | Copy frontend from a local template directory |
 | `--frontend-link <path>` | Symlink frontend to a local template directory (fastest, changes affect original) |
-| `--next` | Default the nuxt-base-starter ref to the `next` branch (auth `basePath` aligned with the experimental `--next` API) |
+| `--next` | Default the nuxt-base-starter ref to the `next` branch (auth `basePath` aligned with the experimental `--next` API). Nuxt only |
 | `--workspace-dir <path>` | Workspace root. When omitted, defaults to cwd; if cwd is not a workspace, the command walks up until it finds one (so it works from inside `projects/api/src/`). |
 | `--skip-install` | Skip `pnpm install` and the post-install format pass |
 | `--public` | Public project: keep the starter's rule that keeps agent notes out of git (see `lt fullstack init`) |
@@ -1374,7 +1379,8 @@ lt fullstack convert-mode --to <vendor|npm> [options]
 | `--framework-upstream-branch <ref>` | Backend upstream branch/tag (only with `--to vendor`, e.g. `11.24.3`) |
 | `--frontend-framework-upstream-branch <ref>` | Frontend upstream branch/tag (only with `--to vendor`, e.g. `1.5.3`) |
 | `--framework-version <version>` | Backend nest-server version (only with `--to npm`, default: from `VENDOR.md` baseline) |
-| `--frontend-framework-version <version>` | Frontend nuxt-extensions version (only with `--to npm`, default: from `VENDOR.md` baseline) |
+| `--frontend-framework-version <version>` | Frontend library version, nuxt-extensions or ng-base (only with `--to npm`, default: from `VENDOR.md` baseline) |
+| `--frontend-framework-copy <path>` | Angular frontend: local ng-base checkout (`--to vendor`: its source is copied; `--to npm`: injected `file:` dependency on its build) |
 | `--skip-backend` | Skip backend conversion (frontend only) |
 | `--skip-frontend` | Skip frontend conversion (backend only) |
 | `--dry-run` | Show the resolved plan without making any changes |
@@ -1440,18 +1446,17 @@ The Dockerfiles, `docker-compose.yml` and `.gitlab-ci.yml` already ship with the
 lt-monorepo template, so nothing else is generated. An existing `.turboops.json` is
 merged, not overwritten — hand-added keys survive a re-run.
 
-**Angular apps** additionally get their environment files pointed at the deployed
-stage URLs, because Angular bakes them into the bundle at build time (Nuxt reads
-them from the TurboOps stage env at runtime, so nothing is patched there):
+Both frontends read their URLs from the TurboOps stage env at runtime, so nothing
+is patched into the project and one image per branch serves every stage. The
+checklist names the variables of the app's framework:
 
-| File | Stage | API URL | App URL |
-|------|-------|---------|---------|
-| `environment.prod.ts` | `production` | `api.<domain>` | `<domain>` |
-| `environment.develop.ts` | `dev` | `api.dev.<domain>` | `dev.<domain>` |
-| `environment.test.ts` | `dev` | `api.dev.<domain>` | `dev.<domain>` |
+| Frontend | Stage env vars |
+|----------|----------------|
+| Nuxt | `NUXT_PUBLIC_API_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_SITE_URL` |
+| Angular (ng-base-starter) | `NG_PUBLIC_API_URL`, `NG_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_APP_ENV` (`production`; dev stage `develop`; decides whether ng-base's bug reporting is active, unset counts as `production`). Optional server-only secrets for bug reports to Linear: `NG_LINEAR_API_KEY`, `NG_LINEAR_TEAM_NAME`, `NG_LINEAR_PROJECT_NAME` |
 
-`environment.ts` (local dev) is never touched. Only the URL origin is replaced, so
-custom paths (`/v2/graphql`) survive and a re-run with a new domain updates them.
+Earlier CLI versions rewrote an Angular app's `environment.{prod,develop,test}.ts`
+instead; the current ng-base-starter has no such files.
 
 #### Database host: always stack-prefixed, never bare `mongo`
 
@@ -1556,6 +1561,8 @@ lt frontend angular [name] [options]
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
 | `--localize` | Enable Angular localize |
 | `--noLocalize` | Disable Angular localize |
+| `--framework-mode <npm\|vendor>` | `@lenne.tech/ng-base` as npm dependency (default) or vendored into `src/core/` |
+| `--frontend-framework-copy <path>` | Local ng-base checkout: vendor mode copies its working tree, npm mode uses its build as injected `file:` dependency |
 | `--gitLink <url>` | Git repository URL to link |
 | `--dry-run` | Print the resolved plan and exit without making any changes |
 | `--force` | Override the workspace-detection abort under `--noConfirm` |
@@ -1602,7 +1609,9 @@ lt frontend nuxt --copy /path/to/nuxt-base-starter/nuxt-base-template
 
 ### `lt frontend convert-mode`
 
-Convert an existing frontend (Nuxt) project between npm mode and vendor mode for `@lenne.tech/nuxt-extensions`.
+Convert an existing frontend project between npm mode and vendor mode: a Nuxt app for `@lenne.tech/nuxt-extensions` (`app/core/`), an Angular app for `@lenne.tech/ng-base` (`src/core/`). The framework is detected from `nuxt.config.*` / `angular.json`.
+
+**Angular (ng-base):** vendor mode copies the library's `projects/ng-base/` (without specs, `package.json`, tsconfigs and README; the `ng-package.json` files stay) into `src/core/` and maps `@lenne.tech/ng-base` and each `@lenne.tech/ng-base/<entry>` in `tsconfig.json` onto the `lib.entryFile` of its `ng-package.json` (ng-packagr's default `src/public_api.ts` when it names none; `ng g library` always names `src/public-api.ts`), so no import changes. Stylesheet imports (`@import '@lenne.tech/ng-base/ui/styles/theme.css'` in the `styles` of `angular.json`) are rewritten to the vendored path too, because Tailwind resolves CSS imports from `node_modules` only. The library's peers become the app's own dependencies. The source is the release tag of the version `package.json` pins (`v<version>`), `--upstream-branch <ref>`, or `--frontend-framework-copy <path>` (a local checkout, working tree included). `--to npm` removes `src/core/` and the mapping and restores the dependency as an exact pin at the `VENDOR.md` baseline (`"22.0.0"`, as ng-base-starter pins it; its `check-ng-base-pin.mjs` rejects a range in CI).
 
 **Usage:**
 ```bash
@@ -1613,8 +1622,9 @@ lt frontend convert-mode --to <vendor|npm> [options]
 | Option | Description |
 |--------|-------------|
 | `--to <mode>` | Target mode: `vendor` or `npm` (required) |
-| `--upstream-branch <ref>` | Upstream branch/tag to vendor from (only with `--to vendor`) |
-| `--version <version>` | nuxt-extensions version to install (only with `--to npm`, default: from VENDOR.md baseline) |
+| `--upstream-branch <ref>` | Upstream branch/tag to vendor from (only with `--to vendor`; ng-base tags carry a `v`: `v22.0.0`) |
+| `--frontend-framework-copy <path>` | Angular: local ng-base checkout (`--to vendor`: its source is copied; `--to npm`: injected `file:` dependency on its build) |
+| `--version <version>` | Library version to install, nuxt-extensions or ng-base (only with `--to npm`, default: from VENDOR.md baseline) |
 | `--dry-run` | Show the resolved plan without making any changes |
 | `--noConfirm` | Skip confirmation prompt |
 

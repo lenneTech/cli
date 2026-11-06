@@ -39,7 +39,14 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       typegen: { noConfirm: 'boolean', output: 'string', token: 'string', url: 'string' },
     },
     frontend: {
-      angular: { branch: 'string', copy: 'string', link: 'string', localize: 'boolean', noConfirm: 'boolean' },
+      angular: {
+        branch: 'string',
+        copy: 'string',
+        frameworkMode: ['npm', 'vendor'],
+        link: 'string',
+        localize: 'boolean',
+        noConfirm: 'boolean',
+      },
       nuxt: { branch: 'string', copy: 'string', link: 'string' },
     },
     fullstack: {
@@ -51,6 +58,7 @@ const KNOWN_KEYS: Record<string, Record<string, any>> = {
       frontend: ['angular', 'nuxt'],
       frontendBranch: 'string',
       frontendCopy: 'string',
+      frontendFrameworkCopy: 'string',
       frontendFrameworkMode: ['npm', 'vendor'],
       frontendLink: 'string',
       git: 'boolean',

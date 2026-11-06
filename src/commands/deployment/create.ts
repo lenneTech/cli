@@ -1,8 +1,9 @@
+import { existsSync } from 'fs';
 import { GluegunCommand } from 'gluegun';
-import { join, relative } from 'path';
+import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { findAngularEnvironmentsDir, patchAngularEnvironments } from '../../lib/angular-environments';
+import { detectFrontendKind } from '../../lib/frontend-kind';
 import {
   isValidDomain,
   isValidProjectSlug,
@@ -24,10 +25,12 @@ import { detectSubProjectContext, findWorkspaceRoot } from '../../lib/workspace-
  * The file is MERGED, never clobbered: any keys a user added by hand survive a
  * re-run, and an unchanged file is left untouched.
  *
- * Angular apps additionally get their `environment.{prod,develop,test}.ts`
- * rewritten to the deployed stage URLs (see lib/angular-environments.ts) — a
- * Nuxt app reads those from the stage env at runtime, an Angular bundle bakes
- * them in at build time. No-op for Nuxt projects.
+ * Both frontends read their URLs from the stage env at runtime: a Nuxt app as
+ * `NUXT_*`, an Angular app (ng-base-starter, SSR) as `NG_*`. So nothing is patched
+ * into the project, and one image per branch can serve any stage. Until 1.57 the
+ * command rewrote an Angular app's `environment.{prod,develop,test}.ts`, because
+ * the Angular 14 starter baked its URLs into the bundle; the current starter has
+ * no such files.
  *
  * Legacy note: this used to generate a Docker-Swarm deployment (root
  * Dockerfile/Dockerfile.app, docker-compose.{dev,test,prod}.yml, manual Traefik
@@ -188,10 +191,10 @@ const NewCommand: GluegunCommand = {
       return fail('No domain given.', 'deployment create: no domain');
     }
 
-    // `domain` is written verbatim into generated Angular environment.*.ts (baked
-    // into the browser bundle) and into copy-paste checklist lines, so validate it
-    // as a hostname — a stray quote / `$` / whitespace would inject into the
-    // generated source or emit a non-compiling config. Mirrors the slug check below.
+    // `domain` is written verbatim into `.turboops.json` and into copy-paste checklist
+    // lines, so validate it as a hostname — a stray quote / `$` / whitespace would
+    // produce a broken config or a pasted env value that is not what it looks like.
+    // Mirrors the slug check below.
     if (!isValidDomain(domain)) {
       return fail(
         `Invalid domain "${domain}" — expected a hostname like ${slug}.lenne.tech (letters, digits, dashes, dots).`,
@@ -258,29 +261,11 @@ const NewCommand: GluegunCommand = {
       generateSpinner.succeed('.turboops.json generated');
     }
 
-    // Angular bakes its API URL into the bundle at build time, so the deployed
-    // stage URLs must be written into `environment.*.ts`. No-op for Nuxt, which
-    // reads them from the TurboOps stage env at runtime. Detect Angular from the
-    // presence of the environments dir, NOT from the patch count — a project
-    // using non-standard env filenames would otherwise be misread as Nuxt and
-    // ship a bundle that still calls localhost.
-    const isAngular = findAngularEnvironmentsDir(projectRoot) !== null;
-    if (isAngular) {
-      const envPatches = patchAngularEnvironments({ domain, projectRoot });
-      const changed = envPatches.filter((r) => r.patched);
-      if (changed.length > 0) {
-        for (const r of changed) {
-          success(`patched ${r.replacements}× in ${relative(projectRoot, r.file)} (deployed URLs)`);
-        }
-      } else if (envPatches.some((r) => r.recognized)) {
-        info('Angular environment files already point at the deployed URLs.');
-      } else {
-        warning(
-          'Angular project detected but no environment.{prod,develop,test}.ts with a rewritable URL was found — ' +
-            'set the deployed API/app URLs manually so the bundle does not call localhost.',
-        );
-      }
-    }
+    // The app's framework decides the NAMES of the stage env vars, nothing else.
+    const appDir = existsSync(join(projectRoot, 'projects', 'app'))
+      ? join(projectRoot, 'projects', 'app')
+      : projectRoot;
+    const isAngular = detectFrontendKind(appDir) === 'angular';
 
     // One-time setup checklist
     info('');
@@ -320,20 +305,20 @@ const NewCommand: GluegunCommand = {
     info('         the overlay network is shared, so the DB credentials are the actual');
     info('         boundary. Set them in the mongo service and never deploy it open.');
     info('       NSC__BETTER_AUTH__SECRET, NSC__AI__ENCRYPTION_SECRET,');
+    info('       NSC__EMAIL__SMTP__*, NSC__EMAIL__DEFAULT_SENDER__EMAIL,');
+    // Read by the app's SSR server at request time, so one image serves every stage.
+    const prefix = isAngular ? 'NG' : 'NUXT';
+    info(`       ${prefix}_PUBLIC_API_URL=https://api.${domain}, ${prefix}_API_URL=https://api.${domain},`);
+    info(`       ${prefix}_PUBLIC_SITE_URL=https://${domain}`);
+    info(`       (dev stage: the same with dev.${domain} and api.dev.${domain})`);
     if (isAngular) {
-      info('       NSC__EMAIL__SMTP__*, NSC__EMAIL__DEFAULT_SENDER__EMAIL');
-      info('     The Angular app needs no URL env vars — they are baked into');
-      info('     environment.prod.ts / environment.develop.ts (patched above).');
-    } else {
-      info('       NSC__EMAIL__SMTP__*, NSC__EMAIL__DEFAULT_SENDER__EMAIL,');
-      info(`       NUXT_PUBLIC_API_URL=https://api.${domain}, NUXT_API_URL=https://api.${domain},`);
-      info(`       NUXT_PUBLIC_SITE_URL=https://${domain}`);
+      // ng-base's bug reporting (`@lenne.tech/ng-base/bug`) decides at runtime by this value; an
+      // unset value in a production build counts as production, i.e. reporting off (fail-closed).
+      info('       NG_PUBLIC_APP_ENV=production   (dev stage: develop)');
+      info('     Optional secrets for bug reports to Linear (server only, masked, never public):');
+      info('       NG_LINEAR_API_KEY, NG_LINEAR_TEAM_NAME, NG_LINEAR_PROJECT_NAME');
     }
-    info(
-      isAngular
-        ? '  5. Commit `.turboops.json` (read by `turbo deploy`) AND the patched environment.*.ts (baked into the build).'
-        : '  5. Commit `.turboops.json` — `turbo deploy` reads it from the repo root in CI.',
-    );
+    info('  5. Commit `.turboops.json` — `turbo deploy` reads it from the repo root in CI.');
     info('');
     info('Then: push `dev` -> the dev stage, push `main` -> the production stage');
     info('(.gitlab-ci.yml, or .github/workflows/deploy.yml on GitHub). Tests gate the deploy.');

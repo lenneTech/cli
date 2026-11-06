@@ -10,10 +10,13 @@ import {
   FrontendFrameworkMode,
   isVendoredAppProject,
 } from '../lib/frontend-framework-detection';
+import { detectFrontendFramework, frontendFrameworkModeLabel, FrontendKind } from '../lib/frontend-kind';
 import { detectSubProjectContext, detectWorkspaceLayout, type WorkspaceLayout } from '../lib/workspace-integration';
 
 interface MonorepoSubproject {
   frameworkMode: FrameworkMode | FrontendFrameworkMode | null;
+  /** The app's framework, for frontend entries. */
+  frontendKind?: FrontendKind;
   kind: 'backend' | 'frontend';
   path: string;
 }
@@ -129,6 +132,8 @@ const StatusCommand: GluegunCommand = {
           }
         } else if (deps['@angular/core']) {
           projectInfo.projectType = 'angular';
+          // ng-base as dependency or vendored into src/core/
+          projectInfo.frontendFrameworkMode = detectFrontendFramework(cwd)?.mode ?? null;
         } else if (deps['react']) {
           projectInfo.projectType = 'react';
         } else if (deps['vue']) {
@@ -171,11 +176,12 @@ const StatusCommand: GluegunCommand = {
         }
       } else {
         try {
-          const subPkg = JSON.parse(filesystem.read(join(candidate.path, 'package.json')) || '{}');
-          const subDeps = { ...subPkg.dependencies, ...subPkg.devDependencies };
-          if (subDeps['@lenne.tech/nuxt-extensions'] || isVendoredAppProject(candidate.path)) {
+          // Nuxt (nuxt-extensions) or Angular (ng-base); an app without an lt library is not listed.
+          const framework = detectFrontendFramework(candidate.path);
+          if (framework?.mode) {
             projectInfo.monorepoSubprojects.push({
-              frameworkMode: detectFrontendFrameworkMode(candidate.path),
+              frameworkMode: framework.mode,
+              frontendKind: framework.kind,
               kind: 'frontend',
               path: candidate.path,
             });
@@ -230,11 +236,8 @@ const StatusCommand: GluegunCommand = {
         info(`  Framework: ${modeLabel}`);
       }
       if (projectInfo.frontendFrameworkMode) {
-        const frontendModeLabel =
-          projectInfo.frontendFrameworkMode === 'vendor'
-            ? 'vendor (app/core/, VENDOR.md)'
-            : 'npm (@lenne.tech/nuxt-extensions dependency)';
-        info(`  Frontend Framework: ${frontendModeLabel}`);
+        const kind: FrontendKind = projectInfo.projectType === 'angular' ? 'angular' : 'nuxt';
+        info(`  Frontend Framework: ${frontendFrameworkModeLabel(kind, projectInfo.frontendFrameworkMode)}`);
       }
     }
 
@@ -312,10 +315,10 @@ const StatusCommand: GluegunCommand = {
               : 'npm (@lenne.tech/nest-server dependency)';
           info(`  Backend:  ${relPath} → ${label}`);
         } else {
-          const label =
-            sub.frameworkMode === 'vendor'
-              ? 'vendor (app/core/, VENDOR.md)'
-              : 'npm (@lenne.tech/nuxt-extensions dependency)';
+          const label = frontendFrameworkModeLabel(
+            sub.frontendKind ?? 'nuxt',
+            sub.frameworkMode === 'vendor' ? 'vendor' : 'npm',
+          );
           info(`  Frontend: ${relPath} → ${label}`);
         }
       }

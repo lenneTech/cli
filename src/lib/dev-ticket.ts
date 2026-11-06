@@ -744,7 +744,7 @@ function runWithProjectDriver(
  * rest of this CLI's heal machinery exists to serve.
  */
 const GENERATED_PATHS =
-  /(^|\/)(\.nuxtrc|\.nuxt(-[\w.]+)?|\.nitro|\.output(-[\w.]+)?|dist|\.turbo|\.cache|\.eslintcache)(\/|$)|\.tsbuildinfo$/;
+  /(^|\/)(\.nuxtrc|\.nuxt(-[\w.]+)?|\.nitro|\.output(-[\w.]+)?|\.angular|dist|\.turbo|\.cache|\.eslintcache)(\/|$)|\.tsbuildinfo$/;
 
 /** The three git-tracked configs `lt dev up` self-heals to be env-aware. */
 const LT_DEV_MANAGED_CONFIG = /(?:^|\/)(?:config\.env\.ts|nuxt\.config\.ts|playwright\.config\.ts)$/;

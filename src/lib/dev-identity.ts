@@ -46,7 +46,7 @@ export interface DevSubdomain {
  *
  * For standalone projects (single repo, no `projects/api` or `projects/app`):
  * - API project (config.env.ts present) → `api.<slug>.localhost`
- * - App project (nuxt.config.ts present) → `<slug>.localhost`
+ * - App project (nuxt.config.ts or angular.json present) → `<slug>.localhost`
  *
  * Every combination is valid: api+app, api-only, and app-only.
  */
@@ -144,7 +144,9 @@ export function buildTicketIdentity(base: DevIdentity, id: string): DevIdentity 
 export function detectStandaloneKind(dir: string): { isApi: boolean; isApp: boolean } {
   return {
     isApi: existsSync(join(dir, 'src', 'config.env.ts')) || existsSync(join(dir, 'nest-cli.json')),
-    isApp: existsSync(join(dir, 'nuxt.config.ts')),
+    // A Nuxt app (nuxt-base-starter) or an Angular app (ng-base-starter). Both start with
+    // `pnpm run dev` and honour `PORT`/`HOST`, which is all `lt dev` relies on.
+    isApp: existsSync(join(dir, 'nuxt.config.ts')) || existsSync(join(dir, 'angular.json')),
   };
 }
 

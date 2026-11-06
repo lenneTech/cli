@@ -16,6 +16,7 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 
 import { DevIdentity } from './dev-identity';
 import { sqlDriverLabel, StackDatabases } from './dev-sql';
+import { FrontendKind } from './frontend-kind';
 
 /**
  * Version of the `lt-dev:bridge` block emitted into a consumer's
@@ -131,9 +132,15 @@ export function patchApiConfig(file: string): PatchResult {
  */
 export function patchClaudeMd(
   file: string,
-  options: { databases?: Pick<StackDatabases, 'mongo' | 'sql' | 'sqlProblem'>; dbName?: string; identity: DevIdentity },
+  options: {
+    databases?: Pick<StackDatabases, 'mongo' | 'sql' | 'sqlProblem'>;
+    dbName?: string;
+    /** The app's framework (`frontend-kind.ts`). An Angular app reads `NG_*`, so the block names those. */
+    frontend?: FrontendKind;
+    identity: DevIdentity;
+  },
 ): PatchResult {
-  const { databases, dbName, identity } = options;
+  const { databases, dbName, frontend, identity } = options;
   // A project on MongoDB alone gets the block it always got, byte for byte: the file is committed,
   // and any change here shows up as a diff in every such project on its next `lt dev up`.
   const sqlProject = Boolean(databases?.sql || databases?.sqlProblem);
@@ -197,20 +204,28 @@ export function patchClaudeMd(
   }
   if (dbName && (databases?.mongo ?? true)) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
   lines.push('');
+  // An Angular app reads the same values as `NG_*` (`dev-env.ts`). Only its block names them: a
+  // Nuxt project's block stays byte for byte what it was, for the reason given above.
+  const appVars =
+    frontend === 'angular'
+      ? ['`NG_API_URL`', '`NG_PUBLIC_API_URL`', '`NG_PUBLIC_SITE_URL`', '`NG_PUBLIC_STORAGE_PREFIX`']
+      : [
+          '`NUXT_API_URL`',
+          '`NUXT_PUBLIC_API_URL`',
+          '`NUXT_PUBLIC_SITE_URL`',
+          '`NUXT_PUBLIC_STORAGE_PREFIX`',
+          '`NUXT_SESSION_PASSWORD`',
+        ];
   const envVars = sqlProject
     ? [
         '`BASE_URL`',
         '`APP_URL`',
-        '`NUXT_API_URL`',
-        '`NUXT_PUBLIC_API_URL`',
-        '`NUXT_PUBLIC_SITE_URL`',
-        '`NUXT_PUBLIC_STORAGE_PREFIX`',
-        '`NUXT_SESSION_PASSWORD`',
+        ...appVars,
         ...(databases?.mongo ? ['`NSC__MONGOOSE__URI`'] : []),
         ...(databases?.sql ? ['`NSC__DATABASE__URL`'] : []),
         ...(databases?.sql?.ownerUrl ? ['`NSC__DATABASE__OWNER_URL`'] : []),
       ].join(', ')
-    : '`BASE_URL`, `APP_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_STORAGE_PREFIX`, `NUXT_SESSION_PASSWORD`, `NSC__MONGOOSE__URI`, `DATABASE_URL`';
+    : ['`BASE_URL`', '`APP_URL`', ...appVars, '`NSC__MONGOOSE__URI`', '`DATABASE_URL`'].join(', ');
   lines.push(
     `Env vars set automatically by \`lt dev up\`: ${envVars}. **Never assume \`localhost:3000\` / \`localhost:3001\` for this project** — those are the framework defaults, not the active URLs.`,
   );

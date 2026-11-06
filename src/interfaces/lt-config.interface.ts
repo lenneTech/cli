@@ -219,6 +219,13 @@ export interface LtConfig {
         copy?: string;
 
         /**
+         * @lenne.tech/ng-base as npm dependency (`npm`, default) or vendored into
+         * `src/core/` (`vendor`) for `lt frontend angular`.
+         * @example "npm" | "vendor"
+         */
+        frameworkMode?: 'npm' | 'vendor';
+
+        /**
          * Path to local template directory to symlink instead of cloning
          * Fastest option for testing local changes (changes affect original)
          * @example "/path/to/local/ng-base-starter"
@@ -347,6 +354,16 @@ export interface LtConfig {
        * @example "/path/to/local/ng-base-starter"
        */
       frontendCopy?: string;
+
+      /**
+       * Local @lenne.tech/ng-base checkout, for testing unreleased library work
+       * (Angular only; Nuxt ignores it). Vendor mode copies its WORKING TREE; npm
+       * mode makes the dependency an injected `file:` dependency on its build (the
+       * `dest` of its ng-package.json). Accepts the repository root or its
+       * `projects/ng-base/` directory.
+       * @example "/path/to/local/ng-base"
+       */
+      frontendFrameworkCopy?: string;
 
       /**
        * Frontend framework consumption mode:

@@ -267,6 +267,12 @@
                   "description": "Path to local template directory to copy instead of cloning",
                   "examples": ["/path/to/local/ng-base-starter"]
                 },
+                "frameworkMode": {
+                  "type": "string",
+                  "enum": ["npm", "vendor"],
+                  "description": "@lenne.tech/ng-base as npm dependency (npm, default) or vendored into src/core/ (vendor)",
+                  "examples": ["npm", "vendor"]
+                },
                 "link": {
                   "type": "string",
                   "description": "Path to local template directory to symlink instead of cloning (fastest, changes affect original)",
@@ -347,10 +353,15 @@
               "description": "Path to local frontend template directory to copy instead of cloning",
               "examples": ["/path/to/local/ng-base-starter"]
             },
+            "frontendFrameworkCopy": {
+              "type": "string",
+              "description": "Local @lenne.tech/ng-base checkout for unreleased versions (Angular only): vendor mode copies its working tree, npm mode uses its build as injected file: dependency",
+              "examples": ["/path/to/local/ng-base"]
+            },
             "frontendFrameworkMode": {
               "type": "string",
               "enum": ["npm", "vendor"],
-              "description": "Frontend framework consumption mode: npm (classic @lenne.tech/nuxt-extensions dependency) or vendor (module copied into app/core/)",
+              "description": "Frontend framework consumption mode: npm (@lenne.tech/nuxt-extensions or @lenne.tech/ng-base as dependency) or vendor (copied into app/core/ for Nuxt, src/core/ for Angular)",
               "examples": ["npm", "vendor"]
             },
             "frontendLink": {
