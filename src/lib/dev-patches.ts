@@ -42,6 +42,9 @@ const BRIDGE_END_RE = /\/\/ <<< lt-dev:bridge(?: v(\d+))? <<</;
 /** Imports the bridge block owns; a stray copy outside it must be dropped. */
 const BRIDGE_IMPORT_RE = /^\s*import \{[^}]*__ltDev(?:Exists|Read|Dirname|Resolve)[^}]*\} from '[^']*';?\s*$/gm;
 
+/** Marks the WSL wording of the CLAUDE.md URL block, so a later `lt dev up` keeps it (see `patchClaudeMd`). */
+const WSL_MARKER = '<!-- lt-dev:wsl -->';
+
 export interface PatchResult {
   /** Absolute path. */
   file: string;
@@ -175,6 +178,8 @@ export function patchClaudeMd(
     /** The app's framework (`frontend-kind.ts`). An Angular app reads `NG_*`, so the block names those. */
     frontend?: FrontendKind;
     identity: DevIdentity;
+    /** Running inside WSL (`wsl.ts#isWsl`): the block names the classic start as the way to run the project. */
+    wsl?: boolean;
   },
 ): PatchResult {
   const { databases, dbName, frontend, identity } = options;
@@ -188,6 +193,10 @@ export function patchClaudeMd(
   const startIdx = content.indexOf(startMarker);
   const endIdx = content.indexOf(endMarker);
   const hasBlock = startIdx !== -1 && endIdx !== -1 && endIdx > startIdx;
+  // The WSL wording, once written, stays: CLAUDE.md is committed, and a teammate's `lt dev up` on
+  // macOS must not turn it back (and the next one in WSL forth again). It is worded for every
+  // machine, so keeping it is correct everywhere.
+  const wsl = Boolean(options.wsl) || (hasBlock && content.slice(startIdx, endIdx).includes(WSL_MARKER));
 
   const apiSub = identity.subdomains.api;
   const appSub = identity.subdomains.app;
@@ -206,11 +215,29 @@ export function patchClaudeMd(
     'lt dev doctor    # Diagnose Caddy/CA/DNS/port issues',
     '```',
     '',
-    '**Start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly; those bind the framework default ports (3000/3001) and collide with parallel projects.',
-    '',
-    '**Active URLs for THIS project:**',
-    '',
   ];
+  if (wsl) {
+    const classic = [
+      ...(apiSub ? ['the API on `http://localhost:3000`'] : []),
+      ...(appSub ? ['the App on `http://localhost:3001`'] : []),
+    ].join(' and ');
+    lines.push(
+      WSL_MARKER,
+      `**In WSL2 with a Windows browser, start the classic way:** \`pnpm run start\` at the project root runs ${classic}, and WSL forwards both ports to Windows. \`lt dev up\` additionally needs systemd in WSL, a \`caddy\` allowed to bind port 443 and the Caddy root CA imported into Windows; use it only once that is set up.`,
+      '',
+      '**Everywhere else, start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly; those bind the framework default ports (3000/3001) and collide with parallel projects.',
+      '',
+      '**Active URLs for THIS project under `lt dev up`:**',
+      '',
+    );
+  } else {
+    lines.push(
+      '**Start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly; those bind the framework default ports (3000/3001) and collide with parallel projects.',
+      '',
+      '**Active URLs for THIS project:**',
+      '',
+    );
+  }
   // Both addresses, with who each one is for. The block tells an agent never to
   // assume `localhost:3000/3001` — so if it only named the `*.localhost` host, an
   // agent following it would `curl` a name that does not resolve for Node on
@@ -269,7 +296,9 @@ export function patchClaudeMd(
       ].join(', ')
     : ['`BASE_URL`', '`APP_URL`', ...appVars, '`NSC__MONGOOSE__URI`', '`DATABASE_URL`'].join(', ');
   lines.push(
-    `Env vars set automatically by \`lt dev up\`: ${envVars}. **Never assume \`localhost:3000\` / \`localhost:3001\` for this project** — those are the framework defaults, not the active URLs.`,
+    wsl
+      ? `Env vars set automatically by \`lt dev up\`: ${envVars}. **Under \`lt dev up\`, never assume \`localhost:3000\` / \`localhost:3001\` for this project** — those are the framework defaults, not the active URLs; with the classic start in WSL they are.`
+      : `Env vars set automatically by \`lt dev up\`: ${envVars}. **Never assume \`localhost:3000\` / \`localhost:3001\` for this project** — those are the framework defaults, not the active URLs.`,
   );
   lines.push('');
   lines.push(endMarker);

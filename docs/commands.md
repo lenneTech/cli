@@ -470,6 +470,8 @@ lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 5. Adds `.lt-dev/` to the project's `.gitignore`.
 6. Injects (or refreshes) a "Local Development (lt dev)" URL block into the `CLAUDE.md` and `AGENTS.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers. Both files get the same block, so files kept identical stay identical; a symlinked file, or one whose real path leaves the project, is skipped. The vendor-mode notices that `lt fullstack init`, `add-app`, `update` and `convert-mode` write go into both files the same way.
 
+**WSL:** inside WSL (the kernel names Microsoft in `/proc/sys/kernel/osrelease`) the block names the classic start as the way to run the project: `pnpm run start` at the project root, API on `http://localhost:3000`, App on `http://localhost:3001`, both forwarded to Windows. `lt dev up` is named as an option: it needs systemd in WSL, a `caddy` allowed to bind port 443 (`getcap "$(command -v caddy)"`) and the Caddy root CA imported into Windows (`certutil -user -addstore Root \\wsl.localhost\<distro>\home\<user>\.local\share\caddy\pki\authorities\local\root.crt`), and it has not been verified with a Windows browser. Once written, the WSL wording stays when `lt dev up` runs on another machine, so the committed file does not change per machine. Outside WSL the block is unchanged.
+
 ---
 
 ### `lt dev up`

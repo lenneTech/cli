@@ -21,6 +21,7 @@ import {
   reconfigureUpstreamForDownstream,
   reportWorkspaceConflicts,
 } from '../../lib/workspace-integration';
+import { isWsl } from '../../lib/wsl';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
 
@@ -923,7 +924,13 @@ const NewCommand: GluegunCommand = {
         const start = toolbox.pm.run('start', toolbox.pm.detect(projectDir));
         info(`  Run ${name}`);
         info(`  $ cd ${projectDir}`);
-        if (devMigrateOk) {
+        if (devMigrateOk && isWsl()) {
+          // Same way as the CLAUDE.md block written for WSL (dev-patches.ts#patchClaudeMd).
+          info(`  $ ${start}   # API on http://localhost:3000, App on http://localhost:3001 (forwarded to Windows)`);
+          info(
+            colors.dim('  (`lt dev up` needs systemd in WSL, caddy on port 443 and its root CA imported into Windows)'),
+          );
+        } else if (devMigrateOk) {
           // Prefer lt dev up — sets up Caddy + HTTPS URLs + cross-wiring guards.
           const caddyOk = await caddyAvailable();
           if (caddyOk) {

@@ -48,6 +48,7 @@ import {
   resolveDevIdentity,
 } from '../../lib/dev-ticket';
 import { detectFrontendKind } from '../../lib/frontend-kind';
+import { isWsl } from '../../lib/wsl';
 
 /**
  * Start API + App behind Caddy with project-specific URLs.
@@ -341,6 +342,7 @@ const UpCommand: GluegunCommand = {
     // `lt dev up` (see `patchClaudeMd`). NEVER for a ticket worktree: that
     // CLAUDE.md would carry per-ticket URLs into a commit.
     if (!ticket) {
+      const wsl = isWsl();
       const patched = agentDocFiles(layout.root, [layout.root, layout.apiDir, layout.appDir].filter(Boolean))
         .map((f) =>
           patchClaudeMd(f, {
@@ -348,6 +350,7 @@ const UpCommand: GluegunCommand = {
             dbName,
             frontend: layout.appDir ? detectFrontendKind(layout.appDir) : undefined,
             identity,
+            wsl,
           }),
         )
         .filter((r) => r.patched);
