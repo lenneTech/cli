@@ -1,9 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import { DevIdentity } from '../src/lib/dev-identity';
 import {
   addToGitignore,
+  agentDocFiles,
   autoPatch,
   canonicaliseBridgeSpan,
   patchApiConfig,
@@ -11,7 +13,6 @@ import {
   patchNuxtConfig,
   patchPlaywrightConfig,
 } from '../src/lib/dev-patches';
-import { DevIdentity } from '../src/lib/dev-identity';
 
 const fullIdentity: DevIdentity = {
   root: '/tmp/fake',
@@ -28,7 +29,7 @@ describe('dev-patches', () => {
     tmp = mkdtempSync(join(tmpdir(), 'lt-dev-patches-'));
   });
   afterEach(() => {
-    rmSync(tmp, { recursive: true, force: true });
+    rmSync(tmp, { force: true, recursive: true });
   });
 
   describe('patchApiConfig', () => {
@@ -742,5 +743,56 @@ describe('dev-patches', () => {
       expect(addToGitignore(tmp, '.lt-dev/')).toBe(true);
       expect(readFileSync(join(tmp, '.gitignore'), 'utf8')).toContain('.lt-dev/');
     });
+  });
+});
+
+describe('URL block in AGENTS.md', () => {
+  let tmp: string;
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'lt-dev-agent-docs-'));
+  });
+  afterEach(() => {
+    rmSync(tmp, { force: true, recursive: true });
+  });
+
+  test('agentDocFiles lists CLAUDE.md and AGENTS.md per directory and skips symlinks', () => {
+    const root = join(tmp, 'ws');
+    const app = join(root, 'projects', 'app');
+    const api = join(root, 'projects', 'api');
+    mkdirSync(app, { recursive: true });
+    mkdirSync(api, { recursive: true });
+    writeFileSync(join(root, 'CLAUDE.md'), '# root\n');
+    writeFileSync(join(app, 'CLAUDE.md'), '# app\n');
+    writeFileSync(join(app, 'AGENTS.md'), '# app\n');
+    writeFileSync(join(api, 'CLAUDE.md'), '# api\n');
+    symlinkSync('CLAUDE.md', join(api, 'AGENTS.md'));
+    expect(agentDocFiles(root, [root, api, app])).toEqual([
+      join(root, 'CLAUDE.md'),
+      join(api, 'CLAUDE.md'),
+      join(app, 'CLAUDE.md'),
+      join(app, 'AGENTS.md'),
+    ]);
+  });
+
+  test('a sub-project that is a symlink out of the project is never written', () => {
+    // A cloned repository can commit `projects/app` as a link to the user's `~/.codex`.
+    const root = join(tmp, 'ws');
+    const outside = join(tmp, 'home-codex');
+    mkdirSync(join(root, 'projects'), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(root, 'CLAUDE.md'), '# root\n');
+    writeFileSync(join(outside, 'AGENTS.md'), '# global instructions\n');
+    symlinkSync(outside, join(root, 'projects', 'app'));
+    expect(agentDocFiles(root, [root, join(root, 'projects', 'app')])).toEqual([join(root, 'CLAUDE.md')]);
+  });
+
+  test('byte-identical CLAUDE.md and AGENTS.md stay byte-identical after the patch', () => {
+    const claude = join(tmp, 'CLAUDE.md');
+    const agents = join(tmp, 'AGENTS.md');
+    writeFileSync(claude, '# Same\n\nText.\n');
+    writeFileSync(agents, '# Same\n\nText.\n');
+    for (const f of agentDocFiles(tmp, [tmp])) patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity });
+    expect(readFileSync(agents, 'utf8')).toBe(readFileSync(claude, 'utf8'));
+    expect(readFileSync(agents, 'utf8')).toContain('<!-- lt-dev:url-block:start -->');
   });
 });

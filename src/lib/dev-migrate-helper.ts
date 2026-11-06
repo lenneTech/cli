@@ -12,7 +12,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { buildIdentity, DevIdentity } from './dev-identity';
-import { addToGitignore, autoPatch, patchClaudeMd, PatchResult } from './dev-patches';
+import { addToGitignore, agentDocFiles, autoPatch, patchClaudeMd, PatchResult } from './dev-patches';
 import { deriveDbName, DevProjectLayout } from './dev-project';
 import { planStackDatabases } from './dev-sql';
 import { loadRegistry, ProjectsRegistryEntry, saveRegistry } from './dev-state';
@@ -140,22 +140,16 @@ export function runMigrate(input: MigrateInput): MigrateResult {
   }
   const codePatches = filesToPatch.map((f) => autoPatch(f));
 
-  // 2. CLAUDE.md URL block (root + each subproject — only patches existing files).
-  const claudeCandidates = [
-    join(layout.root, 'CLAUDE.md'),
-    ...(layout.apiDir ? [join(layout.apiDir, 'CLAUDE.md')] : []),
-    ...(layout.appDir ? [join(layout.appDir, 'CLAUDE.md')] : []),
-  ];
-  const claudePatches = claudeCandidates
-    .filter((f) => existsSync(f))
-    .map((f) =>
+  // 2. URL block in CLAUDE.md and AGENTS.md (root + each subproject — only patches existing files).
+  const claudePatches = agentDocFiles(layout.root, [layout.root, layout.apiDir, layout.appDir].filter(Boolean)).map(
+    (f) =>
       patchClaudeMd(f, {
         databases,
         dbName,
         frontend: layout.appDir ? detectFrontendKind(layout.appDir) : undefined,
         identity,
       }),
-    );
+  );
 
   // 3. Registry — only write when something actually changed.
   const reg = loadRegistry();

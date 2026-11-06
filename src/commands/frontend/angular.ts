@@ -271,6 +271,7 @@ const NewCommand: GluegunCommand = {
       linkPath,
       localize,
       localNgBaseBuild,
+      siteName: name,
       vendor: frameworkMode === 'vendor' ? { localSource: frameworkCopy } : undefined,
     });
 

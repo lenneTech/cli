@@ -468,7 +468,7 @@ lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 3. Patches legacy hardcoded ports in `config.env.ts` (`port: 3000`), `nuxt.config.ts` (`port: 3001`, vite proxy target), `playwright.config.ts` (`baseURL`/`host`/`url`) to env-overridable form. Defaults preserved, idempotent.
 4. Persists the entry to `~/.lenneTech/projects.json` (override path via `LT_DEV_REGISTRY_PATH`).
 5. Adds `.lt-dev/` to the project's `.gitignore`.
-6. Injects (or refreshes) a "Local Development (lt dev)" URL block into `CLAUDE.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers.
+6. Injects (or refreshes) a "Local Development (lt dev)" URL block into the `CLAUDE.md` and `AGENTS.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers. Both files get the same block, so files kept identical stay identical; a symlinked file, or one whose real path leaves the project, is skipped. The vendor-mode notices that `lt fullstack init`, `add-app`, `update` and `convert-mode` write go into both files the same way.
 
 ---
 
@@ -1233,6 +1233,10 @@ lt fullstack init [options]
 
 **Note:** Git is always initialized with the `dev` branch. The `--git` flag only controls whether the initial commit is pushed to a remote repository.
 
+**Git identity:** the initial commit needs `user.name` and `user.email`. `init` asks git (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`, in a throwaway repository in the target directory, so an `includeIf "gitdir:…"` identity counts) before it clones anything and stops with the two `git config --global` commands when git has no identity. Everything `init` writes, the `lt dev` registration included, is part of the initial commit, so the working tree is clean afterwards.
+
+**Angular:** `src/app/shared/site.ts` (ng-base-starter 22.0.1+) gets the project name as `SITE_NAME` (browser title) and `SITE_REPO_URL = null`, which hides the starter's GitHub link; the static `<title>` fallback in `src/index.html` follows while it still shows the starter's name. `lt fullstack add-app` and `lt frontend angular` do the same.
+
 **Agent notes:** the templates are public, so their `.gitignore` keeps the agent notes out of git (`**/.claude/agent-memory` plus the comment above it). A generated project is usually private and decides for itself whether to share its notes, so the rule is removed: without `--public` an interactive run asks, a non-interactive one (`--noConfirm`, no TTY) removes it. `--public` keeps it; `--no-public` / `--public=false` removes it without asking. `lt fullstack add-api`, `lt fullstack add-app` and `lt server create` apply the same rule to the project they create.
 
 **Note:** For Nuxt frontends with `--frontend-copy` or `--frontend-link`, specify the path to the `nuxt-base-template/` subdirectory, not the repository root.
@@ -1245,6 +1249,8 @@ lt fullstack init [options]
 | `{{PROJECT_DIR}}` | Absolute project directory path |
 | `{{API_MODE}}` | Selected API mode (`Rest`, `GraphQL`, or `Both`) |
 | `{{FRONTEND_FRAMEWORK}}` | Frontend framework (`Nuxt 4` or `Angular`) |
+
+The root `CLAUDE.md` and `README.md` keep only the blocks of the chosen frontend (`<!-- lt:frontend nuxt|angular -->` markers, lt-monorepo); `lt fullstack add-app` does the same. Unbalanced markers leave the file untouched with a warning.
 
 Additionally, the API's `CLAUDE.md` is patched to reflect the selected API mode — the generic "API Mode" description is replaced with the chosen mode, and in single-mode projects (`Rest` or `GraphQL`), the "API Mode System" section is condensed.
 

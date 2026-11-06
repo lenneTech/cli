@@ -1,7 +1,7 @@
 import { build } from 'gluegun';
-import { join } from 'path';
 
 import { installHelpInterceptor } from './lib/command-help';
+import { helperPluginDir } from './lib/helper-plugin';
 
 /**
  * Create the cli and kick it off
@@ -13,7 +13,7 @@ async function run(argv) {
       .brand('lt')
       .src(__dirname)
       // .plugins('./node_modules', { matching: 'lt-*', hidden: true })
-      .plugin(join(__dirname, '..', 'node_modules', '@lenne.tech', 'cli-plugin-helper', 'dist'), {
+      .plugin(helperPluginDir(__dirname), {
         commandFilePattern: ['*.js'],
         extensionFilePattern: ['*.js'],
       })

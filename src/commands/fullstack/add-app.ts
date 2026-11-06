@@ -301,6 +301,7 @@ const NewCommand: GluegunCommand = {
           copyPath: frontendCopy,
           linkPath: frontendLink,
           localNgBaseBuild,
+          siteName: projectName,
           skipGitInit: true,
           skipInstall: true,
           workspace: true,
@@ -359,6 +360,17 @@ const NewCommand: GluegunCommand = {
       const next = selection.content.replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendKindLabel(frontend));
       if (next !== filesystem.read(rootClaudeMd)) {
         filesystem.write(rootClaudeMd, next);
+      }
+    }
+    // The workspace README carries the same blocks (lt-monorepo).
+    const rootReadme = filesystem.path(workspaceDir, 'README.md');
+    if (filesystem.exists(rootReadme)) {
+      const current = filesystem.read(rootReadme) || '';
+      const selection = selectFrontendBlocks(current, frontend);
+      if (selection.problem) {
+        warning(`README.md: ${selection.problem} — left all frontend blocks in place.`);
+      } else if (selection.content !== current) {
+        filesystem.write(rootReadme, selection.content);
       }
     }
     healVendorClaudeMd(filesystem, {

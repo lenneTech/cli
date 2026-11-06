@@ -70,9 +70,10 @@ describe('startCompiledApi', () => {
 
     // build first, migrate second
     expect(runChildInheritMock).toHaveBeenNthCalledWith(1, 'pnpm', ['build'], { cwd: apiDir, env: { FOO: 'bar' } });
+    // migrate with the server's NODE_ENV, or it migrates the database of another environment
     expect(runChildInheritMock).toHaveBeenNthCalledWith(2, 'pnpm', ['migrate:up'], {
       cwd: apiDir,
-      env: { FOO: 'bar' },
+      env: { FOO: 'bar', NODE_ENV: 'local' },
     });
     // compiled server started with NODE_ENV forced to local
     expect(spawnDetachedMock).toHaveBeenCalledTimes(1);

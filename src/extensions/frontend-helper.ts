@@ -1,6 +1,8 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { alignFrameworkPins } from '../lib/align-framework-pins';
+import { applyAngularSiteIdentity } from '../lib/angular-site-identity';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
+import { agentDocFiles } from '../lib/dev-patches';
 import { execArgs } from '../lib/exec-args';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
@@ -48,6 +50,11 @@ export interface AngularSetupOptions {
    * install. For testing unreleased ng-base work without vendoring it.
    */
   localNgBaseBuild?: string;
+  /**
+   * Name of the new project: becomes `SITE_NAME` (browser title) in `src/app/shared/site.ts`,
+   * and the starter's repository link is removed (`applyAngularSiteIdentity`). Not in link mode.
+   */
+  siteName?: string;
   skipGitInit?: boolean;
   skipHuskyRemoval?: boolean;
   skipInstall?: boolean;
@@ -325,6 +332,12 @@ export class FrontendHelper {
       await this.fixPackageName(dest);
     }
 
+    if (options.siteName && applyAngularSiteIdentity(dest, options.siteName) === 'unrecognised') {
+      this.toolbox.print.warning(
+        'src/app/shared/site.ts has no SITE_NAME / SITE_REPO_URL lines in the expected shape: the starter title and repository link were left in place.',
+      );
+    }
+
     if (options.localNgBaseBuild && !options.vendor) {
       const pkg = filesystem.read(`${dest}/package.json`, 'json') as Record<string, any>;
       if (pkg && typeof pkg === 'object') {
@@ -585,12 +598,12 @@ export class FrontendHelper {
       }),
     );
 
-    const claudeMdPath = path.join(dest, 'CLAUDE.md');
-    if (filesystem.exists(claudeMdPath)) {
-      const existing = filesystem.read(claudeMdPath) || '';
+    // CLAUDE.md and AGENTS.md: ng-base-starter keeps the two identical (`agentDocFiles`).
+    for (const docPath of agentDocFiles(dest, [dest])) {
+      const existing = filesystem.read(docPath) || '';
       const patched = insertVendorBlockIfMissing(existing, FRONTEND_VENDOR_MARKER, buildFrontendVendorBlock('angular'));
       if (patched !== existing) {
-        filesystem.write(claudeMdPath, patched);
+        filesystem.write(docPath, patched);
       }
     }
 
@@ -655,12 +668,11 @@ export class FrontendHelper {
       filesystem.write(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
     }
 
-    const claudeMdPath = path.join(dest, 'CLAUDE.md');
-    if (filesystem.exists(claudeMdPath)) {
-      const content = filesystem.read(claudeMdPath) || '';
+    for (const docPath of agentDocFiles(dest, [dest])) {
+      const content = filesystem.read(docPath) || '';
       const cleaned = removeVendorBlock(content, FRONTEND_VENDOR_MARKER);
       if (cleaned !== content) {
-        filesystem.write(claudeMdPath, cleaned);
+        filesystem.write(docPath, cleaned);
       }
     }
     return { version };

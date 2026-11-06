@@ -321,6 +321,23 @@ describe('dependencies and markers', () => {
 });
 
 describe('FrontendHelper round trip', () => {
+  test('AGENTS.md gets and loses the vendor notice together with CLAUDE.md', async () => {
+    const repo = join(root, 'ng-base');
+    const app = join(root, 'app');
+    seedNgBaseRepo(repo);
+    seedAngularApp(app);
+    writeFileSync(join(app, 'AGENTS.md'), readFileSync(join(app, 'CLAUDE.md'), 'utf8'));
+    const helper = makeHelper();
+
+    await helper.convertAngularAppToVendored({ dest: app, localSource: repo });
+    expect(readFileSync(join(app, 'AGENTS.md'), 'utf8')).toContain('<!-- lt-vendor-marker-frontend -->');
+    expect(readFileSync(join(app, 'AGENTS.md'), 'utf8')).toBe(readFileSync(join(app, 'CLAUDE.md'), 'utf8'));
+
+    await helper.convertAngularAppToNpmMode({ dest: app });
+    expect(readFileSync(join(app, 'AGENTS.md'), 'utf8')).not.toContain('lt-vendor-marker-frontend');
+    expect(readFileSync(join(app, 'AGENTS.md'), 'utf8')).toBe(readFileSync(join(app, 'CLAUDE.md'), 'utf8'));
+  });
+
   test('vendor from a local checkout, then back to npm', async () => {
     const repo = join(root, 'ng-base');
     const app = join(root, 'app');

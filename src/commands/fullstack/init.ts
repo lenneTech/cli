@@ -3,12 +3,14 @@ import { filesystem as fs, GluegunCommand } from 'gluegun';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
 import { caddyAvailable } from '../../lib/caddy';
+import { CommandHelp } from '../../lib/command-help';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { execArgs, spawnArgs } from '../../lib/exec-args';
 import { failRun } from '../../lib/fail-run';
 import { selectFrontendBlocks } from '../../lib/frontend-claude-blocks';
 import { resolveFrontendFrameworkMode } from '../../lib/frontend-mode-resolution';
+import { GIT_IDENTITY_FIX, gitIdentityProblem } from '../../lib/git-identity';
 import { resolveLocalNgBaseBuild } from '../../lib/ng-base-vendor';
 import { setPackageName, setPackageVersion } from '../../lib/package-name';
 import { removeTemplateAgentMemory } from '../../lib/template-agent-memory';
@@ -481,6 +483,17 @@ const NewCommand: GluegunCommand = {
       return `fullstack init dry-run (${frameworkMode} / ${apiMode})`;
     }
 
+    // The initial commit is the last step. Without an identity it failed only there, after the
+    // whole workspace was built and installed (see git-identity.ts): ask git before the first write.
+    const identityProblem = await gitIdentityProblem(filesystem.cwd());
+    if (identityProblem) {
+      error(`git cannot create the initial commit: ${identityProblem}`);
+      info('Set your git identity once, then run the command again:');
+      GIT_IDENTITY_FIX.forEach((line) => info(`  $ ${line}`));
+      failRun(toolbox);
+      return;
+    }
+
     const workspaceSpinner = spin(`Create fullstack workspace with ${frontend} in ${projectDir} with ${name} app`);
 
     // Clone monorepo
@@ -559,6 +572,17 @@ const NewCommand: GluegunCommand = {
             .replace(/\{\{FRONTEND_FRAMEWORK\}\}/g, () => frontendName),
         );
       }
+      // The README carries the same blocks (lt-monorepo): without this an Angular workspace
+      // explained the `NUXT_*` variables, and every workspace showed both quick starts.
+      const readmePath = `${projectDir}/README.md`;
+      if (filesystem.exists(readmePath)) {
+        const selection = selectFrontendBlocks(filesystem.read(readmePath) || '', frontend as 'angular' | 'nuxt');
+        if (selection.problem) {
+          warning(`README.md: ${selection.problem} — left all frontend blocks in place.`);
+        } else {
+          filesystem.write(readmePath, selection.content);
+        }
+      }
     }
 
     // Rename the cloned monorepo's root package so each project gets a unique
@@ -610,6 +634,7 @@ const NewCommand: GluegunCommand = {
         copyPath: frontendCopy,
         linkPath: frontendLink,
         localNgBaseBuild,
+        siteName: name,
         skipGitInit: true, // Git is handled at monorepo level
         skipInstall: true, // Will install at monorepo level
         workspace: true, // `app` package name, no husky, no nested lockfile, no repo-only files
@@ -810,6 +835,25 @@ const NewCommand: GluegunCommand = {
         info('Skipping workspace install — run `bun install` (api) and `pnpm install` (app) manually.');
       }
 
+      // Best-effort `lt dev init` so the workspace is ready for `lt dev up`
+      // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
+      // injects the URL block into CLAUDE.md / AGENTS.md, patches
+      // playwright.config.ts, adds `.lt-dev/` to .gitignore. Before the format
+      // pass and the initial commit: run after the commit, its edits left every
+      // new workspace with four modified files. Failures here are non-fatal —
+      // `init` itself remains successful.
+      let devMigrateOk = false;
+      try {
+        const layout = resolveLayout(projectDir, fs);
+        const migrate = runMigrate({ layout });
+        devMigrateOk = true;
+        if (!migrate.alreadyMigrated) {
+          info(colors.dim(`  registered "${migrate.identity.slug}" with \`lt dev\``));
+        }
+      } catch {
+        /* best-effort — never block init */
+      }
+
       // Post-install format pass. processApiMode (run earlier in
       // setupServerForFullstack) and convertAppCloneToVendored rewrite
       // source files, leaving whitespace artifacts that oxfmt flags in
@@ -857,22 +901,6 @@ const NewCommand: GluegunCommand = {
         }
       }
 
-      // Best-effort `lt dev init` so the workspace is ready for `lt dev up`
-      // out-of-the-box: registers the slug in `~/.lenneTech/projects.json`,
-      // injects the URL block into CLAUDE.md, adds `.lt-dev/` to .gitignore.
-      // Failures here are non-fatal — `init` itself remains successful.
-      let devMigrateOk = false;
-      try {
-        const layout = resolveLayout(projectDir, fs);
-        const migrate = runMigrate({ layout });
-        devMigrateOk = true;
-        if (!migrate.alreadyMigrated) {
-          info(colors.dim(`  registered "${migrate.identity.slug}" with \`lt dev\``));
-        }
-      } catch {
-        /* best-effort — never block init */
-      }
-
       // We're done, so show what to do next
       info('');
       success(
@@ -890,6 +918,9 @@ const NewCommand: GluegunCommand = {
         info('  Configure projects/api/.env (see .env.example)');
         info('  Start Postgres + run prisma generate / migrate');
       } else {
+        // The workspace's own package manager: detected from cwd (the parent directory), this
+        // used to recommend `npm run start` for a pnpm workspace.
+        const start = toolbox.pm.run('start', toolbox.pm.detect(projectDir));
         info(`  Run ${name}`);
         info(`  $ cd ${projectDir}`);
         if (devMigrateOk) {
@@ -901,9 +932,9 @@ const NewCommand: GluegunCommand = {
             info('  $ lt dev install   # one-time per machine: verify Caddy + CA');
             info('  $ lt dev up        # then: start API + App behind Caddy');
           }
-          info(colors.dim(`  (fallback: ${toolbox.pm.run('start')} runs the classic localhost:3000/3001 mode)`));
+          info(colors.dim(`  (fallback: ${start} runs the classic localhost:3000/3001 mode)`));
         } else {
-          info(`  $ ${toolbox.pm.run('start')}`);
+          info(`  $ ${start}`);
         }
       }
       info('');
@@ -924,6 +955,84 @@ const NewCommand: GluegunCommand = {
       return;
     }
   },
+};
+
+export const help: CommandHelp = {
+  configuration:
+    'commands.fullstack.{frontend, apiMode, frameworkMode, frontendFrameworkMode, apiBranch, frontendBranch, apiCopy, frontendCopy, apiLink, frontendLink, frontendFrameworkCopy, git, gitLink, noConfirm} in lt.config (CLI flags win).',
+  description:
+    'Create a fullstack workspace from lt-monorepo: projects/api (nest-server-starter) and projects/app (nuxt-base-starter or ng-base-starter), installed, registered with `lt dev` and committed. Inside a workspace that already has one half, it delegates to `lt fullstack add-api` / `add-app`.',
+  examples: [
+    'fullstack init --name shop --frontend nuxt --api-mode Rest --noConfirm',
+    'fullstack init --name shop --frontend angular --api-mode Rest --frontend-framework-mode npm --noConfirm',
+    'fullstack init --name shop --frontend angular --api-mode Rest --dry-run --noConfirm',
+  ],
+  features: [
+    'Backend and frontend framework each in npm or vendor mode (vendor: the framework source is copied into the project).',
+    'Keeps only the chosen frontend’s blocks in the root CLAUDE.md and README.md.',
+    'Checks the git identity before writing anything; the initial commit leaves a clean working tree.',
+  ],
+  name: 'init',
+  options: [
+    { description: 'Project name', flag: '--name', type: 'string' },
+    { description: 'Frontend framework', flag: '--frontend', type: 'string', values: ['angular', 'nuxt'] },
+    { description: 'API mode of the backend', flag: '--api-mode', type: 'string', values: ['Rest', 'GraphQL', 'Both'] },
+    {
+      default: 'vendor',
+      description: 'Backend framework consumption: npm dependency or core copied to src/core/',
+      flag: '--framework-mode',
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      description:
+        'Upstream nest-server branch/tag to vendor from (only with --framework-mode vendor). Default: the version the starter pins',
+      flag: '--framework-upstream-branch',
+      type: 'string',
+    },
+    {
+      default: 'vendor',
+      description:
+        'Frontend framework consumption: npm dependency, or copied into the app (Nuxt: app/core/, Angular: src/core/)',
+      flag: '--frontend-framework-mode',
+      type: 'string',
+      values: ['npm', 'vendor'],
+    },
+    {
+      description:
+        'Angular only: local ng-base checkout. Vendor mode copies its working tree, npm mode injects its build as file: dependency',
+      flag: '--frontend-framework-copy',
+      type: 'string',
+    },
+    { description: 'Branch of nest-server-starter to use for the API', flag: '--api-branch', type: 'string' },
+    { description: 'Copy the API from a local template directory', flag: '--api-copy', type: 'string' },
+    {
+      description: 'Symlink the API to a local template (changes affect the original)',
+      flag: '--api-link',
+      type: 'string',
+    },
+    { description: 'Branch of the frontend starter to use', flag: '--frontend-branch', type: 'string' },
+    { description: 'Copy the frontend from a local template directory', flag: '--frontend-copy', type: 'string' },
+    {
+      description: 'Symlink the frontend to a local template (changes affect the original)',
+      flag: '--frontend-link',
+      type: 'string',
+    },
+    {
+      description: 'Experimental: nest-base (Bun + Prisma + Postgres) as API instead of nest-server-starter',
+      flag: '--next',
+      type: 'boolean',
+    },
+    { description: 'Push the initial commit to a remote (git is always initialized)', flag: '--git', type: 'boolean' },
+    { description: 'Git remote URL (required with --git)', flag: '--git-link', type: 'string' },
+    {
+      description: 'Public project: keep the templates’ rule that keeps agent notes (.claude/agent-memory) out of git',
+      flag: '--public',
+      type: 'boolean',
+    },
+    { description: 'Print the resolved plan without making any changes', flag: '--dry-run', type: 'boolean' },
+    { description: 'Skip confirmation prompts', flag: '--noConfirm', type: 'boolean' },
+  ],
 };
 
 export default NewCommand;

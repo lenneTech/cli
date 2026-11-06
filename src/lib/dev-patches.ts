@@ -12,11 +12,13 @@
  * restyled an injected block: that block is compared SEMANTICALLY (see
  * `BRIDGE_VERSION` / `normaliseBridgeBlock`), not byte-for-byte.
  */
-import { existsSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 import { DevIdentity } from './dev-identity';
 import { sqlDriverLabel, StackDatabases } from './dev-sql';
 import { FrontendKind } from './frontend-kind';
+import { isPathInside } from './safe-paths';
 
 /**
  * Version of the `lt-dev:bridge` block emitted into a consumer's
@@ -59,6 +61,41 @@ export function addToGitignore(root: string, entry: string): boolean {
   const ensured = `${(content.endsWith('\n') || content.length === 0 ? content : `${content}\n`) + entry}\n`;
   writeFileSync(path, ensured, 'utf8');
   return true;
+}
+
+/**
+ * The agent instruction files in `dirs` that carry the URL block: `CLAUDE.md` and `AGENTS.md`.
+ *
+ * ng-base-starter keeps both byte-identical (its `tests/unit/agent-docs-contract.test.ts`), so
+ * patching only CLAUDE.md turned the first `check` of every new Angular workspace red. Both files
+ * get the same patch, which keeps identical files identical.
+ *
+ * Only files that really live in the project: a symlinked file is skipped, and so is a file whose
+ * real path leaves `root`. A repository can commit `projects/app` as a symlink to `~/.codex`; with
+ * only the file name checked, `lt dev init` in that clone wrote the block (and the `dbName` it
+ * reads from the repository's own config) into the user's global agent instructions.
+ * @param root - Project root; every file must resolve inside it
+ * @param dirs - Project root and sub-project directories
+ * @returns Existing regular files, CLAUDE.md before AGENTS.md per directory
+ */
+export function agentDocFiles(root: string, dirs: readonly string[]): string[] {
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(root);
+  } catch {
+    return [];
+  }
+  return dirs.flatMap((dir) =>
+    ['CLAUDE.md', 'AGENTS.md']
+      .map((name) => join(dir, name))
+      .filter((file) => {
+        try {
+          return !lstatSync(file).isSymbolicLink() && isPathInside(realRoot, realpathSync(file));
+        } catch {
+          return false; // missing
+        }
+      }),
+  );
 }
 
 /** Run the appropriate patch based on filename. */
@@ -146,6 +183,11 @@ export function patchClaudeMd(
   const sqlProject = Boolean(databases?.sql || databases?.sqlProblem);
   const startMarker = '<!-- lt-dev:url-block:start -->';
   const endMarker = '<!-- lt-dev:url-block:end -->';
+  if (!existsSync(file)) return { file, patched: false, replacements: 0 };
+  const content = readFileSync(file, 'utf8');
+  const startIdx = content.indexOf(startMarker);
+  const endIdx = content.indexOf(endMarker);
+  const hasBlock = startIdx !== -1 && endIdx !== -1 && endIdx > startIdx;
 
   const apiSub = identity.subdomains.api;
   const appSub = identity.subdomains.app;
@@ -233,13 +275,9 @@ export function patchClaudeMd(
   lines.push(endMarker);
   const block = lines.join('\n');
 
-  if (!existsSync(file)) return { file, patched: false, replacements: 0 };
-  const content = readFileSync(file, 'utf8');
-  const startIdx = content.indexOf(startMarker);
-  const endIdx = content.indexOf(endMarker);
   let next: string;
 
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+  if (hasBlock) {
     const before = content.slice(0, startIdx);
     const after = content.slice(endIdx + endMarker.length);
     // Anything between the markers that is NOT this generated block is somebody's own writing,

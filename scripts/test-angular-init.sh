@@ -13,10 +13,14 @@
 #
 # For each scenario:
 #   - workspace shape: projects/app named `app`, no husky, no nested lockfile, no
-#     starter repo files, root CLAUDE.md without frontend markers or Nuxt blocks
+#     starter repo files, root CLAUDE.md and README.md without frontend markers or Nuxt blocks,
+#     a clean working tree after init, AGENTS.md = CLAUDE.md in projects/app, site.ts named
+#     after the project without the starter's repository link (starter 22.0.1+)
 #   - vendor: src/core/VENDOR.md + ng-package.json, tsconfig paths per entry point, no @lenne.tech/ng-base dependency
 #   - `pnpm run build` in projects/app produces the .output/server/index.mjs shim
 #   - `pnpm run typecheck` when the app has the script
+#   - `pnpm run check` at the workspace root (skip with LT_IT_SKIP_CHECK=1); it runs the API's
+#     vitest suites on a per-run test database (MongoDB on 127.0.0.1), no Playwright
 #
 # Sources (until the ng-base 22 release, both are needed for vendor mode):
 #
@@ -46,7 +50,10 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CLI_BIN="${CLI_ROOT}/bin/lt"
+# LT_IT_CLI_BIN: a packed CLI (`npm pack`, then `npm i <tgz>` into an empty directory) runs the
+# compiled build in npm's flat layout, as `npx -p @lenne.tech/cli` does. bin/lt from this checkout
+# runs the TypeScript sources instead and cannot show a packaging fault.
+CLI_BIN="${LT_IT_CLI_BIN:-${CLI_ROOT}/bin/lt}"
 WORK_DIR="/tmp/lt-ait"
 KEEP_ON_SUCCESS=0
 SCENARIO_FILTER=""
@@ -100,6 +107,36 @@ check_workspace_shape() {
   assert_not_contains "${ws}/CLAUDE.md" "<!-- lt:frontend" "root CLAUDE.md has no frontend markers"
   assert_not_contains "${ws}/CLAUDE.md" "{{FRONTEND_FRAMEWORK}}" "root CLAUDE.md placeholder replaced"
   assert_not_contains "${ws}/CLAUDE.md" "nuxt-extensions" "root CLAUDE.md carries no nuxt-extensions block"
+  assert_not_contains "${ws}/README.md" "<!-- lt:frontend" "root README.md has no frontend markers"
+  # Everything init writes is in the initial commit, `lt dev init` included.
+  local dirty
+  dirty="$(git -C "${ws}" status --porcelain)"
+  if [ -z "${dirty}" ]; then pass "working tree clean after init"; else fail "working tree dirty after init: ${dirty//$'\n'/, }"; fi
+  if [ -f "${app}/AGENTS.md" ]; then
+    if cmp -s "${app}/AGENTS.md" "${app}/CLAUDE.md"; then
+      pass "projects/app AGENTS.md and CLAUDE.md byte-identical"
+    else
+      fail "projects/app AGENTS.md differs from CLAUDE.md"
+    fi
+  fi
+  if [ -f "${app}/src/app/shared/site.ts" ]; then
+    assert_contains "${app}/src/app/shared/site.ts" "export const SITE_NAME = '$(basename "${ws}")';" "site.ts SITE_NAME is the project name"
+    assert_contains "${app}/src/app/shared/site.ts" "export const SITE_REPO_URL: null | string = null;" "site.ts drops the starter repository link"
+  fi
+}
+
+check_workspace_check() {
+  local ws="$1"
+  if [ -n "${LT_IT_SKIP_CHECK:-}" ]; then
+    info "pnpm run check skipped (LT_IT_SKIP_CHECK)"
+    return
+  fi
+  info "pnpm run check in ${ws} (API unit + API tests on a per-run test database, no Playwright)"
+  if (cd "${ws}" && pnpm run check >"${ws}/check.log" 2>&1); then
+    pass "pnpm run check at the workspace root"
+  else
+    fail "pnpm run check at the workspace root (log: ${ws}/check.log)"
+  fi
 }
 
 check_build() {
@@ -189,7 +226,11 @@ run_scenario() {
     (cd "${app}" && node "${CLI_BIN}" frontend convert-mode "${back[@]}" >"${WORK_DIR}/${name}.to-vendor.log" 2>&1) ||
       fail "convert-mode --to vendor (log: ${WORK_DIR}/${name}.to-vendor.log)"
     check_vendored "${app}"
+    # The round trip changed package.json; reinstall so `check` runs against the vendored state.
+    (cd "${ws}" && pnpm install >"${WORK_DIR}/${name}.reinstall.log" 2>&1) ||
+      fail "pnpm install after the round trip (log: ${WORK_DIR}/${name}.reinstall.log)"
   fi
+  check_workspace_check "${ws}"
 }
 
 run_scenario init-npm

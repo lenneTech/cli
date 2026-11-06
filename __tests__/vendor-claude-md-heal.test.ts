@@ -104,4 +104,27 @@ describe('healVendorClaudeMd (workspace sync)', () => {
     expect(changed).not.toContain(filesystem.path(root, 'projects', 'app', 'CLAUDE.md'));
     expect(read('projects/api/CLAUDE.md')).toContain(BACKEND_VENDOR_MARKER);
   });
+
+  test('AGENTS.md gets the same notice, so files kept identical stay identical (ng-base-starter)', () => {
+    const app = (name: string) => filesystem.path(root, 'projects', 'app', name);
+    filesystem.write(app('AGENTS.md'), '# App\n\nApp docs.\n');
+    const changed = healVendorClaudeMd(filesystem, { ...state(false, true), frontendKind: 'angular' });
+    expect(changed).toEqual(expect.arrayContaining([app('CLAUDE.md'), app('AGENTS.md')]));
+    expect(read('projects/app/AGENTS.md')).toContain(FRONTEND_VENDOR_MARKER);
+    expect(read('projects/app/AGENTS.md')).toBe(read('projects/app/CLAUDE.md'));
+  });
+
+  test('a symlinked sub-project is not written through', () => {
+    const outside = filesystem.path(`${root}-outside`);
+    filesystem.write(filesystem.path(outside, 'CLAUDE.md'), '# Linked checkout\n');
+    filesystem.remove(filesystem.path(root, 'projects', 'app'));
+    filesystem.symlink(outside, filesystem.path(root, 'projects', 'app'));
+    try {
+      healVendorClaudeMd(filesystem, state(false, true));
+      expect(filesystem.read(filesystem.path(outside, 'CLAUDE.md'))).toBe('# Linked checkout\n');
+    } finally {
+      filesystem.remove(outside);
+    }
+  });
 });
+

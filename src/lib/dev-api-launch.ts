@@ -153,7 +153,12 @@ export async function startCompiledApi(options: StartCompiledApiOptions): Promis
   const entry = findCompiledEntry(apiDir);
 
   if (build === 0 && entry) {
-    const migration = await applyPendingMigrations({ apiDir, env, pm });
+    // Same environment for the migration as for the server: the migration store resolves its
+    // database from `config.env.ts` by NODE_ENV, so an inherited value (or none) migrated a
+    // different database than the server then opened. nest-server-starter's `start` sets
+    // `NODE_ENV=local` for both since 12.7.0.
+    const localEnv = { ...env, NODE_ENV: 'local' };
+    const migration = await applyPendingMigrations({ apiDir, env: localEnv, pm });
     if (migration.status === 'failed') {
       // Parity with `migrate:up && start:local`: a failed migration must PREVENT the server
       // from starting rather than boot it against a half-migrated DB behind a "Started" banner.
@@ -162,11 +167,7 @@ export async function startCompiledApi(options: StartCompiledApiOptions): Promis
       );
       return undefined;
     }
-    return spawnDetached(resolveApiRuntime(apiDir), [entry], {
-      cwd: apiDir,
-      env: { ...env, NODE_ENV: 'local' },
-      logFile,
-    });
+    return spawnDetached(resolveApiRuntime(apiDir), [entry], { cwd: apiDir, env: localEnv, logFile });
   }
 
   log.warn(

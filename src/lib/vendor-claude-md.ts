@@ -23,8 +23,7 @@
  * content below it.
  */
 
-import { join } from 'path';
-
+import { agentDocFiles } from './dev-patches';
 import { FrontendKind } from './frontend-kind';
 
 export const BACKEND_VENDOR_MARKER = '<!-- lt-vendor-marker -->';
@@ -268,40 +267,42 @@ export function healVendorClaudeMd(fs: VendorClaudeMdFs, state: VendorClaudeMdSt
     }
   };
 
-  // `join`, not string concatenation with `/`: the returned paths are reported
-  // to the user and compared by callers, so they have to be the same spelling
-  // the rest of the CLI produces. Concatenating `/` onto a Windows directory
-  // yields `C:\ws\projects\api/CLAUDE.md` — it opens fine, but it matches
-  // nothing and reads like a bug in the output.
+  // The paths come from `agentDocFiles`, which builds them with `join`: they are reported to the user
+  // and compared by callers, so they have to be the spelling the rest of the CLI produces
+  // (concatenating `/` onto a Windows directory yields `C:\ws\projects\api/CLAUDE.md`).
+  //
+  // CLAUDE.md and AGENTS.md alike (`agentDocFiles`): ng-base-starter keeps the two identical, and a
+  // notice in CLAUDE.md only made them differ in every vendored Angular app. Only files that really
+  // live in the project: a symlinked sub-project (`--frontend-link`, or a committed link) is skipped.
+  const docs = (dir: string): string[] => agentDocFiles(state.workspaceRoot ?? dir, [dir]);
+
   if (state.apiDir) {
-    apply(
-      join(state.apiDir, 'CLAUDE.md'),
-      BACKEND_VENDOR_MARKER,
-      state.backendVendor ? buildBackendVendorBlock() : null,
-    );
+    for (const path of docs(state.apiDir)) {
+      apply(path, BACKEND_VENDOR_MARKER, state.backendVendor ? buildBackendVendorBlock() : null);
+    }
   }
 
   if (state.appDir) {
-    apply(
-      join(state.appDir, 'CLAUDE.md'),
-      FRONTEND_VENDOR_MARKER,
-      state.frontendVendor ? buildFrontendVendorBlock(state.frontendKind) : null,
-    );
+    for (const path of docs(state.appDir)) {
+      apply(path, FRONTEND_VENDOR_MARKER, state.frontendVendor ? buildFrontendVendorBlock(state.frontendKind) : null);
+    }
   }
 
   if (state.workspaceRoot) {
     const anyVendor = state.backendVendor || state.frontendVendor;
-    apply(
-      join(state.workspaceRoot, 'CLAUDE.md'),
-      ROOT_VENDOR_MARKER,
-      anyVendor
-        ? buildRootVendorBlock({
-            backend: state.backendVendor,
-            frontend: state.frontendVendor,
-            frontendKind: state.frontendKind,
-          })
-        : null,
-    );
+    for (const path of docs(state.workspaceRoot)) {
+      apply(
+        path,
+        ROOT_VENDOR_MARKER,
+        anyVendor
+          ? buildRootVendorBlock({
+              backend: state.backendVendor,
+              frontend: state.frontendVendor,
+              frontendKind: state.frontendKind,
+            })
+          : null,
+      );
+    }
   }
 
   return changed;
