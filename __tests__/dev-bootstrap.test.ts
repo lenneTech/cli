@@ -117,8 +117,10 @@ describe('dev-bootstrap', () => {
       rmSync(home, { force: true, recursive: true });
     });
 
+    // `service` explicitly: on a Linux without systemd (WSL2 default, containers) the default mode is
+    // `on-demand`, which checks the Caddyfile instead of the unit file.
     it('false when the service unit file is absent', () => {
-      expect(isMachinePrepared()).toBe(false);
+      expect(isMachinePrepared('service')).toBe(false);
     });
 
     it('true once the service unit file exists', () => {
@@ -126,13 +128,13 @@ describe('dev-bootstrap', () => {
       const unit = getServicePaths().unitFile;
       if (!unit) {
         // Unsupported platform — isMachinePrepared must stay false regardless.
-        expect(isMachinePrepared()).toBe(false);
+        expect(isMachinePrepared('service')).toBe(false);
         return;
       }
       mkdirSync(dirname(unit), { recursive: true });
       writeFileSync(unit, 'stub');
       expect(existsSync(unit)).toBe(true);
-      expect(isMachinePrepared()).toBe(true);
+      expect(isMachinePrepared('service')).toBe(true);
     });
 
     it('on Windows (no service) the marker is our Caddyfile, which lt dev install creates', () => {

@@ -24,12 +24,14 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { get as httpGet } from 'http';
+import { isIPv6 } from 'net';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
 import { httpStatus } from './dev-process';
 import { loadRegistry } from './dev-state';
 import { spawnCmd } from './platform';
+import { wslWindowsHostAddress } from './wsl';
 
 /** Mapping from public hostname to internal upstream port. */
 export interface CaddyRoute {
@@ -68,6 +70,18 @@ const LEGACY_LOOPBACK_BIND = /^[ \t]*default_bind[ \t]+127\.0\.0\.1[ \t]+\[::1\]
  * password is in this public repository (`TEST_INITIAL_ADMIN_ENV`).
  */
 const LOOPBACK_ONLY = ['  @lt_remote not remote_ip 127.0.0.0/8 ::1', '  abort @lt_remote'];
+
+/**
+ * The guard lines for this machine: {@link LOOPBACK_ONLY}, plus, in WSL2's NAT networking, the
+ * Windows host address a Windows browser's connection may arrive from (`wsl.ts`). The LAN stays
+ * out: it cannot reach the VM's NAT address. Unchanged everywhere else. Always ONE address: an
+ * IPv6 value gets `/128`, because `/32` there would admit every link-local address on the LAN.
+ * @param forwarder - Extra trusted address (tests); default: {@link wslWindowsHostAddress}
+ */
+export function loopbackGuardLines(forwarder: null | string = wslWindowsHostAddress()): string[] {
+  if (!forwarder) return LOOPBACK_ONLY;
+  return [`${LOOPBACK_ONLY[0]} ${forwarder}/${isIPv6(forwarder) ? 128 : 32}`, LOOPBACK_ONLY[1]];
+}
 
 /** Content of a new Caddyfile, before any project is up. */
 export const CADDYFILE_STUB = '# lt dev — managed Caddyfile\n# Add per-project blocks via `lt dev up`.\n';
@@ -127,7 +141,7 @@ export type LoadedConfigState = 'differs' | 'matches' | 'unknown';
  * @param content - Caddyfile content
  * @returns Content in which every managed site block starts with the guard
  */
-export function addLoopbackGuards(content: string): string {
+export function addLoopbackGuards(content: string, guard: string[] = loopbackGuardLines()): string {
   const lines = content.split('\n');
   const out: string[] = [];
   let managed = false;
@@ -136,16 +150,48 @@ export function addLoopbackGuards(content: string): string {
     out.push(line);
     if (line.startsWith('# >>> lt-dev:')) managed = true;
     else if (line.startsWith('# <<< lt-dev:')) managed = false;
-    else if (
-      managed &&
-      /^\S.*\{\s*$/.test(line) &&
-      !line.startsWith('#') &&
-      lines[i + 1]?.trim() !== LOOPBACK_ONLY[0].trim()
-    ) {
-      out.push(...LOOPBACK_ONLY);
+    else if (managed && /^\S.*\{\s*$/.test(line) && !line.startsWith('#')) {
+      const next = lines[i + 1]?.trim() ?? '';
+      if (next === guard[0].trim()) continue;
+      if (next.startsWith('@lt_remote not remote_ip')) {
+        // A guard for another address set (the WSL host address changes with every WSL restart):
+        // replace the matcher line, keep its `abort`.
+        out.push(guard[0]);
+        i++;
+        continue;
+      }
+      out.push(...guard);
     }
   }
   return out.join('\n');
+}
+
+/**
+ * The admin API's answer to `GET <path>` (status and body), or null when nothing answers.
+ * @param path - Admin endpoint, e.g. `/config/` or `/pki/ca/local`
+ * @param timeoutMs - How long to wait for an answer
+ */
+export function caddyAdminGet(path: string, timeoutMs = 2000): Promise<AdminAnswer | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (value: AdminAnswer | null): void => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const request = httpGet(`http://${CADDY_ADMIN}${path}`, { timeout: timeoutMs }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => (body += chunk));
+      response.on('end', () => done({ body, status: response.statusCode ?? 0 }));
+      response.on('error', () => done({ body, status: 0 }));
+    });
+    request.on('timeout', () => {
+      request.destroy();
+      done(null);
+    });
+    request.on('error', () => done(null));
+  });
 }
 
 /** Detect whether `caddy` is on PATH. */
@@ -227,7 +273,7 @@ export async function compareLoadedConfig(
  * @param deps - Injection points (tests)
  */
 export async function detectCaddyOwner(deps: CaddyOwnerDeps = {}): Promise<CaddyOwner> {
-  const answer = await (deps.fetchConfig ?? (() => fetchAdminConfig()))();
+  const answer = await (deps.fetchConfig ?? (() => caddyAdminGet('/config/')))();
   if (answer === null) {
     return 'none';
   }
@@ -347,7 +393,7 @@ export function healCaddyfile(): boolean {
 
 /** The config the running Caddy serves (`GET /config/`), or null when the admin API does not answer 200. */
 export async function loadedCaddyConfig(timeoutMs = 2000): Promise<null | string> {
-  const answer = await fetchAdminConfig(timeoutMs);
+  const answer = await caddyAdminGet('/config/', timeoutMs);
   return answer?.status === 200 ? answer.body : null;
 }
 
@@ -486,11 +532,11 @@ export function removeProjectBlock(slug: string): boolean {
  * `~/.lenneTech/caddy.err.log` held about 51 000 such resets across projects
  * when this was found (lt-crm DEV-2899).
  */
-export function renderProjectBlock(slug: string, routes: CaddyRoute[]): string {
+export function renderProjectBlock(slug: string, routes: CaddyRoute[], guard: string[] = loopbackGuardLines()): string {
   const lines: string[] = [`# >>> lt-dev:${slug} >>>`];
   for (const route of routes) {
     lines.push(`${route.hostname} {`);
-    lines.push(...LOOPBACK_ONLY);
+    lines.push(...guard);
     lines.push(`  reverse_proxy 127.0.0.1:${route.upstreamPort} {`);
     lines.push('    transport http {');
     lines.push(`      max_conns_per_host ${UPSTREAM_MAX_CONNS}`);
@@ -599,30 +645,6 @@ async function adaptOwnCaddyfile(): Promise<unknown> {
   } catch {
     return undefined;
   }
-}
-
-/** The admin API's answer to `GET /config/`, or null when nothing answers. */
-function fetchAdminConfig(timeoutMs = 2000): Promise<AdminAnswer | null> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = (value: AdminAnswer | null): void => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-    const request = httpGet(`http://${CADDY_ADMIN}/config/`, { timeout: timeoutMs }, (response) => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => (body += chunk));
-      response.on('end', () => done({ body, status: response.statusCode ?? 0 }));
-      response.on('error', () => done({ body, status: 0 }));
-    });
-    request.on('timeout', () => {
-      request.destroy();
-      done(null);
-    });
-    request.on('error', () => done(null));
-  });
 }
 
 function hasOwnerMarker(config: unknown): boolean {

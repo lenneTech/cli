@@ -9,13 +9,16 @@ import { isApiCompiledRequested, startCompiledApi } from '../../lib/dev-api-laun
 import { caddyGateOutcome, ensureLtDevCaddy, printCaddyGate } from '../../lib/dev-caddy-gate';
 import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
+import { classicFallbackLine } from '../../lib/dev-fallback';
 import { buildIdentity } from '../../lib/dev-identity';
 import { describeLog, diagnoseLog, findEarlyExits } from '../../lib/dev-log-tail';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { addToGitignore, agentDocFiles, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
+import { privilegedPortProblem } from '../../lib/dev-privileged-ports';
 import { killProcessGroup, probePorts, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
 import { deriveDbName, resolveLayout } from '../../lib/dev-project';
 import { collectDevPrunePlan } from '../../lib/dev-prune';
+import { resolveCaddyBin } from '../../lib/dev-service';
 import {
   describeSqlFailure,
   displaySqlUrl,
@@ -48,7 +51,6 @@ import {
   resolveDevIdentity,
 } from '../../lib/dev-ticket';
 import { detectFrontendKind } from '../../lib/frontend-kind';
-import { isWsl } from '../../lib/wsl';
 
 /**
  * Start API + App behind Caddy with project-specific URLs.
@@ -137,10 +139,23 @@ const UpCommand: GluegunCommand = {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: not a project';
     }
+    // When lt dev up cannot start the stack, the project still runs the classic way; every
+    // failure below that is about Caddy or a crashing component says so, in the same words as the
+    // CLAUDE.md block (dev-fallback.ts).
+    const printFallback = (): void =>
+      info(
+        colors.dim(
+          classicFallbackLine(
+            { api: Boolean(layout.apiDir), app: Boolean(layout.appDir) },
+            toolbox.pm.run('start', toolbox.pm.detect(layout.root)),
+          ),
+        ),
+      );
 
     // Pre-flight: Caddy
     if (!(await caddyAvailable())) {
       error('caddy is not installed. Run `lt dev install` first.');
+      printFallback();
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: caddy missing';
     }
@@ -148,6 +163,7 @@ const UpCommand: GluegunCommand = {
     const caddyState = await ensureLtDevCaddy();
     if (!caddyState.ok) {
       printCaddyGate(caddyState, { error, info });
+      printFallback();
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return `dev up: ${caddyGateOutcome(caddyState)}`;
     }
@@ -342,7 +358,6 @@ const UpCommand: GluegunCommand = {
     // `lt dev up` (see `patchClaudeMd`). NEVER for a ticket worktree: that
     // CLAUDE.md would carry per-ticket URLs into a commit.
     if (!ticket) {
-      const wsl = isWsl();
       const patched = agentDocFiles(layout.root, [layout.root, layout.apiDir, layout.appDir].filter(Boolean))
         .map((f) =>
           patchClaudeMd(f, {
@@ -350,7 +365,6 @@ const UpCommand: GluegunCommand = {
             dbName,
             frontend: layout.appDir ? detectFrontendKind(layout.appDir) : undefined,
             identity,
-            wsl,
           }),
         )
         .filter((r) => r.patched);
@@ -460,6 +474,16 @@ const UpCommand: GluegunCommand = {
     const reload = await reloadCaddy();
     if (!reload.ok) {
       error(`caddy reload failed:\n${reload.stderr}`);
+      // Linux: no cap_net_bind_service on the caddy binary (dev-privileged-ports.ts).
+      if (/permission denied/i.test(reload.stderr)) {
+        const bin = await resolveCaddyBin();
+        const portProblem = bin ? await privilegedPortProblem(bin) : null;
+        if (portProblem) {
+          info(portProblem.reason);
+          portProblem.commands.forEach((command) => info(`  ${colors.cyan(command)}`));
+        }
+      }
+      printFallback();
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: caddy reload failed';
     }
@@ -610,6 +634,7 @@ const UpCommand: GluegunCommand = {
         error(`${name} exited right after its start (pid ${pids[name as 'api' | 'app']}).`);
         describeLog(diagnoseLog(join(layout.root, '.lt-dev', `${name}.log`))).forEach((l) => info(l));
       }
+      printFallback();
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return `dev up: ${earlyExits.join('+')} exited on start`;
     }

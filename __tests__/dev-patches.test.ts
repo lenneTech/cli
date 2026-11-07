@@ -746,7 +746,7 @@ describe('dev-patches', () => {
   });
 });
 
-describe('URL block in WSL and in AGENTS.md', () => {
+describe('URL block: one wording everywhere, and AGENTS.md', () => {
   let tmp: string;
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), 'lt-dev-agent-docs-'));
@@ -755,55 +755,53 @@ describe('URL block in WSL and in AGENTS.md', () => {
     rmSync(tmp, { force: true, recursive: true });
   });
 
-  const STANDARD_RULE =
-    '**Start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly; those bind the framework default ports (3000/3001) and collide with parallel projects.';
-
-  test('outside WSL the block keeps its wording and carries no WSL marker', () => {
+  test('names lt dev up as the way and the classic start as the fallback, with both URLs', () => {
     const f = join(tmp, 'CLAUDE.md');
     writeFileSync(f, '# Notes\n');
-    patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity, wsl: false });
+    patchClaudeMd(f, { dbName: 'crm-local', frontend: 'angular', identity: fullIdentity });
     const out = readFileSync(f, 'utf8');
-    expect(out).toContain(STANDARD_RULE);
-    expect(out).toContain('**Active URLs for THIS project:**');
-    expect(out).not.toContain('lt-dev:wsl');
+    expect(out).toContain('**Start and test local apps via `lt dev`** — never `pnpm dev` / `pnpm start` / a bare `playwright test` directly while it works;');
+    expect(out).toContain(
+      '**Fallback, only when `lt dev up` fails** and `lt dev doctor` cannot fix it: `pnpm run start` at the project root runs the API on `http://localhost:3000` and the App on `http://localhost:3001`.',
+    );
+    expect(out).toContain('only the fallback uses them');
     expect(out).not.toContain('WSL');
   });
 
-  test('in WSL the block names the classic start as the way and lt dev up as an option', () => {
-    const f = join(tmp, 'CLAUDE.md');
-    writeFileSync(f, '# Notes\n');
-    patchClaudeMd(f, { dbName: 'crm-local', frontend: 'angular', identity: fullIdentity, wsl: true });
-    const out = readFileSync(f, 'utf8');
-    expect(out).toContain('<!-- lt-dev:wsl -->');
-    expect(out).toContain(
-      '`pnpm run start` at the project root runs the API on `http://localhost:3000` and the App on `http://localhost:3001`',
-    );
-    expect(out).toContain('use it only once that is set up');
-    expect(out).toContain('**Everywhere else, start and test local apps via `lt dev`**');
-    expect(out).not.toContain(STANDARD_RULE);
-    expect(out).toContain('**Active URLs for THIS project under `lt dev up`:**');
-    expect(out).toContain('with the classic start in WSL they are');
-    expect(out).toContain('`NG_API_URL`');
-  });
-
-  test('an API-only project names only the API port', () => {
+  test('an API-only project names only the API in the fallback', () => {
     const f = join(tmp, 'CLAUDE.md');
     writeFileSync(f, '# Notes\n');
     const apiOnly = { ...fullIdentity, subdomains: { api: fullIdentity.subdomains.api } };
-    patchClaudeMd(f, { dbName: 'crm-local', identity: apiOnly, wsl: true });
+    patchClaudeMd(f, { dbName: 'crm-local', identity: apiOnly });
     const out = readFileSync(f, 'utf8');
-    expect(out).toContain('runs the API on `http://localhost:3000`, and WSL');
-    expect(out).not.toContain(':3001`, and');
+    expect(out).toContain('runs the API on `http://localhost:3000`.');
+    expect(out).not.toContain(':3001`.');
   });
 
-  test('the WSL wording survives a later run outside WSL, so a committed file does not flip per machine', () => {
+  test('a WSL block written by cli 1.57.1 heals to the one wording, marker gone', () => {
     const f = join(tmp, 'CLAUDE.md');
-    writeFileSync(f, '# Notes\n');
-    patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity, wsl: true });
-    const written = readFileSync(f, 'utf8');
-    const again = patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity, wsl: false });
-    expect(again.patched).toBe(false);
-    expect(readFileSync(f, 'utf8')).toBe(written);
+    writeFileSync(
+      f,
+      [
+        '# Notes',
+        '',
+        '<!-- lt-dev:url-block:start -->',
+        '',
+        '## Local Development (lt dev)',
+        '',
+        '<!-- lt-dev:wsl -->',
+        '**In WSL2 with a Windows browser, start the classic way:** `pnpm run start` at the project root runs the API.',
+        '',
+        '**Everywhere else, start and test local apps via `lt dev`** — never `pnpm dev`.',
+        '<!-- lt-dev:url-block:end -->',
+      ].join('\n'),
+    );
+    expect(patchClaudeMd(f, { dbName: 'crm-local', identity: fullIdentity }).patched).toBe(true);
+    const out = readFileSync(f, 'utf8');
+    expect(out).not.toContain('lt-dev:wsl');
+    expect(out).not.toContain('In WSL2');
+    expect(out).toContain('**Fallback, only when `lt dev up` fails**');
+    expect(out.match(/<!-- lt-dev:url-block:start -->/g)).toHaveLength(1);
   });
 
   test('agentDocFiles lists CLAUDE.md and AGENTS.md per directory and skips symlinks', () => {

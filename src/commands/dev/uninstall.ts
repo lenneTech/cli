@@ -100,8 +100,14 @@ const UninstallCommand: GluegunCommand = {
     }
 
     info('');
-    const removeCaddy = mode === 'on-demand' ? 'winget uninstall CaddyServer.Caddy' : 'brew uninstall caddy';
-    info(`To reinstall: ${colors.cyan('lt dev install')}. To also remove caddy itself: ${colors.cyan(removeCaddy)}.`);
+    // How caddy came onto the machine differs per platform; Linux installs it in many ways.
+    const removeCaddy =
+      process.platform === 'win32'
+        ? colors.cyan('winget uninstall CaddyServer.Caddy')
+        : process.platform === 'darwin'
+          ? colors.cyan('brew uninstall caddy')
+          : 'your package manager';
+    info(`To reinstall: ${colors.cyan('lt dev install')}. To also remove caddy itself: ${removeCaddy}.`);
     if (!parameters.options.fromGluegunMenu) process.exit(0);
     return 'dev uninstall: ok';
   },

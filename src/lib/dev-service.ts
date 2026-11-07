@@ -18,7 +18,8 @@
  *   - Linux:  systemd-user unit at
  *     `~/.config/systemd/user/lt-dev-caddy.service`, controlled via
  *     `systemctl --user`.
- *   - Windows: no service. `lt dev install`, `lt dev up`, `lt dev test`
+ *   - Windows, and Linux without systemd (WSL2 by default, containers): no
+ *     service. `lt dev install`, `lt dev up`, `lt dev test`
  *     and `lt dev tunnel` start Caddy themselves as a detached background
  *     process when none runs (`startCaddyOnDemand`). A Windows service
  *     would run as another account with its own local CA, which the
@@ -118,11 +119,20 @@ let activeRunner: ShellRunner = defaultShellRunner;
  * How Caddy gets started on this platform.
  *
  * - `service`: a LaunchAgent / systemd-user unit owns it (`installService`).
- * - `on-demand`: `lt dev` starts it itself when none runs (`startCaddyOnDemand`).
+ * - `on-demand`: `lt dev` starts it itself when none runs (`startCaddyOnDemand`): Windows, and a
+ *   Linux without systemd. WSL2 runs without systemd unless `/etc/wsl.conf` has `[boot]
+ *   systemd=true`, and so do most containers; `systemctl --user` then fails and a service could
+ *   never be installed.
  * - `manual`: the user starts it; lt dev only prints the command.
+ * @param p - `process.platform`
+ * @param systemd - Linux only: whether systemd runs ({@link isSystemdBooted})
  */
-export function caddyLaunchMode(p: NodeJS.Platform = platform()): 'manual' | 'on-demand' | 'service' {
-  if (p === 'darwin' || p === 'linux') return 'service';
+export function caddyLaunchMode(
+  p: NodeJS.Platform = platform(),
+  systemd: boolean = p === 'linux' && isSystemdBooted(),
+): 'manual' | 'on-demand' | 'service' {
+  if (p === 'darwin') return 'service';
+  if (p === 'linux') return systemd ? 'service' : 'on-demand';
   if (p === 'win32') return 'on-demand';
   return 'manual';
 }
@@ -237,6 +247,15 @@ export async function installService(
 
   if (plat === 'darwin') return installDarwin(paths, changed, existed);
   return installLinux(paths, changed, existed);
+}
+
+/**
+ * Whether systemd is the running init system: the check of `sd_booted()`, which `systemctl` itself
+ * relies on (`/run/systemd/system` exists only while systemd runs as PID 1).
+ * @param exists - File probe (tests)
+ */
+export function isSystemdBooted(exists: (path: string) => boolean = existsSync): boolean {
+  return exists('/run/systemd/system');
 }
 
 /** Detect the supported platform. */

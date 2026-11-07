@@ -18,7 +18,6 @@ import { planStackDatabases } from './dev-sql';
 import { loadRegistry, ProjectsRegistryEntry, saveRegistry } from './dev-state';
 import { detectFrontendKind } from './frontend-kind';
 import { renameUnmodifiedTemplatePackage } from './package-name';
-import { isWsl } from './wsl';
 
 export interface MigrateInput {
   /** Resolved layout (from `resolveLayout`). */
@@ -142,7 +141,6 @@ export function runMigrate(input: MigrateInput): MigrateResult {
   const codePatches = filesToPatch.map((f) => autoPatch(f));
 
   // 2. URL block in CLAUDE.md and AGENTS.md (root + each subproject — only patches existing files).
-  const wsl = isWsl();
   const claudePatches = agentDocFiles(layout.root, [layout.root, layout.apiDir, layout.appDir].filter(Boolean)).map(
     (f) =>
       patchClaudeMd(f, {
@@ -150,7 +148,6 @@ export function runMigrate(input: MigrateInput): MigrateResult {
         dbName,
         frontend: layout.appDir ? detectFrontendKind(layout.appDir) : undefined,
         identity,
-        wsl,
       }),
   );
 

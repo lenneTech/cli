@@ -33,6 +33,7 @@ import {
   caddyLaunchMode,
   getServicePaths,
   installService,
+  isSystemdBooted,
   platformSupported,
   renderLaunchAgentPlist,
   renderSystemdUnit,
@@ -115,7 +116,11 @@ describe('dev-service', () => {
   describe('caddyLaunchMode', () => {
     test('a service owns Caddy on macOS and Linux, lt dev starts it on Windows', () => {
       expect(caddyLaunchMode('darwin')).toBe('service');
-      expect(caddyLaunchMode('linux')).toBe('service');
+      expect(caddyLaunchMode('linux', true)).toBe('service');
+      // WSL2 without `[boot] systemd=true`, containers: no `systemctl --user`, so Caddy starts on demand.
+      expect(caddyLaunchMode('linux', false)).toBe('on-demand');
+      expect(isSystemdBooted((path) => path === '/run/systemd/system')).toBe(true);
+      expect(isSystemdBooted(() => false)).toBe(false);
       expect(caddyLaunchMode('win32')).toBe('on-demand');
       expect(caddyLaunchMode('freebsd')).toBe('manual');
     });

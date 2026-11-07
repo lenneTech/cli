@@ -4,6 +4,7 @@ import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbo
 import { applyAgentNotesIgnorePolicy } from '../../lib/agent-notes-ignore';
 import { caddyAvailable } from '../../lib/caddy';
 import { CommandHelp } from '../../lib/command-help';
+import { classicFallbackLine } from '../../lib/dev-fallback';
 import { runMigrate } from '../../lib/dev-migrate-helper';
 import { resolveLayout } from '../../lib/dev-project';
 import { execArgs, spawnArgs } from '../../lib/exec-args';
@@ -21,7 +22,6 @@ import {
   reconfigureUpstreamForDownstream,
   reportWorkspaceConflicts,
 } from '../../lib/workspace-integration';
-import { isWsl } from '../../lib/wsl';
 import addApiCommand from './add-api';
 import addAppCommand from './add-app';
 
@@ -924,13 +924,7 @@ const NewCommand: GluegunCommand = {
         const start = toolbox.pm.run('start', toolbox.pm.detect(projectDir));
         info(`  Run ${name}`);
         info(`  $ cd ${projectDir}`);
-        if (devMigrateOk && isWsl()) {
-          // Same way as the CLAUDE.md block written for WSL (dev-patches.ts#patchClaudeMd).
-          info(`  $ ${start}   # API on http://localhost:3000, App on http://localhost:3001 (forwarded to Windows)`);
-          info(
-            colors.dim('  (`lt dev up` needs systemd in WSL, caddy on port 443 and its root CA imported into Windows)'),
-          );
-        } else if (devMigrateOk) {
+        if (devMigrateOk) {
           // Prefer lt dev up — sets up Caddy + HTTPS URLs + cross-wiring guards.
           const caddyOk = await caddyAvailable();
           if (caddyOk) {
@@ -939,7 +933,12 @@ const NewCommand: GluegunCommand = {
             info('  $ lt dev install   # one-time per machine: verify Caddy + CA');
             info('  $ lt dev up        # then: start API + App behind Caddy');
           }
-          info(colors.dim(`  (fallback: ${start} runs the classic localhost:3000/3001 mode)`));
+          // Same words as the CLAUDE.md block and a failing `lt dev up` (dev-fallback.ts).
+          info(
+            colors.dim(
+              `  (${classicFallbackLine({ api: true, app: true }, start)} Use it only when \`lt dev up\` fails.)`,
+            ),
+          );
         } else {
           info(`  $ ${start}`);
         }

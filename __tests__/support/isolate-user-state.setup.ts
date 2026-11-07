@@ -31,6 +31,9 @@ process.env.LT_MARKETPLACE_CONFIG = join(root, 'claude-marketplaces.json');
 // its whole config, and one red test did exactly that on 2026-11-05 (DEV-4005). Port 1 has no
 // listener on a developer machine, so every probe reads "not running" and every reload fails.
 process.env.LT_DEV_CADDY_ADMIN = '127.0.0.1:1';
+// The guard of every lt site block allows the Windows host in WSL2 NAT networking. Pinned, so a
+// suite run inside WSL writes the same Caddyfile as one on macOS or a CI runner.
+process.env.LT_DEV_WSL_HOST_ADDRESS = 'none';
 // Not per-user state, but the same rule: `lt fullstack update` and `lt dev doctor` fetch the check
 // wrapper from lt-monorepo. A path that does not exist fails fast and offline; a suite that needs
 // a release points this at its own fixture repository.

@@ -22,23 +22,43 @@ import {
   reloadCaddy,
   validateCaddyfile,
 } from './caddy';
+import { privilegedPortProblem, type PrivilegedPortProblem } from './dev-privileged-ports';
+import { runChildInherit } from './dev-process';
 import {
   caddyLaunchMode,
   getServicePaths,
   getServiceStatus,
   installService,
+  resolveCaddyBin,
   startCaddyOnDemand,
   waitForServiceReady,
 } from './dev-service';
+import { importCaddyRootIntoWindows, type WindowsTrust, windowsTrustsCaddyRoot } from './dev-wsl-ca';
+import { isNonInteractive } from './workspace-integration';
+import { isWsl } from './wsl';
 
 /** Injection points for {@link runInstall}, so the platform branches are testable on any host. */
 export interface RunInstallDeps {
   available?: () => Promise<boolean>;
+  /** Ask the user a yes/no question (default: the toolbox prompt). */
+  confirm?: (question: string) => Promise<boolean>;
   detectOwner?: () => Promise<CaddyOwner>;
+  /** Import the Caddy root into Windows (WSL), or only prepare the command. */
+  importWindowsRoot?: typeof importCaddyRootIntoWindows;
+  /** Whether prompts may be shown (default: a TTY and no `--noConfirm`). */
+  interactive?: boolean;
   launchMode?: ReturnType<typeof caddyLaunchMode>;
+  platform?: NodeJS.Platform;
+  /** Why Caddy cannot bind 80/443 on Linux, or null. */
+  portProblem?: () => Promise<null | PrivilegedPortProblem>;
   reload?: () => Promise<CaddyResult>;
+  /** Run a command with the terminal attached (`sudo setcap …`); resolves to its exit code. */
+  runInteractive?: (command: string, args: string[]) => Promise<null | number>;
   start?: () => Promise<{ logFile: string; message: string; ok: boolean }>;
   validate?: () => Promise<CaddyResult>;
+  /** Whether Windows trusts the Caddy root (WSL). */
+  windowsTrust?: () => Promise<WindowsTrust>;
+  wsl?: boolean;
 }
 
 export interface RunInstallResult {
@@ -109,6 +129,10 @@ export async function runInstall(
     return { blocked: true, caddyMissing: true, ok: false, unsupported: false };
   }
 
+  // 2b. Linux: may Caddy bind 80/443 as this user? A stub Caddyfile binds neither, so without
+  // this check the problem only showed up at the first `lt dev up` (reload: permission denied).
+  if (!(await allowPrivilegedPorts(toolbox, deps))) blocked = true;
+
   // 3. Whose Caddy holds :2019? A foreign one is left alone, and our service is not installed
   // either: it would crash-loop against the occupied port.
   const owner = await (deps.detectOwner ?? (() => detectCaddyOwner()))();
@@ -126,7 +150,8 @@ export async function runInstall(
   }
 
   if (mode === 'on-demand') {
-    return installOnDemand(toolbox, owner === 'ours', deps);
+    const result = await installOnDemand(toolbox, owner === 'ours', deps);
+    return blocked ? { ...result, blocked: true } : result;
   }
 
   // 4. brew services conflict warning
@@ -179,15 +204,41 @@ export async function runInstall(
   }
 
   // 8. CA trust
-  info('');
-  info(colors.bold('Local CA trust'));
-  info('  Caddy creates its local CA on first run. To trust it system-wide,');
-  info('  run this once (HOME must be preserved so sudo keeps the user-scoped');
-  info('  CA, otherwise caddy looks in /var/root and fails):');
-  info(`    ${colors.cyan('sudo -E HOME="$HOME" caddy trust')}`);
-  info(`  Browsers will then accept ${colors.cyan('https://*.localhost')} without warnings.`);
+  await printCaTrust(toolbox, deps);
 
   return { blocked, caddyMissing: false, ok: installResult.ok, unsupported: false };
+}
+
+/**
+ * Linux: let Caddy bind ports 80 and 443 (`dev-privileged-ports.ts`). Offers to run the fix with
+ * sudo when a person sits at the terminal; otherwise prints it.
+ * @returns false when Caddy still cannot bind them
+ */
+async function allowPrivilegedPorts(toolbox: ExtendedGluegunToolbox, deps: RunInstallDeps): Promise<boolean> {
+  const {
+    print: { colors, info, success, warning },
+  } = toolbox;
+  const check =
+    deps.portProblem ??
+    (async () => {
+      const bin = await resolveCaddyBin();
+      return bin ? privilegedPortProblem(bin) : null;
+    });
+  const problem = await check();
+  if (!problem) return true;
+  warning(problem.reason);
+  info('  Run once (an update of the caddy binary can undo it):');
+  problem.commands.forEach((command) => info(`    ${colors.cyan(command)}`));
+  const setcapOnly = problem.commands.length === 1;
+  if (!setcapOnly || !(deps.interactive ?? interactiveSession(toolbox))) return false;
+  if (!(await (deps.confirm ?? ((q) => toolbox.prompt.confirm(q)))('Run it now with sudo?'))) return false;
+  const run =
+    deps.runInteractive ??
+    ((command, args) => runChildInherit(command, args, { cwd: process.cwd(), env: process.env }));
+  await run('sudo', ['setcap', 'cap_net_bind_service=+ep', problem.realBin]);
+  if (await check()) return false;
+  success('caddy may bind ports 80 and 443');
+  return true;
 }
 
 /**
@@ -236,16 +287,86 @@ async function installOnDemand(
     }
     success(started.message);
   }
-  info(colors.dim('  No service on Windows: `lt dev up` starts Caddy again after a restart.'));
+  if ((deps.platform ?? process.platform) === 'win32') {
+    info(colors.dim('  No service on Windows: `lt dev up` starts Caddy again after a restart.'));
+  } else {
+    info(colors.dim('  No systemd here, so no service: `lt dev up` starts Caddy again after a restart.'));
+    if (deps.wsl ?? isWsl()) {
+      info(colors.dim('  To have it as a service in WSL: add these two lines to /etc/wsl.conf,'));
+      info(colors.dim(`    ${colors.cyan('[boot]')}`));
+      info(colors.dim(`    ${colors.cyan('systemd=true')}`));
+      info(colors.dim(`  run ${colors.cyan('wsl --shutdown')} in Windows, open WSL again and run \`lt dev install\`.`));
+    }
+  }
 
   const validation = await (deps.validate ?? validateCaddyfile)();
   if (validation.ok) success('Caddyfile validates');
   else warning(`Caddyfile validation: ${validation.stderr.split('\n').slice(0, 2).join(' / ')}`);
 
+  await printCaTrust(toolbox, deps);
+  return { blocked: false, caddyMissing: false, ok: true, unsupported: false };
+}
+
+function interactiveSession(toolbox: ExtendedGluegunToolbox): boolean {
+  const flag = toolbox.parameters?.options?.noConfirm;
+  return !isNonInteractive(flag === true || flag === 'true');
+}
+
+/**
+ * How the browser comes to trust Caddy's local CA, per platform. In WSL the browser runs on
+ * Windows, so the root goes into the Windows store as well (`dev-wsl-ca.ts`).
+ */
+async function printCaTrust(toolbox: ExtendedGluegunToolbox, deps: RunInstallDeps): Promise<void> {
+  const {
+    print: { colors, info, success, warning },
+  } = toolbox;
   info('');
   info(colors.bold('Local CA trust'));
-  info('  Caddy adds its local CA to the Windows certificate store; Windows may ask you to confirm.');
-  info(`  If browsers still warn about ${colors.cyan('https://*.localhost')}, run this while Caddy runs:`);
-  info(`    ${colors.cyan('caddy trust')}`);
-  return { blocked: false, caddyMissing: false, ok: true, unsupported: false };
+  if ((deps.platform ?? process.platform) === 'win32') {
+    info('  Caddy adds its local CA to the Windows certificate store; Windows may ask you to confirm.');
+    info(`  If browsers still warn about ${colors.cyan('https://*.localhost')}, run this while Caddy runs:`);
+    info(`    ${colors.cyan('caddy trust')}`);
+    return;
+  }
+  info('  Caddy creates its local CA on first run. To trust it system-wide,');
+  info('  run this once (HOME must be preserved so sudo keeps the user-scoped');
+  info('  CA, otherwise caddy looks in /var/root and fails):');
+  info(`    ${colors.cyan('sudo -E HOME="$HOME" caddy trust')}`);
+  if (!(deps.wsl ?? ((deps.platform ?? process.platform) === 'linux' && isWsl()))) {
+    info(`  Browsers will then accept ${colors.cyan('https://*.localhost')} without warnings.`);
+    return;
+  }
+  info('  That covers curl and Node inside WSL. The browser runs on Windows and needs the CA there:');
+  const trust = await (deps.windowsTrust ?? (() => windowsTrustsCaddyRoot()))();
+  if (trust === 'yes') {
+    success('Windows trusts the Caddy root CA');
+    return;
+  }
+  const importRoot = deps.importWindowsRoot ?? importCaddyRootIntoWindows;
+  const interactive = deps.interactive ?? interactiveSession(toolbox);
+  if (
+    trust === 'no' &&
+    interactive &&
+    (await (deps.confirm ?? ((q) => toolbox.prompt.confirm(q)))(
+      'Import it into Windows now? (Windows asks you to confirm once)',
+    ))
+  ) {
+    const imported = await importRoot();
+    if (imported.ok) {
+      success(imported.message);
+      return;
+    }
+    warning(imported.message);
+    if (imported.command) info(`    ${colors.cyan(imported.command)}`);
+    return;
+  }
+  const prepared = await importRoot({}, { prepareOnly: true });
+  if (trust === 'unknown')
+    warning('Windows could not be asked whether it trusts the Caddy root (Windows interop off?).');
+  if (prepared.command) {
+    info('  Run this in WSL (Windows asks you to confirm once):');
+    info(`    ${colors.cyan(prepared.command)}`);
+  } else {
+    warning(prepared.message);
+  }
 }

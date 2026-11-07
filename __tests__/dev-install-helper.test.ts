@@ -30,6 +30,8 @@ function windows(overrides: Partial<RunInstallDeps> = {}) {
     available: async () => true,
     detectOwner: async () => 'none',
     launchMode: 'on-demand',
+    platform: 'win32',
+    portProblem: async () => null,
     reload: async () => {
       calls.push('reload');
       return okResult;
@@ -118,3 +120,117 @@ describe('runInstall', () => {
     expect(readCaddyfile()).toBe('');
   });
 });
+
+describe('runInstall on Linux and in WSL2', () => {
+  beforeEach(() => {
+    rmSync(process.env.LT_DEV_CADDYFILE as string, { force: true });
+  });
+
+  /** Linux without systemd (WSL2 default): Caddy on demand, like Windows. */
+  function linuxOnDemand(overrides: Partial<RunInstallDeps> = {}) {
+    const { calls, deps } = windows({ platform: 'linux', windowsTrust: async () => 'yes', wsl: false, ...overrides });
+    return { calls, deps };
+  }
+
+  const problem = {
+    commands: ['sudo setcap cap_net_bind_service=+ep /usr/bin/caddy'],
+    realBin: '/usr/bin/caddy',
+    reason: '/usr/bin/caddy may not bind ports 80 and 443 as your user',
+  };
+
+  test('no systemd: starts Caddy on demand and names the restart behaviour, not Windows', async () => {
+    const { out, tb } = toolbox();
+    const { calls, deps } = linuxOnDemand();
+    const result = await runInstall(tb, {}, deps);
+    expect(result.ok).toBe(true);
+    expect(calls).toContain('start');
+    const text = out.join('\n');
+    expect(text).toContain('No systemd here, so no service');
+    expect(text).not.toContain('Windows');
+    expect(text).toContain('sudo -E HOME="$HOME" caddy trust');
+  });
+
+  test('in WSL it says how to get a service (wsl.conf + wsl --shutdown)', async () => {
+    const { out, tb } = toolbox();
+    const { deps } = linuxOnDemand({ wsl: true });
+    await runInstall(tb, {}, deps);
+    const text = out.join('\n');
+    expect(text).toContain('/etc/wsl.conf');
+    expect(text).toContain('systemd=true');
+    expect(text).toContain('wsl --shutdown');
+  });
+
+  test('port 80/443 not allowed, nobody at the terminal: prints setcap and reports blocked', async () => {
+    const { out, tb } = toolbox();
+    const ran: string[][] = [];
+    const { deps } = linuxOnDemand({
+      interactive: false,
+      portProblem: async () => problem,
+      runInteractive: async (command, args) => {
+        ran.push([command, ...args]);
+        return 0;
+      },
+    });
+    const result = await runInstall(tb, {}, deps);
+    expect(result.blocked).toBe(true);
+    expect(out.join('\n')).toContain('sudo setcap cap_net_bind_service=+ep /usr/bin/caddy');
+    expect(ran).toEqual([]);
+  });
+
+  test('port 80/443 not allowed, the user agrees: runs sudo setcap on the real binary and checks again', async () => {
+    const { out, tb } = toolbox();
+    const ran: string[][] = [];
+    let fixed = false;
+    const { deps } = linuxOnDemand({
+      confirm: async () => true,
+      interactive: true,
+      portProblem: async () => (fixed ? null : problem),
+      runInteractive: async (command, args) => {
+        ran.push([command, ...args]);
+        fixed = true;
+        return 0;
+      },
+    });
+    const result = await runInstall(tb, {}, deps);
+    expect(ran).toEqual([['sudo', 'setcap', 'cap_net_bind_service=+ep', '/usr/bin/caddy']]);
+    expect(result.blocked).toBe(false);
+    expect(out.join('\n')).toContain('caddy may bind ports 80 and 443');
+  });
+
+  test('WSL: imports the Caddy root into Windows when the user agrees', async () => {
+    const { out, tb } = toolbox();
+    const imports: unknown[] = [];
+    const { deps } = linuxOnDemand({
+      confirm: async () => true,
+      importWindowsRoot: async (_deps, options) => {
+        imports.push(options ?? {});
+        return { command: 'certutil.exe -user -addstore Root "C:\\x.crt"', message: 'Imported.', ok: true };
+      },
+      interactive: true,
+      windowsTrust: async () => 'no',
+      wsl: true,
+    });
+    await runInstall(tb, {}, deps);
+    expect(imports).toEqual([{}]);
+    expect(out.join('\n')).toContain('The browser runs on Windows and needs the CA there');
+    expect(out.join('\n')).toContain('Imported.');
+  });
+
+  test('WSL without a terminal: prints the exact certutil command, imports nothing', async () => {
+    const { out, tb } = toolbox();
+    const imports: unknown[] = [];
+    const { deps } = linuxOnDemand({
+      importWindowsRoot: async (_deps, options) => {
+        imports.push(options ?? {});
+        return { command: 'certutil.exe -user -addstore Root "C:\\x.crt"', message: 'Run this.', ok: true };
+      },
+      interactive: false,
+      windowsTrust: async () => 'no',
+      wsl: true,
+    });
+    await runInstall(tb, {}, deps);
+    expect(imports).toEqual([{ prepareOnly: true }]);
+    expect(out.join('\n')).toContain('certutil.exe -user -addstore Root "C:\\x.crt"');
+  });
+});
+

@@ -13,11 +13,20 @@ import {
   readCaddyfile,
   validateCaddyfile,
 } from '../../lib/caddy';
+import { privilegedPortProblem } from '../../lib/dev-privileged-ports';
 import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
-import { caddyLaunchMode, getServicePaths, getServiceStatus, platformSupported } from '../../lib/dev-service';
+import {
+  caddyLaunchMode,
+  getServicePaths,
+  getServiceStatus,
+  platformSupported,
+  resolveCaddyBin,
+} from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
 import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
+import { windowsTrustsCaddyRoot } from '../../lib/dev-wsl-ca';
+import { isWsl, wslWindowsHostAddress } from '../../lib/wsl';
 
 /**
  * Diagnose Caddy / CA / DNS / port issues for `lt dev`.
@@ -55,13 +64,29 @@ const DoctorCommand: GluegunCommand = {
       fails++;
     }
 
+    // 1b. Linux: may Caddy bind 80/443 as this user? Without cap_net_bind_service every reload
+    //     fails with `bind: permission denied` (dev-privileged-ports.ts).
+    if (hasCaddy && process.platform === 'linux') {
+      const bin = await resolveCaddyBin();
+      const portProblem = bin ? await privilegedPortProblem(bin) : null;
+      if (portProblem) {
+        line('FAIL', colors.red, portProblem.reason);
+        portProblem.commands.forEach((command) => info(`         ${command}`));
+        fails++;
+      } else {
+        line('OK', colors.green, 'caddy may bind ports 80 and 443');
+      }
+    }
+
     // 2. Service installed (LaunchAgent / systemd-user)
     const plat = platformSupported();
     if (caddyLaunchMode() === 'on-demand') {
       line(
         'OK',
         colors.green,
-        'no service on Windows: `lt dev install` and `lt dev up` start Caddy when it is not running',
+        process.platform === 'win32'
+          ? 'no service on Windows: `lt dev install` and `lt dev up` start Caddy when it is not running'
+          : 'no systemd here, so no service: `lt dev install` and `lt dev up` start Caddy when it is not running',
       );
     } else if (plat === 'unsupported') {
       line('WARN', colors.yellow, `service management not supported on ${process.platform} — run caddy manually`);
@@ -184,6 +209,36 @@ const DoctorCommand: GluegunCommand = {
     const dnsOk = await dnsResolvesLocalhost('lt-dev-doctor.localhost');
     if (dnsOk) line('OK', colors.green, '*.localhost resolves to 127.0.0.1 (RFC 6761)');
     else line('WARN', colors.yellow, '*.localhost may not resolve — check /etc/hosts or system resolver');
+
+    // 5b. WSL2: the browser runs on Windows. It needs the Caddy root in the Windows store, and its
+    //     connections may arrive from the Windows host address (dev-wsl-ca.ts, wsl.ts). Read-only:
+    //     `lt dev install` imports the root.
+    if (process.platform === 'linux' && isWsl()) {
+      const trust = daemon ? await windowsTrustsCaddyRoot() : 'unknown';
+      if (trust === 'yes') line('OK', colors.green, 'Windows trusts the Caddy root CA (browser on Windows)');
+      else if (trust === 'no') {
+        line(
+          'FAIL',
+          colors.red,
+          'Windows does not trust the Caddy root CA: the Windows browser rejects https://*.localhost — run `lt dev install`',
+        );
+        fails++;
+      } else {
+        line(
+          'WARN',
+          colors.yellow,
+          'could not ask Windows whether it trusts the Caddy root CA (Caddy down or Windows interop off)',
+        );
+      }
+      const host = wslWindowsHostAddress();
+      line(
+        'OK',
+        colors.green,
+        host
+          ? `WSL NAT networking: lt dev's sites also accept the Windows host ${host}`
+          : "WSL: Windows reaches lt dev's sites over loopback (mirrored networking or no default route)",
+      );
+    }
 
     // 6. Registry
     const reg = loadRegistry();

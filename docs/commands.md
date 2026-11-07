@@ -394,7 +394,9 @@ lt dev
 
 ### `lt dev install`
 
-One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing. Owns the full Caddy lifecycle via a dedicated LaunchAgent (macOS) / systemd-user unit (Linux) — **does not** use `brew services caddy`, whose hardcoded `/opt/homebrew/etc/Caddyfile` path would crash-loop against our `~/.lenneTech/Caddyfile`. On **Windows** there is no service: `lt dev install` starts Caddy in the background (`caddy run --config ~/.lenneTech/Caddyfile`, log in `~/.lenneTech/caddy.log`), and `lt dev up`, `lt dev test` and `lt dev tunnel` start it again when it is not running, e.g. after a reboot.
+One-time per-machine setup. Idempotent — re-run anytime to diagnose what's missing. Owns the full Caddy lifecycle via a dedicated LaunchAgent (macOS) / systemd-user unit (Linux) — **does not** use `brew services caddy`, whose hardcoded `/opt/homebrew/etc/Caddyfile` path would crash-loop against our `~/.lenneTech/Caddyfile`. On **Windows**, and on **Linux without systemd** (WSL2 unless `/etc/wsl.conf` has `[boot]` `systemd=true`, most containers), there is no service: `lt dev install` starts Caddy in the background (`caddy run --config ~/.lenneTech/Caddyfile`, log in `~/.lenneTech/caddy.log`), and `lt dev up`, `lt dev test` and `lt dev tunnel` start it again when it is not running, e.g. after a reboot. In WSL, `lt dev install` names the two `/etc/wsl.conf` lines and `wsl --shutdown` for anyone who wants a service instead.
+
+**`lt dev up` is the way to run a project on macOS, Linux and Windows, WSL2 included.** When it fails, it prints the fallback: `pnpm run start` at the project root runs the API on `http://localhost:3000` and the App on `http://localhost:3001`. The CLAUDE.md URL block and the final hint of `lt fullstack init` name the same fallback.
 
 **A Caddy that `lt dev` did not start is never touched.** When port 2019 (the Caddy admin API) is held by another Caddy, `lt dev install`, `up`, `test` and `tunnel` stop with the path of lt dev's Caddyfile and the commands to act on it; `lt dev doctor` reports it as a FAIL. A Caddy counts as lt dev's when its loaded config carries lt dev's marker or serves only hosts lt dev knows, so one started by hand with `~/.lenneTech/Caddyfile` is used as it is.
 
@@ -423,6 +425,10 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
    sudo -E HOME="$HOME" caddy trust
    ```
    Without `-E HOME="$HOME"`, sudo switches HOME to `/var/root` and caddy cannot find its user-scoped CA — this was the bug that blocked the very first install attempt.
+9. **Linux:** checks that Caddy may bind ports 80 and 443 as your user. Linux allows ports below 1024 only with the `cap_net_bind_service` capability on the binary; Caddy's official Debian/Ubuntu package sets it, a binary from GitHub or Homebrew does not, and an update of the binary drops it. Without it, `lt dev install` prints `sudo setcap cap_net_bind_service=+ep <caddy>` (on the real file, not the PATH symlink) and, when you are at the terminal, offers to run it.
+10. **WSL2:** the browser runs on Windows and needs Caddy's root CA in the Windows store. `lt dev install` checks it (`certutil.exe -user -store Root <thumbprint>`) and offers to import it into the current Windows user's trusted roots (`certutil.exe -user -addstore Root …`, no admin rights; Windows asks once); without a terminal it prints that command. Firefox keeps its own store.
+
+**WSL2 networking:** WSL2's default NAT networking forwards a Windows `localhost` connection into WSL, possibly from the Windows host's address on the virtual switch. Every lt site block lets loopback in and aborts everything else (LAN protection), so in WSL NAT networking it also lets that one address in: the VM's default gateway, read once per `lt` run, because it changes with every WSL restart. Only when `wslinfo --networking-mode` reports `nat`, and never inside a container (a Docker container on a WSL2 kernel would otherwise allow the Docker bridge, which forwards published ports from the LAN). Mirrored networking needs nothing extra. `LT_DEV_WSL_HOST_ADDRESS=<ip>` sets the address by hand when the detection is wrong, `LT_DEV_WSL_HOST_ADDRESS=none` turns it off; `lt dev doctor` shows the address in use.
 
 **Logs:** `~/.lenneTech/caddy.log`, `~/.lenneTech/caddy.err.log`.
 
@@ -470,7 +476,6 @@ lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 5. Adds `.lt-dev/` to the project's `.gitignore`.
 6. Injects (or refreshes) a "Local Development (lt dev)" URL block into the `CLAUDE.md` and `AGENTS.md` files at the workspace root and inside each subproject — bracketed by HTML comment markers. Both files get the same block, so files kept identical stay identical; a symlinked file, or one whose real path leaves the project, is skipped. The vendor-mode notices that `lt fullstack init`, `add-app`, `update` and `convert-mode` write go into both files the same way.
 
-**WSL:** inside WSL (the kernel names Microsoft in `/proc/sys/kernel/osrelease`) the block names the classic start as the way to run the project: `pnpm run start` at the project root, API on `http://localhost:3000`, App on `http://localhost:3001`, both forwarded to Windows. `lt dev up` is named as an option: it needs systemd in WSL, a `caddy` allowed to bind port 443 (`getcap "$(command -v caddy)"`) and the Caddy root CA imported into Windows (`certutil -user -addstore Root \\wsl.localhost\<distro>\home\<user>\.local\share\caddy\pki\authorities\local\root.crt`), and it has not been verified with a Windows browser. Once written, the WSL wording stays when `lt dev up` runs on another machine, so the committed file does not change per machine. Outside WSL the block is unchanged.
 
 ---
 
@@ -706,7 +711,9 @@ lt dev doctor
 5. Caddy serves the current Caddyfile: the config loaded in the daemon (`GET :2019/config/`) matches `caddy adapt` of the file. A failed reload, such as a bind error, leaves Caddy on its old routes while checks 2, 3 and 6 stay green, because `caddy validate` never binds. Read-only, doctor never reloads.
 6. Ports 80 + 443 free or held by Caddy
 7. `*.localhost` resolves to `127.0.0.1` (RFC 6761)
-8. Registry status
+8. **Linux:** Caddy may bind ports 80 and 443 (`cap_net_bind_service`); FAIL with the `setcap` command otherwise
+9. **WSL2:** Windows trusts Caddy's root CA (the browser runs on Windows; FAIL points at `lt dev install`), and which Windows host address lt dev's sites accept in NAT networking
+10. Registry status
 
 ---
 

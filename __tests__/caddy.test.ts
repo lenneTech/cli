@@ -13,6 +13,7 @@ const { tmp } = await vi.hoisted(async () => {
 
 import {
   addLoopbackGuards,
+  loopbackGuardLines,
   compareLoadedConfig,
   ensureCaddyfile,
   hasLegacyLoopbackBind,
@@ -307,5 +308,35 @@ describe('caddy / Caddyfile management', () => {
       expect(hasLegacyLoopbackBind('{\n\tdefault_bind 192.168.1.10\n}\n')).toBe(false);
       expect(hasLegacyLoopbackBind(migrateCaddyfile('{\n\tdefault_bind 127.0.0.1 [::1]\n}\n'))).toBe(false);
     });
+  });
+});
+
+describe('loopback guard in WSL2 NAT networking', () => {
+  const routes = [{ hostname: 'crm.localhost', upstreamPort: 4021 }];
+
+  test('everywhere else the guard is exactly the loopback one', () => {
+    expect(loopbackGuardLines(null)).toEqual(['  @lt_remote not remote_ip 127.0.0.0/8 ::1', '  abort @lt_remote']);
+  });
+
+  test('in WSL NAT it also lets the Windows host in, and nothing else', () => {
+    const guard = loopbackGuardLines('172.22.16.1');
+    expect(guard[0]).toBe('  @lt_remote not remote_ip 127.0.0.0/8 ::1 172.22.16.1/32');
+    expect(renderProjectBlock('crm', routes, guard)).toContain('172.22.16.1/32');
+  });
+
+  test('an IPv6 host address is one address too, never a /32 network', () => {
+    // `fe80::1/32` would admit every link-local address on the LAN (measured against Caddy 2.11.2).
+    expect(loopbackGuardLines('fe80::1')[0]).toBe('  @lt_remote not remote_ip 127.0.0.0/8 ::1 fe80::1/128');
+  });
+
+  test('a guard for an old host address (WSL restarted) is replaced, not doubled', () => {
+    const stale = renderProjectBlock('crm', routes, loopbackGuardLines('172.22.16.1'));
+    const healed = addLoopbackGuards(stale, loopbackGuardLines('172.30.0.1'));
+    expect(healed).toContain('remote_ip 127.0.0.0/8 ::1 172.30.0.1/32');
+    expect(healed).not.toContain('172.22.16.1');
+    expect(healed.match(/@lt_remote not remote_ip/g)).toHaveLength(1);
+    expect(healed.match(/abort @lt_remote/g)).toHaveLength(1);
+    // And back on a machine without the WSL host address.
+    expect(addLoopbackGuards(healed, loopbackGuardLines(null))).toBe(renderProjectBlock('crm', routes, loopbackGuardLines(null)));
   });
 });
