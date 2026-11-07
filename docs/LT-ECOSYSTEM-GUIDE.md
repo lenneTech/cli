@@ -165,7 +165,7 @@ lt fullstack convert-mode --to vendor --noConfirm
 # With specific upstream versions
 lt fullstack convert-mode --to vendor \
   --framework-upstream-branch 11.24.3 \
-  --frontend-framework-upstream-branch 1.5.3 \
+  --frontend-framework-upstream-branch 4.0.0 \
   --noConfirm
 
 # Both back to npm
@@ -206,10 +206,10 @@ lt server convert-mode --to vendor --dry-run
 ```bash
 # npm → vendor
 cd projects/app
-lt frontend convert-mode --to vendor --upstream-branch 1.5.3 --noConfirm
+lt frontend convert-mode --to vendor --upstream-branch 4.0.0 --noConfirm
 
 # vendor → npm
-lt frontend convert-mode --to npm --version 1.5.3 --noConfirm
+lt frontend convert-mode --to npm --version 4.0.0 --noConfirm
 
 # Dry-run
 lt frontend convert-mode --to vendor --dry-run
@@ -467,7 +467,7 @@ Skills contain structured knowledge and are automatically activated on matching 
 │     - create src/core/VENDOR.md                                │
 │     - prepend vendor notice to CLAUDE.md                       │
 │  5. convertAppCloneToVendored (frontend):                      │
-│     - clone nuxt-extensions 1.5.3 → /tmp                       │
+│     - clone nuxt-extensions 4.0.0 → /tmp                       │
 │     - copy src/module.ts + src/runtime/                        │
 │     - rewrite nuxt.config.ts modules[] entry                   │
 │     - rewrite consumer imports (4 files)                       │
@@ -699,7 +699,7 @@ Before a `convert-to-npm`, all substantial local patches in the vendored core sh
 │    lt frontend convert-mode --to npm                     │
 │                                                          │
 │  With specific version:                                  │
-│    lt frontend convert-mode --to npm --version 1.5.3     │
+│    lt frontend convert-mode --to npm --version 4.0.0     │
 └─────────────┬────────────────────────────────────────────┘
               │
               ▼
@@ -910,7 +910,7 @@ lt fullstack convert-mode --to npm --noConfirm
 # With specific upstream versions
 lt fullstack convert-mode --to vendor \
   --framework-upstream-branch 11.24.3 \
-  --frontend-framework-upstream-branch 1.5.3 \
+  --frontend-framework-upstream-branch 4.0.0 \
   --noConfirm
 
 # Only backend or only frontend

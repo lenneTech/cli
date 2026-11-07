@@ -3,7 +3,11 @@
  * default branch (`develop`: pushed, unpublished work) while npm mode installs the version the
  * starter pins. Both modes now start from the starter's pin.
  */
-import { isMissingCloneRef, starterPinnedFrameworkVersion } from '../src/lib/vendor-upstream-ref';
+import {
+  isMissingCloneRef,
+  pinnedNuxtExtensionsVersion,
+  starterPinnedFrameworkVersion,
+} from '../src/lib/vendor-upstream-ref';
 
 describe('starterPinnedFrameworkVersion', () => {
   it('returns the exact version the starter pins — the tag to vendor (no "v" prefix)', () => {
@@ -24,6 +28,28 @@ describe('starterPinnedFrameworkVersion', () => {
     expect(starterPinnedFrameworkVersion({ dependencies: { express: '5.3.0' } })).toBeUndefined();
     expect(starterPinnedFrameworkVersion(null)).toBeUndefined();
     expect(starterPinnedFrameworkVersion('not a manifest')).toBeUndefined();
+  });
+});
+
+describe('pinnedNuxtExtensionsVersion', () => {
+  it('returns the version the app pins — the tag to vendor (no "v" prefix)', () => {
+    expect(pinnedNuxtExtensionsVersion({ dependencies: { '@lenne.tech/nuxt-extensions': '4.0.0' } })).toBe('4.0.0');
+    expect(pinnedNuxtExtensionsVersion({ devDependencies: { '@lenne.tech/nuxt-extensions': '1.28.0' } })).toBe(
+      '1.28.0',
+    );
+  });
+
+  it('reads a caret or tilde range as its lowest release, like the ng-base pin', () => {
+    expect(pinnedNuxtExtensionsVersion({ dependencies: { '@lenne.tech/nuxt-extensions': '^4.0.0' } })).toBe('4.0.0');
+    expect(pinnedNuxtExtensionsVersion({ dependencies: { '@lenne.tech/nuxt-extensions': '~4.1.2' } })).toBe('4.1.2');
+  });
+
+  it('returns undefined for a spec that names no release, or no manifest', () => {
+    for (const spec of ['latest', 'workspace:*', 'file:../nuxt-extensions', '>=4.0.0 <5', '4.x']) {
+      expect(pinnedNuxtExtensionsVersion({ dependencies: { '@lenne.tech/nuxt-extensions': spec } })).toBeUndefined();
+    }
+    expect(pinnedNuxtExtensionsVersion({ dependencies: { nuxt: '4.2.0' } })).toBeUndefined();
+    expect(pinnedNuxtExtensionsVersion(null)).toBeUndefined();
   });
 });
 

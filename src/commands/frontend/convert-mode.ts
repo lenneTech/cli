@@ -18,8 +18,8 @@ const RENAMED_FLAGS: Record<string, string> = {
  * `@lenne.tech/ng-base` into `src/core/` (see `src/lib/ng-base-vendor.ts`).
  *
  * Usage:
- *   lt frontend convert-mode --to vendor [--upstream-branch 1.5.3]
- *   lt frontend convert-mode --to npm [--version 1.5.3]
+ *   lt frontend convert-mode --to vendor [--upstream-branch 4.0.0]
+ *   lt frontend convert-mode --to npm [--version 4.0.0]
  */
 export const help = {
   description: 'Convert frontend project between npm and vendor framework modes',

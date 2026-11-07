@@ -1232,7 +1232,7 @@ lt fullstack init [options]
 | `--frontend-link <path>` | Symlink frontend to local template (fastest, changes affect original) |
 | `--framework-mode <mode>` | Backend framework consumption mode: `npm` (classic) or `vendor` (pilot, core copied to `src/core/`) |
 | `--framework-upstream-branch <ref>` | Upstream `nest-server` branch/tag to vendor from (only with `--framework-mode vendor`). Default: the version the starter pins |
-| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (default; Nuxt: nuxt-extensions copied to `app/core/`, Angular: ng-base copied to `src/core/`) |
+| `--frontend-framework-mode <mode>` | Frontend framework consumption mode: `npm` or `vendor` (default; Nuxt: nuxt-extensions copied to `app/core/`, Angular: ng-base copied to `src/core/`). Vendor mode clones the release tag of the version the starter pins; a pinned version without a tag fails the conversion, and the frontend stays in npm mode |
 | `--frontend-framework-copy <path>` | Angular only, for testing unreleased ng-base work with a local checkout. Vendor mode copies its working tree instead of cloning the release tag the starter pins; npm mode makes `@lenne.tech/ng-base` an injected `file:` dependency on its build (the `dest` of its `ng-package.json`, `dist/ng-base`) and refuses when that build is missing. Rerun `pnpm install` after every ng-base build. Nuxt ignores the option |
 | `--next` | **Experimental:** clone [`nest-base`](https://github.com/lenneTech/nest-base) (Bun + Prisma 7 + Postgres + Better-Auth) for the API instead of `nest-server-starter`. Forces `--api-mode Rest` and `--framework-mode npm`, skips workspace install (run `pnpm install` for app and `bun install` for api manually). |
 | `--dry-run` | Print the resolved plan without making any changes |
@@ -1393,7 +1393,7 @@ lt fullstack convert-mode --to <vendor|npm> [options]
 |--------|-------------|
 | `--to <mode>` | Target mode: `vendor` or `npm` (required) |
 | `--framework-upstream-branch <ref>` | Backend upstream branch/tag (only with `--to vendor`, e.g. `11.24.3`) |
-| `--frontend-framework-upstream-branch <ref>` | Frontend upstream branch/tag (only with `--to vendor`, e.g. `1.5.3`) |
+| `--frontend-framework-upstream-branch <ref>` | Frontend upstream branch/tag (only with `--to vendor`, e.g. `4.0.0`) |
 | `--framework-version <version>` | Backend nest-server version (only with `--to npm`, default: from `VENDOR.md` baseline) |
 | `--frontend-framework-version <version>` | Frontend library version, nuxt-extensions or ng-base (only with `--to npm`, default: from `VENDOR.md` baseline) |
 | `--frontend-framework-copy <path>` | Angular frontend: local ng-base checkout (`--to vendor`: its source is copied; `--to npm`: injected `file:` dependency on its build) |
@@ -1428,7 +1428,7 @@ lt fullstack convert-mode --to vendor --noConfirm
 # Convert to vendor with explicit versions
 lt fullstack convert-mode --to vendor \
   --framework-upstream-branch 11.24.3 \
-  --frontend-framework-upstream-branch 1.5.3 \
+  --frontend-framework-upstream-branch 4.0.0 \
   --noConfirm
 
 # Preview the plan without changes
@@ -1441,7 +1441,7 @@ lt fullstack convert-mode --to npm --noConfirm
 lt fullstack convert-mode --to vendor --skip-frontend --noConfirm
 ```
 
-**Note:** nest-server tags use **no** `v` prefix (e.g. `11.24.3`). nuxt-extensions tags also use **no** `v` prefix (e.g. `1.5.3`).
+**Note:** nest-server tags use **no** `v` prefix (e.g. `11.24.3`). nuxt-extensions tags also use **no** `v` prefix (e.g. `4.0.0`).
 
 For mode-aware update workflows after conversion, use:
 - `/lt-dev:fullstack:update-all` (comprehensive, mode-aware)
@@ -1606,7 +1606,7 @@ lt frontend nuxt [options]
 | `--branch <branch>` / `-b` | Branch of nuxt-base-starter to use (uses git clone instead of create-nuxt-base) |
 | `--copy <path>` / `-c` | Copy from local template directory instead of cloning |
 | `--link <path>` | Symlink to local template directory (fastest, changes affect original) |
-| `--frontend-framework-mode <npm\|vendor>` | Frontend framework consumption mode (`vendor` copies `nuxt-extensions` into `app/core/`) |
+| `--frontend-framework-mode <npm\|vendor>` | Frontend framework consumption mode (`vendor` copies `nuxt-extensions` into `app/core/`, from the release tag of the version the starter pins) |
 | `--next` | Default branch to `nuxt-base-starter#next` (auth `basePath` aligned with the experimental `--next` API) |
 | `--dry-run` | Print the resolved plan and exit without making any changes |
 | `--force` | Override the workspace-detection abort under `--noConfirm` |
@@ -1647,7 +1647,7 @@ lt frontend convert-mode --to <vendor|npm> [options]
 **Behavior:**
 
 - **npm → vendor:**
-  - Clones `@lenne.tech/nuxt-extensions` from GitHub at the specified tag (default: currently installed version)
+  - Clones `@lenne.tech/nuxt-extensions` from GitHub at the `--upstream-branch` ref, else at the release tag of the version `package.json` pins (a pinned version without a tag is an error, never the default branch)
   - Copies `src/module.ts`, `src/index.ts`, `src/runtime/`, and `LICENSE` to `<app-root>/app/core/`
   - Rewrites `nuxt.config.ts` module entry from `'@lenne.tech/nuxt-extensions'` to `'./app/core/module'`
   - Rewrites explicit consumer imports in `app/**/*.{ts,vue}` and `tests/**/*.ts` to relative paths
@@ -1661,7 +1661,7 @@ lt frontend convert-mode --to <vendor|npm> [options]
   - Extracts baseline version from `app/core/VENDOR.md` (warns if local patches exist)
   - Rewrites consumer imports back to `@lenne.tech/nuxt-extensions`
   - Deletes `app/core/`
-  - Restores `@lenne.tech/nuxt-extensions` dependency in `package.json`
+  - Restores `@lenne.tech/nuxt-extensions` dependency in `package.json`, pinned exactly to that version (no `^`: a MINOR release may carry a migration)
   - Rewrites `nuxt.config.ts` module entry back
   - Removes vendor scripts and `CLAUDE.md` marker
 
@@ -1669,13 +1669,13 @@ lt frontend convert-mode --to <vendor|npm> [options]
 ```bash
 # Convert existing npm project to vendor mode at a specific version
 cd projects/app
-lt frontend convert-mode --to vendor --upstream-branch 1.5.3 --noConfirm
+lt frontend convert-mode --to vendor --upstream-branch 4.0.0 --noConfirm
 
 # Convert vendored project back to npm with a specific version
-lt frontend convert-mode --to npm --version 1.5.3 --noConfirm
+lt frontend convert-mode --to npm --version 4.0.0 --noConfirm
 ```
 
-**Note:** nuxt-extensions tags have **no** `v` prefix — use e.g. `1.5.3`, not `v1.5.3`.
+**Note:** nuxt-extensions tags have **no** `v` prefix — use e.g. `4.0.0`, not `v4.0.0`.
 
 For mode-aware update workflows after conversion, use:
 - `/lt-dev:frontend:update-nuxt-extensions-core` (vendor mode)

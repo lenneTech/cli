@@ -24,7 +24,7 @@ const RENAMED_FLAGS: Record<string, string> = {
  * npm mode and vendor mode in a single command.
  *
  * Usage:
- *   lt fullstack convert-mode --to vendor [--framework-upstream-branch 11.24.3] [--frontend-framework-upstream-branch 1.5.3]
+ *   lt fullstack convert-mode --to vendor [--framework-upstream-branch 11.24.3] [--frontend-framework-upstream-branch 4.0.0]
  *   lt fullstack convert-mode --to npm
  *   lt fullstack convert-mode --to vendor --skip-frontend
  *   lt fullstack convert-mode --to vendor --skip-backend
@@ -51,7 +51,7 @@ export const help = {
       type: 'string',
     },
     {
-      description: 'Frontend upstream branch/tag (only with --to vendor, e.g. "1.5.3")',
+      description: 'Frontend upstream branch/tag (only with --to vendor, e.g. "4.0.0")',
       flag: '--frontend-framework-upstream-branch',
       required: false,
       type: 'string',

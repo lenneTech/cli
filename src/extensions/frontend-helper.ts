@@ -4,6 +4,7 @@ import { applyAngularSiteIdentity } from '../lib/angular-site-identity';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { agentDocFiles } from '../lib/dev-patches';
 import { execArgs } from '../lib/exec-args';
+import { isVendoredAppProject } from '../lib/frontend-framework-detection';
 import { formatMarkdownTable } from '../lib/markdown-table';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
 import {
@@ -34,6 +35,7 @@ import {
   insertVendorBlockIfMissing,
   removeVendorBlock,
 } from '../lib/vendor-claude-md';
+import { isMissingCloneRef, pinnedNuxtExtensionsVersion } from '../lib/vendor-upstream-ref';
 
 /**
  * Options for Angular frontend setup
@@ -694,7 +696,6 @@ export class FrontendHelper {
     upstreamRepoUrl?: string;
   }): Promise<void> {
     const { dest, upstreamBranch, upstreamRepoUrl } = options;
-    const { isVendoredAppProject } = require('../lib/frontend-framework-detection');
 
     if (isVendoredAppProject(dest)) {
       throw new Error('Project is already in vendor mode (app/core/VENDOR.md exists).');
@@ -734,8 +735,6 @@ export class FrontendHelper {
     const { dest, targetVersion } = options;
     const { filesystem } = this.toolbox;
     const path = require('node:path');
-
-    const { isVendoredAppProject } = require('../lib/frontend-framework-detection');
 
     if (!isVendoredAppProject(dest)) {
       throw new Error('Project is not in vendor mode (app/core/VENDOR.md not found).');
@@ -794,7 +793,9 @@ export class FrontendHelper {
       const pkg = filesystem.read(pkgPath, 'json') as Record<string, any>;
       if (pkg && typeof pkg === 'object') {
         if (!pkg.dependencies) pkg.dependencies = {};
-        (pkg.dependencies as Record<string, string>)['@lenne.tech/nuxt-extensions'] = `^${version}`;
+        // EXACT, not `^`: consumers pin the lenne.tech frameworks exactly, since a MINOR may
+        // carry a migration, and vendor mode clones the tag of exactly that pin.
+        (pkg.dependencies as Record<string, string>)['@lenne.tech/nuxt-extensions'] = version;
 
         // Remove vendor-specific scripts
         if (pkg.scripts && typeof pkg.scripts === 'object') {
@@ -851,14 +852,30 @@ export class FrontendHelper {
     const coreDir = path.join(dest, 'app', 'core');
 
     // ── 1. Clone @lenne.tech/nuxt-extensions into temp dir ──────────────
+    //
+    // Which release: an explicit ref wins. Otherwise the version the app pins, i.e. the one
+    // npm mode installs, as for nest-server and ng-base. The default branch carries merged
+    // work between a merge and its release, and every project created in that window got
+    // it. A pinned version without a tag is an error, never a quiet clone of the default
+    // branch instead.
+    const pinnedVersion = upstreamBranch
+      ? undefined
+      : pinnedNuxtExtensionsVersion(filesystem.read(path.join(dest, 'package.json'), 'json'));
+    const ref = upstreamBranch || pinnedVersion;
+    if (!ref) {
+      this.toolbox.print.warning(
+        '  @lenne.tech/nuxt-extensions has no version pin in package.json — vendoring the default branch.',
+      );
+    }
     const tmpClone = path.join(require('os').tmpdir(), `lt-vendor-nuxt-ext-${Date.now()}`);
     try {
-      // Argument list, no shell: the branch comes from a CLI flag or lt.config (see exec-args.ts).
+      // Argument list, no shell: the ref comes from a CLI flag, lt.config or the app's
+      // package.json (see exec-args.ts).
       await execArgs('git', [
         'clone',
         '--depth',
         '1',
-        ...(upstreamBranch ? ['--branch', upstreamBranch] : []),
+        ...(ref ? ['--branch', ref] : []),
         '--',
         upstreamRepoUrl,
         tmpClone,
@@ -872,10 +889,16 @@ export class FrontendHelper {
       if (/Permission denied|authentication failed|publickey|403|401/i.test(raw)) {
         hints.push('Authentication issue — the CLI uses an anonymous HTTPS clone; verify GitHub is reachable.');
       }
-      if (upstreamBranch && /Remote branch .* not found|did not match any file\(s\) known to git/i.test(raw)) {
+      if (pinnedVersion && isMissingCloneRef(raw)) {
         hints.push(
-          `Upstream ref "${upstreamBranch}" does not exist. Check ${upstreamRepoUrl}/tags for valid refs. ` +
-            'Note: nuxt-extensions tags have NO "v" prefix — use e.g. "1.5.3", not "v1.5.3".',
+          `package.json pins @lenne.tech/nuxt-extensions ${pinnedVersion}, but ${upstreamRepoUrl} has no tag ` +
+            `"${pinnedVersion}": that version is not released. The default branch is not vendored instead, ` +
+            `it may hold unreleased work. Release nuxt-extensions ${pinnedVersion} first, or pin a released version.`,
+        );
+      } else if (ref && isMissingCloneRef(raw)) {
+        hints.push(
+          `Upstream ref "${ref}" does not exist. Check ${upstreamRepoUrl}/tags for valid refs. ` +
+            'Note: nuxt-extensions tags have NO "v" prefix — use e.g. "4.0.0", not "v4.0.0".',
         );
       }
       if (/already exists and is not an empty/i.test(raw)) {
@@ -883,7 +906,7 @@ export class FrontendHelper {
       }
       const hintBlock = hints.length > 0 ? `\n  Hints:\n    - ${hints.join('\n    - ')}` : '';
       throw new Error(
-        `Failed to clone ${upstreamRepoUrl}${upstreamBranch ? ` (branch/tag: ${upstreamBranch})` : ''}.\n  Raw git error: ${raw.trim()}${hintBlock}`,
+        `Failed to clone ${upstreamRepoUrl}${ref ? ` (branch/tag: ${ref})` : ''}.\n  Raw git error: ${raw.trim()}${hintBlock}`,
       );
     }
 

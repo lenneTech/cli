@@ -710,7 +710,7 @@ describe('missing Chromium libraries on Linux, decided by ldd (Playwright 1.64.1
     }
   });
 
-  test('dry run, then ldd on each binary: the union of what is missing, sorted', () => {
+  test('dry run, then ldd on each binary: the union of what is missing', () => {
     const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
     const calls: string[] = [];
     const files: Record<string, string[]> = {
@@ -744,6 +744,50 @@ describe('missing Chromium libraries on Linux, decided by ldd (Playwright 1.64.1
     });
     expect(missing).toEqual(['libglib-2.0.so.0', 'libnss3.so']);
     expect(calls).toEqual(['pnpm exec playwright install --dry-run chromium', `ldd ${chrome}`, `ldd ${shell}`]);
+  });
+
+  test("keeps ldd's order, so the library Chromium fails on first leads the warning", () => {
+    // The not-found libraries in ldd's order on a bare Ubuntu 24.04 arm64 (1.58.2 retest). Sorted
+    // by code point, libXcomposite came first and libglib-2.0 vanished in "and 17 more".
+    const notFound = (libs: string) =>
+      libs
+        .split(' ')
+        .map((lib) => `\t${lib} => not found`)
+        .join('\n');
+    const chromeLibs =
+      'libglib-2.0.so.0 libgobject-2.0.so.0 libnspr4.so libnss3.so libnssutil3.so libsmime3.so libgio-2.0.so.0 libatk-1.0.so.0 libatk-bridge-2.0.so.0 libcups.so.2 libxkbcommon.so.0 libasound.so.2 libgbm.so.1 libcairo.so.2 libpango-1.0.so.0 libXcomposite.so.1 libXdamage.so.1 libXfixes.so.3 libXrandr.so.2 libatspi.so.0';
+    const shellLibs =
+      'libglib-2.0.so.0 libgobject-2.0.so.0 libnspr4.so libnss3.so libnssutil3.so libgio-2.0.so.0 libatk-1.0.so.0 libXcomposite.so.1 libXdamage.so.1 libXfixes.so.3 libXrandr.so.2 libgbm.so.1 libxkbcommon.so.0 libasound.so.2 libatspi.so.0';
+    const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
+    const chrome = join('/home/dev/.cache/ms-playwright/chromium-1248', 'chrome-linux-arm64', 'chrome');
+    const shell = join(
+      '/home/dev/.cache/ms-playwright/chromium_headless_shell-1248',
+      'chrome-headless-shell-linux-arm64',
+      'chrome-headless-shell',
+    );
+    const missing = missingChromiumLibraries('/app', pnpm, {
+      exists: (path) => [chrome, shell].includes(path),
+      platform: 'linux',
+      readdir: (dir) =>
+        dir.endsWith('chromium-1248')
+          ? ['chrome-linux-arm64']
+          : dir.endsWith('chromium_headless_shell-1248')
+            ? ['chrome-headless-shell-linux-arm64']
+            : [],
+      run: (command, args) =>
+        command === 'ldd'
+          ? { status: 0, stdout: notFound(args[0] === chrome ? chromeLibs : shellLibs) }
+          : { status: 0, stdout: DRY_RUN },
+    });
+    expect(missing.slice(0, 3)).toEqual(['libglib-2.0.so.0', 'libgobject-2.0.so.0', 'libnspr4.so']);
+    expect(missing).toHaveLength(20);
+
+    const warnings: string[] = [];
+    ensurePlaywrightBrowsers('/app', pnpm, undefined, (m) => warnings.push(m), {
+      install: () => ({ status: 0, stderr: '' }),
+      missing: () => missing,
+    });
+    expect(warnings[0]).toContain('(libglib-2.0.so.0, libgobject-2.0.so.0, libnspr4.so and 17 more)');
   });
 
   test('not Linux, or a dry run that fails: nothing checked, nothing reported', () => {

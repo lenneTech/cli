@@ -301,7 +301,7 @@ scenario_convert_to_vendor() {
   mkdir -p "$dest"
   copy_template_to "$dest"
 
-  (cd "$dest" && "$CLI_BIN" frontend convert-mode --to vendor --upstream-branch 1.5.3 --noConfirm) || {
+  (cd "$dest" && "$CLI_BIN" frontend convert-mode --to vendor --noConfirm) || {
     fail "CLI conversion failed"
     return 1
   }
@@ -318,7 +318,7 @@ scenario_convert_round_trip() {
   copy_template_to "$dest"
 
   # npm → vendor
-  (cd "$dest" && "$CLI_BIN" frontend convert-mode --to vendor --upstream-branch 1.5.3 --noConfirm) || {
+  (cd "$dest" && "$CLI_BIN" frontend convert-mode --to vendor --noConfirm) || {
     fail "npm→vendor conversion failed"
     return 1
   }
@@ -332,7 +332,7 @@ scenario_convert_round_trip() {
   assert_npm_structure "$dest"
 
   # npm → vendor (second time, should have no stale warnings)
-  (cd "$dest" && "$CLI_BIN" frontend convert-mode --to vendor --upstream-branch 1.5.3 --noConfirm) || {
+  (cd "$dest" && "$CLI_BIN" frontend convert-mode --to vendor --noConfirm) || {
     fail "second npm→vendor conversion failed"
     return 1
   }

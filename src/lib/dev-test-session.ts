@@ -234,7 +234,9 @@ export function lddMissingLibraries(stdout: string): string[] {
  * @param appDir - The app project (its Playwright decides the build)
  * @param pm - The app's package manager
  * @param deps - Injection points (tests)
- * @returns The missing libraries, sorted; empty when none, not Linux, or nothing could be checked
+ * @returns The missing libraries in `ldd`'s order, i.e. the one Chromium fails on first (`libglib-2.0.so.0`
+ *   on a bare Ubuntu) leads; never sorted: by code point `libX*` came first and buried it in "and N more".
+ *   Empty when none, not Linux, or nothing could be checked
  */
 export function missingChromiumLibraries(
   appDir: string,
@@ -256,7 +258,7 @@ export function missingChromiumLibraries(
       lddMissingLibraries(run('ldd', [binary], appDir).stdout).forEach((lib) => missing.add(lib));
     }
   }
-  return [...missing].sort();
+  return [...missing];
 }
 
 /**
