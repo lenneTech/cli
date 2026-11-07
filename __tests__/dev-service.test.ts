@@ -13,7 +13,7 @@
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
-import { dirname, join } from 'path';
+import { basename, dirname, join } from 'path';
 
 // Caddyfile path must be injected BEFORE importing dev-service (caddy paths is captured at
 // import time), and vitest evaluates every import before the first statement: only a hoisted
@@ -31,18 +31,24 @@ import type { FindExecutableOptions } from '../src/lib/platform';
 
 import {
   caddyLaunchMode,
+  caddyRestartCommand,
+  DISABLE_SYSTEM_CADDY,
   getServicePaths,
   installService,
   isSystemdBooted,
   platformSupported,
   renderLaunchAgentPlist,
   renderSystemdUnit,
+  restartOwnCaddy,
   SERVICE_LABEL,
   ServiceConfig,
   setShellRunner,
   ShellResult,
   ShellRunner,
   startCaddyOnDemand,
+  SYSTEMD_UNIT_NAME,
+  systemCaddyLines,
+  systemCaddyService,
   uninstallService,
 } from '../src/lib/dev-service';
 
@@ -72,6 +78,9 @@ const fail = (stderr = '', code = 1): ShellResult => ({ code, ok: false, stderr,
 const CADDY_ON_PATH: FindExecutableOptions = {
   env: { PATH: '/opt/homebrew/bin' },
   isExecutableFile: (path) => path === '/opt/homebrew/bin/caddy',
+  // POSIX lookup on every host: on the Windows runner `findExecutable` would otherwise join with
+  // `\` and try PATHEXT suffixes only, and the Linux install tests would never find this caddy.
+  platform: 'linux',
 };
 
 /** Pre-seed a unit file at the canonical location, creating parent dirs as needed. */
@@ -551,6 +560,122 @@ describe('dev-service', () => {
       const un = await uninstallService();
       expect(un.ok).toBe(true);
       expect(existsSync(getServicePaths().unitFile)).toBe(false);
+    });
+  });
+
+  // ─── Linux (systemd-user), wire format on every host ─────────────────────
+
+  describe('Linux: every systemctl call names the unit file it wrote', () => {
+    /** The unit names a recorded systemctl call addressed. */
+    const unitsIn = (calls: RecordedCall[]) =>
+      calls.filter((c) => c.cmd === 'systemctl').flatMap((c) => c.args.filter((a) => a.endsWith('.service')));
+
+    test('the unit name is the file name (1.23.0–1.58.0 called tech.lenne.lt-dev-caddy.service)', () => {
+      const paths = getServicePaths(tmpHome, 'linux');
+      expect(paths.label).toBe(SYSTEMD_UNIT_NAME);
+      expect(basename(paths.unitFile)).toBe(`${paths.label}.service`);
+    });
+
+    test('install: daemon-reload, then enable --now of exactly that unit', async () => {
+      const { calls, runner } = makeRecorder(() => ok());
+      setShellRunner(runner);
+      const result = await installService({ lookup: CADDY_ON_PATH, platform: 'linux' });
+      expect(result.ok).toBe(true);
+      const unitFile = getServicePaths(tmpHome, 'linux').unitFile;
+      expect(readFileSync(unitFile, 'utf8')).toContain('ExecStart=/opt/homebrew/bin/caddy run');
+      expect(calls.map((c) => [c.cmd, ...c.args])).toEqual([
+        ['systemctl', '--user', 'daemon-reload'],
+        ['systemctl', '--user', 'enable', '--now', basename(unitFile)],
+      ]);
+    });
+
+    test('install over a CHANGED unit restarts it: enable --now leaves a running unit as it is', async () => {
+      seedUnitFile(getServicePaths(tmpHome, 'linux').unitFile, '[Unit]\nDescription=old\n');
+      const { calls, runner } = makeRecorder(() => ok());
+      setShellRunner(runner);
+      expect((await installService({ lookup: CADDY_ON_PATH, platform: 'linux' })).ok).toBe(true);
+      expect(calls[calls.length - 1]?.args).toEqual(['--user', 'restart', 'lt-dev-caddy.service']);
+      // Unchanged now: no restart a second time.
+      calls.length = 0;
+      await installService({ lookup: CADDY_ON_PATH, platform: 'linux' });
+      expect(calls.some((c) => c.args.includes('restart'))).toBe(false);
+    });
+
+    test('uninstall stops and disables the same unit, then removes the file', async () => {
+      const unitFile = getServicePaths(tmpHome, 'linux').unitFile;
+      seedUnitFile(unitFile, 'x');
+      const { calls, runner } = makeRecorder(() => ok());
+      setShellRunner(runner);
+      const result = await uninstallService({ platform: 'linux' });
+      expect(result.removed).toEqual([unitFile]);
+      expect(unitsIn(calls)).toEqual(['lt-dev-caddy.service', 'lt-dev-caddy.service']);
+      expect(calls.map((c) => c.args[1])).toEqual(['stop', 'disable']);
+    });
+  });
+
+  describe("the system service of Caddy's apt package", () => {
+    test('enabled but stopped (the apt default before a reboot) is reported', async () => {
+      const { calls, runner } = makeRecorder((c) =>
+        c.args[0] === 'is-enabled' ? ok('enabled\n') : fail('', 3),
+      );
+      setShellRunner(runner);
+      expect(await systemCaddyService({ platform: 'linux', systemd: true })).toEqual({ active: false, enabled: true });
+      // System scope: no --user, and nothing that needs root.
+      expect(calls.map((c) => c.args)).toEqual([
+        ['is-enabled', 'caddy.service'],
+        ['is-active', 'caddy.service'],
+      ]);
+    });
+
+    test('absent, disabled, not Linux or no systemd: nothing to report, nothing asked', async () => {
+      setShellRunner(makeRecorder((c) => (c.args[0] === 'is-enabled' ? fail('', 4) : ok('inactive\n'))).runner);
+      expect(await systemCaddyService({ platform: 'linux', systemd: true })).toBeNull();
+      const { calls, runner } = makeRecorder(() => ok('enabled'));
+      setShellRunner(runner);
+      expect(await systemCaddyService({ platform: 'darwin' })).toBeNull();
+      expect(await systemCaddyService({ platform: 'linux', systemd: false })).toBeNull();
+      expect(calls).toEqual([]);
+    });
+
+    test('the lines name the cause and the one command', () => {
+      expect(systemCaddyLines(null)).toEqual([]);
+      const lines = systemCaddyLines({ active: true, enabled: true });
+      expect(lines[0]).toContain('caddy.service');
+      expect(lines[1]).toContain(DISABLE_SYSTEM_CADDY);
+      expect(DISABLE_SYSTEM_CADDY).toBe('sudo systemctl disable --now caddy');
+    });
+  });
+
+  describe('restartOwnCaddy (after setcap)', () => {
+    test('only lt dev\'s own Caddy: a foreign one or none is left alone', async () => {
+      const { calls, runner } = makeRecorder(() => ok('active'));
+      setShellRunner(runner);
+      let stopped = false;
+      const stop = async () => {
+        stopped = true;
+        return { result: { ok: true } };
+      };
+      expect(await restartOwnCaddy({ detectOwner: async () => 'foreign', platform: 'linux', stop })).toBe('none');
+      expect(await restartOwnCaddy({ detectOwner: async () => 'none', platform: 'linux', stop })).toBe('none');
+      expect(calls).toEqual([]);
+      expect(stopped).toBe(false);
+    });
+
+    test('Linux service running: systemctl --user restart of the unit', async () => {
+      const { calls, runner } = makeRecorder((c) => (c.args[1] === 'is-active' ? ok('active\n') : ok()));
+      setShellRunner(runner);
+      expect(await restartOwnCaddy({ detectOwner: async () => 'ours', platform: 'linux' })).toBe('restarted');
+      expect(calls.map((c) => c.args)).toEqual([
+        ['--user', 'is-active', 'lt-dev-caddy.service'],
+        ['--user', 'restart', 'lt-dev-caddy.service'],
+      ]);
+    });
+
+    test('on demand (no service runs it): stopped, the next lt dev start brings it back', async () => {
+      setShellRunner(makeRecorder(() => fail('', 3)).runner);
+      const stop = async () => ({ result: { ok: true } });
+      expect(await restartOwnCaddy({ detectOwner: async () => 'ours', platform: 'linux', stop })).toBe('stopped');
+      expect(caddyRestartCommand('on-demand')).toBe('caddy stop && lt dev up');
     });
   });
 });

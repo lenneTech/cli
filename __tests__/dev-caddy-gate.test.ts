@@ -13,6 +13,7 @@ function gate(overrides: CaddyGateDeps) {
       return false;
     },
     launchMode: 'service',
+    portProblem: async () => null,
     prepare: async () => {
       calls.push('prepare');
       return { healed: false, running: true };
@@ -21,6 +22,7 @@ function gate(overrides: CaddyGateDeps) {
       calls.push('start');
       return { logFile: '/home/x/.lenneTech/caddy.log', message: 'Started Caddy (pid 7).', ok: true };
     },
+    systemCaddy: async () => null,
     ...overrides,
   };
   return { calls, run: () => ensureLtDevCaddy(deps) };
@@ -38,6 +40,33 @@ describe('ensureLtDevCaddy', () => {
     expect(result).toMatchObject({ ok: false, reason: 'foreign', started: false });
     expect(result.lines.join('\n')).toContain('caddy reload --config');
     expect(calls).not.toContain('start');
+  });
+
+  test("Linux: a foreign Caddy that is the apt package's system service is named, with the one command", async () => {
+    const { run } = gate({
+      detectOwner: async () => 'foreign',
+      systemCaddy: async () => ({ active: true, enabled: true }),
+    });
+    const text = (await run()).lines.join('\n');
+    expect(text).toContain('caddy reload --config');
+    expect(text).toContain("system service of Caddy's apt package (caddy.service)");
+    expect(text).toContain('sudo systemctl disable --now caddy');
+  });
+
+  test('Linux without systemd: a start that fails on ports 80/443 names setcap', async () => {
+    const { run } = gate({
+      launchMode: 'on-demand',
+      portProblem: async () => ({
+        commands: ['sudo setcap cap_net_bind_service=+ep /usr/bin/caddy'],
+        realBin: '/usr/bin/caddy',
+        reason: '/usr/bin/caddy may not bind ports 80 and 443 as your user',
+      }),
+      prepare: async () => ({ healed: false, running: false }),
+      start: async () => ({ logFile: '/home/x/.lenneTech/caddy.log', message: 'Caddy did not answer.', ok: false }),
+    });
+    const result = await run();
+    expect(result.reason).toBe('start-failed');
+    expect(result.lines).toContain('  sudo setcap cap_net_bind_service=+ep /usr/bin/caddy');
   });
 
   test('macOS/Linux without a running Caddy: the service owns it, so the answer is lt dev install', async () => {

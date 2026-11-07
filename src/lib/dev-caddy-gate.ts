@@ -15,7 +15,15 @@ import {
   paths,
   prepareCaddy,
 } from './caddy';
-import { caddyLaunchMode, startCaddyOnDemand } from './dev-service';
+import { privilegedPortProblem, type PrivilegedPortProblem } from './dev-privileged-ports';
+import {
+  caddyLaunchMode,
+  resolveCaddyBin,
+  startCaddyOnDemand,
+  systemCaddyLines,
+  type SystemCaddyService,
+  systemCaddyService,
+} from './dev-service';
 
 /** Result of {@link ensureLtDevCaddy}. */
 export interface CaddyGate {
@@ -34,8 +42,12 @@ export interface CaddyGateDeps {
   detectOwner?: () => Promise<CaddyOwner>;
   ensureFile?: () => boolean;
   launchMode?: ReturnType<typeof caddyLaunchMode>;
+  /** Why Caddy cannot bind 80/443 on Linux (`dev-privileged-ports.ts`), or null. */
+  portProblem?: () => Promise<null | PrivilegedPortProblem>;
   prepare?: (timeoutMs?: number) => Promise<{ healed: boolean; running: boolean }>;
   start?: () => Promise<{ logFile: string; message: string; ok: boolean }>;
+  /** The system service of Caddy's apt package (`dev-service.ts#systemCaddyService`). */
+  systemCaddy?: () => Promise<null | SystemCaddyService>;
 }
 
 /**
@@ -73,7 +85,16 @@ export async function ensureLtDevCaddy(deps: CaddyGateDeps = {}): Promise<CaddyG
     }
     const result = await (deps.start ?? (() => startCaddyOnDemand()))();
     if (!result.ok) {
-      return { healed, lines: [result.message, `Log: ${result.logFile}`], ok: false, reason: 'start-failed', started };
+      // Linux without systemd: a Caddyfile with project blocks binds 443, which needs the capability.
+      const portProblem = await (deps.portProblem ?? defaultPortProblem)();
+      const portLines = portProblem ? [portProblem.reason, ...portProblem.commands.map((c) => `  ${c}`)] : [];
+      return {
+        healed,
+        lines: [result.message, `Log: ${result.logFile}`, ...portLines],
+        ok: false,
+        reason: 'start-failed',
+        started,
+      };
     }
     started = true;
   }
@@ -84,7 +105,8 @@ export async function ensureLtDevCaddy(deps: CaddyGateDeps = {}): Promise<CaddyG
     return { healed: healed && !started, lines: [], ok: true, started };
   }
   if (owner === 'foreign') {
-    return { healed, lines: foreignCaddyLines(), ok: false, reason: 'foreign', started };
+    const system = systemCaddyLines(await (deps.systemCaddy ?? (() => systemCaddyService()))());
+    return { healed, lines: [...foreignCaddyLines(), ...system], ok: false, reason: 'foreign', started };
   }
   return started
     ? {
@@ -109,6 +131,12 @@ export function printCaddyGate(
   const [first, ...rest] = gate.lines;
   print.error(first);
   rest.forEach((line) => print.info(`  ${line}`));
+}
+
+/** {@link privilegedPortProblem} for the caddy on PATH; null when there is none or it may bind. */
+async function defaultPortProblem(): Promise<null | PrivilegedPortProblem> {
+  const bin = await resolveCaddyBin();
+  return bin ? privilegedPortProblem(bin) : null;
 }
 
 /** What to do when no Caddy runs, per launch mode. */

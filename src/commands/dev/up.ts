@@ -18,7 +18,7 @@ import { privilegedPortProblem } from '../../lib/dev-privileged-ports';
 import { killProcessGroup, probePorts, spawnDetached, terminateProcessGroup } from '../../lib/dev-process';
 import { deriveDbName, resolveLayout } from '../../lib/dev-project';
 import { collectDevPrunePlan } from '../../lib/dev-prune';
-import { resolveCaddyBin } from '../../lib/dev-service';
+import { caddyRestartCommand, resolveCaddyBin } from '../../lib/dev-service';
 import {
   describeSqlFailure,
   displaySqlUrl,
@@ -168,7 +168,11 @@ const UpCommand: GluegunCommand = {
       return `dev up: ${caddyGateOutcome(caddyState)}`;
     }
     if (caddyState.started)
-      info(colors.dim('Started Caddy (no service on Windows; `lt dev up` starts it when needed).'));
+      info(
+        colors.dim(
+          `Started Caddy (no service ${process.platform === 'win32' ? 'on Windows' : 'without systemd'}; \`lt dev up\` starts it when needed).`,
+        ),
+      );
 
     // Ticket-aware: in a `lt ticket` worktree (tagged by a `.lt-dev/ticket`
     // marker) — or with an explicit `--ticket <name>` — the slug / URLs / DB are
@@ -481,6 +485,10 @@ const UpCommand: GluegunCommand = {
         if (portProblem) {
           info(portProblem.reason);
           portProblem.commands.forEach((command) => info(`  ${colors.cyan(command)}`));
+        } else if (bin && process.platform === 'linux') {
+          // The file has the capability, the running Caddy does not: it started before `setcap`.
+          info('caddy may bind ports 80 and 443, but the running Caddy started before that was allowed.');
+          info(`  Restart it: ${colors.cyan(caddyRestartCommand())}`);
         }
       }
       printFallback();
@@ -536,7 +544,7 @@ const UpCommand: GluegunCommand = {
       // letting the component fail with an address-in-use nobody connects to this.
       warning(
         `port ${port} is in use and the occupant could not be identified` +
-          `${healthProbe.ownersUnavailable ? ' (no lsof/netstat available)' : ''} — ` +
+          `${healthProbe.ownersUnavailable ? ' (no lsof, ss or netstat available)' : ''} — ` +
           'not reclaiming it; the component may fail to bind.',
       );
     };

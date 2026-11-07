@@ -1,4 +1,8 @@
-import { privilegedPortProblem } from '../src/lib/dev-privileged-ports';
+import {
+  privilegedPortProblem,
+  processMayBindPrivilegedPorts,
+  runningCaddyMissesCapability,
+} from '../src/lib/dev-privileged-ports';
 
 const linux = (overrides: Record<string, unknown> = {}) => ({
   platform: 'linux' as const,
@@ -20,7 +24,7 @@ describe('privilegedPortProblem (Linux, ports 80/443)', () => {
     expect(await privilegedPortProblem('/usr/bin/caddy', linux({ readFile: () => '0\n' }))).toBeNull();
   });
 
-  test("the capability on the binary (Caddy's own apt package sets it) is enough", async () => {
+  test('the capability on the binary is enough', async () => {
     const run = async () => '/usr/bin/caddy cap_net_bind_service=ep\n';
     expect(await privilegedPortProblem('/usr/bin/caddy', linux({ run }))).toBeNull();
   });
@@ -49,5 +53,57 @@ describe('privilegedPortProblem (Linux, ports 80/443)', () => {
   test('a path with spaces is quoted for the shell', async () => {
     const problem = await privilegedPortProblem('/opt/my tools/caddy', linux());
     expect(problem?.commands).toEqual(["sudo setcap cap_net_bind_service=+ep '/opt/my tools/caddy'"]);
+  });
+});
+
+describe('processMayBindPrivilegedPorts (a RUNNING Caddy, CapEff)', () => {
+  const status = (capEff: string) => () => `Name:\tcaddy\nCapInh:\t0000000000000000\nCapEff:\t${capEff}\n`;
+
+  test('bit 10 (CAP_NET_BIND_SERVICE) set: yes, also with every capability (root)', () => {
+    expect(processMayBindPrivilegedPorts(42, status('0000000000000400'))).toBe(true);
+    expect(processMayBindPrivilegedPorts(42, status('000001ffffffffff'))).toBe(true);
+  });
+
+  test('started before setcap: no capability in effect', () => {
+    expect(processMayBindPrivilegedPorts(42, status('0000000000000000'))).toBe(false);
+    expect(processMayBindPrivilegedPorts(42, status('0000000000000800'))).toBe(false);
+  });
+
+  test('unreadable or without a CapEff line: unknown, never a verdict', () => {
+    expect(
+      processMayBindPrivilegedPorts(42, () => {
+        throw new Error('ENOENT');
+      }),
+    ).toBeNull();
+    expect(processMayBindPrivilegedPorts(42, () => 'Name:\tcaddy\n')).toBeNull();
+  });
+});
+
+describe('runningCaddyMissesCapability (doctor: restart after setcap?)', () => {
+  /** sysctl and /proc/<pid>/status in one reader, as on a real Linux. */
+  const reader = (portStart: string, capEff: string) => (path: string) =>
+    path.endsWith('ip_unprivileged_port_start') ? `${portStart}\n` : `Name:\tcaddy\nCapEff:\t${capEff}\n`;
+  const withCap = async () => '/usr/bin/caddy cap_net_bind_service=ep\n';
+
+  test('the file has the capability, the running Caddy does not: started before setcap', async () => {
+    expect(
+      await runningCaddyMissesCapability('/usr/bin/caddy', 42, linux({ readFile: reader('1024', '0000000000000000'), run: withCap })),
+    ).toBe(true);
+    expect(
+      await runningCaddyMissesCapability('/usr/bin/caddy', 42, linux({ readFile: reader('1024', '0000000000000400'), run: withCap })),
+    ).toBe(false);
+  });
+
+  test('the sysctl allows the ports (Docker default 0): no bit, and no restart would set one', async () => {
+    expect(
+      await runningCaddyMissesCapability('/usr/bin/caddy', 42, linux({ readFile: reader('0', '0000000000000000'), run: withCap })),
+    ).toBe(false);
+  });
+
+  test('no capability on the file, root, or no pid: not this check (setcap or nothing is the answer)', async () => {
+    const zero = reader('1024', '0000000000000000');
+    expect(await runningCaddyMissesCapability('/usr/bin/caddy', 42, linux({ readFile: zero }))).toBe(false);
+    expect(await runningCaddyMissesCapability('/usr/bin/caddy', 42, linux({ readFile: zero, run: withCap, uid: 0 }))).toBe(false);
+    expect(await runningCaddyMissesCapability('/usr/bin/caddy', undefined, linux({ readFile: zero, run: withCap }))).toBe(false);
   });
 });

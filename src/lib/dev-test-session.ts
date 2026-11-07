@@ -51,6 +51,7 @@ import {
 import { deriveDbName, deriveTestDbName, DevProjectLayout } from './dev-project';
 import { describeSqlFailure, ensureSqlDatabase, planStackDatabases, sqlDriverLabel } from './dev-sql';
 import { mainCheckoutApiDir } from './dev-ticket';
+import { detectFrontendKind } from './frontend-kind';
 import { spawnCmdSync } from './platform';
 
 /** Per-bring-up options. `shardIndex` selects an isolated shard stack; `skipBuild` reuses an existing build. */
@@ -124,11 +125,18 @@ export interface TestSessionLogger {
  * when the build is already cached, so running it up front costs nothing and
  * removes a whole class of first-run failures. Best-effort: if the install
  * fails (offline), the suite still runs and Playwright's own error explains it.
+ *
+ * On Linux the browser also needs system libraries that no download brings
+ * (Ubuntu Server, WSL: 46 of 59 specs failed on `libglib-2.0.so.0`, with no word
+ * about the cause). `playwright install` checks for them and warns on stderr
+ * while still exiting 0, so that warning is read here and turned into the one
+ * command that installs them ({@link playwrightHostDepsCommand}).
  */
 export function ensurePlaywrightBrowsers(
   appDir: string,
   pm: PackageManagerCommand,
   logInfo?: (message: string) => void,
+  logWarning?: (message: string) => void,
 ): void {
   const note = (): void => {
     logInfo?.('playwright install chromium failed — continuing (the suite reports missing browsers itself).');
@@ -139,13 +147,36 @@ export function ensurePlaywrightBrowsers(
     // `execFileSync` this replaced — so the status is checked explicitly.
     // Without it the failure would be silent and the suite would die later on a
     // missing browser, which reads as a broken spec rather than a missing install.
-    const result = spawnCmdSync(pm.bin, args, { cwd: appDir, stdio: 'ignore', timeout: 300_000 });
+    const result = spawnCmdSync(pm.bin, args, { cwd: appDir, stdio: ['ignore', 'ignore', 'pipe'], timeout: 300_000 });
     if (result.error || result.status !== 0) {
       note();
+    } else if (playwrightHostDepsMissing(result.stderr)) {
+      const warn = logWarning ?? logInfo;
+      warn?.('Chromium cannot start here: system libraries it needs are missing, so every browser spec would fail.');
+      warn?.(`  Install them once: ${playwrightHostDepsCommand(pm)}`);
     }
   } catch {
     note();
   }
+}
+
+/**
+ * The command that installs the browser's system libraries on Linux (`playwright install-deps`,
+ * which runs apt-get). `env PATH=…` keeps the user's PATH under sudo, where a Node from fnm/nvm
+ * and its package manager are otherwise not found.
+ * @param pm - The app's package manager
+ */
+export function playwrightHostDepsCommand(pm: PackageManagerCommand): string {
+  return `sudo env "PATH=$PATH" ${[pm.bin, ...pm.exec('playwright', ['install-deps', 'chromium'])].join(' ')}`;
+}
+
+/**
+ * Whether `playwright install` reported missing system libraries ("Playwright Host validation
+ * warning … Host system is missing dependencies to run browsers", playwright-core 1.64).
+ * @param stderr - stderr of `playwright install`
+ */
+export function playwrightHostDepsMissing(stderr: null | string | undefined): boolean {
+  return Boolean(stderr && /Host system is missing dependencies to run browsers/i.test(stderr));
 }
 
 const TEST_API_LOG = 'api.test.log';
@@ -446,8 +477,7 @@ export async function bringUpTestSession(
     // bundle (which inlines runtimeConfig defaults), and enough to make
     // `lt ticket stop` see uncommitted work. Idempotent, like every other
     // `addToGitignore` call.
-    addToGitignore(layout.appDir, '.nuxt-*');
-    addToGitignore(layout.appDir, '.output-*');
+    for (const glob of testBuildIgnoreGlobs(layout.appDir)) addToGitignore(layout.appDir, glob);
 
     const appPm = pickPackageManager(layout.appDir);
     let appBuild: null | number = 0;
@@ -693,7 +723,7 @@ export async function runShardedTestSession(
   log: TestSessionLogger,
   opts: { devDbName?: string; forwarded: string[]; pm: PackageManagerCommand; total: number },
 ): Promise<number> {
-  ensurePlaywrightBrowsers(layout.appDir as string, opts.pm, log.info);
+  ensurePlaywrightBrowsers(layout.appDir as string, opts.pm, log.info, log.warn);
   const total = Math.max(2, Math.floor(opts.total));
   const contexts: Array<{ ctx: TestSessionContext; index: number }> = [];
 
@@ -935,6 +965,16 @@ export async function tearDownTestSession(
  */
 export function testAppEntryCandidates(): string[] {
   return [`${TEST_NITRO_OUTPUT_DIR}/server/index.mjs`, '.output/server/index.mjs'];
+}
+
+/**
+ * The `.gitignore` globs for the isolated build trees of the test stack's app. An Angular app
+ * builds no `.nuxt*` tree (its test build goes to `NG_OUTPUT_DIR`, i.e. `.output-test`), and the
+ * `.nuxt-*` entry left every fresh Angular project dirty after its first `lt dev test`.
+ * @param appDir - The app project
+ */
+export function testBuildIgnoreGlobs(appDir: string): string[] {
+  return detectFrontendKind(appDir) === 'angular' ? ['.output-*'] : ['.nuxt-*', '.output-*'];
 }
 
 /**

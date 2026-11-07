@@ -26,11 +26,17 @@ import { privilegedPortProblem, type PrivilegedPortProblem } from './dev-privile
 import { runChildInherit } from './dev-process';
 import {
   caddyLaunchMode,
+  caddyRestartCommand,
+  DISABLE_SYSTEM_CADDY,
   getServicePaths,
   getServiceStatus,
   installService,
   resolveCaddyBin,
+  restartOwnCaddy,
   startCaddyOnDemand,
+  systemCaddyLines,
+  type SystemCaddyService,
+  systemCaddyService,
   waitForServiceReady,
 } from './dev-service';
 import { importCaddyRootIntoWindows, type WindowsTrust, windowsTrustsCaddyRoot } from './dev-wsl-ca';
@@ -52,9 +58,13 @@ export interface RunInstallDeps {
   /** Why Caddy cannot bind 80/443 on Linux, or null. */
   portProblem?: () => Promise<null | PrivilegedPortProblem>;
   reload?: () => Promise<CaddyResult>;
+  /** Restart lt dev's own Caddy after `setcap` (`dev-service.ts#restartOwnCaddy`). */
+  restartCaddy?: () => Promise<'failed' | 'none' | 'restarted' | 'stopped'>;
   /** Run a command with the terminal attached (`sudo setcap …`); resolves to its exit code. */
   runInteractive?: (command: string, args: string[]) => Promise<null | number>;
   start?: () => Promise<{ logFile: string; message: string; ok: boolean }>;
+  /** The system service of Caddy's apt package (`dev-service.ts#systemCaddyService`). */
+  systemCaddy?: () => Promise<null | SystemCaddyService>;
   validate?: () => Promise<CaddyResult>;
   /** Whether Windows trusts the Caddy root (WSL). */
   windowsTrust?: () => Promise<WindowsTrust>;
@@ -133,6 +143,11 @@ export async function runInstall(
   // this check the problem only showed up at the first `lt dev up` (reload: permission denied).
   if (!(await allowPrivilegedPorts(toolbox, deps))) blocked = true;
 
+  // 2c. Linux: the system service of Caddy's apt package takes :2019 and :80 at boot, before our
+  // user service, which then restart-loops on "address already in use". Before the owner check,
+  // so a Caddy it holds :2019 with is gone once the person agrees to disable it.
+  await disableSystemCaddy(toolbox, deps);
+
   // 3. Whose Caddy holds :2019? A foreign one is left alone, and our service is not installed
   // either: it would crash-loop against the occupied port.
   const owner = await (deps.detectOwner ?? (() => detectCaddyOwner()))();
@@ -141,6 +156,7 @@ export async function runInstall(
     const [first, ...rest] = foreignCaddyLines();
     error(first);
     rest.forEach((line) => info(`  ${line}`));
+    systemCaddyLines(await (deps.systemCaddy ?? (() => systemCaddyService()))()).forEach((line) => info(`  ${line}`));
     return { blocked: true, caddyMissing: false, foreign: true, ok: false, unsupported: false };
   }
   if (owner === 'ours' && caddyfileChanged) {
@@ -238,6 +254,13 @@ async function allowPrivilegedPorts(toolbox: ExtendedGluegunToolbox, deps: RunIn
   await run('sudo', ['setcap', 'cap_net_bind_service=+ep', problem.realBin]);
   if (await check()) return false;
   success('caddy may bind ports 80 and 443');
+  // A Caddy that already runs keeps the capabilities it started with, i.e. none: restart it, or
+  // every reload keeps failing with `bind: permission denied`.
+  const restarted = await (deps.restartCaddy ?? (() => restartOwnCaddy()))();
+  if (restarted === 'restarted') success("Restarted lt dev's Caddy, so it uses the capability.");
+  else if (restarted === 'failed') {
+    warning(`Could not restart lt dev's Caddy. Restart it so it uses the capability: ${caddyRestartCommand()}`);
+  }
   return true;
 }
 
@@ -260,6 +283,32 @@ function detectBrewCaddyConflict(): Promise<boolean> {
       resolve(conflict);
     });
   });
+}
+
+/**
+ * Linux: report the system service of Caddy's apt package and offer to disable it (see
+ * `dev-service.ts#systemCaddyService`). Never blocks the install on its own: an enabled but
+ * stopped service only bites after the next restart, a running one shows up as a foreign Caddy.
+ */
+async function disableSystemCaddy(toolbox: ExtendedGluegunToolbox, deps: RunInstallDeps): Promise<void> {
+  const {
+    print: { colors, info, success, warning },
+  } = toolbox;
+  const read = deps.systemCaddy ?? (() => systemCaddyService());
+  const state = await read();
+  if (!state) return;
+  const [first, ...rest] = systemCaddyLines(state);
+  warning(first);
+  rest.forEach((line) => info(`  ${line}`));
+  if (!(deps.interactive ?? interactiveSession(toolbox))) return;
+  if (!(await (deps.confirm ?? ((q) => toolbox.prompt.confirm(q)))('Disable it now with sudo?'))) return;
+  const run =
+    deps.runInteractive ??
+    ((command, args) => runChildInherit(command, args, { cwd: process.cwd(), env: process.env }));
+  const [command, ...args] = DISABLE_SYSTEM_CADDY.split(' ');
+  await run(command, args);
+  if (await read()) warning(`caddy.service is still enabled or running. Run: ${colors.cyan(DISABLE_SYSTEM_CADDY)}`);
+  else success('Disabled the system service caddy.service');
 }
 
 /**

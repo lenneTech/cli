@@ -13,15 +13,18 @@ import {
   readCaddyfile,
   validateCaddyfile,
 } from '../../lib/caddy';
-import { privilegedPortProblem } from '../../lib/dev-privileged-ports';
+import { privilegedPortProblem, runningCaddyMissesCapability } from '../../lib/dev-privileged-ports';
 import { probePorts } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
 import {
   caddyLaunchMode,
+  caddyRestartCommand,
   getServicePaths,
   getServiceStatus,
   platformSupported,
   resolveCaddyBin,
+  systemCaddyLines,
+  systemCaddyService,
 } from '../../lib/dev-service';
 import { detectSlugConflict, loadRegistry, paths as statePaths } from '../../lib/dev-state';
 import { checkGlobalSetupTicketSafe, resolveDevIdentity } from '../../lib/dev-ticket';
@@ -60,7 +63,13 @@ const DoctorCommand: GluegunCommand = {
     const hasCaddy = await caddyAvailable();
     if (hasCaddy) line('OK', colors.green, 'caddy on PATH');
     else {
-      line('FAIL', colors.red, 'caddy not installed — run `brew install caddy` then `lt dev install`');
+      const installCaddy =
+        process.platform === 'darwin'
+          ? '`brew install caddy`'
+          : process.platform === 'win32'
+            ? '`winget install CaddyServer.Caddy`'
+            : 'https://caddyserver.com/docs/install';
+      line('FAIL', colors.red, `caddy not installed — install it (${installCaddy}), then run \`lt dev install\``);
       fails++;
     }
 
@@ -110,7 +119,10 @@ const DoctorCommand: GluegunCommand = {
     if (hasCaddy) {
       daemon = await caddyDaemonRunning();
       if (daemon) line('OK', colors.green, 'caddy admin (:2019) reachable');
-      else {
+      else if (caddyLaunchMode() === 'on-demand') {
+        // Nothing is wrong yet: without a service, `lt dev up` starts Caddy itself (after a reboot, too).
+        line('WARN', colors.yellow, 'caddy is not running — `lt dev up` starts it');
+      } else {
         line('FAIL', colors.red, 'caddy admin (:2019) unreachable — run `lt dev install`');
         fails++;
       }
@@ -121,12 +133,29 @@ const DoctorCommand: GluegunCommand = {
     if (daemon) {
       foreign = (await detectCaddyOwner()) === 'foreign';
       if (foreign) {
-        const [first, ...rest] = foreignCaddyLines();
+        const [first, ...rest] = [...foreignCaddyLines(), ...systemCaddyLines(await systemCaddyService())];
         line('FAIL', colors.red, first);
         rest.forEach((text) => info(`         ${text}`));
         fails++;
       } else {
         line('OK', colors.green, 'caddy on :2019 is the one lt dev runs');
+      }
+    }
+
+    // 3b. Linux: did lt dev's running Caddy start before `setcap`? A process keeps the capabilities
+    //     it started with, so every reload fails with `bind: permission denied` although the file
+    //     is fine. Service and on demand alike: the pid is the admin port's listener.
+    if (daemon && !foreign && process.platform === 'linux') {
+      const bin = await resolveCaddyBin();
+      const adminPort = Number(caddyPaths.admin.split(':').pop());
+      const pid = bin ? (await probePorts([adminPort])).owners.get(adminPort)?.pid : undefined;
+      if (bin && (await runningCaddyMissesCapability(bin, pid))) {
+        line(
+          'FAIL',
+          colors.red,
+          `the running Caddy (pid ${pid}) started before it was allowed to bind ports 80 and 443 — restart it: \`${caddyRestartCommand()}\``,
+        );
+        fails++;
       }
     }
 
@@ -193,7 +222,7 @@ const DoctorCommand: GluegunCommand = {
           'WARN',
           colors.yellow,
           `port ${port} is in use but the occupant could not be identified` +
-            `${portProbe.ownersUnavailable ? ' (no lsof/netstat available)' : ''}`,
+            `${portProbe.ownersUnavailable ? ' (no lsof, ss or netstat available)' : ''}`,
         );
         continue;
       }

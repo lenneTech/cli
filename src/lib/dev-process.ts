@@ -643,7 +643,9 @@ async function portOwners(
   options: PortProbeOptions,
 ): Promise<Map<number, { command: string; pid: number }> | null> {
   const capture = options.capture ?? captureStdout;
-  return isWindows(options.platform) ? windowsPortOwners(ports, capture) : lsofPortOwners(ports, capture);
+  if (isWindows(options.platform)) return windowsPortOwners(ports, capture);
+  // Minimal Linux images (Ubuntu Server, WSL, containers) ship `ss` (iproute2) but no `lsof`.
+  return (await lsofPortOwners(ports, capture)) ?? ssPortOwners(ports, capture);
 }
 
 /**
@@ -665,6 +667,32 @@ function signalGroup(target: SignalTarget, signal: NodeJS.Signals, options: Term
       return false;
     }
   }
+}
+
+/**
+ * `ss -ltnp` path (Linux without `lsof`). Lists LISTENING TCP sockets only, so a client
+ * connection on the same port never reads as its owner. A socket of another user's process
+ * carries no `users:` column for us and stays unattributed, as with `lsof`.
+ */
+async function ssPortOwners(
+  ports: number[],
+  capture: CaptureStdout,
+): Promise<Map<number, { command: string; pid: number }> | null> {
+  const stdout = await capture('ss', ['-ltnp']);
+  if (stdout === null) return null;
+
+  const result = new Map<number, { command: string; pid: number }>();
+  for (const line of stdout.split('\n')) {
+    // `LISTEN 0 4096 127.0.0.1:4000 0.0.0.0:* users:(("node",pid=4242,fd=23))`
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5 || parts[0] !== 'LISTEN') continue;
+    const portMatch = parts[3].match(/:(\d+)$/);
+    const owner = line.match(/users:\(\("([^"]+)",pid=(\d+)/);
+    if (!portMatch || !owner) continue;
+    const port = Number(portMatch[1]);
+    if (ports.includes(port) && !result.has(port)) result.set(port, { command: owner[1], pid: Number(owner[2]) });
+  }
+  return result;
 }
 
 /** `netstat -ano` + `tasklist` path. */

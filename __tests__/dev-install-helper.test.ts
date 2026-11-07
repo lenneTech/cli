@@ -3,6 +3,7 @@ import { rmSync } from 'fs';
 import { ExtendedGluegunToolbox } from '../src/interfaces/extended-gluegun-toolbox';
 import { OWNER_LOGGER, readCaddyfile } from '../src/lib/caddy';
 import { runInstall, RunInstallDeps } from '../src/lib/dev-install-helper';
+import { DISABLE_SYSTEM_CADDY } from '../src/lib/dev-service';
 
 /** A toolbox whose printers collect every line, so a test reads what the user would see. */
 function toolbox(): { out: string[]; tb: ExtendedGluegunToolbox } {
@@ -32,6 +33,8 @@ function windows(overrides: Partial<RunInstallDeps> = {}) {
     launchMode: 'on-demand',
     platform: 'win32',
     portProblem: async () => null,
+    restartCaddy: async () => 'none',
+    systemCaddy: async () => null,
     reload: async () => {
       calls.push('reload');
       return okResult;
@@ -195,6 +198,70 @@ describe('runInstall on Linux and in WSL2', () => {
     expect(ran).toEqual([['sudo', 'setcap', 'cap_net_bind_service=+ep', '/usr/bin/caddy']]);
     expect(result.blocked).toBe(false);
     expect(out.join('\n')).toContain('caddy may bind ports 80 and 443');
+  });
+
+  test('after setcap, a Caddy that already runs is restarted: it keeps the capabilities it started with', async () => {
+    const { out, tb } = toolbox();
+    let fixed = false;
+    const restarted: string[] = [];
+    const { deps } = linuxOnDemand({
+      confirm: async () => true,
+      interactive: true,
+      portProblem: async () => (fixed ? null : problem),
+      restartCaddy: async () => {
+        restarted.push('restart');
+        return 'restarted';
+      },
+      runInteractive: async () => {
+        fixed = true;
+        return 0;
+      },
+    });
+    await runInstall(tb, {}, deps);
+    expect(restarted).toEqual(['restart']);
+    expect(out.join('\n')).toContain("Restarted lt dev's Caddy");
+  });
+
+  test("Caddy's apt package enabled its system service: named, and disabled with sudo when the user agrees", async () => {
+    const { out, tb } = toolbox();
+    const ran: string[][] = [];
+    let disabled = false;
+    const { deps } = linuxOnDemand({
+      confirm: async () => true,
+      interactive: true,
+      runInteractive: async (command, args) => {
+        ran.push([command, ...args]);
+        disabled = true;
+        return 0;
+      },
+      systemCaddy: async () => (disabled ? null : { active: false, enabled: true }),
+    });
+    const result = await runInstall(tb, {}, deps);
+    expect(ran).toEqual([['sudo', 'systemctl', 'disable', '--now', 'caddy']]);
+    expect(out.join('\n')).toContain('after the next restart it takes ports 2019 and 80');
+    expect(out.join('\n')).toContain('Disabled the system service caddy.service');
+    expect(result.blocked).toBe(false);
+  });
+
+  test('a running system caddy.service without a terminal: named as the foreign Caddy, nothing run', async () => {
+    const { out, tb } = toolbox();
+    const ran: string[][] = [];
+    const { calls, deps } = linuxOnDemand({
+      detectOwner: async () => 'foreign',
+      interactive: false,
+      runInteractive: async (command, args) => {
+        ran.push([command, ...args]);
+        return 0;
+      },
+      systemCaddy: async () => ({ active: true, enabled: true }),
+    });
+    const result = await runInstall(tb, {}, deps);
+    const text = out.join('\n');
+    expect(result.foreign).toBe(true);
+    expect(text).toContain("It is the system service of Caddy's apt package (caddy.service)");
+    expect(text).toContain(DISABLE_SYSTEM_CADDY);
+    expect(ran).toEqual([]);
+    expect(calls).not.toContain('start');
   });
 
   test('WSL: imports the Caddy root into Windows when the user agrees', async () => {

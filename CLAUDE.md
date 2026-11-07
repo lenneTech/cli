@@ -2113,6 +2113,36 @@ fallback when `lt dev up` fails. CLI 1.57.1 had named the classic start as the w
 source address WSL's localhost forwarding uses, `certutil.exe` reading the `\\wsl.localhost\…` path
 from `wslpath -w`, and Firefox on Windows picking the root up. Measure there before changing this.
 
+### systemd addresses a unit by its FILE name — the Linux service had never worked <!-- Added: 2026-11-07 -->
+1.23.0 to 1.58.0 wrote `~/.config/systemd/user/lt-dev-caddy.service` but called every
+`systemctl --user` with `${SERVICE_LABEL}.service` = `tech.lenne.lt-dev-caddy.service`, the macOS
+LaunchAgent label. `lt dev install` ended with "Unit file … does not exist", `lt dev up` sent the
+user back to install, doctor FAILed, uninstall left Caddy running. Every Linux test was a recorded
+`ShellRunner` that never compared the name it was called with to the file it had written, and
+`installService` read the host platform, so no Linux path ran on the macOS dev machines at all.
+First run on a real Ubuntu (kaihaase-33, Docker with and without systemd) found it in minutes.
+**Rules:** the systemd unit name is `SYSTEMD_UNIT_NAME`, and `getServicePaths` derives the file name
+from it (`label` is per platform). `installService` / `uninstallService` take `platform`, so the
+Linux wire format is tested on every host, and the test pins `basename(unitFile)` to the name every
+`systemctl` call uses. Four more things only a real Linux showed, all fixed in 1.58.1:
+- **Caddy's apt package** enables a SYSTEM `caddy.service` (root, :2019 and :80) that wins at boot;
+  our user unit then restart-loops on "address already in use". It sets NO file capability
+  (`getcap` empty, it uses `AmbientCapabilities`), contrary to what 1.58.0 claimed.
+  `systemCaddyService` reads `systemctl is-enabled/is-active` (no root), install offers
+  `DISABLE_SYSTEM_CADDY`, gate and doctor name it next to the foreign-Caddy lines.
+- **A running process keeps the capabilities it started with.** After `setcap`, install calls
+  `restartOwnCaddy`; doctor reads `CapEff` of the admin port's listener (both modes), but only via
+  `runningCaddyMissesCapability`, i.e. when the FILE capability is what grants the ports
+  (`privilegedPortGrant`): with `ip_unprivileged_port_start` <= 80 (Docker's default 0) or as root
+  a process never holds the bit, and the first version FAILed there forever with a restart that
+  changes nothing. `lt dev up` names the restart when the file has it and the reload still fails.
+- **`enable --now` does not restart a running unit**, so a changed unit is restarted explicitly.
+- **Playwright's Chromium needs system libraries** on Ubuntu Server / WSL. `playwright install`
+  warns on stderr and exits 0; `ensurePlaywrightBrowsers` reads that warning (it used `stdio:
+  'ignore'`) and names `sudo env "PATH=$PATH" <pm> exec playwright install-deps chromium`.
+Still open there: Node does not resolve `*.localhost` without systemd-resolved or nss-myhostname
+(minimal images; WSL unmeasured), so Node-side calls in a suite get `ENOTFOUND`; doctor warns.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

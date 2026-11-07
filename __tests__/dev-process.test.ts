@@ -485,6 +485,31 @@ describe('probePorts owner lookup — both platform branches, from any host', ()
     }
   });
 
+  it('without lsof (minimal Linux), falls back to ss, and only to LISTENING sockets', async () => {
+    const server = await listen();
+    const ss = [
+      'State  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process',
+      // An accepted connection carries the SERVER's port in its local column and comes first:
+      // without the LISTEN filter its pid would be read as the owner, and `reclaimPort` kills it.
+      `ESTAB  0      0      127.0.0.1:${server.port}      127.0.0.1:51000 users:(("curl",pid=9999,fd=3))`,
+      'LISTEN 0      4096   0.0.0.0:80           0.0.0.0:*',
+      `LISTEN 0      511    127.0.0.1:${server.port}     0.0.0.0:*     users:(("node",pid=4242,fd=23))`,
+    ].join('\n');
+    const asked: string[] = [];
+    const capture = async (command: string): Promise<null | string> => {
+      asked.push(command);
+      return command === 'ss' ? ss : null;
+    };
+    try {
+      const probe = await probePorts([server.port], { capture, platform: 'linux' });
+      expect(asked).toEqual(['lsof', 'ss']);
+      expect(probe.ownersUnavailable).toBe(false);
+      expect(probe.owners.get(server.port)).toEqual({ command: 'node', pid: 4242 });
+    } finally {
+      server.close();
+    }
+  });
+
   it('parses lsof output', async () => {
     const server = await listen();
     const lsof = [

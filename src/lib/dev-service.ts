@@ -36,7 +36,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { homedir, platform, userInfo } from 'os';
 import { dirname, join } from 'path';
 
-import { paths as caddyPaths } from './caddy';
+import { type CaddyOwner, paths as caddyPaths, detectCaddyOwner, stopOwnCaddy } from './caddy';
 import { httpStatus, spawnDetached } from './dev-process';
 import { findExecutable, type FindExecutableOptions } from './platform';
 
@@ -54,8 +54,22 @@ function userHome(): string {
   return process.env.HOME || homedir();
 }
 
-/** Reverse-DNS label for the service. Keep stable — used in launchctl + systemd. */
+/** Reverse-DNS label of the macOS LaunchAgent. Keep stable — launchctl addresses the agent by it. */
 export const SERVICE_LABEL = 'tech.lenne.lt-dev-caddy';
+
+/**
+ * Name of the systemd-user unit, without `.service`. systemd addresses a unit by its FILE name,
+ * so this is the file name and the name every `systemctl --user` call uses. 1.23.0 to 1.58.0
+ * wrote `lt-dev-caddy.service` but called `systemctl` with `tech.lenne.lt-dev-caddy.service`:
+ * `lt dev install` failed on every Linux with "Unit file … does not exist".
+ */
+export const SYSTEMD_UNIT_NAME = 'lt-dev-caddy';
+
+/**
+ * The command that stops and disables the system service of Caddy's apt package (see
+ * {@link systemCaddyService}).
+ */
+export const DISABLE_SYSTEM_CADDY = 'sudo systemctl disable --now caddy';
 
 /** Outcome of `installService`. */
 export interface InstallServiceResult {
@@ -105,6 +119,12 @@ export interface ShellResult {
 /** Pluggable shell runner — tests inject this to mock launchctl/systemctl. */
 export type ShellRunner = (cmd: string, args: string[]) => Promise<ShellResult>;
 
+/** State of the system service of Caddy's apt package ({@link systemCaddyService}). */
+export interface SystemCaddyService {
+  active: boolean;
+  enabled: boolean;
+}
+
 /** Outcome of `uninstallService`. */
 export interface UninstallServiceResult {
   bootedOut: boolean;
@@ -137,6 +157,16 @@ export function caddyLaunchMode(
   return 'manual';
 }
 
+/**
+ * How to restart lt dev's own Caddy by hand, for a hint (see {@link restartOwnCaddy}).
+ * @param mode - The launch mode ({@link caddyLaunchMode})
+ */
+export function caddyRestartCommand(mode: ReturnType<typeof caddyLaunchMode> = caddyLaunchMode()): string {
+  return mode === 'service' && platform() === 'linux'
+    ? `systemctl --user restart ${SYSTEMD_UNIT_NAME}`
+    : 'caddy stop && lt dev up';
+}
+
 /** Compute the file-system locations for the service. Pure. */
 export function getServicePaths(home: string = userHome(), plat = platformSupported()): ServicePaths {
   const logFile = join(home, '.lenneTech', 'caddy.log');
@@ -153,10 +183,10 @@ export function getServicePaths(home: string = userHome(), plat = platformSuppor
   if (plat === 'linux') {
     return {
       errFile,
-      label: SERVICE_LABEL,
+      label: SYSTEMD_UNIT_NAME,
       logFile,
       platform: 'linux',
-      unitFile: join(home, '.config', 'systemd', 'user', 'lt-dev-caddy.service'),
+      unitFile: join(home, '.config', 'systemd', 'user', `${SYSTEMD_UNIT_NAME}.service`),
     };
   }
   return { errFile, label: SERVICE_LABEL, logFile, platform: 'unsupported', unitFile: '' };
@@ -198,9 +228,9 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
  *   - on content change: bootout + bootstrap (= reload)
  */
 export async function installService(
-  opts: { caddyBin?: string; lookup?: FindExecutableOptions } = {},
+  opts: { caddyBin?: string; lookup?: FindExecutableOptions; platform?: ReturnType<typeof platformSupported> } = {},
 ): Promise<InstallServiceResult> {
-  const plat = platformSupported();
+  const plat = opts.platform ?? platformSupported();
   if (plat === 'unsupported') {
     return {
       bootstrapped: false,
@@ -220,7 +250,7 @@ export async function installService(
     };
   }
 
-  const paths = getServicePaths();
+  const paths = getServicePaths(userHome(), plat);
   const cfg: ServiceConfig = {
     caddyBin,
     caddyfile: caddyPaths.caddyfile,
@@ -346,6 +376,37 @@ export async function resolveCaddyBin(options: FindExecutableOptions = {}): Prom
   return findExecutable('caddy', options) ?? undefined;
 }
 
+/**
+ * Restart lt dev's own Caddy, so it gets a file capability set after it started: Linux hands a
+ * process its binary's capabilities when it starts, never later, so the running Caddy keeps
+ * failing every reload with `bind: permission denied` until it is restarted.
+ *
+ * - service running: `systemctl --user restart` (systemd starts it again at once)
+ * - otherwise (on demand, or started by hand): `caddy stop`; the next `lt dev install` /
+ *   `lt dev up` starts it again from lt dev's Caddyfile
+ * A foreign Caddy, or none, is left alone.
+ * @param deps - Injection points (tests)
+ */
+export async function restartOwnCaddy(
+  deps: {
+    detectOwner?: () => Promise<CaddyOwner>;
+    platform?: NodeJS.Platform;
+    stop?: () => Promise<{ result?: { ok: boolean } }>;
+  } = {},
+): Promise<'failed' | 'none' | 'restarted' | 'stopped'> {
+  const owner = await (deps.detectOwner ?? (() => detectCaddyOwner()))();
+  if (owner !== 'ours') return 'none';
+  if ((deps.platform ?? platform()) === 'linux') {
+    const unit = `${SYSTEMD_UNIT_NAME}.service`;
+    const active = await activeRunner('systemctl', ['--user', 'is-active', unit]);
+    if (active.ok && active.stdout.trim() === 'active') {
+      return (await activeRunner('systemctl', ['--user', 'restart', unit])).ok ? 'restarted' : 'failed';
+    }
+  }
+  const stopped = await (deps.stop ?? (() => stopOwnCaddy({ detectOwner: async () => owner })))();
+  return stopped.result?.ok ? 'stopped' : 'failed';
+}
+
 /** Inject a custom runner (tests). Pass `null` to reset to the real spawner. */
 export function setShellRunner(runner: null | ShellRunner): void {
   activeRunner = runner ?? defaultShellRunner;
@@ -387,13 +448,51 @@ export async function startCaddyOnDemand(
   return { logFile, message: `Started Caddy (pid ${spawned.pid}).`, ok: true };
 }
 
+/**
+ * What to say about the system service of Caddy's apt package, or nothing.
+ * @param state - From {@link systemCaddyService}
+ */
+export function systemCaddyLines(state: null | SystemCaddyService): string[] {
+  if (!state) return [];
+  return [
+    state.active
+      ? "It is the system service of Caddy's apt package (caddy.service), which takes ports 2019 and 80 next to lt dev's own Caddy."
+      : "Caddy's apt package enabled its system service (caddy.service): after the next restart it takes ports 2019 and 80 before lt dev's own Caddy does.",
+    `lt dev runs its own Caddy as your user and needs no other one. Stop and disable it: ${DISABLE_SYSTEM_CADDY}`,
+  ];
+}
+
+/**
+ * The system service Caddy's apt package installs (`caddy.service`), when it is enabled or
+ * running. It starts at boot as root on :2019 and :80, before lt dev's user service, which then
+ * fails with "address already in use" in a restart loop, and `lt dev` can only report a foreign
+ * Caddy. Read-only: `systemctl is-enabled` / `is-active` need no root.
+ * @param deps - Injection points (tests)
+ * @returns null when there is no such service, it is neither enabled nor running, or this is no
+ *   Linux with systemd
+ */
+export async function systemCaddyService(
+  deps: { platform?: NodeJS.Platform; systemd?: boolean } = {},
+): Promise<null | SystemCaddyService> {
+  if ((deps.platform ?? platform()) !== 'linux' || !(deps.systemd ?? isSystemdBooted())) return null;
+  const enabled = (await activeRunner('systemctl', ['is-enabled', 'caddy.service'])).stdout.trim();
+  const active = (await activeRunner('systemctl', ['is-active', 'caddy.service'])).stdout.trim();
+  const state = {
+    active: active === 'active' || active === 'activating',
+    enabled: enabled === 'enabled' || enabled === 'enabled-runtime',
+  };
+  return state.active || state.enabled ? state : null;
+}
+
 /** Stop the service and remove the unit file. */
-export async function uninstallService(): Promise<UninstallServiceResult> {
-  const plat = platformSupported();
+export async function uninstallService(
+  opts: { platform?: ReturnType<typeof platformSupported> } = {},
+): Promise<UninstallServiceResult> {
+  const plat = opts.platform ?? platformSupported();
   if (plat === 'unsupported') {
     return { bootedOut: false, message: 'Nothing to uninstall on this platform.', ok: true, removed: [] };
   }
-  const paths = getServicePaths();
+  const paths = getServicePaths(userHome(), plat);
 
   let bootedOut = false;
   if (plat === 'darwin') {
@@ -522,6 +621,19 @@ async function installLinux(paths: ServicePaths, changed: boolean, existed: bool
       message: `systemctl --user enable --now failed: ${enableRes.stderr.trim() || 'unknown error'}`,
       ok: false,
     };
+  }
+  // `enable --now` leaves a RUNNING unit alone, so a changed unit (another caddy binary, a new
+  // Caddyfile path) would only apply after the next login. Restart it so it applies now.
+  if (existed && changed) {
+    const restartRes = await activeRunner('systemctl', ['--user', 'restart', `${paths.label}.service`]);
+    if (!restartRes.ok) {
+      return {
+        bootstrapped: true,
+        created: changed,
+        message: `systemctl --user restart failed: ${restartRes.stderr.trim() || 'unknown error'}`,
+        ok: false,
+      };
+    }
   }
   return {
     bootstrapped: true,

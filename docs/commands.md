@@ -417,7 +417,7 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
 4. Detects a conflicting `brew services caddy` registration and asks you to stop it.
 5. Writes + bootstraps a dedicated service (Windows: starts Caddy instead, then points at `caddy trust`):
    - **macOS:** `~/Library/LaunchAgents/tech.lenne.lt-dev-caddy.plist` via `launchctl bootstrap gui/<uid>`.
-   - **Linux:** `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now`.
+   - **Linux:** `~/.config/systemd/user/lt-dev-caddy.service` via `systemctl --user enable --now lt-dev-caddy.service`; a changed unit is restarted so it applies at once.
 6. Waits up to 8s for Caddy's admin endpoint (`http://127.0.0.1:2019/config/`) to respond.
 7. Validates the Caddyfile.
 8. Reminds you to run the CA trust command **with HOME preserved** (macOS/Linux):
@@ -425,8 +425,9 @@ lt dev install --skip-init   # do NOT auto-run `lt dev init` afterwards
    sudo -E HOME="$HOME" caddy trust
    ```
    Without `-E HOME="$HOME"`, sudo switches HOME to `/var/root` and caddy cannot find its user-scoped CA — this was the bug that blocked the very first install attempt.
-9. **Linux:** checks that Caddy may bind ports 80 and 443 as your user. Linux allows ports below 1024 only with the `cap_net_bind_service` capability on the binary; Caddy's official Debian/Ubuntu package sets it, a binary from GitHub or Homebrew does not, and an update of the binary drops it. Without it, `lt dev install` prints `sudo setcap cap_net_bind_service=+ep <caddy>` (on the real file, not the PATH symlink) and, when you are at the terminal, offers to run it.
-10. **WSL2:** the browser runs on Windows and needs Caddy's root CA in the Windows store. `lt dev install` checks it (`certutil.exe -user -store Root <thumbprint>`) and offers to import it into the current Windows user's trusted roots (`certutil.exe -user -addstore Root …`, no admin rights; Windows asks once); without a terminal it prints that command. Firefox keeps its own store.
+9. **Linux:** checks that Caddy may bind ports 80 and 443 as your user. Linux allows ports below 1024 only with the `cap_net_bind_service` capability on the binary. No usual install sets it on the file: Caddy's Debian/Ubuntu package grants it only to its own system service, a binary from GitHub or Homebrew has none, and an update of the binary drops one set by hand. Without it, `lt dev install` prints `sudo setcap cap_net_bind_service=+ep <caddy>` (on the real file, not the PATH symlink) and, when you are at the terminal, offers to run it, then restarts lt dev's Caddy: a running process keeps the capabilities it started with. `lt dev doctor` reports a running Caddy that started without it.
+10. **Linux with Caddy's apt package:** the package enables its own system service `caddy.service`, which starts at boot as root on ports 2019 and 80, before lt dev's Caddy. `lt dev install` reports it and offers `sudo systemctl disable --now caddy`; `lt dev up` and `lt dev doctor` name it as the cause of a foreign Caddy.
+11. **WSL2:** the browser runs on Windows and needs Caddy's root CA in the Windows store. `lt dev install` checks it (`certutil.exe -user -store Root <thumbprint>`) and offers to import it into the current Windows user's trusted roots (`certutil.exe -user -addstore Root …`, no admin rights; Windows asks once); without a terminal it prints that command. Firefox keeps its own store.
 
 **WSL2 networking:** WSL2's default NAT networking forwards a Windows `localhost` connection into WSL, possibly from the Windows host's address on the virtual switch. Every lt site block lets loopback in and aborts everything else (LAN protection), so in WSL NAT networking it also lets that one address in: the VM's default gateway, read once per `lt` run, because it changes with every WSL restart. Only when `wslinfo --networking-mode` reports `nat`, and never inside a container (a Docker container on a WSL2 kernel would otherwise allow the Docker bridge, which forwards published ports from the LAN). Mirrored networking needs nothing extra. `LT_DEV_WSL_HOST_ADDRESS=<ip>` sets the address by hand when the detection is wrong, `LT_DEV_WSL_HOST_ADDRESS=none` turns it off; `lt dev doctor` shows the address in use.
 
@@ -779,7 +780,7 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 2. Builds the API and applies pending migrations to the test DB (`migrate:up`, with the API's own env, so it hits the same DB). A failed migration aborts the run; a project without a `migrate:up` script starts unmigrated. Then starts the compiled API. Without a build output it falls back to the project's `start` script, which migrates by itself.
 3. Builds the App (`nuxt build`) and serves the Nitro output.
 4. Waits for both to answer and aborts if either never does, so the suite never runs against a dead stack.
-5. Runs `test:e2e [forwarded args]` in the App with the `.lt-dev/.env.test` bridge loaded.
+5. Runs `test:e2e [forwarded args]` in the App with the `.lt-dev/.env.test` bridge loaded. Before that it installs the Chromium build the App's Playwright needs (`playwright install chromium`). On Linux the browser also needs system libraries no download brings (Ubuntu Server, WSL); when Playwright reports them missing, `lt dev test` says so and names the one command that installs them: `sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium`.
 6. Tears the stack down (processes, Caddy block, env bridge, session file) unless `--keep` is set.
 
 The test DB outlives the run: the CLI never drops it. That is why step 2 migrates it: without the migration the DB drifts behind every environment that does migrate. A project whose Playwright global-setup resets the DB gets it passed as `MONGO_URI`.

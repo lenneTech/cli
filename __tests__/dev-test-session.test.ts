@@ -35,6 +35,8 @@ import {
   buildTestAppEnv,
   hasTestSession,
   isStackServing,
+  playwrightHostDepsCommand,
+  playwrightHostDepsMissing,
   resolveTestSession,
   shardReportDir,
   tearDownTestSession,
@@ -42,6 +44,7 @@ import {
   TEST_NITRO_OUTPUT_DIR,
   TEST_NUXT_BUILD_DIR,
   testAppEntryCandidates,
+  testBuildIgnoreGlobs,
   TestSessionLogger,
   unreachableStackError,
 } from '../src/lib/dev-test-session';
@@ -594,5 +597,44 @@ describe('dev-test-session', () => {
       expect(shardReportDir('/root', 1)).toBe(join('/root', '.lt-dev', 'shard.1.playwright-report'));
       expect(shardReportDir('/root', 1)).not.toBe(shardReportDir('/root', 2));
     });
+  });
+});
+
+describe('Chromium system libraries on Linux (lt dev test)', () => {
+  test("reads Playwright's own host validation warning, which `playwright install` prints with exit 0", () => {
+    const stderr = [
+      'Playwright Host validation warning: ',
+      '╔══════════════════════════════════════════════════════╗',
+      '║ Host system is missing dependencies to run browsers. ║',
+      '║ Please install them with the following command:      ║',
+      '║     sudo pnpm exec playwright install-deps           ║',
+    ].join('\n');
+    expect(playwrightHostDepsMissing(stderr)).toBe(true);
+    expect(playwrightHostDepsMissing('')).toBe(false);
+    expect(playwrightHostDepsMissing(null)).toBe(false);
+    expect(playwrightHostDepsMissing('Downloading Chromium 140 … done')).toBe(false);
+  });
+
+  test("names install-deps in the app's package manager, keeping PATH under sudo (fnm/nvm)", () => {
+    const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
+    const npm = pickPackageManager('/does-not-exist', { LT_PM_BIN: 'npm' } as NodeJS.ProcessEnv);
+    expect(playwrightHostDepsCommand(pnpm)).toBe('sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium');
+    expect(playwrightHostDepsCommand(npm)).toBe('sudo env "PATH=$PATH" npm exec -- playwright install-deps chromium');
+  });
+});
+
+describe('testBuildIgnoreGlobs (.gitignore of the test build trees)', () => {
+  test('an Angular app gets only .output-* (no .nuxt tree), a Nuxt app both', () => {
+    const angular = mkdtempSync(join(tmpdir(), 'lt-ignore-ng-'));
+    const nuxt = mkdtempSync(join(tmpdir(), 'lt-ignore-nuxt-'));
+    try {
+      writeFileSync(join(angular, 'angular.json'), '{}');
+      writeFileSync(join(nuxt, 'nuxt.config.ts'), 'export default {};');
+      expect(testBuildIgnoreGlobs(angular)).toEqual(['.output-*']);
+      expect(testBuildIgnoreGlobs(nuxt)).toEqual(['.nuxt-*', '.output-*']);
+    } finally {
+      rmSync(angular, { force: true, recursive: true });
+      rmSync(nuxt, { force: true, recursive: true });
+    }
   });
 });
