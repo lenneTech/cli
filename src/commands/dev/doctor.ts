@@ -14,7 +14,7 @@ import {
   validateCaddyfile,
 } from '../../lib/caddy';
 import { privilegedPortProblem, runningCaddyMissesCapability } from '../../lib/dev-privileged-ports';
-import { probePorts } from '../../lib/dev-process';
+import { probePorts, unseenOwnerIsCaddy } from '../../lib/dev-process';
 import { resolveLayout } from '../../lib/dev-project';
 import {
   caddyLaunchMode,
@@ -23,6 +23,7 @@ import {
   getServiceStatus,
   platformSupported,
   resolveCaddyBin,
+  runningCaddyPid,
   systemCaddyLines,
   systemCaddyService,
 } from '../../lib/dev-service';
@@ -104,6 +105,14 @@ const DoctorCommand: GluegunCommand = {
       const servicePaths = getServicePaths();
       if (svc.installed && svc.loaded) {
         line('OK', colors.green, `lt-dev service loaded (${servicePaths.unitFile})`);
+      } else if (svc.installed && !svc.loaded && svc.state && !['inactive', 'unknown'].includes(svc.state)) {
+        // Enabled but not running: `activating` is systemd's restart loop, `failed` gave up on it.
+        line(
+          'FAIL',
+          colors.red,
+          `lt-dev service is ${svc.state}: Caddy does not stay up — see ${servicePaths.errFile}`,
+        );
+        fails++;
       } else if (svc.installed && !svc.loaded) {
         line('FAIL', colors.red, `service file exists but is not loaded — run \`lt dev install\``);
         fails++;
@@ -142,13 +151,22 @@ const DoctorCommand: GluegunCommand = {
       }
     }
 
-    // 3b. Linux: did lt dev's running Caddy start before `setcap`? A process keeps the capabilities
+    // 3b. Linux: Caddy's apt package enabled its system service. Not running now, so nothing
+    //     collides yet, but at the next boot it takes :2019 and :80 before lt dev's Caddy.
+    if (!foreign) {
+      const [first, ...rest] = systemCaddyLines(await systemCaddyService());
+      if (first) {
+        line('WARN', colors.yellow, first);
+        rest.forEach((text) => info(`         ${text}`));
+      }
+    }
+
+    // 3c. Linux: did lt dev's running Caddy start before `setcap`? A process keeps the capabilities
     //     it started with, so every reload fails with `bind: permission denied` although the file
-    //     is fine. Service and on demand alike: the pid is the admin port's listener.
+    //     is fine. Service and on demand alike (`runningCaddyPid`).
     if (daemon && !foreign && process.platform === 'linux') {
       const bin = await resolveCaddyBin();
-      const adminPort = Number(caddyPaths.admin.split(':').pop());
-      const pid = bin ? (await probePorts([adminPort])).owners.get(adminPort)?.pid : undefined;
+      const pid = bin ? await runningCaddyPid() : undefined;
       if (bin && (await runningCaddyMissesCapability(bin, pid))) {
         line(
           'FAIL',
@@ -210,13 +228,26 @@ const DoctorCommand: GluegunCommand = {
     // and that is reported as its own state rather than folded into either
     // verdict: a bound port we cannot attribute is not "free", and it is not
     // proof that Caddy is blocked either.
-    const portProbe = await probePorts([80, 443]);
+    const adminPort = Number(caddyPaths.admin.split(':').pop());
+    const portProbe = await probePorts([80, 443, adminPort]);
     for (const port of [80, 443]) {
       if (!portProbe.bound.has(port)) {
         line('OK', colors.green, `port ${port} free`);
         continue;
       }
       const owner = portProbe.owners.get(port);
+      if (
+        !owner &&
+        daemon &&
+        !foreign &&
+        process.platform === 'linux' &&
+        unseenOwnerIsCaddy(portProbe, port, adminPort)
+      ) {
+        // A caddy with a file capability is non-dumpable: lsof / ss of the same user see none of
+        // its sockets, the admin port's included (`unseenOwnerIsCaddy`).
+        line('OK', colors.green, `port ${port} in use, by lt dev's Caddy (its sockets are not visible to your user)`);
+        continue;
+      }
       if (!owner) {
         line(
           'WARN',

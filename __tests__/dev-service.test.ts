@@ -34,12 +34,14 @@ import {
   caddyRestartCommand,
   DISABLE_SYSTEM_CADDY,
   getServicePaths,
+  getServiceStatus,
   installService,
   isSystemdBooted,
   platformSupported,
   renderLaunchAgentPlist,
   renderSystemdUnit,
   restartOwnCaddy,
+  runningCaddyPid,
   SERVICE_LABEL,
   ServiceConfig,
   setShellRunner,
@@ -677,5 +679,41 @@ describe('dev-service', () => {
       expect(await restartOwnCaddy({ detectOwner: async () => 'ours', platform: 'linux', stop })).toBe('stopped');
       expect(caddyRestartCommand('on-demand')).toBe('caddy stop && lt dev up');
     });
+  });
+
+  describe('runningCaddyPid', () => {
+    const status = (pid?: number) => async () => ({
+      daemonReachable: true,
+      installed: true,
+      loaded: true,
+      pid,
+      platform: 'linux' as const,
+      unitFile: '',
+    });
+
+    test('the admin port\'s listener when lsof / ss can see it', async () => {
+      const probe = async (ports: number[]) => ({
+        bound: new Set(ports),
+        owners: new Map([[ports[0], { command: 'caddy', pid: 4242 }]]),
+        ownersUnavailable: false,
+      });
+      expect(await runningCaddyPid({ probe, status: status(1) })).toBe(4242);
+    });
+
+    test("a non-dumpable Caddy (file capability) hides its sockets: the service's MainPID", async () => {
+      const probe = async (ports: number[]) => ({ bound: new Set(ports), owners: new Map(), ownersUnavailable: false });
+      expect(await runningCaddyPid({ probe, status: status(1397) })).toBe(1397);
+      expect(await runningCaddyPid({ probe, status: status(undefined) })).toBeUndefined();
+    });
+  });
+
+  test('getServiceStatus reports the unit state, so a restart loop is not called "not loaded"', async () => {
+    seedUnitFile(getServicePaths(tmpHome, 'linux').unitFile, 'x');
+    // `is-active` of a unit systemd keeps restarting: prints `activating`, exits 3.
+    const { calls, runner } = makeRecorder((c) => (c.args[1] === 'is-active' ? { ...fail('', 3), stdout: 'activating\n' } : ok()));
+    setShellRunner(runner);
+    const status = await getServiceStatus({ platform: 'linux' });
+    expect(status).toMatchObject({ installed: true, loaded: false, state: 'activating' });
+    expect(calls[0].args).toEqual(['--user', 'is-active', 'lt-dev-caddy.service']);
   });
 });

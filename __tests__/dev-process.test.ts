@@ -9,6 +9,7 @@ import {
   runChildInherit,
   spawnDetached,
   terminateProcessGroup,
+  unseenOwnerIsCaddy,
   waitForHttp,
   windowsTrampoline,
 } from '../src/lib/dev-process';
@@ -741,5 +742,25 @@ describe('killProcessGroup / terminateProcessGroup — every signal injected, no
       [-4242, 'SIGTERM'],
       [-4242, 'SIGKILL'],
     ]);
+  });
+});
+
+describe('unseenOwnerIsCaddy (doctor: an occupant of 80/443 lsof / ss cannot name)', () => {
+  const probe = (owners: Array<[number, number]>, ownersUnavailable = false) => ({
+    bound: new Set([80, 443, 2019]),
+    owners: new Map(owners.map(([port, pid]) => [port, { command: 'caddy', pid }])),
+    ownersUnavailable,
+  });
+
+  test("a non-dumpable Caddy: 443 and the admin port are equally unseen, so it is lt dev's Caddy", () => {
+    expect(unseenOwnerIsCaddy(probe([]), 443, 2019)).toBe(true);
+  });
+
+  test('the admin port is seen, 80 is not: a root daemon (nginx) holds 80, not our Caddy', () => {
+    expect(unseenOwnerIsCaddy(probe([[2019, 352]]), 80, 2019)).toBe(false);
+  });
+
+  test('no lsof / ss / netstat at all: nothing can be told apart, so no verdict', () => {
+    expect(unseenOwnerIsCaddy(probe([], true), 443, 2019)).toBe(false);
   });
 });

@@ -2124,7 +2124,7 @@ First run on a real Ubuntu (kaihaase-33, Docker with and without systemd) found 
 **Rules:** the systemd unit name is `SYSTEMD_UNIT_NAME`, and `getServicePaths` derives the file name
 from it (`label` is per platform). `installService` / `uninstallService` take `platform`, so the
 Linux wire format is tested on every host, and the test pins `basename(unitFile)` to the name every
-`systemctl` call uses. Four more things only a real Linux showed, all fixed in 1.58.1:
+`systemctl` call uses. What else only a real Linux showed, fixed in 1.58.1 and (second retest) 1.58.2:
 - **Caddy's apt package** enables a SYSTEM `caddy.service` (root, :2019 and :80) that wins at boot;
   our user unit then restart-loops on "address already in use". It sets NO file capability
   (`getcap` empty, it uses `AmbientCapabilities`), contrary to what 1.58.0 claimed.
@@ -2137,9 +2137,17 @@ Linux wire format is tested on every host, and the test pins `basename(unitFile)
   a process never holds the bit, and the first version FAILed there forever with a restart that
   changes nothing. `lt dev up` names the restart when the file has it and the reload still fails.
 - **`enable --now` does not restart a running unit**, so a changed unit is restarted explicitly.
-- **Playwright's Chromium needs system libraries** on Ubuntu Server / WSL. `playwright install`
-  warns on stderr and exits 0; `ensurePlaywrightBrowsers` reads that warning (it used `stdio:
-  'ignore'`) and names `sudo env "PATH=$PATH" <pm> exec playwright install-deps chromium`.
+- **Playwright's Chromium needs system libraries** on Ubuntu Server / WSL, and Playwright's own
+  check does NOT say so: playwright-core 1.64.1 validates `chrome-linux/`, Chrome for Testing
+  unpacks to `chrome-linux64/` / `chrome-linux-arm64/`, the check passes on nothing and writes a
+  30-day marker. 1.58.1 read its stderr warning, which therefore never came (retest: 46 specs red
+  on `libglib-2.0.so.0`, no hint). `missingChromiumLibraries` runs `ldd` on the binaries found via
+  `playwright install --dry-run`'s install locations; the parser tests use real `ldd` output.
+  Then `sudo env "PATH=$PATH" <pm> exec playwright install-deps chromium` is named.
+- **A binary with a file capability is non-dumpable**, so lsof / ss of the same user cannot see a
+  capable Caddy's sockets. `runningCaddyPid` falls back to the service's MainPID; doctor counts an
+  unidentified 80/443 occupant as lt dev's Caddy while that one runs. A `setcap` by hand is
+  caught by the next `lt dev install` (`runningCaddyMissesCapability`), not only by doctor.
 Still open there: Node does not resolve `*.localhost` without systemd-resolved or nss-myhostname
 (minimal images; WSL unmeasured), so Node-side calls in a suite get `ENOTFOUND`; doctor warns.
 

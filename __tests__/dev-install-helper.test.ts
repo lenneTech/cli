@@ -34,6 +34,7 @@ function windows(overrides: Partial<RunInstallDeps> = {}) {
     platform: 'win32',
     portProblem: async () => null,
     restartCaddy: async () => 'none',
+    staleCapability: async () => false,
     systemCaddy: async () => null,
     reload: async () => {
       calls.push('reload');
@@ -222,6 +223,37 @@ describe('runInstall on Linux and in WSL2', () => {
     expect(out.join('\n')).toContain("Restarted lt dev's Caddy");
   });
 
+  test('setcap by hand while Caddy ran: install restarts that Caddy instead of reporting "Setup complete" over it', async () => {
+    const { out, tb } = toolbox();
+    const restarted: string[] = [];
+    const { deps } = linuxOnDemand({
+      portProblem: async () => null,
+      restartCaddy: async () => {
+        restarted.push('restart');
+        return 'stopped';
+      },
+      staleCapability: async () => true,
+    });
+    const result = await runInstall(tb, {}, deps);
+    expect(restarted).toEqual(['restart']);
+    expect(out.join('\n')).toContain("Stopped lt dev's Caddy; it starts again with the capability.");
+    expect(result.blocked).toBe(false);
+  });
+
+  test('a Caddy that already holds the capability is left running', async () => {
+    const { tb } = toolbox();
+    const restarted: string[] = [];
+    const { deps } = linuxOnDemand({
+      restartCaddy: async () => {
+        restarted.push('restart');
+        return 'restarted';
+      },
+      staleCapability: async () => false,
+    });
+    await runInstall(tb, {}, deps);
+    expect(restarted).toEqual([]);
+  });
+
   test("Caddy's apt package enabled its system service: named, and disabled with sudo when the user agrees", async () => {
     const { out, tb } = toolbox();
     const ran: string[][] = [];
@@ -260,6 +292,8 @@ describe('runInstall on Linux and in WSL2', () => {
     expect(result.foreign).toBe(true);
     expect(text).toContain("It is the system service of Caddy's apt package (caddy.service)");
     expect(text).toContain(DISABLE_SYSTEM_CADDY);
+    // Reported once: step 2c names it, the foreign-Caddy block does not repeat it (1.58.1 did).
+    expect(text.split(DISABLE_SYSTEM_CADDY).length - 1).toBe(1);
     expect(ran).toEqual([]);
     expect(calls).not.toContain('start');
   });

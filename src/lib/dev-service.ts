@@ -37,7 +37,7 @@ import { homedir, platform, userInfo } from 'os';
 import { dirname, join } from 'path';
 
 import { type CaddyOwner, paths as caddyPaths, detectCaddyOwner, stopOwnCaddy } from './caddy';
-import { httpStatus, spawnDetached } from './dev-process';
+import { httpStatus, probePorts, spawnDetached } from './dev-process';
 import { findExecutable, type FindExecutableOptions } from './platform';
 
 /**
@@ -105,6 +105,8 @@ export interface ServiceStatus {
   loaded: boolean;
   pid?: number;
   platform: 'darwin' | 'linux' | 'unsupported';
+  /** Linux: `systemctl --user is-active` as printed (`active`, `activating` in a restart loop, `failed`, …). */
+  state?: string;
   unitFile: string;
 }
 
@@ -193,12 +195,15 @@ export function getServicePaths(home: string = userHome(), plat = platformSuppor
 }
 
 /** Current service state — installed/loaded/reachable. */
-export async function getServiceStatus(): Promise<ServiceStatus> {
-  const paths = getServicePaths();
+export async function getServiceStatus(
+  opts: { platform?: ReturnType<typeof platformSupported> } = {},
+): Promise<ServiceStatus> {
+  const paths = getServicePaths(userHome(), opts.platform ?? platformSupported());
   const installed = paths.platform !== 'unsupported' && existsSync(paths.unitFile);
 
   let loaded = false;
   let pid: number | undefined;
+  let state: string | undefined;
   if (paths.platform === 'darwin' && installed) {
     const uid = userInfo().uid;
     const res = await activeRunner('launchctl', ['print', `gui/${uid}/${paths.label}`]);
@@ -207,7 +212,8 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
     if (pidMatch) pid = Number(pidMatch[1]);
   } else if (paths.platform === 'linux' && installed) {
     const res = await activeRunner('systemctl', ['--user', 'is-active', `${paths.label}.service`]);
-    loaded = res.ok && res.stdout.trim() === 'active';
+    state = res.stdout.trim() || undefined;
+    loaded = res.ok && state === 'active';
     if (loaded) {
       const pidRes = await activeRunner('systemctl', ['--user', 'show', `${paths.label}.service`, '-p', 'MainPID']);
       const m = pidRes.stdout.match(/MainPID=(\d+)/);
@@ -216,7 +222,7 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
   }
 
   const daemonReachable = await pingCaddyAdmin();
-  return { daemonReachable, installed, loaded, pid, platform: paths.platform, unitFile: paths.unitFile };
+  return { daemonReachable, installed, loaded, pid, platform: paths.platform, state, unitFile: paths.unitFile };
 }
 
 /**
@@ -405,6 +411,21 @@ export async function restartOwnCaddy(
   }
   const stopped = await (deps.stop ?? (() => stopOwnCaddy({ detectOwner: async () => owner })))();
   return stopped.result?.ok ? 'stopped' : 'failed';
+}
+
+/**
+ * The pid of the Caddy on the admin port: its listener (`probePorts`), else the MainPID of lt
+ * dev's service. A Caddy started from a file with a capability is non-dumpable, so its sockets
+ * are invisible to lsof / ss of the same user; the service's MainPID still names it.
+ * @param deps - Injection points (tests)
+ */
+export async function runningCaddyPid(
+  deps: { probe?: typeof probePorts; status?: () => Promise<ServiceStatus> } = {},
+): Promise<number | undefined> {
+  const port = Number(caddyPaths.admin.split(':').pop());
+  const listener = (await (deps.probe ?? probePorts)([port])).owners.get(port)?.pid;
+  if (listener) return listener;
+  return (await (deps.status ?? getServiceStatus)()).pid;
 }
 
 /** Inject a custom runner (tests). Pass `null` to reset to the real spawner. */

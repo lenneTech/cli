@@ -22,7 +22,11 @@ import {
   reloadCaddy,
   validateCaddyfile,
 } from './caddy';
-import { privilegedPortProblem, type PrivilegedPortProblem } from './dev-privileged-ports';
+import {
+  privilegedPortProblem,
+  type PrivilegedPortProblem,
+  runningCaddyMissesCapability,
+} from './dev-privileged-ports';
 import { runChildInherit } from './dev-process';
 import {
   caddyLaunchMode,
@@ -33,6 +37,7 @@ import {
   installService,
   resolveCaddyBin,
   restartOwnCaddy,
+  runningCaddyPid,
   startCaddyOnDemand,
   systemCaddyLines,
   type SystemCaddyService,
@@ -62,6 +67,8 @@ export interface RunInstallDeps {
   restartCaddy?: () => Promise<'failed' | 'none' | 'restarted' | 'stopped'>;
   /** Run a command with the terminal attached (`sudo setcap …`); resolves to its exit code. */
   runInteractive?: (command: string, args: string[]) => Promise<null | number>;
+  /** Whether lt dev's running Caddy started before its binary got the capability (Linux). */
+  staleCapability?: () => Promise<boolean>;
   start?: () => Promise<{ logFile: string; message: string; ok: boolean }>;
   /** The system service of Caddy's apt package (`dev-service.ts#systemCaddyService`). */
   systemCaddy?: () => Promise<null | SystemCaddyService>;
@@ -146,7 +153,7 @@ export async function runInstall(
   // 2c. Linux: the system service of Caddy's apt package takes :2019 and :80 at boot, before our
   // user service, which then restart-loops on "address already in use". Before the owner check,
   // so a Caddy it holds :2019 with is gone once the person agrees to disable it.
-  await disableSystemCaddy(toolbox, deps);
+  const systemCaddyReported = await disableSystemCaddy(toolbox, deps);
 
   // 3. Whose Caddy holds :2019? A foreign one is left alone, and our service is not installed
   // either: it would crash-loop against the occupied port.
@@ -156,7 +163,10 @@ export async function runInstall(
     const [first, ...rest] = foreignCaddyLines();
     error(first);
     rest.forEach((line) => info(`  ${line}`));
-    systemCaddyLines(await (deps.systemCaddy ?? (() => systemCaddyService()))()).forEach((line) => info(`  ${line}`));
+    // Step 2c printed the system-service lines already when it found one.
+    if (!systemCaddyReported) {
+      systemCaddyLines(await (deps.systemCaddy ?? (() => systemCaddyService()))()).forEach((line) => info(`  ${line}`));
+    }
     return { blocked: true, caddyMissing: false, foreign: true, ok: false, unsupported: false };
   }
   if (owner === 'ours' && caddyfileChanged) {
@@ -241,7 +251,12 @@ async function allowPrivilegedPorts(toolbox: ExtendedGluegunToolbox, deps: RunIn
       return bin ? privilegedPortProblem(bin) : null;
     });
   const problem = await check();
-  if (!problem) return true;
+  if (!problem) {
+    // The file may bind, but a Caddy that ran before a `setcap` by hand still may not: install
+    // reported "Setup complete" and left it failing every reload with `bind: permission denied`.
+    if (await (deps.staleCapability ?? defaultStaleCapability)()) await restartForCapability(toolbox, deps);
+    return true;
+  }
   warning(problem.reason);
   info('  Run once (an update of the caddy binary can undo it):');
   problem.commands.forEach((command) => info(`    ${colors.cyan(command)}`));
@@ -256,12 +271,15 @@ async function allowPrivilegedPorts(toolbox: ExtendedGluegunToolbox, deps: RunIn
   success('caddy may bind ports 80 and 443');
   // A Caddy that already runs keeps the capabilities it started with, i.e. none: restart it, or
   // every reload keeps failing with `bind: permission denied`.
-  const restarted = await (deps.restartCaddy ?? (() => restartOwnCaddy()))();
-  if (restarted === 'restarted') success("Restarted lt dev's Caddy, so it uses the capability.");
-  else if (restarted === 'failed') {
-    warning(`Could not restart lt dev's Caddy. Restart it so it uses the capability: ${caddyRestartCommand()}`);
-  }
+  await restartForCapability(toolbox, deps);
   return true;
+}
+
+/** Linux: whether lt dev's running Caddy started before its binary got the capability. */
+async function defaultStaleCapability(): Promise<boolean> {
+  if (process.platform !== 'linux') return false;
+  const bin = await resolveCaddyBin();
+  return bin ? runningCaddyMissesCapability(bin, await runningCaddyPid()) : false;
 }
 
 /**
@@ -290,18 +308,18 @@ function detectBrewCaddyConflict(): Promise<boolean> {
  * `dev-service.ts#systemCaddyService`). Never blocks the install on its own: an enabled but
  * stopped service only bites after the next restart, a running one shows up as a foreign Caddy.
  */
-async function disableSystemCaddy(toolbox: ExtendedGluegunToolbox, deps: RunInstallDeps): Promise<void> {
+async function disableSystemCaddy(toolbox: ExtendedGluegunToolbox, deps: RunInstallDeps): Promise<boolean> {
   const {
     print: { colors, info, success, warning },
   } = toolbox;
   const read = deps.systemCaddy ?? (() => systemCaddyService());
   const state = await read();
-  if (!state) return;
+  if (!state) return false;
   const [first, ...rest] = systemCaddyLines(state);
   warning(first);
   rest.forEach((line) => info(`  ${line}`));
-  if (!(deps.interactive ?? interactiveSession(toolbox))) return;
-  if (!(await (deps.confirm ?? ((q) => toolbox.prompt.confirm(q)))('Disable it now with sudo?'))) return;
+  if (!(deps.interactive ?? interactiveSession(toolbox))) return true;
+  if (!(await (deps.confirm ?? ((q) => toolbox.prompt.confirm(q)))('Disable it now with sudo?'))) return true;
   const run =
     deps.runInteractive ??
     ((command, args) => runChildInherit(command, args, { cwd: process.cwd(), env: process.env }));
@@ -309,6 +327,7 @@ async function disableSystemCaddy(toolbox: ExtendedGluegunToolbox, deps: RunInst
   await run(command, args);
   if (await read()) warning(`caddy.service is still enabled or running. Run: ${colors.cyan(DISABLE_SYSTEM_CADDY)}`);
   else success('Disabled the system service caddy.service');
+  return true;
 }
 
 /**
@@ -417,5 +436,18 @@ async function printCaTrust(toolbox: ExtendedGluegunToolbox, deps: RunInstallDep
     info(`    ${colors.cyan(prepared.command)}`);
   } else {
     warning(prepared.message);
+  }
+}
+
+/** Restart lt dev's own Caddy so it holds the capability its binary has now. */
+async function restartForCapability(toolbox: ExtendedGluegunToolbox, deps: RunInstallDeps): Promise<void> {
+  const {
+    print: { success, warning },
+  } = toolbox;
+  const restarted = await (deps.restartCaddy ?? (() => restartOwnCaddy()))();
+  if (restarted === 'restarted') success("Restarted lt dev's Caddy, so it uses the capability.");
+  else if (restarted === 'stopped') success("Stopped lt dev's Caddy; it starts again with the capability.");
+  else if (restarted === 'failed') {
+    warning(`Could not restart lt dev's Caddy. Restart it so it uses the capability: ${caddyRestartCommand()}`);
   }
 }

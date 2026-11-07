@@ -9,7 +9,7 @@
  * and the idempotent / residue-free behaviour of `tearDownTestSession`
  * across registry, session file, and env bridge.
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -33,10 +33,15 @@ import { loadRegistry, saveRegistry, saveSession, TEST_SESSION_FILE } from '../s
 import {
   buildShardPlaywrightInvocation,
   buildTestAppEnv,
+  chromiumExecutables,
+  ensurePlaywrightBrowsers,
   hasTestSession,
   isStackServing,
+  lddMissingLibraries,
+  missingChromiumLibraries,
   playwrightHostDepsCommand,
   playwrightHostDepsMissing,
+  playwrightInstallLocations,
   resolveTestSession,
   shardReportDir,
   tearDownTestSession,
@@ -636,5 +641,159 @@ describe('testBuildIgnoreGlobs (.gitignore of the test build trees)', () => {
       rmSync(angular, { force: true, recursive: true });
       rmSync(nuxt, { force: true, recursive: true });
     }
+  });
+});
+
+describe('missing Chromium libraries on Linux, decided by ldd (Playwright 1.64.1 never warns)', () => {
+  // `playwright install --dry-run chromium` of playwright-core 1.64.1 (captured on macOS; the
+  // Linux run prints the same lines with these paths, see the 1.58.1 retest on Ubuntu 24.04 arm64).
+  const DRY_RUN = [
+    'Chrome for Testing 156.0.8078.4 (playwright chromium v1248)',
+    '  Install location:    /home/dev/.cache/ms-playwright/chromium-1248',
+    '  Download url:        https://cdn.playwright.dev/builds/cft/156.0.8078.4/linux-arm64/chrome-linux-arm64.zip',
+    '',
+    'FFmpeg (playwright ffmpeg v1013)',
+    '  Install location:    /home/dev/.cache/ms-playwright/ffmpeg-1013',
+    '  Download url:        https://cdn.playwright.dev/dbazure/download/playwright/builds/ffmpeg/1013/ffmpeg-linux-arm64.zip',
+    '',
+    'Chrome Headless Shell 156.0.8078.4 (playwright chromium-headless-shell v1248)',
+    '  Install location:    /home/dev/.cache/ms-playwright/chromium_headless_shell-1248',
+    '  Download url:        https://cdn.playwright.dev/builds/cft/156.0.8078.4/linux-arm64/chrome-headless-shell-linux-arm64.zip',
+    '',
+  ].join('\n');
+  // `ldd` of glibc on Ubuntu 24.04 aarch64 with one library removed (captured verbatim): the
+  // missing one is listed twice, and ldd exits 0.
+  const LDD_REAL = [
+    '\tlinux-vdso.so.1 (0x0000ffffb2629000)',
+    '\tlibapt-private.so.0.0 => /lib/aarch64-linux-gnu/libapt-private.so.0.0 (0x0000ffffb2530000)',
+    '\tlibapt-pkg.so.6.0 => not found',
+    '\tlibstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000ffffb22a0000)',
+    '\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffffb20a0000)',
+    '\t/lib/ld-linux-aarch64.so.1 (0x0000ffffb25e0000)',
+    '\tlibapt-pkg.so.6.0 => not found',
+  ].join('\n');
+
+  test('reads every install location from the dry run', () => {
+    expect(playwrightInstallLocations(DRY_RUN)).toEqual([
+      '/home/dev/.cache/ms-playwright/chromium-1248',
+      '/home/dev/.cache/ms-playwright/ffmpeg-1013',
+      '/home/dev/.cache/ms-playwright/chromium_headless_shell-1248',
+    ]);
+  });
+
+  test('reads the not-found libraries from real ldd output, once each', () => {
+    expect(lddMissingLibraries(LDD_REAL)).toEqual(['libapt-pkg.so.6.0']);
+    expect(lddMissingLibraries('\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffffb20a0000)')).toEqual([]);
+  });
+
+  test('finds the binaries in the Chrome for Testing folders Playwright\'s own check misses', () => {
+    const root = mkdtempSync(join(tmpdir(), 'lt-pw-cache-'));
+    try {
+      const make = (rel: string) => {
+        const file = join(root, rel);
+        mkdirSync(join(file, '..'), { recursive: true });
+        writeFileSync(file, '');
+      };
+      make('chromium-1248/chrome-linux-arm64/chrome');
+      make('chromium_headless_shell-1248/chrome-headless-shell-linux-arm64/chrome-headless-shell');
+      make('ffmpeg-1013/ffmpeg-linux');
+      expect(chromiumExecutables(join(root, 'chromium-1248'))).toEqual([
+        join(root, 'chromium-1248/chrome-linux-arm64/chrome'),
+      ]);
+      expect(chromiumExecutables(join(root, 'chromium_headless_shell-1248'))).toEqual([
+        join(root, 'chromium_headless_shell-1248/chrome-headless-shell-linux-arm64/chrome-headless-shell'),
+      ]);
+      expect(chromiumExecutables(join(root, 'ffmpeg-1013'))).toEqual([]);
+      expect(chromiumExecutables(join(root, 'not-there'))).toEqual([]);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
+
+  test('dry run, then ldd on each binary: the union of what is missing, sorted', () => {
+    const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
+    const calls: string[] = [];
+    const files: Record<string, string[]> = {
+      '/home/dev/.cache/ms-playwright/chromium-1248': ['chrome-linux-arm64', 'INSTALLATION_COMPLETE'],
+      '/home/dev/.cache/ms-playwright/chromium_headless_shell-1248': ['chrome-headless-shell-linux-arm64'],
+      '/home/dev/.cache/ms-playwright/ffmpeg-1013': ['ffmpeg-linux'],
+    };
+    // Built with the same `join` as the code, so the expectation holds on the Windows runner too.
+    const chrome = join('/home/dev/.cache/ms-playwright/chromium-1248', 'chrome-linux-arm64', 'chrome');
+    const shell = join(
+      '/home/dev/.cache/ms-playwright/chromium_headless_shell-1248',
+      'chrome-headless-shell-linux-arm64',
+      'chrome-headless-shell',
+    );
+    const missing = missingChromiumLibraries('/app', pnpm, {
+      exists: (path) => [chrome, shell].includes(path),
+      platform: 'linux',
+      readdir: (dir) => files[dir] ?? [],
+      run: (command, args) => {
+        calls.push([command, ...args].join(' '));
+        if (command === 'ldd') {
+          return {
+            status: 0,
+            stdout: args[0] === chrome
+              ? '\tlibglib-2.0.so.0 => not found\n\tlibnss3.so => not found'
+              : '\tlibglib-2.0.so.0 => not found',
+          };
+        }
+        return { status: 0, stdout: DRY_RUN };
+      },
+    });
+    expect(missing).toEqual(['libglib-2.0.so.0', 'libnss3.so']);
+    expect(calls).toEqual(['pnpm exec playwright install --dry-run chromium', `ldd ${chrome}`, `ldd ${shell}`]);
+  });
+
+  test('not Linux, or a dry run that fails: nothing checked, nothing reported', () => {
+    const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
+    let ran = false;
+    const run = () => {
+      ran = true;
+      return { status: 1, stdout: '' };
+    };
+    expect(missingChromiumLibraries('/app', pnpm, { platform: 'darwin', run })).toEqual([]);
+    expect(ran).toBe(false);
+    expect(missingChromiumLibraries('/app', pnpm, { platform: 'linux', run })).toEqual([]);
+  });
+});
+
+describe('ensurePlaywrightBrowsers warns before the suite (the 1.58.1 hint never came)', () => {
+  const pnpm = pickPackageManager('/does-not-exist', {} as NodeJS.ProcessEnv);
+  // What Playwright 1.64.1 really does on a fresh Ubuntu: exit 0, nothing on stderr.
+  const silentInstall = () => ({ status: 0, stderr: '' });
+
+  test('libraries missing although Playwright stays silent: a warning that names them and the fix', () => {
+    const warnings: string[] = [];
+    ensurePlaywrightBrowsers('/app', pnpm, undefined, (m) => warnings.push(m), {
+      install: silentInstall,
+      missing: () => ['libasound.so.2', 'libglib-2.0.so.0', 'libnss3.so', 'libnspr4.so'],
+    });
+    expect(warnings[0]).toContain('libasound.so.2, libglib-2.0.so.0, libnss3.so and 1 more');
+    expect(warnings[1]).toBe(`  Install them once: ${playwrightHostDepsCommand(pnpm)}`);
+  });
+
+  test('nothing missing: no warning', () => {
+    const warnings: string[] = [];
+    ensurePlaywrightBrowsers('/app', pnpm, undefined, (m) => warnings.push(m), {
+      install: silentInstall,
+      missing: () => [],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('a failed install says so and skips the library check', () => {
+    const infos: string[] = [];
+    let checked = false;
+    ensurePlaywrightBrowsers('/app', pnpm, (m) => infos.push(m), undefined, {
+      install: () => ({ status: 1, stderr: '' }),
+      missing: () => {
+        checked = true;
+        return ['libglib-2.0.so.0'];
+      },
+    });
+    expect(infos[0]).toContain('playwright install chromium failed');
+    expect(checked).toBe(false);
   });
 });

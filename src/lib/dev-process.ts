@@ -491,6 +491,26 @@ export async function terminateProcessGroup(
 }
 
 /**
+ * Whether a bound port whose owner {@link probePorts} could not name belongs to lt dev's Caddy:
+ * only when the Caddy admin port is just as unnamed. A Caddy started from a file with a
+ * capability is non-dumpable, so lsof / ss of the same user see none of its sockets. A root
+ * daemon on :80 (nginx, apache) is invisible too, but then lt dev's Caddy on the admin port is
+ * visible, and the unseen occupant is someone else.
+ * @param probe - A probe that covered `port` AND `adminPort`
+ * @param port - The port in question (80 / 443)
+ * @param adminPort - Caddy's admin port
+ */
+export function unseenOwnerIsCaddy(probe: PortProbe, port: number, adminPort: number): boolean {
+  return (
+    !probe.ownersUnavailable &&
+    probe.bound.has(port) &&
+    !probe.owners.has(port) &&
+    probe.bound.has(adminPort) &&
+    !probe.owners.has(adminPort)
+  );
+}
+
+/**
  * Poll an HTTPS/HTTP URL until a matching response is observed or `timeoutMs`
  * elapses.
  *

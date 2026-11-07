@@ -62,6 +62,15 @@ export interface BringUpOptions {
   skipBuild?: boolean;
 }
 
+/** Injection points for {@link missingChromiumLibraries}. */
+export interface ChromiumLibraryDeps {
+  exists?: (path: string) => boolean;
+  platform?: NodeJS.Platform;
+  readdir?: (dir: string) => string[];
+  /** Runs a program without a shell; `stdout` only. */
+  run?: (command: string, args: readonly string[], cwd: string) => { status: null | number; stdout: string };
+}
+
 /** Inputs of {@link startTestApi}. */
 export interface StartTestApiOptions {
   apiDir: string;
@@ -115,6 +124,28 @@ export interface TestSessionLogger {
 }
 
 /**
+ * The Chromium binaries inside one Playwright install location: `chrome` of a full build and
+ * `chrome-headless-shell` of the headless shell, in whichever `chrome*` folder the build unpacked
+ * to (`chrome-linux64`, `chrome-linux-arm64`, `chrome-headless-shell-linux64`, the older
+ * `chrome-linux`, …).
+ * @param dir - An install location (`playwrightInstallLocations`)
+ * @param deps - Injection points (tests)
+ */
+export function chromiumExecutables(dir: string, deps: ChromiumLibraryDeps = {}): string[] {
+  const exists = deps.exists ?? existsSync;
+  let entries: string[];
+  try {
+    entries = (deps.readdir ?? ((d: string) => readdirSync(d)))(dir);
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.startsWith('chrome'))
+    .flatMap((entry) => ['chrome', 'chrome-headless-shell'].map((bin) => join(dir, entry, bin)))
+    .filter((path) => exists(path));
+}
+
+/**
  * Make sure the Playwright browser build the app's OWN playwright version needs
  * is installed. A freshly created (or freshly updated) project ships a
  * playwright.config, but the per-version browser build
@@ -128,15 +159,22 @@ export interface TestSessionLogger {
  *
  * On Linux the browser also needs system libraries that no download brings
  * (Ubuntu Server, WSL: 46 of 59 specs failed on `libglib-2.0.so.0`, with no word
- * about the cause). `playwright install` checks for them and warns on stderr
- * while still exiting 0, so that warning is read here and turned into the one
- * command that installs them ({@link playwrightHostDepsCommand}).
+ * about the cause). Playwright's own warning for that never fires for Chrome for
+ * Testing builds ({@link missingChromiumLibraries}), so `ldd` on the installed
+ * binaries decides, and the warning is turned into the one command that installs
+ * them ({@link playwrightHostDepsCommand}).
  */
 export function ensurePlaywrightBrowsers(
   appDir: string,
   pm: PackageManagerCommand,
   logInfo?: (message: string) => void,
   logWarning?: (message: string) => void,
+  deps: {
+    /** Runs `playwright install chromium` (tests). */
+    install?: (bin: string, args: string[], cwd: string) => { error?: Error; status: null | number; stderr?: string };
+    /** {@link missingChromiumLibraries} (tests). */
+    missing?: (appDir: string, pm: PackageManagerCommand) => string[];
+  } = {},
 ): void {
   const note = (): void => {
     logInfo?.('playwright install chromium failed — continuing (the suite reports missing browsers itself).');
@@ -147,17 +185,78 @@ export function ensurePlaywrightBrowsers(
     // `execFileSync` this replaced — so the status is checked explicitly.
     // Without it the failure would be silent and the suite would die later on a
     // missing browser, which reads as a broken spec rather than a missing install.
-    const result = spawnCmdSync(pm.bin, args, { cwd: appDir, stdio: ['ignore', 'ignore', 'pipe'], timeout: 300_000 });
+    const result = (
+      deps.install ??
+      ((bin, argv, cwd) => spawnCmdSync(bin, argv, { cwd, stdio: ['ignore', 'ignore', 'pipe'], timeout: 300_000 }))
+    )(pm.bin, args, appDir);
     if (result.error || result.status !== 0) {
       note();
-    } else if (playwrightHostDepsMissing(result.stderr)) {
+      return;
+    }
+    const missing = (deps.missing ?? missingChromiumLibraries)(appDir, pm);
+    if (missing.length > 0 || playwrightHostDepsMissing(result.stderr)) {
+      const names =
+        missing.length > 3 ? `${missing.slice(0, 3).join(', ')} and ${missing.length - 3} more` : missing.join(', ');
       const warn = logWarning ?? logInfo;
-      warn?.('Chromium cannot start here: system libraries it needs are missing, so every browser spec would fail.');
+      warn?.(
+        `Chromium cannot start here: system libraries it needs are missing${names ? ` (${names})` : ''}, so every browser spec would fail.`,
+      );
       warn?.(`  Install them once: ${playwrightHostDepsCommand(pm)}`);
     }
   } catch {
     note();
   }
+}
+
+/**
+ * The libraries `ldd` reports as `not found` (glibc's format: `\tlibglib-2.0.so.0 => not found`,
+ * a library may appear twice; `ldd` still exits 0).
+ * @param stdout - Output of `ldd <binary>`
+ */
+export function lddMissingLibraries(stdout: string): string[] {
+  const missing = new Set<string>();
+  for (const line of stdout.split('\n')) {
+    const match = line.match(/^\s*(\S+)\s+=>\s+not found\s*$/);
+    if (match) missing.add(match[1]);
+  }
+  return [...missing];
+}
+
+/**
+ * Linux: the system libraries the installed Chromium builds cannot load, from `ldd` on each.
+ *
+ * Playwright's own check after `playwright install` misses them: playwright-core 1.64.1 looks
+ * for the binaries in `chrome-linux/`, but Chrome for Testing unpacks to `chrome-linux64/` or
+ * `chrome-linux-arm64/`. The check finds nothing, passes, and writes a marker that skips it for
+ * 30 days (measured on Ubuntu 24.04: stderr empty, exit 0, then 46 specs failed on
+ * `libglib-2.0.so.0`). The install locations come from `playwright install --dry-run chromium`,
+ * which honours `PLAYWRIGHT_BROWSERS_PATH`.
+ * @param appDir - The app project (its Playwright decides the build)
+ * @param pm - The app's package manager
+ * @param deps - Injection points (tests)
+ * @returns The missing libraries, sorted; empty when none, not Linux, or nothing could be checked
+ */
+export function missingChromiumLibraries(
+  appDir: string,
+  pm: PackageManagerCommand,
+  deps: ChromiumLibraryDeps = {},
+): string[] {
+  if ((deps.platform ?? process.platform) !== 'linux') return [];
+  const run =
+    deps.run ??
+    ((command: string, args: readonly string[], cwd: string) => {
+      const result = spawnCmdSync(command, args, { cwd, stdio: ['ignore', 'pipe', 'ignore'], timeout: 60_000 });
+      return { status: result.status, stdout: result.stdout ?? '' };
+    });
+  const dryRun = run(pm.bin, pm.exec('playwright', ['install', '--dry-run', 'chromium']), appDir);
+  if (dryRun.status !== 0) return [];
+  const missing = new Set<string>();
+  for (const dir of playwrightInstallLocations(dryRun.stdout)) {
+    for (const binary of chromiumExecutables(dir, deps)) {
+      lddMissingLibraries(run('ldd', [binary], appDir).stdout).forEach((lib) => missing.add(lib));
+    }
+  }
+  return [...missing].sort();
 }
 
 /**
@@ -177,6 +276,17 @@ export function playwrightHostDepsCommand(pm: PackageManagerCommand): string {
  */
 export function playwrightHostDepsMissing(stderr: null | string | undefined): boolean {
   return Boolean(stderr && /Host system is missing dependencies to run browsers/i.test(stderr));
+}
+
+/**
+ * The install locations `playwright install --dry-run` prints (`  Install location:    <dir>`).
+ * @param stdout - Its output
+ */
+export function playwrightInstallLocations(stdout: string): string[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.match(/^\s*Install location:\s+(.+?)\s*$/)?.[1])
+    .filter((dir): dir is string => Boolean(dir) && dir !== '<system>');
 }
 
 const TEST_API_LOG = 'api.test.log';
