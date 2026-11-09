@@ -484,6 +484,8 @@ lt dev init --skip-install   # do NOT auto-run `lt dev install` first
 
 Start API + App behind Caddy. Allocates internal ports (4000+), spawns processes detached, persists PIDs to `<root>/.lt-dev/state.json`.
 
+`lt dev up` reports "Started" only once every freshly started component listens on its internal port, so it returns after the boot, not before it. When a component dies during its start (for example in `migrate:up`), or is still running without listening after 60 seconds (the grace window `lt dev status` uses too), the command exits 1 and prints the last lines of `.lt-dev/api.log` or `.lt-dev/app.log`. A component that was already running is kept and not waited for.
+
 A running stack answers only requests from this machine: every site block in `~/.lenneTech/Caddyfile` aborts connections from other addresses (`@lt_remote not remote_ip 127.0.0.0/8 ::1` + `abort @lt_remote`). Caddy itself still listens on all interfaces, because macOS lets an unprivileged process bind ports below 1024 only on the wildcard address. `lt dev up` rewrites the project's block, also when the stack is already running, and removes the `default_bind 127.0.0.1 [::1]` that CLI 1.51.0/1.51.1 wrote: with it, Caddy could not bind port 443 on macOS and every reload failed. If Caddy did not even start because of that line (after a reboot, for example), `lt dev up`, `lt dev test` and `lt dev tunnel` repair the file first and wait for the service to restart Caddy.
 
 **Usage:**
@@ -1246,6 +1248,8 @@ lt fullstack init [options]
 **Git identity:** the initial commit needs `user.name` and `user.email`. `init` asks git (`git var GIT_AUTHOR_IDENT` / `GIT_COMMITTER_IDENT`, in a throwaway repository in the target directory, so an `includeIf "gitdir:…"` identity counts) before it clones anything and stops with the two `git config --global` commands when git has no identity. Everything `init` writes, the `lt dev` registration included, is part of the initial commit, so the working tree is clean afterwards.
 
 **Angular:** `src/app/shared/site.ts` (ng-base-starter 22.0.1+) gets the project name as `SITE_NAME` (browser title) and `SITE_REPO_URL = null`, which hides the starter's GitHub link; the static `<title>` fallback in `src/index.html` follows while it still shows the starter's name. `lt fullstack add-app` and `lt frontend angular` do the same.
+
+**Nuxt:** `app/utils/site.ts` gets the same two values: the project name as `SITE_NAME` (head title and header, read by `nuxt.config.ts`) and `SITE_REPO_URL = null`, which hides the starter's GitHub links. `lt fullstack add-app` and `lt frontend nuxt` do the same. A starter without that file (older releases, the `next` branch) is set up unchanged.
 
 **Agent notes:** the templates are public, so their `.gitignore` keeps the agent notes out of git (`**/.claude/agent-memory` plus the comment above it). A generated project is usually private and decides for itself whether to share its notes, so the rule is removed: without `--public` an interactive run asks, a non-interactive one (`--noConfirm`, no TTY) removes it. `--public` keeps it; `--no-public` / `--public=false` removes it without asking. `lt fullstack add-api`, `lt fullstack add-app` and `lt server create` apply the same rule to the project they create.
 

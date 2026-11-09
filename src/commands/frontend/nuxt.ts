@@ -219,6 +219,7 @@ const NewCommand: GluegunCommand = {
       branch,
       copyPath,
       linkPath,
+      siteName: projName,
       skipInstall: false, // clone-based setup installs here (create-nuxt-base no longer used)
     });
 

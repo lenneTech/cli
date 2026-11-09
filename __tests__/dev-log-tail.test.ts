@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { describeLog, diagnoseLog, findEarlyExits, isSilentLog, tailLines } from '../src/lib/dev-log-tail';
+import { describeLog, diagnoseLog, isSilentLog, tailLines } from '../src/lib/dev-log-tail';
 
 describe('dev-log-tail', () => {
   const dir = mkdtempSync(join(tmpdir(), 'lt-log-tail-'));
@@ -82,35 +82,12 @@ describe('dev-log-tail', () => {
     expect(isSilentLog(diagnoseLog(file), '2026-09-23T12:00:00Z', Date.parse('2026-09-23T13:00:00Z'))).toBe(false);
   });
 
-  it('findEarlyExits names a component whose pid dies within the window, and only that one', async () => {
-    let t = 0;
-    const alive = (pid: number) => !(pid === 2 && t >= 2); // app (pid 2) dies on the third look
-    // The window ends on the real clock, and the instant sleep makes the loop spin until then
-    // because api never dies: keep the budget short (it was 60 s of busy loop).
-    const dead = await findEarlyExits(
-      [
-        { name: 'api', pid: 1 },
-        { name: 'app', pid: 2 },
-        { name: 'skipped', pid: undefined },
-      ],
-      { budgetMs: 200, isAlive: (pid) => alive(pid), sleep: async () => void t++ },
-    );
-    expect(dead).toEqual(['app']);
-  });
-
-  it('findEarlyExits returns nothing when everything stays up for the whole window', async () => {
-    const dead = await findEarlyExits([{ name: 'api', pid: 1 }], {
-      budgetMs: 50,
-      isAlive: () => true,
-      sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 10))),
-    });
-    expect(dead).toEqual([]);
-  });
-
   it('up and status actually use it (wiring, not behaviour: the commands have no harness)', () => {
     const { readFileSync } = require('fs');
     const src = (f: string) => readFileSync(join(__dirname, '..', 'src', 'commands', 'dev', f), 'utf8');
-    expect(src('up.ts')).toMatch(/findEarlyExits\(/);
+    // up waits for its fresh components (behaviour: dev-startup.test.ts, DEV-4130)
+    expect(src('up.ts')).toMatch(/waitForStartup\(/);
+    expect(src('up.ts')).not.toMatch(/findEarlyExits/);
     expect(src('up.ts')).toMatch(/describeLog\(diagnoseLog\(/);
     expect(src('status.ts')).toMatch(/isSilentLog\(/);
     expect(src('status.ts')).toMatch(/describeLog\(diagnoseLog\(/);

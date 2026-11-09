@@ -17,7 +17,7 @@
 # For each scenario:
 #   - Structural sanity check (app/core/VENDOR.md, nuxt.config.ts, package.json)
 #   - Consumer import codemod verification (4 explicit imports in nuxt-base-starter)
-#   - `pnpm run build` in projects/app
+#   - `pnpm run build` of the app (projects/app in the init scenarios)
 #
 # Usage:
 #
@@ -32,6 +32,10 @@
 #
 # Runs against the LOCAL CLI build at bin/lt. Rebuild first via:
 #   pnpm run clean-build && pnpm run compile && pnpm run copy-templates
+# LT_IT_CLI_BIN=<dir>/node_modules/@lenne.tech/cli/bin/lt runs a packed or published CLI instead.
+#
+# The convert scenarios copy nuxt-base-starter from /tmp/lt-fvt-template-cache. Every run checks
+# that cache against origin/main and clones again when origin moved.
 #
 # Exit code 0 = all scenarios passed.
 # Exit code 1 = any scenario failed.
@@ -41,7 +45,10 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLI_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-CLI_BIN="${CLI_ROOT}/bin/lt"
+# LT_IT_CLI_BIN: a packed or published CLI (`npm i <tgz>` or `npm i @lenne.tech/cli@<version>` into
+# an empty directory) runs the compiled build in npm's flat layout, as `npx -p @lenne.tech/cli` does.
+# bin/lt from this checkout runs the TypeScript sources instead and cannot show a packaging fault.
+CLI_BIN="${LT_IT_CLI_BIN:-${CLI_ROOT}/bin/lt}"
 WORK_DIR="/tmp/lt-fvt"
 TEMPLATE_CACHE="/tmp/lt-fvt-template-cache"
 TEMPLATE_REPO="https://github.com/lenneTech/nuxt-base-starter.git"
@@ -174,21 +181,47 @@ verify_fullstack_check() {
   fi
 }
 
+# The cache outlives a run (--keep, or any failed run), and reusing it unchecked tests whatever
+# starter it was cloned from: on 2026-11-07 a cache from the day before still pinned nuxt-extensions
+# 1.26.0 while main pinned 4.0.0 (DEV-4142). So every run compares it with origin and clones again
+# when origin moved. When origin cannot be read, the run stops instead of trusting the cache: the
+# init scenarios clone from GitHub anyway.
 ensure_template_cache() {
-  if [ -d "$TEMPLATE_CACHE/nuxt-base-template" ]; then
-    return 0
-  fi
-  echo "  [SETUP] Cloning $TEMPLATE_REPO ($TEMPLATE_REF) into $TEMPLATE_CACHE..."
-  rm -rf "$TEMPLATE_CACHE"
-  git clone --depth 1 --branch "$TEMPLATE_REF" "$TEMPLATE_REPO" "$TEMPLATE_CACHE" >/dev/null 2>&1 || {
-    echo -e "  ${RED}[FAIL]${RESET} Failed to clone $TEMPLATE_REPO"
-    return 1
-  }
-  if [ ! -d "$TEMPLATE_CACHE/nuxt-base-template" ]; then
-    echo -e "  ${RED}[FAIL]${RESET} Cloned repo does not contain nuxt-base-template/ subdirectory"
+  local refs remote_head cached_head pin
+  if ! refs=$(GIT_TERMINAL_PROMPT=0 git ls-remote "$TEMPLATE_REPO" "refs/heads/$TEMPLATE_REF" 2>/dev/null); then
+    echo -e "  ${RED}[FAIL]${RESET} Cannot read $TEMPLATE_REF of $TEMPLATE_REPO, so the template cache cannot be checked against it"
     return 1
   fi
-  echo "  [SETUP] Template cache ready."
+  remote_head="${refs%%[[:space:]]*}"
+  if [ -z "$remote_head" ]; then
+    echo -e "  ${RED}[FAIL]${RESET} $TEMPLATE_REPO has no branch $TEMPLATE_REF"
+    return 1
+  fi
+
+  cached_head=$(git -C "$TEMPLATE_CACHE" rev-parse HEAD 2>/dev/null || true)
+  if [ -d "$TEMPLATE_CACHE/nuxt-base-template" ] && [ "$cached_head" = "$remote_head" ]; then
+    echo "  [SETUP] Template cache matches origin/$TEMPLATE_REF."
+  else
+    if [ -n "$cached_head" ]; then
+      echo "  [SETUP] Template cache is at ${cached_head:0:7}, origin/$TEMPLATE_REF at ${remote_head:0:7}: cloning again."
+    else
+      echo "  [SETUP] Cloning $TEMPLATE_REPO ($TEMPLATE_REF) into $TEMPLATE_CACHE..."
+    fi
+    rm -rf "$TEMPLATE_CACHE"
+    git clone --depth 1 --branch "$TEMPLATE_REF" "$TEMPLATE_REPO" "$TEMPLATE_CACHE" >/dev/null 2>&1 || {
+      echo -e "  ${RED}[FAIL]${RESET} Failed to clone $TEMPLATE_REPO"
+      return 1
+    }
+    if [ ! -d "$TEMPLATE_CACHE/nuxt-base-template" ]; then
+      echo -e "  ${RED}[FAIL]${RESET} Cloned repo does not contain nuxt-base-template/ subdirectory"
+      return 1
+    fi
+  fi
+
+  # Name what the convert scenarios test, so a log says which starter it covered.
+  pin=$(node -p "require(process.argv[1]).dependencies['@lenne.tech/nuxt-extensions']" \
+    "$TEMPLATE_CACHE/nuxt-base-template/package.json" 2>/dev/null || echo '?')
+  echo "  [SETUP] Template: nuxt-base-starter $(git -C "$TEMPLATE_CACHE" log -1 --format='%h (%cd)' --date=short), pins @lenne.tech/nuxt-extensions $pin"
 }
 
 copy_template_to() {
@@ -337,6 +370,7 @@ scenario_convert_round_trip() {
     return 1
   }
   assert_vendor_structure "$dest"
+  build_project "$dest"
 }
 
 scenario_init_both_vendor() {
@@ -414,6 +448,9 @@ sys.exit(1 if leftover else 0)
   # Soft compat gate — template drift doesn't fail the suite.
   verify_fullstack_check "$project/projects/api"
   verify_fullstack_check "$project/projects/app"
+
+  # Hard: the vendored app must build. Lint and tests alone did not cover it (DEV-4142).
+  build_project "$project/projects/app"
 }
 
 scenario_init_frontend_vendor_only() {
@@ -446,6 +483,9 @@ scenario_init_frontend_vendor_only() {
 
   # Fullstack-compat for frontend-only-vendor scenario
   verify_fullstack_check "$project/projects/app"
+
+  # Hard: the vendored app must build (DEV-4142).
+  build_project "$project/projects/app"
 }
 
 # ── Main ─────────────────────────────────────────────────────────────────

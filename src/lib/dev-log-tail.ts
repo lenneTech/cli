@@ -56,29 +56,6 @@ export function diagnoseLog(file: string, lines = 20, maxBytes = TAIL_BYTES): Lo
 }
 
 /**
- * Components whose pid is gone within `budgetMs` of their start.
- *
- * Catches what dies at once: a missing script, a package manager that cannot
- * start, a crash before any watcher takes over. A crash under nodemon keeps the
- * supervisor alive and is `lt dev status`'s job (`crashed` after the grace window).
- */
-export async function findEarlyExits(
-  components: { name: string; pid: number | undefined }[],
-  opts: { budgetMs: number; isAlive: (pid: number) => boolean; sleep?: (ms: number) => Promise<void> },
-): Promise<string[]> {
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-  const watched = components.filter((c): c is { name: string; pid: number } => typeof c.pid === 'number');
-  const dead = new Set<string>();
-  const deadline = Date.now() + opts.budgetMs;
-  do {
-    for (const c of watched) if (!dead.has(c.name) && !opts.isAlive(c.pid)) dead.add(c.name);
-    if (dead.size === watched.length) break;
-    await sleep(250);
-  } while (Date.now() < deadline);
-  return watched.filter((c) => dead.has(c.name)).map((c) => c.name);
-}
-
-/**
  * True when a component has been up for `minAgeMs` and its log is still empty.
  * A booting app writes within seconds (nuxt/nest print a banner), so an empty
  * log after that means output is going somewhere else, not that nothing happened.

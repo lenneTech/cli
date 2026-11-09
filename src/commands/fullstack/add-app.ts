@@ -294,6 +294,7 @@ const NewCommand: GluegunCommand = {
           branch: frontendBranch,
           copyPath: frontendCopy,
           linkPath: frontendLink,
+          siteName: projectName,
           skipInstall: true,
         })
       : await frontendHelper.setupAngular(appDest, {

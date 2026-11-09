@@ -627,6 +627,7 @@ const NewCommand: GluegunCommand = {
         branch: frontendBranch,
         copyPath: frontendCopy,
         linkPath: frontendLink,
+        siteName: name,
         skipInstall: true, // Will install at monorepo level
       });
     } else {

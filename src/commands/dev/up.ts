@@ -11,7 +11,7 @@ import { buildDevEnv } from '../../lib/dev-env';
 import { writeEnvBridge } from '../../lib/dev-env-bridge';
 import { classicFallbackLine } from '../../lib/dev-fallback';
 import { buildIdentity } from '../../lib/dev-identity';
-import { describeLog, diagnoseLog, findEarlyExits } from '../../lib/dev-log-tail';
+import { describeLog, diagnoseLog } from '../../lib/dev-log-tail';
 import { pickPackageManager } from '../../lib/dev-package-manager';
 import { addToGitignore, agentDocFiles, autoPatch, patchClaudeMd } from '../../lib/dev-patches';
 import { privilegedPortProblem } from '../../lib/dev-privileged-ports';
@@ -30,16 +30,17 @@ import {
   sqlDriverLabel,
   sqlRemovalTargets,
 } from '../../lib/dev-sql';
+import { waitForStartup } from '../../lib/dev-startup';
 import {
   allocateInternalPort,
   classifyComponentHealth,
   type ComponentHealth,
   detectSlugConflict,
-  isPidAlive,
   loadRegistry,
   loadSession,
   saveRegistry,
   saveSession,
+  STARTUP_GRACE_MS,
   takenInternalPorts,
   withRegistryLock,
 } from '../../lib/dev-state';
@@ -525,6 +526,9 @@ const UpCommand: GluegunCommand = {
     const rotationNotes: string[] = [];
     const started: string[] = [];
     const kept: string[] = [];
+    // Every component a start was tried for: a failed `--api-compiled` migration starts nothing,
+    // and that must fail the command like a component that dies (DEV-4130).
+    const attempted: ('api' | 'app')[] = [];
 
     // Free a reused internal port before respawning: stop a CRASHED component's
     // still-alive supervisor group (otherwise its idle nodemon leaks and a
@@ -567,6 +571,7 @@ const UpCommand: GluegunCommand = {
         // scripts when run against an npm-only project.
         const apiPm = pickPackageManager(layout.apiDir);
         const apiLogFile = join(layout.root, '.lt-dev', 'api.log');
+        attempted.push('api');
         const apiResult = apiCompiled
           ? await startCompiledApi({
               apiDir: layout.apiDir,
@@ -598,6 +603,7 @@ const UpCommand: GluegunCommand = {
       } else {
         await reclaimPort(existingSession?.pids.app, appPort, appHealth ?? 'dead');
         const appPm = pickPackageManager(layout.appDir);
+        attempted.push('app');
         const appResult = spawnDetached(appPm.bin, appPm.runScript('dev'), {
           cwd: layout.appDir,
           env: devEnv.app.env,
@@ -630,21 +636,32 @@ const UpCommand: GluegunCommand = {
       started.length > 0 ? new Date().toISOString() : (existingSession?.startedAt ?? new Date().toISOString());
     saveSession(layout.root, { pids, startedAt });
 
-    // A component that dies right after its start used to be reported as
-    // "Started": the spawn succeeded, and nothing looked again. Watch the fresh
-    // pids for a moment and show what the log says (or that it is empty).
-    const earlyExits = await findEarlyExits(
-      started.map((name) => ({ name, pid: pids[name as 'api' | 'app'] })),
-      { budgetMs: 3_000, isAlive: isPidAlive },
+    // "Started" only once a fresh component listens (DEV-4130). Watching the pids for
+    // 3 s missed an API that died later in its start (`migrate:up` after ts-node had
+    // compiled): exit 0, and Caddy answered 502. Same rule as `lt dev status`: a slow
+    // boot is waited for, a dead pid or no port after the grace window fails, with
+    // what the log says (or that it is empty).
+    if (started.length > 0) info(colors.dim(`Waiting for ${started.join('+')} to listen …`));
+    const startup = await waitForStartup(
+      attempted.map((name) => ({ name, pid: pids[name], port: name === 'api' ? apiPort : appPort })),
     );
-    if (earlyExits.length > 0) {
-      for (const name of earlyExits) {
-        error(`${name} exited right after its start (pid ${pids[name as 'api' | 'app']}).`);
+    if (startup.failed.length > 0) {
+      for (const { name, pid, state } of startup.failed) {
+        if (state === 'not-started') {
+          // Nothing was spawned, so the log file still holds the previous session.
+          error(`${name} was not started (see the output above).`);
+          continue;
+        }
+        error(
+          state === 'dead'
+            ? `${name} exited during its start (pid ${pid}).`
+            : `${name} is still running but did not listen on its port within ${STARTUP_GRACE_MS / 1000}s (pid ${pid}): it crashed during its start.`,
+        );
         describeLog(diagnoseLog(join(layout.root, '.lt-dev', `${name}.log`))).forEach((l) => info(l));
       }
       printFallback();
       if (!parameters.options.fromGluegunMenu) process.exit(1);
-      return `dev up: ${earlyExits.join('+')} exited on start`;
+      return `dev up: ${startup.failed.map((f) => f.name).join('+')} failed on start`;
     }
 
     // Write the ENV bridge so external tools (Playwright, IDE test runners,

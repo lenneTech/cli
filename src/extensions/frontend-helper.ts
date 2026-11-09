@@ -1,6 +1,5 @@
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
 import { alignFrameworkPins } from '../lib/align-framework-pins';
-import { applyAngularSiteIdentity } from '../lib/angular-site-identity';
 import { hookCheckFreshness, unhookCheckFreshness } from '../lib/check-freshness-hooks';
 import { agentDocFiles } from '../lib/dev-patches';
 import { execArgs } from '../lib/exec-args';
@@ -28,6 +27,7 @@ import {
   vendoredNgBaseVersion,
   vendorFreshnessScript,
 } from '../lib/ng-base-vendor';
+import { applyAngularSiteIdentity, applyNuxtSiteIdentity } from '../lib/site-identity';
 import { stripVendorSchemaAugmentation } from '../lib/strip-vendor-schema-augmentation';
 import {
   buildFrontendVendorBlock,
@@ -99,6 +99,11 @@ export interface NuxtSetupOptions {
   branch?: string;
   copyPath?: string;
   linkPath?: string;
+  /**
+   * Name of the new project: becomes `SITE_NAME` (head title, header) in `app/utils/site.ts`,
+   * and the starter's repository link is removed (`applyNuxtSiteIdentity`). Not in link mode.
+   */
+  siteName?: string;
   skipInstall?: boolean;
 }
 
@@ -273,6 +278,18 @@ export class FrontendHelper {
     // symlinked checkout is shared with upstream and must not be mutated.
     if (result.method !== 'link') {
       await this.fixPackageName(dest);
+    }
+
+    // The project's name instead of "Nuxt Base Starter", and no link to the starter repository
+    // (DEV-4132, as for Angular). A starter without app/utils/site.ts is skipped silently.
+    if (
+      result.method !== 'link' &&
+      options.siteName &&
+      applyNuxtSiteIdentity(dest, options.siteName) === 'unrecognised'
+    ) {
+      this.toolbox.print.warning(
+        'app/utils/site.ts has no SITE_NAME / SITE_REPO_URL lines in the expected shape: the starter title and repository link were left in place.',
+      );
     }
 
     // Run install unless skipped or a symlink. Fullstack init installs at
