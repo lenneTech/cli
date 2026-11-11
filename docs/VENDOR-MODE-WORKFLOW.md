@@ -375,7 +375,8 @@ lt fullstack convert-mode --to npm --noConfirm
    - Deletes `src/core/`
    - Restores `@lenne.tech/nest-server` in `package.json` (with baseline version)
    - Restores `migrate:*` scripts to `node_modules/.bin/`
-   - Removes vendor artifacts: `bin/migrate.js`, `migrations-utils/ts-compiler.js`, `migration-guides/`
+   - Restores `check:unified-field-types` to the package bin `nest-check-unified-field-types`
+   - Removes vendor artifacts: `bin/migrate.js`, `bin/check-unified-field-types.js`, `migrations-utils/ts-compiler.js`, `migration-guides/`
    - Removes the vendor marker from `CLAUDE.md`
 2. **Frontend**:
    - Reads the baseline version from `app/core/VENDOR.md`

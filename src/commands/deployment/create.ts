@@ -3,6 +3,7 @@ import { GluegunCommand } from 'gluegun';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { apiConfiguresAi } from '../../lib/api-ai-config';
 import { detectFrontendKind } from '../../lib/frontend-kind';
 import {
   isValidDomain,
@@ -266,6 +267,9 @@ const NewCommand: GluegunCommand = {
       ? join(projectRoot, 'projects', 'app')
       : projectRoot;
     const isAngular = detectFrontendKind(appDir) === 'angular';
+    const apiDir = existsSync(join(projectRoot, 'projects', 'api'))
+      ? join(projectRoot, 'projects', 'api')
+      : projectRoot;
 
     // One-time setup checklist
     info('');
@@ -304,7 +308,15 @@ const NewCommand: GluegunCommand = {
     info('         The stack-prefix fixes WHICH database you reach, not WHO may reach it:');
     info('         the overlay network is shared, so the DB credentials are the actual');
     info('         boundary. Set them in the mongo service and never deploy it open.');
-    info('       NSC__BETTER_AUTH__SECRET, NSC__AI__ENCRYPTION_SECRET,');
+    // NSC__AI__ENCRYPTION_SECRET alone creates an `ai` block, and nest-server enables CoreAiModule
+    // (all /ai/* routes) on mere presence: recommend it only where the API configures AI.
+    if (apiConfiguresAi(apiDir)) {
+      info('       NSC__BETTER_AUTH__SECRET, NSC__AI__ENCRYPTION_SECRET,');
+    } else {
+      info('       NSC__BETTER_AUTH__SECRET,');
+      info('         (NSC__AI__* only with an `ai` block in config.env.ts: on its own it switches the AI');
+      info('         module and its /ai/* routes on)');
+    }
     info('       NSC__EMAIL__SMTP__*, NSC__EMAIL__DEFAULT_SENDER__EMAIL,');
     // Read by the app's SSR server at request time, so one image serves every stage.
     const prefix = isAngular ? 'NG' : 'NUXT';

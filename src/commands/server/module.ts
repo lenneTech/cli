@@ -2,6 +2,7 @@ import { join } from 'path';
 
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
+import { addEnumImports, enumNamesOf, missingEnumHint } from '../../lib/enum-imports';
 import { finishGeneratedImports } from '../../lib/esm-generated-files';
 import { getFrameworkImportSpecifier, withFrameworkImportSpecifier } from '../../lib/framework-detection';
 import genObject from './object';
@@ -496,6 +497,11 @@ const NewCommand: ExtendedGluegunCommand = {
       includeSpinner.succeed('Module included');
     } else {
       info("Don't forget to include the module into your main module.");
+    }
+
+    // The enums the properties name: imported when the project declares them, named when not.
+    for (const name of addEnumImports(path, [directory], enumNamesOf(Object.values(props), pascalCase))) {
+      toolbox.print.warning(missingEnumHint(name));
     }
 
     // An ES module project needs `./x.js` specifiers; the templates write them extensionless.

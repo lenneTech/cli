@@ -24,6 +24,11 @@ import { formatMarkdownTable } from '../lib/markdown-table';
 import { deployedMigrateScripts, missingBuildGuardWarning } from '../lib/migrate-scripts';
 import { fileImportedSpecifiers, isPackageImport, isRelativeCoreImport } from '../lib/module-specifiers';
 import {
+  UNIFIED_FIELD_TYPES_BIN,
+  unifiedFieldTypesScriptsForNpm,
+  unifiedFieldTypesScriptsForVendor,
+} from '../lib/unified-field-types-script';
+import {
   BACKEND_VENDOR_MARKER,
   buildBackendVendorBlock,
   insertVendorBlockIfMissing,
@@ -1339,6 +1344,9 @@ export class Server {
       // Non-fatal — VENDOR.md will just show an empty SHA.
     }
 
+    // Whether the core ships the @UnifiedField type check (nest-server >= 12.8.7); decides the
+    // `check:unified-field-types` script below, after the clone is gone.
+    let unifiedFieldTypesBinShipped = false;
     try {
       // ── 2. Copy framework kernel into project src/core/ (flatten-fix) ──
       //
@@ -1397,6 +1405,15 @@ export class Server {
           filesystem.remove(`${dest}/bin/package.json`);
         }
         filesystem.copy(`${tmpClone}/bin/package.json`, `${dest}/bin/package.json`);
+      }
+      // nest-server 12.8.7 ships the @UnifiedField type check as a second CommonJS shim; the
+      // starter's `check:unified-field-types` names its package bin, which vendor mode lacks.
+      unifiedFieldTypesBinShipped = filesystem.exists(`${tmpClone}/${UNIFIED_FIELD_TYPES_BIN}`) === 'file';
+      if (unifiedFieldTypesBinShipped) {
+        if (filesystem.exists(`${dest}/${UNIFIED_FIELD_TYPES_BIN}`)) {
+          filesystem.remove(`${dest}/${UNIFIED_FIELD_TYPES_BIN}`);
+        }
+        filesystem.copy(`${tmpClone}/${UNIFIED_FIELD_TYPES_BIN}`, `${dest}/${UNIFIED_FIELD_TYPES_BIN}`);
       }
 
       // Copy migration-guides for vendor-sync agent reference (optional
@@ -1856,6 +1873,7 @@ export class Server {
             this.toolbox.print.warning(guardWarning);
           }
           ensureCrossEnvDependency(pkg as Record<string, any>);
+          unifiedFieldTypesScriptsForVendor(scripts, unifiedFieldTypesBinShipped);
 
           // Make the production build carry a runnable migration setup.
           //
@@ -2876,6 +2894,7 @@ export class Server {
         this.toolbox.print.warning(guardWarning);
       }
       ensureCrossEnvDependency(pkg as Record<string, any>);
+      unifiedFieldTypesScriptsForNpm(scripts);
 
       // `node -r` of the framework's SWC loader (nest-server >= 12) back to the package;
       // `src/core/` is deleted below.
@@ -2900,6 +2919,9 @@ export class Server {
     // ── 5. Remove vendor artifacts ──────────────────────────────────────
     if (filesystem.exists(`${dest}/scripts/vendor`)) {
       filesystem.remove(`${dest}/scripts/vendor`);
+    }
+    if (filesystem.exists(`${dest}/${UNIFIED_FIELD_TYPES_BIN}`)) {
+      filesystem.remove(`${dest}/${UNIFIED_FIELD_TYPES_BIN}`);
     }
     if (filesystem.exists(`${dest}/bin/migrate.js`)) {
       filesystem.remove(`${dest}/bin/migrate.js`);

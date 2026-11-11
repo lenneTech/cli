@@ -160,6 +160,19 @@ run_scenario() {
     [[ -f "${api_dir}/bin/migrate.js" ]] \
       && pass "bin/migrate.js present" \
       || fail "bin/migrate.js missing"
+    # nest-server 12.8.7+: the @UnifiedField type check. A vendored project has no package bin,
+    # so no script may name `nest-check-unified-field-types`, and a script that runs the copied
+    # file needs that file (a core < 12.8.7 drops the script instead).
+    if grep -q '"nest-check-unified-field-types"' "${api_dir}/package.json"; then
+      fail "a script still names the package bin nest-check-unified-field-types (missing in vendor mode)"
+    else
+      pass "no script names the package bin nest-check-unified-field-types"
+    fi
+    if grep -q 'node ./bin/check-unified-field-types.js' "${api_dir}/package.json"; then
+      [[ -f "${api_dir}/bin/check-unified-field-types.js" ]] \
+        && pass "check:unified-field-types runs the vendored bin/check-unified-field-types.js" \
+        || fail "check:unified-field-types names bin/check-unified-field-types.js, which is missing"
+    fi
     # The import closure makes framework-only packages direct dependencies, and their peer
     # exceptions live in nest-server's pnpm-workspace.yaml (e.g. `'typeorm>ioredis': '6'`).
     # A rule the conversion fails to carry over (adoptUpstreamPeerRules) fails the root

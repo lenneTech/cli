@@ -901,7 +901,12 @@ uncommitted work and REFUSES to remove the worktree), the project's `.gitignore`
 projects predating the starter's globs), and `vscode-settings.ts#MEMORY_PROFILE`
 (`**/.nuxt*/**`, else the memory profile watches and indexes the very trees it exists
 to exclude). `tearDownTestSession` removes the suffixed dirs — never the bare ones,
-which belong to the developer's own build.
+which belong to the developer's own build — and only for the stack that BUILDS them
+(unsharded, or shard 1). Every bring-up starts with a silent teardown of its own stack,
+so shard 2 used to delete the build shard 1 had just produced, found no entry, and fell
+back to `nuxt dev` on the same `.nuxt-test` (DEV-4180, 22 unrelated spec failures in
+GEQUMA). A sibling shard without an entry now aborts (`testAppStartPlan`) instead of
+starting a second `nuxt dev` there.
 
 ### An out-of-sync lockfile is invisible to `npm install` — and only an npm you no longer run can write it <!-- Added: 2026-09-02 -->
 
@@ -1903,6 +1908,13 @@ CLI therefore serves both formats, decided per project by `package.json#type`
   included.
 - `bin/package.json` (`{ "type": "commonjs" }`) is copied next to `bin/migrate.js`. `convert-mode
   --to npm` removes it only in exactly that shape (`isCommonJsScopeMarker`).
+- From nest-server 12.8.7 a second shim sits there: `bin/check-unified-field-types.js` (the
+  `@UnifiedField` SWC-vs-tsc type check, package bin `nest-check-unified-field-types`). The
+  starter names that bin only in `check:unified-field-types`; `check:raw` / `check:fix` /
+  `check:naf` call the script by name. The conversion copies the file when the clone has it and
+  points only that script at `node ./bin/check-unified-field-types.js`; with an older core it
+  removes the script and its `&&` links (`src/lib/unified-field-types-script.ts`). `--to npm`
+  reverts the value and deletes the file.
 
 ### A generated test has to RUN, not only compile <!-- Added: 2026-10-25 -->
 `lt server test` wrote a test that signed users up through the GraphQL `signUp` mutation and

@@ -31,6 +31,7 @@ import { pickPackageManager } from '../src/lib/dev-package-manager';
 import { DevProjectLayout } from '../src/lib/dev-project';
 import { loadRegistry, saveRegistry, saveSession, TEST_SESSION_FILE } from '../src/lib/dev-state';
 import {
+  bringUpTestSession,
   buildShardPlaywrightInvocation,
   buildTestAppEnv,
   chromiumExecutables,
@@ -49,6 +50,7 @@ import {
   TEST_NITRO_OUTPUT_DIR,
   TEST_NUXT_BUILD_DIR,
   testAppEntryCandidates,
+  testAppStartPlan,
   testBuildIgnoreGlobs,
   TestSessionLogger,
   unreachableStackError,
@@ -298,7 +300,8 @@ describe('dev-test-session', () => {
       // No occurrence COUNT here — the previous `toHaveLength(1)` also matched
       // the path inside prose comments, so reflowing one turned the suite red
       // without any behaviour change (measured). The derivation is the invariant.
-      expect(source).toMatch(/const\s+appEntry\s*=\s*testAppEntryCandidates\(\)/);
+      expect(source).toMatch(/const\s+appEntry\s*=\s*findTestAppEntry\(/);
+      expect(source).toMatch(/function findTestAppEntry\([^)]*\)[^{]*\{\s*return testAppEntryCandidates\(\)/);
     });
   });
 
@@ -544,6 +547,79 @@ describe('dev-test-session', () => {
       const after = loadRegistry();
       expect(after.projects[baseIdentity.slug]).toBeDefined();
       expect(after.projects[baseIdentity.slug].dbName).toBe('svl-local');
+    });
+
+    // DEV-4180 (GEQUMA, `lt dev test --shard 2`): every shard's bring-up starts with a silent
+    // teardown of its own stack, and that teardown removed the shared `.nuxt-test` / `.output-test`.
+    // Shard 2 thereby deleted the build shard 1 had just produced and was serving, found no entry,
+    // and fell back to `nuxt dev` on the same build dir: 22 specs failed for unrelated reasons.
+    describe('the shared test build belongs to the stack that builds it', () => {
+      const seedBuild = (): string[] => {
+        const appDir = layout.appDir as string;
+        mkdirSync(join(appDir, TEST_NUXT_BUILD_DIR), { recursive: true });
+        mkdirSync(join(appDir, TEST_NITRO_OUTPUT_DIR, 'server'), { recursive: true });
+        writeFileSync(join(appDir, TEST_NITRO_OUTPUT_DIR, 'server', 'index.mjs'), '');
+        return [join(appDir, TEST_NUXT_BUILD_DIR), join(appDir, TEST_NITRO_OUTPUT_DIR)];
+      };
+
+      test('a sibling shard keeps it: shard 2 never deletes the build shard 1 serves from', async () => {
+        const dirs = seedBuild();
+        await tearDownTestSession(layout, baseIdentity, silentLog, { shardIndex: 2, silent: true });
+        for (const dir of dirs) expect(existsSync(dir)).toBe(true);
+      });
+
+      test.each([
+        ['shard 1', 1],
+        ['an unsharded stack', undefined],
+      ])('%s, which built it, removes it', async (_label, shardIndex) => {
+        const dirs = seedBuild();
+        await tearDownTestSession(layout, baseIdentity, silentLog, { shardIndex, silent: true });
+        for (const dir of dirs) expect(existsSync(dir)).toBe(false);
+      });
+    });
+  });
+
+  describe('testAppStartPlan: how the test App starts', () => {
+    test('a finished build with an entry is served as built', () => {
+      expect(testAppStartPlan({ appBuild: 0, appEntry: '/app/.output-test/server/index.mjs', skipBuild: false })).toBe(
+        'built',
+      );
+      expect(testAppStartPlan({ appBuild: 0, appEntry: '/app/.output-test/server/index.mjs', skipBuild: true })).toBe(
+        'built',
+      );
+    });
+
+    test('a sibling shard without an entry aborts: `nuxt dev` would rewrite the build dir shard 1 serves', () => {
+      expect(testAppStartPlan({ appBuild: 0, appEntry: undefined, skipBuild: true })).toBe('abort');
+    });
+
+    test('the stack that builds falls back to `dev` when its own build failed or produced no entry', () => {
+      expect(testAppStartPlan({ appBuild: 1, appEntry: undefined, skipBuild: false })).toBe('dev');
+      expect(testAppStartPlan({ appBuild: null, appEntry: '/app/.output/server/index.mjs', skipBuild: false })).toBe(
+        'dev',
+      );
+      expect(testAppStartPlan({ appBuild: 0, appEntry: undefined, skipBuild: false })).toBe('dev');
+    });
+
+    test('bringUpTestSession follows the plan and aborts instead of starting `dev` (wiring)', () => {
+      const source = readFileSync(join(__dirname, '..', 'src', 'lib', 'dev-test-session.ts'), 'utf8');
+      expect(source).toMatch(/testAppStartPlan\(\{/);
+      // A late abort first records what the stack started, so the teardown finds it.
+      expect(source).toMatch(/plan === 'abort'[\s\S]{0,400}saveSession\([\s\S]{0,120}throw new Error/);
+    });
+
+    // Release review of 1.58.5: the abort came after the API start, the registry port and the
+    // Caddy block, and before the session file, so that API kept running unfound and the next
+    // sharded run failed on its port. The decision now comes before anything is reserved.
+    test('a sibling shard without a build stops before reserving a port or starting anything', async () => {
+      const registryBefore = loadRegistry();
+
+      await expect(
+        bringUpTestSession(layout, baseIdentity, silentLog, { shardIndex: 2, skipBuild: true }),
+      ).rejects.toThrow(/shard 2 reuses the App build of shard 1, but no built entry exists/);
+
+      expect(loadRegistry()).toEqual(registryBefore);
+      expect(existsSync(join(projectRoot, '.lt-dev', 'state.test.2.json'))).toBe(false);
     });
   });
 

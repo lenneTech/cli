@@ -11,6 +11,7 @@ import {
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { ensureImportLine } from '../../lib/ensure-import';
+import { addEnumImports, enumNamesOf, missingEnumHint } from '../../lib/enum-imports';
 import { finishGeneratedImports } from '../../lib/esm-generated-files';
 import { failRun } from '../../lib/fail-run';
 import {
@@ -603,10 +604,17 @@ const NewCommand: ExtendedGluegunCommand = {
     await moduleFile.save();
     await inputFile.save();
     await createInputFile.save();
+    // The enums the new properties name: imported when the project declares them, named when not.
+    const missingEnums = addEnumImports(
+      path,
+      [modelPath, inputPath, creatInputPath],
+      enumNamesOf(addedProps, pascalCase),
+    );
     // An ES module project needs `./x.js` specifiers, also for the imports added above.
     finishGeneratedImports(path, [modelPath, inputPath, creatInputPath]);
 
     updateSpinner.succeed('All files updated successfully.');
+    for (const name of missingEnums) toolbox.print.warning(missingEnumHint(name));
 
     // Print structured summary
     const summaryLines: string[] = [];

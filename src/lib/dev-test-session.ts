@@ -409,6 +409,14 @@ export async function bringUpTestSession(
   // Always start from a clean slate — reclaim a stale/crashed test session.
   await tearDownTestSession(layout, baseIdentity, log, { shardIndex, silent: true });
 
+  // A sibling shard serves shard 1's App build. Decide that it exists before anything is
+  // reserved or started: an abort after the API start left that API, its registry port and
+  // its Caddy block behind with no session file to find them by, and the next sharded run
+  // then failed on the occupied port.
+  if (skipBuild && layout.appDir && !findTestAppEntry(layout.appDir)) {
+    throw new Error(siblingBuildMissingMessage(shardIndex, layout.appDir));
+  }
+
   // Self-heal legacy hardcoded ports BEFORE the build below — the test API runs
   // COMPILED (`node dist/...`), so config.env.ts must already honour the injected
   // `PORT` or the compiled bundle binds 3000 and misses Caddy. Belt-and-suspenders
@@ -600,11 +608,16 @@ export async function bringUpTestSession(
         env: appEnv,
       });
     }
-    const appEntry = testAppEntryCandidates()
-      .map((rel) => join(layout.appDir as string, rel))
-      .find((p) => existsSync(p));
+    const appEntry = findTestAppEntry(layout.appDir);
+    const plan = testAppStartPlan({ appBuild, appEntry, skipBuild });
+    if (plan === 'abort') {
+      // Checked at the start already; the entry vanished in between. Record what this stack
+      // started first, so the teardown that follows the error finds and stops it.
+      saveSession(layout.root, { pids, startedAt: new Date().toISOString() }, names.sessionFile);
+      throw new Error(siblingBuildMissingMessage(shardIndex, layout.appDir));
+    }
     let appSpawn: ReturnType<typeof spawnDetached>;
-    if (appBuild === 0 && appEntry) {
+    if (plan === 'built') {
       appSpawn = spawnDetached('node', [appEntry], {
         cwd: layout.appDir,
         env: appEnv,
@@ -1040,13 +1053,18 @@ export async function tearDownTestSession(
     saveRegistry(reg);
   }
 
-  // Reclaim the isolated build trees. They exist only for this stack and are
-  // rebuilt from scratch on every run (there is no build-skip / reuse), so
-  // keeping them buys nothing and costs 37-294 MB per project — permanently,
-  // since nothing else ever removes them. Only the SUFFIXED names are touched:
-  // a project that does not forward the env vars builds into the shared
-  // `.nuxt` / `.output`, which belong to the developer's own `pnpm run build`.
-  if (layout.appDir) {
+  // Reclaim the isolated build trees. They are rebuilt from scratch on every
+  // run, so keeping them buys nothing and costs 37-294 MB per project —
+  // permanently, since nothing else ever removes them. Only the SUFFIXED names
+  // are touched: a project that does not forward the env vars builds into the
+  // shared `.nuxt` / `.output`, which belong to the developer's own
+  // `pnpm run build`.
+  //
+  // Only the stack that BUILDS them removes them: the unsharded one, or shard 1.
+  // Sibling shards reuse shard 1's build (`skipBuild`), and every bring-up starts
+  // with a silent teardown of its own stack, so shard 2 used to delete the build
+  // shard 1 had just produced and was serving from (DEV-4180).
+  if (layout.appDir && (opts.shardIndex === undefined || opts.shardIndex <= 1)) {
     for (const dir of [TEST_NUXT_BUILD_DIR, TEST_NITRO_OUTPUT_DIR]) {
       const path = join(layout.appDir, dir);
       try {
@@ -1080,6 +1098,22 @@ export function testAppEntryCandidates(): string[] {
 }
 
 /**
+ * How the test stack's App starts: from its built entry (`built`), as `<pm> dev` when the stack
+ * built the App itself and that build failed or left no entry (`dev`, the slow fallback), or not at
+ * all (`abort`) for a sibling shard that reuses shard 1's build and finds no entry. Its `dev` would
+ * be a second `nuxt dev` on the same `NUXT_BUILD_DIR` and rewrite the build shard 1 serves from
+ * (DEV-4180: 22 unrelated spec failures in GEQUMA under `--shard 2`).
+ */
+export function testAppStartPlan(opts: {
+  appBuild: null | number;
+  appEntry: string | undefined;
+  skipBuild?: boolean;
+}): 'abort' | 'built' | 'dev' {
+  if (opts.appBuild === 0 && opts.appEntry) return 'built';
+  return opts.skipBuild ? 'abort' : 'dev';
+}
+
+/**
  * The `.gitignore` globs for the isolated build trees of the test stack's app. An Angular app
  * builds no `.nuxt*` tree (its test build goes to `NG_OUTPUT_DIR`, i.e. `.output-test`), and the
  * `.nuxt-*` entry left every fresh Angular project dirty after its first `lt dev test`.
@@ -1106,6 +1140,23 @@ export function unreachableStackError(component: 'API' | 'App', url: string, log
   return new Error(
     `Test ${component} never became reachable at ${url} — aborting before Playwright runs, ` +
       `because a suite run against a dead ${component} passes trivially and proves nothing.${where}`,
+  );
+}
+
+/** The first built App entry of {@link testAppEntryCandidates} that exists in `appDir`. */
+function findTestAppEntry(appDir: string): string | undefined {
+  return testAppEntryCandidates()
+    .map((rel) => join(appDir, rel))
+    .find((p) => existsSync(p));
+}
+
+/** Why a sibling shard does not start: it serves shard 1's build, and there is none. */
+function siblingBuildMissingMessage(shardIndex: number | undefined, appDir: string): string {
+  return (
+    `shard ${shardIndex} reuses the App build of shard 1, but no built entry exists ` +
+    `(${testAppEntryCandidates().join(', ')} in ${appDir}). It does not start \`nuxt dev\` instead: ` +
+    `that would rewrite ${TEST_NUXT_BUILD_DIR}/, which shard 1 serves from. ` +
+    'Check the App build output of shard 1 above, or run without --shard.'
   );
 }
 

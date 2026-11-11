@@ -168,6 +168,8 @@ lt server module [options]
 
 **ES module projects:** in a project with `"type": "module"`, all four generators (`module`, `object`, `addProp`, `test`) give the relative imports they write or touch their emitted extension (`./x.js`, `../../../core/index.js`), including the import added to `server.module.ts`. A CommonJS project keeps extensionless imports, because nest-server 11 projects start under ts-node, which cannot resolve `./x.js`.
 
+**Enum properties:** the enum itself is yours to write, by convention in `src/server/common/enums/<kebab-case>.enum.ts`. `module`, `object` and `addProp` import it into every file they write that uses it, when the project declares `export enum <Name>` anywhere under `src/` (outside `src/core/`). When it does not exist yet, they print where to create it, and the generated files do not compile until it does.
+
 ---
 
 ### `lt server object`
@@ -295,6 +297,7 @@ lt server convert-mode --to <vendor|npm> [options]
   - Rewrites all consumer imports from `'@lenne.tech/nest-server'` to relative paths
   - Merges upstream dependencies dynamically into `package.json`, and raises every pin the project already shares with the vendored core to the core's version when that is newer (never lowered; a framework `devDependency` never raises a runtime pin such as better-auth). If that takes TypeScript to 6 and `tsconfig.json` sets no `strict`, it adds `"strict": false`
   - Rewrites `migrate:*` scripts to use local `bin/migrate.js` with `ts-compiler.js` bootstrap
+  - With a nest-server 12.8.7+ core: copies `bin/check-unified-field-types.js` (the `@UnifiedField` type check) and points the starter's `check:unified-field-types` script at it (`node ./bin/check-unified-field-types.js`); `check:raw`, `check:fix` and `check:naf` keep calling the script by name. With an older core, the script and its calls are removed
   - With a nest-server 12+ core (it ships `src/core/modules/migrate/helpers/ts-compiler.cjs`): moves the dev start (`nodemon.json`, `nodemon-debug.json`) and every script that runs sources through ts-node (`start:nodemon`, `docs:ci`) to `node -r ./src/core/modules/migrate/helpers/ts-compiler.js`. A 12 core imports `./x.js`, which ts-node cannot resolve. A ts-node option that `node` has no equivalent for is left alone and listed as a warning. An older core keeps ts-node
   - Adds `check:vendor-freshness` script
   - Creates `src/core/VENDOR.md` with baseline version + commit SHA
@@ -305,7 +308,7 @@ lt server convert-mode --to <vendor|npm> [options]
   - Rewrites consumer imports back to `@lenne.tech/nest-server`
   - Deletes `src/core/`
   - Restores `@lenne.tech/nest-server` dependency in `package.json`
-  - Restores `migrate:*` scripts to `node_modules/.bin/` paths
+  - Restores `migrate:*` scripts to `node_modules/.bin/` paths, and `check:unified-field-types` to the package bin `nest-check-unified-field-types`
   - Removes vendor artifacts (`bin/`, `migrations-utils/ts-compiler.js`, `migration-guides/`) and `CLAUDE.md` marker
 
 **Examples:**
@@ -780,7 +783,7 @@ lt dev test -- --ui spec.ts      # everything after `--` is forwarded to playwri
 **Behaviour (App mode):**
 1. Pre-flight: Caddy installed + daemon running, and `playwright.config.ts` env-aware (otherwise abort; `--force` overrides).
 2. Builds the API and applies pending migrations to the test DB (`migrate:up`, with the API's own env, so it hits the same DB). A failed migration aborts the run; a project without a `migrate:up` script starts unmigrated. Then starts the compiled API. Without a build output it falls back to the project's `start` script, which migrates by itself.
-3. Builds the App (`nuxt build`) and serves the Nitro output.
+3. Builds the App (`nuxt build`) and serves the Nitro output. With `--shard`, shard 1 builds and the other shards serve the same build. A shard that finds no built entry aborts instead of starting `nuxt dev`, which would rewrite the build directory shard 1 serves from.
 4. Waits for both to answer and aborts if either never does, so the suite never runs against a dead stack.
 5. Runs `test:e2e [forwarded args]` in the App with the `.lt-dev/.env.test` bridge loaded. Before that it installs the Chromium build the App's Playwright needs (`playwright install chromium`). On Linux the browser also needs system libraries no download brings (Ubuntu Server, WSL). `lt dev test` runs `ldd` on the installed Chromium binaries, because Playwright's own check misses the Chrome for Testing folders, and when a library is missing it says which and names the one command that installs them: `sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium`.
 6. Tears the stack down (processes, Caddy block, env bridge, session file) unless `--keep` is set.
