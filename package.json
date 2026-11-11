@@ -57,14 +57,14 @@
     "bin"
   ],
   "dependencies": {
-    "@aws-sdk/client-s3": "3.1161.0",
-    "@lenne.tech/cli-plugin-helper": "0.0.14",
-    "axios": "1.21.0",
+    "@aws-sdk/client-s3": "3.1166.0",
+    "@lenne.tech/cli-plugin-helper": "0.0.15",
+    "axios": "1.21.1",
     "bcrypt": "6.0.0",
     "cross-spawn": "7.0.6",
     "defuddle": "0.19.6",
     "ejs": "7.0.2",
-    "glob": "14.0.3",
+    "glob": "14.0.4",
     "gluegun": "5.2.2",
     "js-sha256": "1.0.0",
     "js-yaml": "5.5.0",
@@ -72,10 +72,10 @@
     "jsonc-parser": "3.3.1",
     "lodash": "4.18.1",
     "open": "11.0.4",
-    "playwright-core": "1.64.1",
+    "playwright-core": "1.65.0",
     "semver": "7.8.6",
     "ts-morph": "28.0.0",
-    "turndown": "7.2.4",
+    "turndown": "7.2.5",
     "turndown-plugin-gfm": "1.0.2",
     "typescript": "6.0.3"
   },
@@ -89,17 +89,17 @@
     "@types/node": "26.6.6",
     "@types/semver": "7.8.0",
     "@types/turndown": "5.0.6",
-    "@typescript-eslint/eslint-plugin": "8.72.1",
-    "@typescript-eslint/parser": "8.72.1",
+    "@typescript-eslint/eslint-plugin": "8.72.2",
+    "@typescript-eslint/parser": "8.72.2",
     "eslint": "10.14.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-no-only-tests": "3.4.0",
     "eslint-plugin-perfectionist": "5.13.0",
     "eslint-plugin-unused-imports": "4.4.1",
-    "minimatch": "11.0.4",
+    "minimatch": "11.0.7",
     "prettier": "3.9.10",
     "ts-node": "10.9.2",
-    "vite": "8.3.5",
+    "vite": "8.3.8",
     "vitest": "5.1.0"
   },
   "//overrides": {
@@ -108,10 +108,10 @@
     "brace-expansion@>=2.0.0 <2.1.7": "Same five advisories, 2.x line (fixed 2.1.2 / 2.1.3 / 2.1.5 / 2.1.6 / 2.1.7). Raised from 2.1.4 on 2026-10-03. Latent today, like the 1.x key.",
     "brace-expansion@>=5.0.0 <5.0.12": "Same advisories, 5.x line, plus three newer DoS advisories fixed only in 5.0.10-5.0.12 (GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr; all high). Reaches production via gluegun > fs-jetpack > minimatch. Floored at >=5.0.0 so a future 3.x/4.x dependency is not silently forced across two majors.",
     "//minimatch-note": "Why the minimatch raises exist: when they were added, brace-expansion 1.x and 2.x were END OF LINE for GHSA-mh99-v99m-4gvg (advisory range <=5.0.7 across ALL majors, patched only 5.0.8+), so the only fix was to raise each CONSUMER off minimatch 3.x/5.x/9.x. That premise no longer holds: upstream has since backported every fix (GHSA-mh99 now reads <1.1.17 / >=2.0.0 <2.1.3, and 1.1.21 / 2.1.7 patch all five current advisories). Verified 2026-10-03 with fresh lockfile resolves: without `minimatch@>=4 <10` and `fs-jetpack > minimatch@<10` npm audit is still clean, the tree only gains minimatch 3.1.5 + 5.1.9 and brace-expansion 1.1.21 + 2.1.7 (7 packages). So both are now a DEDUPE measure (one minimatch 10.2.6, one brace-expansion 5.0.12), not a security fix - dropping them is a judgment call, it reopens no advisory. Forcing brace-expansion 5.x globally is still NOT an option: 5.x is ESM/tshy and exports an object ({ expand, ... }) while 1.x/2.x export the function itself, so minimatch 3.x/5.x would die on `expand is not a function`. Each scoped entry was verified against the consumer's actual call site before being added. The eslint / @eslint/eslintrc / @eslint/config-array entries were REMOVED in 1.42.0: eslint 10 requests minimatch ^10.2.5 itself, config-array ^10.2.4, and eslintrc is no longer in the tree at all. Superseded 2026-11-03: GHSA-g3hv-75wg-m249 (minimatch <11.0.1, moderate, DoS via globparts amplification) is fixed only in 11.x, a rewrite without makeRe/AST/matchOne/regexp. Every consumer that can run on 11 is raised by a scoped entry; there is no global minimatch key any more, because npm 10 (CI, Node 20) rejected the lockfile a global key plus a scoped downgrade produced (Missing: glob@13.0.6 / minimatch@10.2.6), even one it had written itself. Verify any change here with npx -y npm@10.9.2 ci --dry-run AND npm ci --dry-run.",
-    "minimatch: scoped upgrades to 11.0.4": "GHSA-g3hv-75wg-m249. @eslint/config-array, @typescript-eslint/typescript-estree and eslint (lint), @ts-morph/common (PRODUCTION: the ts-morph conversions) request ^10 and use only new Minimatch(...).match/negate/set and minimatch(), all present in 11. filelist (PRODUCTION-reachable: gluegun > ejs > jake > filelist) requests ^5.0.1 and calls only the static minimatch.match(list, pattern, opts), also present in 11 (re-checked 2026-11-04: filelist 1.0.6 resolves 11.0.4, match(['a.js','b.ts','c.js'], '*.js') returns ['a.js','c.js']). Verified 2026-11-03: lint, the full test suite, compile and check:start green, npm audit clean. eslint-plugin-import-x, the one consumer that imports makeRe (gone in 11), left the tree with @lenne.tech/eslint-config-ts (see eslint.config.mjs). Drop each line once that consumer requests minimatch >=11.0.1.",
+    "minimatch: scoped upgrades to 11.0.7": "GHSA-g3hv-75wg-m249 (fixed 11.0.1). Target raised 11.0.4 -> 11.0.7 on 2026-11-11 together with the direct devDependency, so the scoped keys never pin below the newest 11.x (glob 14.0.4 itself requests ^11.0.5). @eslint/config-array, @typescript-eslint/typescript-estree and eslint (lint), @ts-morph/common (PRODUCTION: the ts-morph conversions) request ^10 and use only new Minimatch(...).match/negate/set and minimatch(), all present in 11. filelist (PRODUCTION-reachable: gluegun > ejs > jake > filelist) requests ^5.0.1 and calls only the static minimatch.match(list, pattern, opts), also present in 11 (re-checked 2026-11-04: filelist 1.0.6 resolves 11.0.4, match(['a.js','b.ts','c.js'], '*.js') returns ['a.js','c.js']). Verified 2026-11-03: lint, the full test suite, compile and check:start green, npm audit clean. eslint-plugin-import-x, the one consumer that imports makeRe (gone in 11), left the tree with @lenne.tech/eslint-config-ts (see eslint.config.mjs). Drop each line once that consumer requests minimatch >=11.0.1.",
     "fs-jetpack > minimatch@<11.0.1": "Same advisory, PRODUCTION-reachable (gluegun > fs-jetpack, which requests ^3.0.2). lib/utils/matcher.js uses only new Minimatch(pattern, { matchBase, nocomment, nocase, dot }), .negate and .match(), all present in 11. Not fixable by upgrading: gluegun@5.2.2 is the latest release and pins fs-jetpack 4.3.1.",
     "glob@<8 > minimatch": "glob 7 (fs-jetpack > rimraf 2 > glob 7, PRODUCTION) requests minimatch ^3.1.1. npm 11 reaches it through the fs-jetpack key, npm 10 does not once rimraf 2 is hoisted, so the rule is explicit. Never exercised: fs-jetpack calls rimraf with disableGlob: true. glob 7 itself is outside GHSA-3g3m-2fjr-6pw4 (>=9).",
-    "glob: scoped upgrades to 14.0.3": "GHSA-3g3m-2fjr-6pw4 (glob 9.0.0-14.0.1, moderate, AbortSignal cancellation bypass). glob is a direct PRODUCTION dependency of this CLI (globSync in server.ts, api-mode.ts, strip-vendor-schema-augmentation.ts, nuxt-base-components.ts), raised to 14.0.3, whose exports match 13. Its former dev-only consumers (jest, rimraf 6, test-exclude) left with jest and rimraf on 2026-11-03, so no scoped glob entry is needed any more."
+    "glob: scoped upgrades to 14.0.4": "GHSA-3g3m-2fjr-6pw4 (glob 9.0.0-14.0.1, moderate, AbortSignal cancellation bypass, fixed 14.0.2). glob is a direct PRODUCTION dependency of this CLI (globSync in server.ts, api-mode.ts, strip-vendor-schema-augmentation.ts, nuxt-base-components.ts), raised to 14.0.3, whose exports match 13, and to 14.0.4 on 2026-11-11. Its former dev-only consumers (jest, rimraf 6, test-exclude) left with jest and rimraf on 2026-11-03, so no scoped glob entry is needed any more."
   },
   "overrides": {
     "semver@*": "7.8.6",
@@ -119,25 +119,25 @@
     "brace-expansion@>=2.0.0 <2.1.7": "2.1.7",
     "brace-expansion@>=5.0.0 <5.0.12": "5.0.12",
     "fs-jetpack": {
-      "minimatch@<11.0.1": "11.0.4"
+      "minimatch@<11.0.1": "11.0.7"
     },
     "@eslint/config-array": {
-      "minimatch": "11.0.4"
+      "minimatch": "11.0.7"
     },
     "@ts-morph/common": {
-      "minimatch": "11.0.4"
+      "minimatch": "11.0.7"
     },
     "@typescript-eslint/typescript-estree": {
-      "minimatch": "11.0.4"
+      "minimatch": "11.0.7"
     },
     "eslint": {
-      "minimatch": "11.0.4"
+      "minimatch": "11.0.7"
     },
     "filelist": {
-      "minimatch": "11.0.4"
+      "minimatch": "11.0.7"
     },
     "glob@<8": {
-      "minimatch": "11.0.4"
+      "minimatch": "11.0.7"
     }
   }
 }
