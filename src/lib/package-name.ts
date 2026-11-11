@@ -11,6 +11,28 @@ import { isUnmodifiedTemplateName, slugify } from './dev-identity';
 export { isUnmodifiedTemplateName } from './dev-identity';
 
 /**
+ * Gives a package.json taken over from a starter the identity of the new project.
+ *
+ * ng-base-starter is flat (repo root = app), so a scaffold inherits its package.json
+ * as it is: `name` `ng-base-starter`, the starter's release `version`, its
+ * `description` and its `repository` link. Every reader of the file then describes the
+ * starter, and `lt dev` derives its slug from `name`, so two standalone apps shared one
+ * URL. This sets `name` and `version` and drops the fields that say where the code came
+ * from. Everything else (scripts, dependencies, engines, `license`) stays.
+ */
+export function applyScaffoldIdentity(
+  pkg: Record<string, unknown>,
+  identity: { name: string; version: string },
+): Record<string, unknown> {
+  pkg.name = identity.name;
+  pkg.version = identity.version;
+  for (const field of ['bugs', 'description', 'homepage', 'repository']) {
+    delete pkg[field];
+  }
+  return pkg;
+}
+
+/**
  * If the package.json at `<projectRoot>/package.json` still carries an
  * unmodified starter-template `name` (e.g. `lt-monorepo` from a raw
  * `git clone`), rewrite it to the directory basename — which is what the

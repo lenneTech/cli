@@ -1591,6 +1591,8 @@ lt frontend angular [name] [options]
 | `--force` | Override the workspace-detection abort under `--noConfirm` |
 | `--noConfirm` / `-y` | Skip confirmation prompts |
 
+**What the new app keeps of the starter:** its code, scripts and pnpm files (`pnpm-lock.yaml`, `pnpm-workspace.yaml`). The starter's own CI and release tooling (`.github/`, `.release-it*`, `scripts/release*`), `CHANGELOG.md`, `extras/` and `migration-guides/` are removed, as in `lt fullstack add-app`. `package.json` gets the directory name as `name` (`lt dev` derives the project's URLs from it) and version `0.0.0`, and loses the starter's `description` and `repository`. `--link` changes nothing in the linked checkout.
+
 **Workspace-awareness:** Inside a fullstack workspace the command is interactive (confirm prompt), but under `--noConfirm` it **refuses** with exit code 1 and points the caller to `lt fullstack add-app --frontend angular`. Pass `--noConfirm --force` to override (rare).
 
 **Configuration:** `commands.frontend.angular.*`, `defaults.noConfirm`
@@ -1623,6 +1625,8 @@ lt frontend nuxt [options]
 ```bash
 lt frontend nuxt --copy /path/to/nuxt-base-starter/nuxt-base-template
 ```
+
+**Package name:** `package.json` gets the directory name as `name`, because `lt dev` derives the project's URLs from it (before, every standalone app was called `app`). `--link` changes nothing in the linked checkout.
 
 **Workspace-awareness:** Inside a fullstack workspace the command is interactive (confirm prompt), but under `--noConfirm` it **refuses** with exit code 1 and points the caller to `lt fullstack add-app --frontend nuxt`. Pass `--noConfirm --force` to override (rare).
 

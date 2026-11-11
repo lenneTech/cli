@@ -27,6 +27,7 @@ import {
   vendoredNgBaseVersion,
   vendorFreshnessScript,
 } from '../lib/ng-base-vendor';
+import { applyScaffoldIdentity } from '../lib/package-name';
 import { applyAngularSiteIdentity, applyNuxtSiteIdentity } from '../lib/site-identity';
 import { stripVendorSchemaAugmentation } from '../lib/strip-vendor-schema-augmentation';
 import {
@@ -53,6 +54,12 @@ export interface AngularSetupOptions {
    */
   localNgBaseBuild?: string;
   /**
+   * `name` in the app's package.json, default `app` (the sub-project name of a
+   * workspace). A standalone app passes its directory name, because `lt dev` derives the
+   * project's slug and URLs from it. Not in link mode.
+   */
+  packageName?: string;
+  /**
    * Name of the new project: becomes `SITE_NAME` (browser title) in `src/app/shared/site.ts`,
    * and the starter's repository link is removed (`applyAngularSiteIdentity`). Not in link mode.
    */
@@ -67,19 +74,21 @@ export interface AngularSetupOptions {
    */
   vendor?: { localSource?: string };
   /**
-   * The app becomes `projects/app` of a fullstack workspace: package renamed to `app`,
-   * husky and the starter's own lockfile removed, repo-only files dropped (see
-   * {@link ANGULAR_STARTER_REPO_ONLY}). The workspace owns git, hooks and the install.
+   * The app becomes `projects/app` of a fullstack workspace: husky is removed even when
+   * `skipHuskyRemoval` is set. The workspace owns git, hooks and the install. The
+   * repo-only files (see {@link ANGULAR_STARTER_REPO_ONLY}) and the starter's identity
+   * in package.json go in both cases.
    */
   workspace?: boolean;
 }
 
 /**
  * Files of the ng-base-starter repository that describe the STARTER, not an app made
- * from it: its release tooling, its migration guides and its own CI (a workspace
- * brings its own). The starter is flat (repo root = app), so unlike nuxt-base-starter
- * there is no wrapper to cut away; these are removed one by one instead. The list is
- * the contract agreed with ng-base-starter (plan.md §5.6) and is exhaustive.
+ * from it: its release tooling, its migration guides and its own CI (test.yml and the
+ * release workflow). The starter is flat (repo root = app), so unlike nuxt-base-starter
+ * there is no wrapper to cut away; these are removed one by one instead, from a
+ * standalone app as from a workspace app. The list is the contract agreed with
+ * ng-base-starter (plan.md §5.6) and is exhaustive.
  */
 export const ANGULAR_STARTER_REPO_ONLY = ['.github', 'CHANGELOG.md', 'extras', 'migration-guides'];
 
@@ -100,6 +109,11 @@ export interface NuxtSetupOptions {
   copyPath?: string;
   linkPath?: string;
   /**
+   * `name` in the app's package.json, default `app` (the sub-project name of a
+   * workspace). A standalone app passes its directory name. Not in link mode.
+   */
+  packageName?: string;
+  /**
    * Name of the new project: becomes `SITE_NAME` (head title, header) in `app/utils/site.ts`,
    * and the starter's repository link is removed (`applyNuxtSiteIdentity`). Not in link mode.
    */
@@ -118,15 +132,16 @@ export class FrontendHelper {
   constructor(protected toolbox: ExtendedGluegunToolbox) {}
 
   /**
-   * Fix package name in package.json
-   * Changes the name to "app" which is a valid npm package name for monorepos
+   * Sets `name` in package.json: `app` for the sub-project of a workspace, the
+   * directory name for a standalone app (`lt dev` derives the slug from it).
    *
    * @param dest - Directory containing the package.json
+   * @param name - New package name
    */
-  private async fixPackageName(dest: string): Promise<void> {
+  private async fixPackageName(dest: string, name: string): Promise<void> {
     const { patching } = this.toolbox;
     await patching.update(`${dest}/package.json`, (data: Record<string, unknown>) => {
-      data.name = 'app';
+      data.name = name;
       return data;
     });
   }
@@ -272,12 +287,13 @@ export class FrontendHelper {
       await this.flattenNuxtBaseTemplate(dest);
     }
 
-    // Normalize the sub-project package name to a stable, valid workspace
-    // name ("app"). The template ships as `nuxt-base-template`; the former
-    // create-nuxt-base path renamed it the same way. Skip link mode — a
-    // symlinked checkout is shared with upstream and must not be mutated.
+    // The template ships as `nuxt-base-template`: a workspace sub-project becomes
+    // "app", a standalone app takes its directory name (`packageName`), because
+    // `lt dev` derives the slug from it and every standalone app would otherwise
+    // share `app.localhost`. Skip link mode — a symlinked checkout is shared with
+    // upstream and must not be mutated.
     if (result.method !== 'link') {
-      await this.fixPackageName(dest);
+      await this.fixPackageName(dest, options.packageName || 'app');
     }
 
     // The project's name instead of "Nuxt Base Starter", and no link to the starter repository
@@ -346,10 +362,13 @@ export class FrontendHelper {
       return { method: 'link', path: result.path, success: true };
     }
 
-    if (options.workspace) {
-      this.removeAngularStarterRepoFiles(dest);
-      await this.fixPackageName(dest);
-    }
+    // A new app is not a copy of the starter, standalone or in a workspace: the starter's
+    // CI, release tooling and changelog go, and package.json gets the app's own identity.
+    // Standalone kept all of it until ng-base-starter reported it (2026-11-11).
+    this.removeAngularStarterRepoFiles(dest);
+    await patching.update(`${dest}/package.json`, (data: Record<string, unknown>) =>
+      applyScaffoldIdentity(data, { name: options.packageName || 'app', version: '0.0.0' }),
+    );
 
     if (options.siteName && applyAngularSiteIdentity(dest, options.siteName) === 'unrecognised') {
       this.toolbox.print.warning(
@@ -410,7 +429,14 @@ export class FrontendHelper {
       filesystem.remove(`${dest}/.husky`);
       await patching.update(`${dest}/package.json`, (data: Record<string, unknown>) => {
         if (data.scripts && typeof data.scripts === 'object') {
-          delete (data.scripts as Record<string, unknown>).prepare;
+          const scripts = data.scripts as Record<string, unknown>;
+          // `prepare` goes when it runs husky or the workspace root owns the hooks. A
+          // standalone app is its own git root and keeps `simple-git-hooks` (ng-base-starter
+          // 22): deleting it unconditionally meant its pre-commit and pre-push hooks never
+          // installed.
+          if (options.workspace || /\bhusky\b/.test(String(scripts.prepare ?? ''))) {
+            delete scripts.prepare;
+          }
         }
         if (data.devDependencies && typeof data.devDependencies === 'object') {
           delete (data.devDependencies as Record<string, unknown>).husky;
@@ -443,8 +469,9 @@ export class FrontendHelper {
 
   /**
    * Removes the starter's repo-only files ({@link ANGULAR_STARTER_REPO_ONLY}, release
-   * configs, release scripts) and its npm lockfile, which a pnpm workspace replaces
-   * with its root lockfile. Never follows a symlink.
+   * configs, release scripts) and an npm lockfile: the app installs with pnpm, from
+   * its own `pnpm-lock.yaml` standalone and from the root lockfile in a workspace.
+   * Never follows a symlink.
    */
   public removeAngularStarterRepoFiles(dest: string): string[] {
     const fs = require('node:fs');

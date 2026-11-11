@@ -250,7 +250,7 @@ const NewCommand: GluegunCommand = {
       } else if (localNgBaseBuild) {
         info(`  2. @lenne.tech/ng-base as injected file: dependency on ${localNgBaseBuild}`);
       }
-      info(`  3. pnpm install + git init + remove husky`);
+      info(`  3. drop the starter's repo files + pnpm install + git init + remove husky`);
       if (gitLink) info(`  4. push initial commit to ${gitLink}`);
       info('');
       if (!toolbox.parameters.options.fromGluegunMenu) {
@@ -271,6 +271,7 @@ const NewCommand: GluegunCommand = {
       linkPath,
       localize,
       localNgBaseBuild,
+      packageName: projectDir,
       siteName: name,
       vendor: frameworkMode === 'vendor' ? { localSource: frameworkCopy } : undefined,
     });
