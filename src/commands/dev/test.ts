@@ -11,6 +11,7 @@ import { appNeedsPortPatch, resolveLayout } from '../../lib/dev-project';
 import {
   autoShardCount,
   bringUpTestSession,
+  buildTestRunnerEnv,
   ensurePlaywrightBrowsers,
   runShardedTestSession,
   tearDownAllTestSessions,
@@ -223,16 +224,12 @@ const TestCommand: GluegunCommand = {
     try {
       const ctx = await bringUpTestSession(layout, identity, log, { devDbName });
 
-      const env: NodeJS.ProcessEnv = {
-        ...process.env,
-        ...readBridgeEnv(layout.root),
-        // THIS db, for a project whose global-setup resets or cleans it (allow-listed).
-        MONGO_URI: `mongodb://127.0.0.1/${ctx.dbName}`,
-        // Point the auth E2E specs directly at the isolated test API log so they
-        // read the email-verification token without relying on the spec's upward
-        // filesystem search (the CI already documents `lt dev test` as doing this).
-        ...(ctx.apiLogPath ? { NEST_SERVER_LOG: ctx.apiLogPath } : {}),
-      };
+      const env: NodeJS.ProcessEnv = buildTestRunnerEnv({
+        apiLogPath: ctx.apiLogPath,
+        baseEnv: process.env,
+        bridgeEnv: readBridgeEnv(layout.root),
+        dbName: ctx.dbName,
+      });
       if (debug) {
         env.PWDEBUG = '1';
         env.HEADED = '1';

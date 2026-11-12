@@ -763,6 +763,37 @@ export function buildTestAppEnv(appEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
+/**
+ * The env of the unsharded `lt dev test` runner (Playwright): the inherited env, the
+ * test ENV bridge, this stack's database and API log, and the test build dirs
+ * (`NG_OUTPUT_DIR`, `NITRO_OUTPUT_DIR`, `NUXT_BUILD_DIR`) from {@link buildTestAppEnv},
+ * as the sharded runner gets them through `ctx.appEnv`.
+ *
+ * Without the build dirs a spec that starts the BUILT server itself looked in `.output/`
+ * and skipped, although the stack had just built `.output-test/`: ng-base-starter's
+ * `ssr-internal-api-url.spec.ts` (`${NG_OUTPUT_DIR:-.output}/server/index.mjs`), which
+ * checks that no page carries the internal API address, never ran under `lt dev test`.
+ * Both starters' Playwright configs skip their `webServer` under `LT_DEV_ACTIVE`, so the
+ * dirs change nothing else there.
+ */
+export function buildTestRunnerEnv(opts: {
+  apiLogPath?: string;
+  baseEnv: NodeJS.ProcessEnv;
+  bridgeEnv: NodeJS.ProcessEnv;
+  dbName: string;
+}): NodeJS.ProcessEnv {
+  const { apiLogPath, baseEnv, bridgeEnv, dbName } = opts;
+  return {
+    ...buildTestAppEnv({ ...baseEnv, ...bridgeEnv }),
+    // THIS db, for a project whose global-setup resets or cleans it (allow-listed).
+    MONGO_URI: `mongodb://127.0.0.1/${dbName}`,
+    // Point the auth E2E specs directly at the isolated test API log so they
+    // read the email-verification token without relying on the spec's upward
+    // filesystem search (the CI already documents `lt dev test` as doing this).
+    ...(apiLogPath ? { NEST_SERVER_LOG: apiLogPath } : {}),
+  };
+}
+
 /** True when a test session file exists (used by status/down). */
 export function hasTestSession(root: string): boolean {
   return loadSession(root, TEST_SESSION_FILE) !== null;

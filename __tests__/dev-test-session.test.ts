@@ -34,6 +34,7 @@ import {
   bringUpTestSession,
   buildShardPlaywrightInvocation,
   buildTestAppEnv,
+  buildTestRunnerEnv,
   chromiumExecutables,
   ensurePlaywrightBrowsers,
   hasTestSession,
@@ -762,7 +763,7 @@ describe('missing Chromium libraries on Linux, decided by ldd (Playwright 1.64.1
     expect(lddMissingLibraries('\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffffb20a0000)')).toEqual([]);
   });
 
-  test('finds the binaries in the Chrome for Testing folders Playwright\'s own check misses', () => {
+  test("finds the binaries in the Chrome for Testing folders Playwright's own check misses", () => {
     const root = mkdtempSync(join(tmpdir(), 'lt-pw-cache-'));
     try {
       const make = (rel: string) => {
@@ -810,9 +811,10 @@ describe('missing Chromium libraries on Linux, decided by ldd (Playwright 1.64.1
         if (command === 'ldd') {
           return {
             status: 0,
-            stdout: args[0] === chrome
-              ? '\tlibglib-2.0.so.0 => not found\n\tlibnss3.so => not found'
-              : '\tlibglib-2.0.so.0 => not found',
+            stdout:
+              args[0] === chrome
+                ? '\tlibglib-2.0.so.0 => not found\n\tlibnss3.so => not found'
+                : '\tlibglib-2.0.so.0 => not found',
           };
         }
         return { status: 0, stdout: DRY_RUN };
@@ -915,5 +917,48 @@ describe('ensurePlaywrightBrowsers warns before the suite (the 1.58.1 hint never
     });
     expect(infos[0]).toContain('playwright install chromium failed');
     expect(checked).toBe(false);
+  });
+});
+
+describe('buildTestRunnerEnv — the Playwright runner of an unsharded lt dev test', () => {
+  test("carries the test build dirs, so a spec that starts the built server finds this run's build", () => {
+    // ng-base-starter's ssr-internal-api-url.spec.ts starts `${NG_OUTPUT_DIR:-.output}/server/index.mjs`
+    // itself. Without NG_OUTPUT_DIR it looked in `.output/` and skipped, although the stack had just
+    // built `.output-test/`; the sharded runner already got the dirs through ctx.appEnv.
+    const env = buildTestRunnerEnv({ baseEnv: { PATH: '/usr/bin' }, bridgeEnv: {}, dbName: 'shop-test' });
+    expect(env).toMatchObject({
+      NG_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR,
+      NITRO_OUTPUT_DIR: TEST_NITRO_OUTPUT_DIR,
+      NUXT_BUILD_DIR: TEST_NUXT_BUILD_DIR,
+      PATH: '/usr/bin',
+    });
+  });
+
+  test('the test build dirs win over a shell export, as for the app process', () => {
+    const env = buildTestRunnerEnv({
+      baseEnv: { NG_OUTPUT_DIR: '.output', NITRO_OUTPUT_DIR: '.output' },
+      bridgeEnv: {},
+      dbName: 'shop-test',
+    });
+    expect(env.NG_OUTPUT_DIR).toBe(TEST_NITRO_OUTPUT_DIR);
+    expect(env.NITRO_OUTPUT_DIR).toBe(TEST_NITRO_OUTPUT_DIR);
+  });
+
+  test('keeps the bridge, the stack database and the API log as before', () => {
+    const env = buildTestRunnerEnv({
+      apiLogPath: '/p/.lt-dev/api.test.log',
+      baseEnv: { BASE_URL: 'https://api.shop.localhost', MONGO_URI: 'mongodb://127.0.0.1/shop-local' },
+      bridgeEnv: { BASE_URL: 'https://api.shop-test.localhost', LT_DEV_ACTIVE: 'true' },
+      dbName: 'shop-test',
+    });
+    expect(env).toMatchObject({
+      BASE_URL: 'https://api.shop-test.localhost',
+      LT_DEV_ACTIVE: 'true',
+      MONGO_URI: 'mongodb://127.0.0.1/shop-test',
+      NEST_SERVER_LOG: '/p/.lt-dev/api.test.log',
+    });
+    expect(buildTestRunnerEnv({ baseEnv: {}, bridgeEnv: {}, dbName: 'shop-test' })).not.toHaveProperty(
+      'NEST_SERVER_LOG',
+    );
   });
 });
