@@ -420,9 +420,10 @@ describe('FrontendHelper round trip', () => {
         '.github',
         '.release-it.json',
         'CHANGELOG.md',
-        join('docs', '.navigation.yml'),
-        join('docs', '1.guide'),
-        join('docs', 'index.md'),
+        // Returned as listed in ANGULAR_STARTER_REPO_ONLY, with `/` on every OS.
+        'docs/.navigation.yml',
+        'docs/1.guide',
+        'docs/index.md',
         'extras',
         'migration-guides',
         'package-lock.json',
