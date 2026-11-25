@@ -400,6 +400,11 @@ describe('FrontendHelper round trip', () => {
     for (const file of [
       'CHANGELOG.md',
       '.github/workflows/ci.yml',
+      'docs/.navigation.yml',
+      'docs/1.guide/1.getting-started.md',
+      'docs/e2e-auth.md',
+      'docs/index.md',
+      'docs/security-headers.md',
       'extras/sync.mjs',
       'migration-guides/22.md',
       '.release-it.json',
@@ -415,6 +420,10 @@ describe('FrontendHelper round trip', () => {
         '.github',
         '.release-it.json',
         'CHANGELOG.md',
+        // Returned as listed in ANGULAR_STARTER_REPO_ONLY, with `/` on every OS.
+        'docs/.navigation.yml',
+        'docs/1.guide',
+        'docs/index.md',
         'extras',
         'migration-guides',
         'package-lock.json',
@@ -423,6 +432,9 @@ describe('FrontendHelper round trip', () => {
     );
     expect(filesystem.exists(join(app, 'scripts', 'dev.mjs'))).toBe('file');
     expect(filesystem.exists(join(app, 'angular.json'))).toBe('file');
+    // The app's own docs stay; only the starter's section on docs.lennetech.app goes.
+    expect(filesystem.exists(join(app, 'docs', 'e2e-auth.md'))).toBe('file');
+    expect(filesystem.exists(join(app, 'docs', 'security-headers.md'))).toBe('file');
   });
 });
 
