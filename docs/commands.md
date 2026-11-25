@@ -509,6 +509,8 @@ lt dev up
 | Variable | Consumer | Example value |
 |----------|----------|---------------|
 | `PORT` | Nest (api) / Nuxt (app) | auto-allocated 4000+ |
+| `HOST`, `NITRO_HOST` | Nuxt / Nitro bind address (both components; Nest ignores them) | `127.0.0.1` |
+| `BIND_ADDRESS`, `NSC__HOSTNAME` | Nest bind address (API only): the starter maps `BIND_ADDRESS` onto `hostname`, `NSC__HOSTNAME` sets it in every nest-server project. Without them Nest listens on every address and the internal port is reachable from the LAN | `127.0.0.1` |
 | `BASE_URL` / `NSC__BASE_URL` | nest-server canonical API URL | `https://api.crm.localhost` |
 | `APP_URL` / `NSC__APP_URL` | nest-server frontend origin (CORS, BetterAuth) | `https://crm.localhost` |
 | `NUXT_API_URL` | Nuxt vite-proxy target for `/api`, `/iam`, … | `https://api.crm.localhost` |

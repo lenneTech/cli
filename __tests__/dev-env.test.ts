@@ -258,6 +258,21 @@ describe('dev-env / buildDevEnv', () => {
     expect(env.app.env.NITRO_HOST).toBe('127.0.0.1');
   });
 
+  test('binds the Nest API to loopback, whatever the shell or the project config says', () => {
+    // Nest ignores HOST: it listens on `config.hostname`, which the starter fills from
+    // BIND_ADDRESS and which is otherwise unset — i.e. every address. Measured 2026-11-19: an
+    // `lt dev up` API answered 200 on <LAN address>:<internal port>, past Caddy's loopback guard.
+    // NSC__HOSTNAME covers configs that do not read BIND_ADDRESS (the env merge runs last).
+    const env = buildDevEnv({
+      apiInternalPort: 4010,
+      appInternalPort: 4011,
+      baseEnv: { BIND_ADDRESS: '0.0.0.0', NSC__HOSTNAME: '0.0.0.0' },
+      identity: fullIdentity,
+    });
+    expect(env.api.env.BIND_ADDRESS).toBe('127.0.0.1');
+    expect(env.api.env.NSC__HOSTNAME).toBe('127.0.0.1');
+  });
+
   test('NUXT_PUBLIC_API_PROXY defaults to false (Caddy makes vite-proxy obsolete)', () => {
     const env = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity });
     expect(env.app.env.NUXT_PUBLIC_API_PROXY).toBe('false');

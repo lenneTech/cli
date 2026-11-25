@@ -17,6 +17,11 @@
  * - `NUXT_SESSION_PASSWORD` is keyed per slug, so a session cookie sealed by one
  *   stack cannot be unsealed by another (dev vs. `-test` vs. `-test-N` shard)
  *
+ * Loopback only:
+ * - API and App bind 127.0.0.1 (`HOST` / `NITRO_HOST`; for Nest `BIND_ADDRESS` /
+ *   `NSC__HOSTNAME`), so an internal port is not reachable from the LAN. Caddy's
+ *   per-site guard covers the public names, not a port the browser never sees.
+ *
  * CA trust for SSR fetches:
  * - Both API and App receive `NODE_EXTRA_CA_CERTS` pointing at the
  *   Caddy local root CA so server-side fetches between the two
@@ -112,12 +117,19 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
       env: {
         ...baseEnv,
         ...sharedKeys,
-        // Force IPv4 loopback binding so Caddy's `127.0.0.1` upstream
-        // (see `caddy.ts#renderProjectBlock`) always matches the
-        // listener. Without this, Nuxt + Nest sometimes bind to
-        // `[::1]` only, and Caddy gets connection-refused on IPv4.
+        // Bind IPv4 loopback only. IPv4, so Caddy's `127.0.0.1` upstream (see
+        // `caddy.ts#renderProjectBlock`) always matches the listener: without the pin Nuxt and
+        // Nest sometimes bound `[::1]` only, and Caddy got connection-refused. Loopback, so the
+        // internal port is not reachable from the LAN past Caddy's per-site guard.
+        // Nuxt and Nitro read `HOST` / `NITRO_HOST`. Nest reads neither: it listens on
+        // `config.hostname`, unset → every address. `BIND_ADDRESS` is what the starter's
+        // config.env.ts maps onto `hostname`; `NSC__HOSTNAME` reaches it through nest-server's
+        // env merge in every project, also one whose config does not read `BIND_ADDRESS` or sets
+        // its own value.
+        BIND_ADDRESS: '127.0.0.1',
         HOST: '127.0.0.1',
         NITRO_HOST: '127.0.0.1',
+        NSC__HOSTNAME: '127.0.0.1',
         PORT: String(apiInternalPort),
         // The stack's own SQL database. API only: these URLs carry the project's credentials,
         // and the App never talks to the database. The env merge maps them onto
