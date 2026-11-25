@@ -84,13 +84,23 @@ export interface AngularSetupOptions {
 
 /**
  * Files of the ng-base-starter repository that describe the STARTER, not an app made
- * from it: its release tooling, its migration guides and its own CI (test.yml and the
- * release workflow). The starter is flat (repo root = app), so unlike nuxt-base-starter
- * there is no wrapper to cut away; these are removed one by one instead, from a
- * standalone app as from a workspace app. The list is the contract agreed with
- * ng-base-starter (plan.md §5.6) and is exhaustive.
+ * from it: its release tooling, its migration guides, its own CI (test.yml and the
+ * release workflow) and its section on docs.lennetech.app (`docs/index.md`,
+ * `docs/.navigation.yml`, `docs/1.guide/`). The starter is flat (repo root = app), so
+ * unlike nuxt-base-starter there is no wrapper to cut away; these are removed one by
+ * one instead, from a standalone app as from a workspace app. The rest of `docs/`
+ * (e2e-auth.md, security-headers.md) is documentation of the app and stays. The list
+ * is the contract agreed with ng-base-starter (plan.md §5.6) and is exhaustive.
  */
-export const ANGULAR_STARTER_REPO_ONLY = ['.github', 'CHANGELOG.md', 'extras', 'migration-guides'];
+export const ANGULAR_STARTER_REPO_ONLY = [
+  '.github',
+  'CHANGELOG.md',
+  'docs/.navigation.yml',
+  'docs/1.guide',
+  'docs/index.md',
+  'extras',
+  'migration-guides',
+];
 
 /**
  * Result of frontend setup operation

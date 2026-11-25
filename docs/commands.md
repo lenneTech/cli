@@ -1596,7 +1596,7 @@ lt frontend angular [name] [options]
 | `--force` | Override the workspace-detection abort under `--noConfirm` |
 | `--noConfirm` / `-y` | Skip confirmation prompts |
 
-**What the new app keeps of the starter:** its code, scripts and pnpm files (`pnpm-lock.yaml`, `pnpm-workspace.yaml`). The starter's own CI and release tooling (`.github/`, `.release-it*`, `scripts/release*`), `CHANGELOG.md`, `extras/` and `migration-guides/` are removed, as in `lt fullstack add-app`. `package.json` gets the directory name as `name` (`lt dev` derives the project's URLs from it) and version `0.0.0`, and loses the starter's `description` and `repository`. `--link` changes nothing in the linked checkout.
+**What the new app keeps of the starter:** its code, scripts and pnpm files (`pnpm-lock.yaml`, `pnpm-workspace.yaml`). The starter's own CI and release tooling (`.github/`, `.release-it*`, `scripts/release*`), `CHANGELOG.md`, `extras/`, `migration-guides/` and the starter's own pages on docs.lennetech.app (`docs/index.md`, `docs/.navigation.yml`, `docs/1.guide/`) are removed, as in `lt fullstack add-app`. The rest of `docs/` stays. `package.json` gets the directory name as `name` (`lt dev` derives the project's URLs from it) and version `0.0.0`, and loses the starter's `description` and `repository`. `--link` changes nothing in the linked checkout.
 
 **Workspace-awareness:** Inside a fullstack workspace the command is interactive (confirm prompt), but under `--noConfirm` it **refuses** with exit code 1 and points the caller to `lt fullstack add-app --frontend angular`. Pass `--noConfirm --force` to override (rare).
 

@@ -55,6 +55,10 @@ function seedNgBaseStarter(dir: string, prepare = 'simple-git-hooks'): void {
     '.github/workflows/test.yml',
     '.github/workflows/release.yml',
     'CHANGELOG.md',
+    'docs/.navigation.yml',
+    'docs/1.guide/1.getting-started.md',
+    'docs/e2e-auth.md',
+    'docs/index.md',
     'extras/notes.md',
     'migration-guides/22.0.x-to-22.1.x.md',
     'pnpm-lock.yaml',
@@ -128,9 +132,10 @@ describe('setupAngular', () => {
     });
 
     expect(result.success).toBe(true);
-    for (const gone of ['.github', 'CHANGELOG.md', 'extras', 'migration-guides', '.husky']) {
+    for (const gone of ['.github', 'CHANGELOG.md', 'docs/.navigation.yml', 'docs/1.guide', 'docs/index.md', 'extras', 'migration-guides', '.husky']) {
       expect(existsSync(join(dest, gone))).toBe(false);
     }
+    expect(existsSync(join(dest, 'docs', 'e2e-auth.md'))).toBe(true);
     // A standalone app installs from its own lockfile and keeps its pnpm settings.
     for (const kept of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'scripts/check.mjs', 'scripts/dev.mjs']) {
       expect(existsSync(join(dest, kept))).toBe(true);
