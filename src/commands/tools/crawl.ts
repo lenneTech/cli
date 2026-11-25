@@ -2,7 +2,8 @@ import { GluegunCommand } from 'gluegun';
 import { resolve } from 'path';
 
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
-import { crawlSite } from '../../lib/crawler';
+import { CRAWLER_NODE_RANGE, crawlerSupportsNode } from '../../lib/crawler-node-support';
+import { failRun } from '../../lib/fail-run';
 
 /**
  * Crawl a website (optionally following same-origin links up to a
@@ -127,6 +128,14 @@ const NewCommand: GluegunCommand = {
 
     tools.nonInteractiveHint('lt tools crawl <url> --out <dir> --depth 1 --noConfirm');
 
+    if (!crawlerSupportsNode()) {
+      error(
+        `lt tools crawl needs Node ${CRAWLER_NODE_RANGE} (its HTML parser jsdom requires it); this is Node ${process.versions.node}.`,
+      );
+      failRun(toolbox);
+      return;
+    }
+
     const ltConfig = config.loadConfig();
     const commandConfig = ltConfig?.commands?.tools?.crawl;
 
@@ -248,6 +257,10 @@ const NewCommand: GluegunCommand = {
       return 'crawl cancelled';
     }
 
+    // Loaded here, not at the top: gluegun loads every command module on every `lt` run, and
+    // the crawler pulls in jsdom, whose Node floor (CRAWLER_NODE_RANGE) must not reach the
+    // other commands.
+    const { crawlSite } = require('../../lib/crawler') as typeof import('../../lib/crawler');
     const spinner = spin('Crawling...');
     const result = await crawlSite({
       autoInstallBrowser: installBrowser,

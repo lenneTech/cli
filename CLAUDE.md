@@ -2182,6 +2182,20 @@ actually reads. When a new component or framework joins, measure what it binds
 (`lsof -nP -iTCP -sTCP:LISTEN`) and probe it via the machine's LAN address, never only via
 loopback.
 
+### A dependency with a higher Node floor is loaded only by the command that needs it <!-- Added: 2026-11-25 -->
+GHSA-6g4c-jm42-jc5r (`@asamuzakjp/css-color` <= 7.0.0 throws an uncaught `TypeError` on a
+`color-mix()` nested three levels deep) reached the CLI through jsdom 29, which `lt tools crawl`
+hands every fetched page. Measured 2026-11-25: `new JSDOM(html)` itself threw, for the payload in a
+`style` attribute and in a `<style>` block alike, and the crawler lost that page; its per-page
+`catch` kept the run alive. `npm audit` never listed it: the advisory exists only in css-color's own
+repository, not in the GitHub Advisory Database. The fixed css-color (7.x) and jsdom 30+ need Node
+`^22.22.2 || ^24.15.0 || >=26`, while every other runtime dependency still declares Node 20; jsdom 31
+drops css-color altogether. Because gluegun loads every command module on every `lt` run, the crawl
+command `require`s the crawler inside `run()`, after `crawlerSupportsNode`
+(`src/lib/crawler-node-support.ts`, whose range a test pins to jsdom's `engines`). An older Node
+then costs `lt tools crawl` alone, with a clear message. **Rule:** a dependency that raises the Node
+floor goes behind a lazy `require` in the command that uses it.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

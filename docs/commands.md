@@ -2441,6 +2441,8 @@ Crawls a website and stores each page as a Markdown file (with YAML frontmatter 
 
 **Alias:** `cr`
 
+**Node:** `^22.22.2 || ^24.15.0 || >=26.0.0`, the range of its HTML parser jsdom. On an older Node the command exits 1 with that message; the other commands are not affected.
+
 **Usage:**
 ```bash
 lt tools crawl <url> [options]
