@@ -1,0 +1,4 @@
+# Section of this repository on docs.lennetech.app
+title: cli
+icon: i-lucide-terminal
+description: The lt CLI scaffolds and runs lenne.tech projects, from fullstack init to local dev stacks and deployments.

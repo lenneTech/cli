@@ -1,4 +1,7 @@
-# lenne.tech Fullstack Ecosystem: CLI & lt-dev Plugin
+---
+title: "lenne.tech Fullstack Ecosystem: CLI & lt-dev Plugin"
+description: "How the lt CLI and the lt-dev Claude Code plugin work together, with focus on vendor-mode workflows for nest-server and nuxt-extensions."
+---
 
 Comprehensive reference for the `lt` CLI and the `lt-dev` Claude Code plugin, with focus on **vendor-mode workflows** for `@lenne.tech/nest-server` and `@lenne.tech/nuxt-extensions`.
 

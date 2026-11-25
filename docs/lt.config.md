@@ -1,4 +1,7 @@
-# lt.config - Configuration File Documentation
+---
+title: "lt.config"
+description: "The lt.config file: default settings for the lt CLI per project or team."
+---
 
 The `lt.config` file allows you to configure default settings for the lenne.tech CLI (`lt`). This reduces repetitive input and ensures consistent project settings across your team.
 
