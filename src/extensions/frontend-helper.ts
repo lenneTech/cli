@@ -489,6 +489,22 @@ export class FrontendHelper {
     const removed: string[] = [];
     const remove = (rel: string): void => {
       const target = path.join(dest, rel);
+      // A nested entry (`docs/1.guide`, `scripts/release.mjs`) is reached through its parent
+      // directories, and `rmSync` follows a symlinked one: a linked `docs/` in a copied
+      // template would lose its target's `index.md` outside the app. Such an entry stays.
+      const parents = path
+        .dirname(path.normalize(rel))
+        .split(path.sep)
+        .filter((part: string) => part && part !== '.');
+      for (let depth = 1; depth <= parents.length; depth++) {
+        try {
+          if (fs.lstatSync(path.join(dest, ...parents.slice(0, depth))).isSymbolicLink()) {
+            return;
+          }
+        } catch {
+          return;
+        }
+      }
       try {
         fs.lstatSync(target);
       } catch {

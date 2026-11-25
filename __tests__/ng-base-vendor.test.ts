@@ -436,6 +436,27 @@ describe('FrontendHelper round trip', () => {
     expect(filesystem.exists(join(app, 'docs', 'e2e-auth.md'))).toBe('file');
     expect(filesystem.exists(join(app, 'docs', 'security-headers.md'))).toBe('file');
   });
+
+  test('never removes through a symlinked docs/ or scripts/: the link target keeps its files', () => {
+    const app = join(root, 'app');
+    seedAngularApp(app);
+    write(join(app, 'CHANGELOG.md'), 'x\n');
+    const outside = join(root, 'outside');
+    const kept = ['.navigation.yml', '1.guide/1.getting-started.md', 'index.md', 'release.mjs'];
+    for (const file of kept) {
+      write(join(outside, file), 'keep\n');
+    }
+    // 'junction' lets the test create a directory link on Windows without admin rights.
+    symlinkSync(outside, join(app, 'docs'), 'junction');
+    symlinkSync(outside, join(app, 'scripts'), 'junction');
+
+    const removed = makeHelper().removeAngularStarterRepoFiles(app);
+
+    expect(removed).toEqual(['CHANGELOG.md']);
+    for (const file of kept) {
+      expect(filesystem.exists(join(outside, file))).toBe('file');
+    }
+  });
 });
 
 describe('stylesheet imports', () => {
