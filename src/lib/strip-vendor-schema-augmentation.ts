@@ -4,9 +4,20 @@ import { globSync } from 'glob';
 
 import { isSymlink } from './fs-utils';
 
+/** Written where the first stripped block stood, once per file. */
+const REMOVAL_NOTE =
+  '// The `nuxt/schema` PublicRuntimeConfig augmentation was removed by `lt` when this\n' +
+  '// core was vendored. In node_modules it is harmless; as project source it augments\n' +
+  '// the same interface twice (`nuxt/schema` re-exports `@nuxt/schema`) and closes a\n' +
+  "// cycle with Nuxt's generated runtime-config types — TS2310, hidden by skipLibCheck,\n" +
+  '// which makes every `config.public.*` read `unknown`. The keys are unaffected: Nuxt\n' +
+  "// writes them into the generated types from the module's runtime-config defaults.\n" +
+  '// Do not restore it here; fix it upstream in @lenne.tech/nuxt-extensions.';
+
 /**
  * Drop `declare module '<nuxt|@nuxt>/schema' { … }` blocks that only augment
- * `PublicRuntimeConfig`, leaving a note in their place.
+ * `PublicRuntimeConfig`. The first one removed gets a note in its place; any
+ * further one in the same file is removed without it.
  *
  * Brace-counted rather than regex-matched to the closing brace: a block may grow
  * more members, and a pattern pinned to today's exact two lines would silently
@@ -26,6 +37,7 @@ export function stripAugmentationBlocks(source: string, onSkip?: (reason: string
   // rather than cost; the cursor is simply the honest way to write it, and it
   // removes the recursion the non-matching branch needed.
   let searchFrom = 0;
+  let noted = false;
 
   for (;;) {
     OPEN.lastIndex = searchFrom;
@@ -53,16 +65,22 @@ export function stripAugmentationBlocks(source: string, onSkip?: (reason: string
       continue;
     }
 
-    const note =
-      '// The `nuxt/schema` PublicRuntimeConfig augmentation was removed by `lt` when this\n' +
-      '// core was vendored. In node_modules it is harmless; as project source it augments\n' +
-      '// the same interface twice (`nuxt/schema` re-exports `@nuxt/schema`) and closes a\n' +
-      "// cycle with Nuxt's generated runtime-config types — TS2310, hidden by skipLibCheck,\n" +
-      '// which makes every `config.public.*` read `unknown`. The keys are unaffected: Nuxt\n' +
-      "// writes them into the generated types from the module's runtime-config defaults.\n" +
-      '// Do not restore it here; fix it upstream in @lenne.tech/nuxt-extensions.';
-    out = `${out.slice(0, match.index)}${note}${out.slice(end + 1)}`;
-    searchFrom = match.index + note.length;
+    if (noted) {
+      // One note per file. Upstream ships the augmentation twice (`nuxt/schema` and
+      // `@nuxt/schema`), and a note per block put the same seven lines into every
+      // vendored `module.ts` twice. A later block goes without a trace, together
+      // with the blank lines that separated it from what precedes it. The walk back
+      // stops at the end of that content, so it never reaches the note itself.
+      let cut = match.index;
+      while (cut > searchFrom && /\s/.test(out[cut - 1])) cut--;
+      out = `${out.slice(0, cut)}${out.slice(end + 1)}`;
+      searchFrom = cut;
+      continue;
+    }
+
+    out = `${out.slice(0, match.index)}${REMOVAL_NOTE}${out.slice(end + 1)}`;
+    searchFrom = match.index + REMOVAL_NOTE.length;
+    noted = true;
   }
 
   return out;

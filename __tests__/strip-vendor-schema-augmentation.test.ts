@@ -26,8 +26,8 @@
  *   2. A block that declares anything else STAYS — those carry module options and
  *      hooks, have no cycle, and removing them would trade this bug for a worse one.
  *   3. Nothing outside a `declare module` block is touched.
- *   4. The removal explains itself in the file, because the next person to look is
- *      a developer in a generated project with no access to this reasoning.
+ *   4. The removal explains itself in the file, once, because the next person to look
+ *      is a developer in a generated project with no access to this reasoning.
  */
 import { filesystem } from 'gluegun';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
@@ -59,6 +59,9 @@ const AUGMENTATION = [
 const KEEPER =
   "export interface LtExtensionsPublicRuntimeConfig {\n  ltExtensions: { auth: { enabled: boolean } };\n}\n";
 
+/** The first line of the note the strip leaves behind. */
+const NOTE_LINE = /PublicRuntimeConfig augmentation was removed by `lt`/g;
+
 describe('stripAugmentationBlocks', () => {
   it('removes the PublicRuntimeConfig augmentation under both module names', () => {
     const out = stripAugmentationBlocks(`${KEEPER}\n${AUGMENTATION}\n`);
@@ -80,6 +83,34 @@ describe('stripAugmentationBlocks', () => {
     expect(out).toContain('TS2310');
     expect(out).toContain('skipLibCheck');
     expect(out).toMatch(/vendored/i);
+  });
+
+  it('writes the note once, however many blocks it removes', () => {
+    // Upstream ships two blocks, and a note per block put the same seven lines into
+    // every vendored module.ts twice (seen in a project from CLI 1.58.7).
+    const out = stripAugmentationBlocks(`${KEEPER}\n${AUGMENTATION}\n`);
+    expect(out.match(NOTE_LINE) ?? []).toHaveLength(1);
+    // The second block leaves no blank lines behind: keeper, separator, note, end.
+    expect(out).toMatch(/^export interface LtExtensionsPublicRuntimeConfig \{[\s\S]*\n}\n\n\/\/ The `nuxt\/schema`/);
+    expect(out.endsWith('@lenne.tech/nuxt-extensions.\n')).toBe(true);
+  });
+
+  it('removes a later block without touching the code between the two', () => {
+    const between = [
+      "declare module 'nuxt/schema' {",
+      '  interface PublicRuntimeConfig extends LtExtensionsPublicRuntimeConfig {}',
+      '}',
+      '',
+      'export const keep = 1;',
+      '',
+      "declare module '@nuxt/schema' {",
+      '  interface PublicRuntimeConfig extends LtExtensionsPublicRuntimeConfig {}',
+      '}',
+      '',
+    ].join('\n');
+    const out = stripAugmentationBlocks(between);
+    expect(out.match(NOTE_LINE) ?? []).toHaveLength(1);
+    expect(out.endsWith('\n\nexport const keep = 1;\n')).toBe(true);
   });
 
   it('keeps a block that declares more than PublicRuntimeConfig', () => {
@@ -131,6 +162,7 @@ describe('stripAugmentationBlocks', () => {
     expect(out).toContain('interface NuxtConfig');
     expect(out).toContain('TS2310');
     expect(out.match(/declare module/g) ?? []).toHaveLength(1);
+    expect(out.match(NOTE_LINE) ?? []).toHaveLength(1);
   });
 
   it('is not fooled by a brace inside a string literal', () => {
@@ -204,7 +236,9 @@ describe('stripVendorSchemaAugmentation', () => {
     // absent, so this repo stays testable on its own.
     const source = readFileSync(UPSTREAM_MODULE, 'utf8');
     expect(source).toMatch(/declare module ['"](?:@nuxt|nuxt)\/schema['"]/);
-    expect(stripAugmentationBlocks(source)).not.toMatch(/declare module ['"](?:@nuxt|nuxt)\/schema['"]/);
+    const stripped = stripAugmentationBlocks(source);
+    expect(stripped).not.toMatch(/declare module ['"](?:@nuxt|nuxt)\/schema['"]/);
+    expect(stripped.match(NOTE_LINE) ?? []).toHaveLength(1);
   });
   it('patches every file that needs it, not just the first', () => {
     const dir = core({
