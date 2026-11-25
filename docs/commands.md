@@ -508,7 +508,7 @@ lt dev up
 **Environment variables injected:**
 | Variable | Consumer | Example value |
 |----------|----------|---------------|
-| `PORT` | Nest (api) / Nuxt (app) | auto-allocated 4000+ |
+| `PORT` | Nest (api) / Nuxt (app) | auto-allocated 4000+, skipping the ports `fetch` refuses (4045, 4190) |
 | `HOST`, `NITRO_HOST` | Nuxt / Nitro bind address (both components; Nest ignores them) | `127.0.0.1` |
 | `BIND_ADDRESS`, `NSC__HOSTNAME` | Nest bind address (API only): the starter maps `BIND_ADDRESS` onto `hostname`, `NSC__HOSTNAME` sets it in every nest-server project. Without them Nest listens on every address and the internal port is reachable from the LAN | `127.0.0.1` |
 | `BASE_URL` / `NSC__BASE_URL` | nest-server canonical API URL | `https://api.crm.localhost` |

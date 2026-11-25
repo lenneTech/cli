@@ -18,10 +18,15 @@ import {
   classifyComponentHealth,
   clearSession,
   detectSlugConflict,
+  FETCH_BLOCKED_PORTS,
+  healthAfterPortMove,
+  healthAfterStackPortMove,
   isPidAlive,
   isValidPid,
   loadRegistry,
   loadSession,
+  planInternalPort,
+  planStackPorts,
   saveRegistry,
   saveSession,
   takenInternalPorts,
@@ -121,7 +126,12 @@ describe('dev-state', () => {
         process.env.LT_DEV_REGISTRY_PATH!,
         JSON.stringify({
           projects: {
-            web: { dbName: 'web-local', internalPorts: { app: 4001 }, path: '/web', subdomains: { app: 'web.localhost' } },
+            web: {
+              dbName: 'web-local',
+              internalPorts: { app: 4001 },
+              path: '/web',
+              subdomains: { app: 'web.localhost' },
+            },
           },
           version: 1,
         }),
@@ -172,6 +182,176 @@ describe('dev-state', () => {
     test('allocates first free port', () => {
       const taken = new Set<number>([4000, 4001]);
       expect(allocateInternalPort(4000, taken)).toBe(4002);
+    });
+
+    /** Every port from `from` up to (not including) `to`. */
+    const range = (from: number, to: number) => new Set(Array.from({ length: to - from }, (_, i) => from + i));
+
+    // An API on 4045 served, and every Nuxt SSR call and `generate-types` failed with "bad port"
+    // (excel-toolbox, 2026-11-24). The sequential allocator reached it once 4000-4044 were taken.
+    test.each([
+      [4000, 4045, 4046],
+      [4000, 4190, 4191],
+      [4500, 5060, 5062],
+    ])('skips the fetch-blocked ports from %i on, with %i next in line', (start, blocked, expected) => {
+      expect(allocateInternalPort(start, range(start, blocked))).toBe(expected);
+    });
+
+    test('every blocked port is refused by the fetch of the Node running the tests', async () => {
+      const notBadPort: number[] = [];
+      for (const port of FETCH_BLOCKED_PORTS) {
+        // Refused before any connection is made, so nothing on the machine is contacted.
+        const cause = await fetch(`http://127.0.0.1:${port}/`).then(
+          () => undefined,
+          (e: { cause?: { message?: string } }) => e.cause?.message,
+        );
+        if (cause !== 'bad port') notBadPort.push(port);
+      }
+      expect(notBadPort).toEqual([]);
+    });
+
+    test('planInternalPort keeps a registered port that fetch accepts', () => {
+      expect(planInternalPort({ needed: true, registered: 4003, start: 4000, taken: new Set() })).toEqual({
+        port: 4003,
+        reused: true,
+      });
+    });
+
+    test('planInternalPort moves a registered blocked port to a fresh one', () => {
+      expect(planInternalPort({ needed: true, registered: 4045, start: 4000, taken: range(4000, 4045) })).toEqual({
+        movedFrom: 4045,
+        port: 4046,
+        reused: false,
+      });
+    });
+
+    test('planInternalPort gives a component without a registered port a fresh one', () => {
+      expect(planInternalPort({ needed: true, start: 4000, taken: new Set([4000]) })).toEqual({
+        port: 4001,
+        reused: false,
+      });
+    });
+
+    // The registry the old allocator wrote when 4000-4044 were taken. Moved off 4045 without
+    // knowing the App keeps 4046, the API got 4046 too: `lt dev up` refused on every run with
+    // the App running, and registered both on one port with it stopped.
+    test('planStackPorts never moves the API onto the port the App keeps', () => {
+      const plan = planStackPorts({
+        needed: { api: true, app: true },
+        registered: { api: 4045, app: 4046 },
+        start: 4000,
+        taken: range(4000, 4045),
+      });
+      expect(plan.api).toEqual({ movedFrom: 4045, port: 4047, reused: false });
+      expect(plan.app).toEqual({ port: 4046, reused: true });
+    });
+
+    test('planStackPorts never moves the App onto the port the API keeps', () => {
+      const plan = planStackPorts({
+        needed: { api: true, app: true },
+        registered: { api: 4189, app: 4190 },
+        start: 4189,
+        taken: new Set(),
+      });
+      expect(plan.api).toEqual({ port: 4189, reused: true });
+      expect(plan.app).toEqual({ movedFrom: 4190, port: 4191, reused: false });
+    });
+
+    test('planStackPorts keeps both registered ports fetch accepts, and leaves `taken` alone', () => {
+      const taken = new Set([4000]);
+      expect(
+        planStackPorts({ needed: { api: true, app: true }, registered: { api: 4003, app: 4004 }, start: 4000, taken }),
+      ).toEqual({ api: { port: 4003, reused: true }, app: { port: 4004, reused: true } });
+      expect([...taken]).toEqual([4000]);
+    });
+
+    test('planStackPorts gives a new stack two distinct fresh ports', () => {
+      expect(
+        planStackPorts({ needed: { api: true, app: true }, registered: {}, start: 4000, taken: new Set() }),
+      ).toEqual({
+        api: { port: 4000, reused: false },
+        app: { port: 4001, reused: false },
+      });
+    });
+
+    // A kept App's env still names the API's old internal port (`NUXT_API_URL`), which is the
+    // blocked port the move left: SSR would go on failing with "bad port".
+    test.each([
+      ['running', 'crashed'],
+      ['starting', 'crashed'],
+      ['crashed', 'crashed'],
+      ['dead', 'dead'],
+    ] as const)('healthAfterPortMove restarts a %s component whose env names a moved port', (health, expected) => {
+      expect(healthAfterPortMove(health, true)).toBe(expected);
+    });
+
+    test('healthAfterPortMove leaves a component alone when no port of its env moved', () => {
+      expect(healthAfterPortMove('running', false)).toBe('running');
+      expect(healthAfterPortMove('starting', false)).toBe('starting');
+      expect(healthAfterPortMove(undefined, true)).toBeUndefined();
+    });
+
+    // The pairing `lt dev up` relies on. Checking only the App's own move here would keep a
+    // serving App whose NUXT_API_URL still names the API's old, blocked port.
+    test('healthAfterStackPortMove restarts the App too when only the API moved', () => {
+      const plan = planStackPorts({
+        needed: { api: true, app: true },
+        registered: { api: 4045, app: 4046 },
+        start: 4000,
+        taken: range(4000, 4045),
+      });
+      expect(plan.api.movedFrom).toBe(4045);
+      expect(plan.app.movedFrom).toBeUndefined();
+      expect(healthAfterStackPortMove({ api: 'running', app: 'running' }, plan)).toEqual({
+        api: 'crashed',
+        app: 'crashed',
+      });
+    });
+
+    test('healthAfterStackPortMove keeps the API when only the App moved', () => {
+      const plan = planStackPorts({
+        needed: { api: true, app: true },
+        registered: { api: 4189, app: 4190 },
+        start: 4189,
+        taken: new Set(),
+      });
+      expect(plan.app.movedFrom).toBe(4190);
+      expect(healthAfterStackPortMove({ api: 'running', app: 'starting' }, plan)).toEqual({
+        api: 'running',
+        app: 'crashed',
+      });
+    });
+
+    test('healthAfterStackPortMove changes nothing when no port moved, and adds no component', () => {
+      const kept = planStackPorts({
+        needed: { api: true, app: true },
+        registered: { api: 4001, app: 4002 },
+        start: 4000,
+        taken: new Set(),
+      });
+      expect(healthAfterStackPortMove({ api: 'running', app: 'starting' }, kept)).toEqual({
+        api: 'running',
+        app: 'starting',
+      });
+      const apiOnly = planStackPorts({
+        needed: { api: true, app: false },
+        registered: { api: 4045 },
+        start: 4000,
+        taken: new Set(),
+      });
+      expect(healthAfterStackPortMove({ api: 'dead' }, apiOnly)).toEqual({ api: 'dead', app: undefined });
+    });
+
+    test('planInternalPort allocates nothing for a component the project does not have', () => {
+      expect(planInternalPort({ needed: false, start: 4000, taken: new Set() })).toEqual({
+        port: undefined,
+        reused: false,
+      });
+      expect(planInternalPort({ needed: false, registered: 4190, start: 4000, taken: new Set() })).toEqual({
+        movedFrom: 4190,
+        port: undefined,
+        reused: false,
+      });
     });
     test('takenInternalPorts collects across registry', () => {
       const reg = loadRegistry();
@@ -299,9 +479,9 @@ describe('dev-state', () => {
       });
       // Give the holder a moment to actually grab the lock.
       await new Promise((resolve) => setTimeout(resolve, 20));
-      await expect(
-        withRegistryLock(() => 'never', { staleMs: 60_000, timeoutMs: 200 }),
-      ).rejects.toThrow(/registry lock busy/);
+      await expect(withRegistryLock(() => 'never', { staleMs: 60_000, timeoutMs: 200 })).rejects.toThrow(
+        /registry lock busy/,
+      );
       release();
       await holder;
       expect(existsSync(LOCK_PATH)).toBe(false);

@@ -32,12 +32,13 @@ import {
 } from '../../lib/dev-sql';
 import { waitForStartup } from '../../lib/dev-startup';
 import {
-  allocateInternalPort,
   classifyComponentHealth,
   type ComponentHealth,
   detectSlugConflict,
+  healthAfterStackPortMove,
   loadRegistry,
   loadSession,
+  planStackPorts,
   saveRegistry,
   saveSession,
   STARTUP_GRACE_MS,
@@ -293,26 +294,27 @@ const UpCommand: GluegunCommand = {
     // can never grab the same ports.
     let apiPort: number | undefined;
     let appPort: number | undefined;
+    // A registered port on the fetch block list (`bad port`) is given up for a fresh one.
+    let apiPortMovedFrom: number | undefined;
+    let appPortMovedFrom: number | undefined;
+    let portPlan: ReturnType<typeof planStackPorts> = { api: { reused: false }, app: { reused: false } };
     try {
       await withRegistryLock(async () => {
         const reg = loadRegistry();
         const entry = reg.projects[identity.slug];
-        const taken = takenInternalPorts(reg, identity.slug);
-        let apiPortReused = false;
-        let appPortReused = false;
-        if (entry?.internalPorts.api) {
-          apiPort = entry.internalPorts.api;
-          apiPortReused = true;
-        } else if (layout.apiDir) {
-          apiPort = allocateInternalPort(4000, taken);
-        }
-        if (apiPort) taken.add(apiPort);
-        if (entry?.internalPorts.app) {
-          appPort = entry.internalPorts.app;
-          appPortReused = true;
-        } else if (layout.appDir) {
-          appPort = allocateInternalPort(4000, taken);
-        }
+        const plan = planStackPorts({
+          needed: { api: Boolean(layout.apiDir), app: Boolean(layout.appDir) },
+          registered: entry?.internalPorts ?? {},
+          start: 4000,
+          taken: takenInternalPorts(reg, identity.slug),
+        });
+        portPlan = plan;
+        apiPort = plan.api.port;
+        apiPortMovedFrom = plan.api.movedFrom;
+        const apiPortReused = plan.api.reused;
+        appPort = plan.app.port;
+        appPortMovedFrom = plan.app.movedFrom;
+        const appPortReused = plan.app.reused;
 
         // Only FRESHLY allocated ports must be verified free here. A reused
         // (registered) port may legitimately be bound by our own still-healthy
@@ -355,6 +357,16 @@ const UpCommand: GluegunCommand = {
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'dev up: port in use';
     }
+    for (const [name, from, to] of [
+      ['api', apiPortMovedFrom, apiPort],
+      ['app', appPortMovedFrom, appPort],
+    ] as const) {
+      if (from)
+        warning(
+          `${name}: internal port ${from} is blocked by fetch (Node and browsers fail with "bad port") → moving to ${to ?? '-'}`,
+        );
+    }
+    if (apiPortMovedFrom && appPort) info('app restarts too: its NUXT_API_URL / NG_API_URL name the API port.');
 
     // The CLAUDE.md URL block names both addresses: the `*.localhost` name a
     // browser opens and, for a script, the env var that carries the loopback
@@ -391,20 +403,28 @@ const UpCommand: GluegunCommand = {
     const hasApi = Boolean(layout.apiDir && existsSync(join(layout.apiDir, 'package.json')) && apiPort);
     const hasApp = Boolean(layout.appDir && existsSync(join(layout.appDir, 'package.json')) && appPort);
     const healthProbe = await probePorts([apiPort, appPort].filter((p): p is number => typeof p === 'number'));
-    const apiHealth: ComponentHealth | undefined = hasApi
-      ? classifyComponentHealth({
-          pid: existingSession?.pids.api,
-          portBound: !!apiPort && healthProbe.bound.has(apiPort),
-          startedAt: existingSession?.startedAt,
-        })
-      : undefined;
-    const appHealth: ComponentHealth | undefined = hasApp
-      ? classifyComponentHealth({
-          pid: existingSession?.pids.app,
-          portBound: !!appPort && healthProbe.bound.has(appPort),
-          startedAt: existingSession?.startedAt,
-        })
-      : undefined;
+    // A component whose env names a port that moved is restarted even when it serves: a moved
+    // component still runs on its OLD port, and a kept App would keep calling the API's old one
+    // (see `healthAfterStackPortMove`).
+    const { api: apiHealth, app: appHealth } = healthAfterStackPortMove(
+      {
+        api: hasApi
+          ? classifyComponentHealth({
+              pid: existingSession?.pids.api,
+              portBound: !!apiPort && healthProbe.bound.has(apiPort),
+              startedAt: existingSession?.startedAt,
+            })
+          : undefined,
+        app: hasApp
+          ? classifyComponentHealth({
+              pid: existingSession?.pids.app,
+              portBound: !!appPort && healthProbe.bound.has(appPort),
+              startedAt: existingSession?.startedAt,
+            })
+          : undefined,
+      },
+      portPlan,
+    );
     // A component we leave running untouched is either serving (`running`) or
     // still within its boot grace window (`starting`).
     const isKeepable = (h: ComponentHealth | undefined): boolean => h === 'running' || h === 'starting';

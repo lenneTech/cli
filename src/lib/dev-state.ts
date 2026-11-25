@@ -180,6 +180,32 @@ const SESSION_FILE = 'state.json';
 /** Session file for the ephemeral `lt dev test` stack (runs parallel to the dev session). */
 export const TEST_SESSION_FILE = 'state.test.json';
 
+/**
+ * Ports the Fetch standard blocks (https://fetch.spec.whatwg.org/#port-blocking). Node's `fetch`
+ * (undici) refuses them before it connects, with `TypeError: fetch failed`, cause `bad port`, and
+ * browsers refuse them too. A component on such a port serves, but every `fetch` of it fails:
+ * an API on 4045 broke Nuxt's SSR calls through `NUXT_API_URL` and `generate-types` (excel-toolbox,
+ * 2026-11-24). Both bands `lt dev` allocates from contain some: 4045 and 4190 (dev, 4000+), 5060
+ * and 5061 (test, 4500+). The list is the one Node 26 enforces, read off its own `fetch`;
+ * `__tests__/dev-state.test.ts` checks every entry against the running Node.
+ */
+export const FETCH_BLOCKED_PORTS: ReadonlySet<number> = new Set([
+  1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110,
+  111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+  540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061,
+  6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+]);
+
+/** Result of {@link planInternalPort}. */
+export interface InternalPortPlan {
+  /** A registered port that had to be given up because it is fetch-blocked. */
+  movedFrom?: number;
+  /** The port the component gets, or undefined when it needs none. */
+  port?: number;
+  /** True when `port` is the registered one, so its listener may be our own running component. */
+  reused: boolean;
+}
+
 /** Result of {@link detectSlugConflict} — another checkout already owns this slug. */
 export interface SlugConflict {
   /** The registered path that differs from the current checkout. */
@@ -192,13 +218,13 @@ export interface SlugConflict {
  * Allocate a free internal port for a Caddy upstream.
  *
  * Strategy: try sequential ports starting from `start`, skipping any
- * that are already in use. The range 4000-4999 is conventional for
- * lt dev internal ports — well above the deprecated 3000/3001 range
- * and safely below most reserved/system ranges.
+ * that are already in use and every port in {@link FETCH_BLOCKED_PORTS}.
+ * The range 4000-4999 is conventional for lt dev internal ports — well
+ * above the deprecated 3000/3001 range.
  */
 export function allocateInternalPort(start: number, taken: Set<number>): number {
   for (let p = start; p < start + 1000; p++) {
-    if (!taken.has(p)) return p;
+    if (!taken.has(p) && !isFetchBlockedPort(p)) return p;
   }
   throw new Error(`No free internal port in range [${start}, ${start + 1000})`);
 }
@@ -235,6 +261,52 @@ export function detectSlugConflict(slug: string, root: string): null | SlugConfl
   const otherSessionAlive =
     !!session && [session.pids.api, session.pids.app].some((p) => typeof p === 'number' && isPidAlive(p));
   return { otherPath: entry.path, otherSessionAlive };
+}
+
+/**
+ * The health `lt dev up` acts on for a component whose env names a port that just moved (see
+ * {@link planStackPorts}). Such a component restarts even when it serves: the env of a running
+ * process cannot change, and a kept App would go on calling the API's OLD internal port through
+ * `NUXT_API_URL` / `NG_API_URL`, which is exactly the blocked port the move left.
+ *
+ * Which env names which port: the moved component's own (`PORT`), and the App's for the API's
+ * port. The API reads no internal URL of the App, so an App-only move leaves the API alone.
+ * A dead component stays `dead`; anything alive becomes `crashed`, so its supervisor group is
+ * terminated before the restart instead of left running on the old port.
+ * @param health - What `classifyComponentHealth` reported, or undefined for an absent component
+ * @param envNamesMovedPort - The component's env carries a port that moved in this run
+ */
+export function healthAfterPortMove(
+  health: ComponentHealth | undefined,
+  envNamesMovedPort: boolean,
+): ComponentHealth | undefined {
+  if (!envNamesMovedPort || health === undefined || health === 'dead') return health;
+  return 'crashed';
+}
+
+/**
+ * {@link healthAfterPortMove} for both components of a stack, read off the plan
+ * {@link planStackPorts} returned: the API restarts when its own port moved, the App when
+ * either port moved. The pairing lives here rather than in `lt dev up`, where checking only
+ * the App's own move type-checks, passes every other test, and leaves the App calling the
+ * API's old blocked port while each later `lt dev up` reports "already running".
+ * @param health - What `classifyComponentHealth` reported per component, undefined for an absent one
+ * @param plan - The port plan of this run
+ */
+export function healthAfterStackPortMove(
+  health: { api?: ComponentHealth; app?: ComponentHealth },
+  plan: { api: InternalPortPlan; app: InternalPortPlan },
+): { api?: ComponentHealth; app?: ComponentHealth } {
+  const apiMoved = plan.api.movedFrom !== undefined;
+  return {
+    api: healthAfterPortMove(health.api, apiMoved),
+    app: healthAfterPortMove(health.app, apiMoved || plan.app.movedFrom !== undefined),
+  };
+}
+
+/** Whether Node's `fetch` and browsers refuse this port (see {@link FETCH_BLOCKED_PORTS}). */
+export function isFetchBlockedPort(port: number): boolean {
+  return FETCH_BLOCKED_PORTS.has(port);
 }
 
 /**
@@ -319,6 +391,62 @@ export function loadSession(root: string, sessionFile: string = SESSION_FILE): D
     /* fall through */
   }
   return null;
+}
+
+/**
+ * The internal port a component gets on `lt dev up`: its registered one, unless that is
+ * fetch-blocked, else a freshly allocated one when the component exists.
+ *
+ * A blocked registered port is given up rather than kept, because the stack cannot work on it:
+ * the component serves, every `fetch` of it fails with `bad port`. Registries written before the
+ * allocator skipped those ports still carry them, and `lt dev up` reuses a registered port as
+ * long as the entry lives, so without this the broken port would stay for good.
+ * @param opts.needed - The component exists in this project (`layout.apiDir` / `layout.appDir`)
+ * @param opts.registered - The port the registry entry records for it, if any
+ * @param opts.start - First port of the band to allocate from
+ * @param opts.taken - Ports other stacks hold; not modified
+ */
+export function planInternalPort(opts: {
+  needed: boolean;
+  registered?: number;
+  start: number;
+  taken: Set<number>;
+}): InternalPortPlan {
+  const { needed, registered, start, taken } = opts;
+  if (registered && !isFetchBlockedPort(registered)) return { port: registered, reused: true };
+  const port = needed ? allocateInternalPort(start, taken) : undefined;
+  return registered ? { movedFrom: registered, port, reused: false } : { port, reused: false };
+}
+
+/**
+ * The internal ports of one stack's API and App on `lt dev up`, each per {@link planInternalPort}.
+ *
+ * `taken` holds the OTHER stacks' ports only (`takenInternalPorts` leaves this slug out, so a
+ * registered port can be reused). A port that moves must not land on the port its sibling keeps:
+ * the old allocator registered `{ api: 4045, app: 4046 }` once 4000-4044 were taken, and the API,
+ * moved off 4045, got 4046 — the App's own port. With the App running, `lt dev up` then refused on
+ * every run ("already in use"); with it stopped, both were registered and started on one port.
+ * So the ports that stay are reserved before anything is allocated.
+ * @param opts.needed - Which components this project has
+ * @param opts.registered - The ports the registry entry records
+ * @param opts.start - First port of the band to allocate from
+ * @param opts.taken - Ports other stacks hold; not modified
+ */
+export function planStackPorts(opts: {
+  needed: { api: boolean; app: boolean };
+  registered: { api?: number; app?: number };
+  start: number;
+  taken: Set<number>;
+}): { api: InternalPortPlan; app: InternalPortPlan } {
+  const { needed, registered, start } = opts;
+  const taken = new Set(opts.taken);
+  for (const own of [registered.api, registered.app]) {
+    if (own && !isFetchBlockedPort(own)) taken.add(own);
+  }
+  const api = planInternalPort({ needed: needed.api, registered: registered.api, start, taken });
+  if (api.port) taken.add(api.port);
+  const app = planInternalPort({ needed: needed.app, registered: registered.app, start, taken });
+  return { api, app };
 }
 
 /**
