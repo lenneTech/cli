@@ -4,7 +4,7 @@ import { join } from 'path';
 import { ExtendedGluegunCommand } from '../../interfaces/extended-gluegun-command';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { isVendoredProject } from '../../lib/framework-detection';
-import { isPathInside, openFileWithDefaultApp } from '../../lib/safe-paths';
+import { openFileWithDefaultApp, resolveInside } from '../../lib/safe-paths';
 
 // ────────────────────────────────────────────────────────────────────────────
 // Interfaces (matching @lenne.tech/nest-server PermissionsReport)
@@ -328,7 +328,7 @@ export const help = {
       type: 'string',
       values: ['md', 'json', 'html'],
     },
-    { description: 'Output file name', flag: '--output', required: false, type: 'string' },
+    { description: 'Output file, inside the project', flag: '--output', required: false, type: 'string' },
     {
       default: true,
       description: 'Open report in default application',
@@ -467,9 +467,10 @@ const PermissionsCommand: ExtendedGluegunCommand = {
         defaultValue: defaultOutputName,
       }) || defaultOutputName;
 
-    const outputPath = join(projectPath, outputFile);
-    // --output and lt.config's `output` must not write outside the project (`../../x`).
-    if (!isPathInside(projectPath, outputPath)) {
+    // --output and lt.config's `output` must not write outside the project (`../../x`,
+    // `/tmp/x`). An absolute path inside the project is fine.
+    const outputPath = resolveInside(projectPath, outputFile);
+    if (!outputPath) {
       error(`Output ${outputFile} lies outside the project ${projectPath}. Use a path inside the project.`);
       if (!parameters.options.fromGluegunMenu) process.exit(1);
       return 'permissions: output outside project';

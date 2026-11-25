@@ -204,7 +204,7 @@ lt server permissions [options]
 | Option | Description |
 |--------|-------------|
 | `--path <dir>` | Path to NestJS project (default: auto-detect) |
-| `--output <file>` | Output file (default: `permissions.<format>`) |
+| `--output <file>` | Output file, relative to the project or absolute inside it; a path outside the project is refused (default: `permissions.<format>`) |
 | `--format <md\|json\|html>` | Output format (default: `html` for TTY, `json` for CI) |
 | `--open` / `--no-open` | Open report in browser (default: `true` for TTY) |
 | `--console` | Print summary to console |
