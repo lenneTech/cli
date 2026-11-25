@@ -1,4 +1,7 @@
-# Command Reference for lt
+---
+title: "Command Reference"
+description: "All lt commands with their options and examples."
+---
 
 This document provides a comprehensive reference for all `lt` CLI commands. For configuration file options, see [lt.config.md](./lt.config.md).
 
@@ -44,7 +47,7 @@ These flags work on **every** `lt` subcommand. They are intercepted before the c
 | `--help-json` | Print the same help as a single JSON document on stdout. Stable contract — see shape below. Intended for AI agents and tooling that want to discover a command's surface programmatically. |
 | `--noConfirm` | Skip interactive confirmations (where supported by the command). |
 
-**`--help-json` payload shape** (`HelpJsonShape` in [src/lib/command-help.ts](../src/lib/command-help.ts)):
+**`--help-json` payload shape** (`HelpJsonShape` in [src/lib/command-help.ts](https://github.com/lenneTech/cli/blob/main/src/lib/command-help.ts)):
 
 ```jsonc
 {
@@ -1951,7 +1954,7 @@ lt directus docker-setup [options]
 **Options:**
 | Option | Description |
 |--------|-------------|
-| `--name <name>` / `-n` | Instance name (stored in ~/.lt/directus/<name>) |
+| `--name <name>` / `-n` | Instance name (stored in `~/.lt/directus/<name>`) |
 | `--version <version>` / `-v` | Directus version (default: latest) |
 | `--database <type>` / `--db <type>` | Database type: `postgres`, `mysql`, `sqlite` |
 | `--port <number>` / `-p` | Port number (default: auto-detect starting from 8055) |

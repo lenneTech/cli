@@ -1,4 +1,7 @@
-# Vendor-Mode Workflow — Step-by-Step
+---
+title: "Vendor-Mode Workflow"
+description: "Step by step: converting a fullstack project from npm mode to vendor mode, updating it, and rolling back."
+---
 
 Practical guide for converting a lenne.tech fullstack project from **npm mode** to **vendor mode**, updating it, and optionally rolling back.
 

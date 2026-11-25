@@ -1,4 +1,7 @@
-# Plugin guide for lt
+---
+title: "Plugins"
+description: "Extending lt with plugins: commands and toolbox extensions."
+---
 
 Plugins allow you to add features to lt, such as commands and
 extensions to the `toolbox` object that provides the majority of the functionality
@@ -40,7 +43,7 @@ module.exports = (toolbox) => {
 
 This is then accessible in your plugin's commands as `toolbox.bar`.
 
-# Loading a plugin
+## Loading a plugin
 
 To load a particular plugin (which has to start with `lt-*`),
 install it to your project using `npm install --save-dev lt-PLUGINNAME`,
