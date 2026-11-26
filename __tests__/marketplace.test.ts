@@ -26,7 +26,7 @@ describe('deriveGitHubRepo', () => {
   });
 
   test('returns undefined for non-GitHub sources', () => {
-    expect(deriveGitHubRepo('git@gitlab.lenne.tech:intern/claude-code-internal.git')).toBeUndefined();
+    expect(deriveGitHubRepo('git@gitlab.example.com:intern/claude-code-internal.git')).toBeUndefined();
   });
 });
 
@@ -34,12 +34,12 @@ describe('configuredToMarketplaceConfig', () => {
   test('defaults to the git provider with autoInstall enabled', () => {
     const cfg = configuredToMarketplaceConfig({
       name: 'lenne-tech-internal',
-      source: 'git@gitlab.lenne.tech:intern/claude-code-internal.git',
+      source: 'git@gitlab.example.com:intern/claude-code-internal.git',
     });
     expect(cfg.provider).toBe('git');
     expect(cfg.autoInstall).toBe(true);
     expect(cfg.apiBase).toBeUndefined();
-    expect(cfg.source).toBe('git@gitlab.lenne.tech:intern/claude-code-internal.git');
+    expect(cfg.source).toBe('git@gitlab.example.com:intern/claude-code-internal.git');
   });
 
   test('derives GitHub API/raw bases for the github provider', () => {
@@ -85,7 +85,7 @@ describe('getAllMarketplaces', () => {
   });
 
   test('appends configured marketplaces after the built-ins', () => {
-    upsertConfiguredMarketplace({ name: 'lenne-tech-internal', source: 'git@gitlab.lenne.tech:intern/x.git' });
+    upsertConfiguredMarketplace({ name: 'lenne-tech-internal', source: 'git@gitlab.example.com:intern/x.git' });
     const all = getAllMarketplaces();
     expect(all.map((m) => m.name)).toContain('lenne-tech-internal');
     expect(all).toHaveLength(BUILTIN_MARKETPLACES.length + 1);

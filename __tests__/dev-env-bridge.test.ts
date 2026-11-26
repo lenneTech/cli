@@ -45,6 +45,7 @@ const fakeDevEnv: DevEnv = {
       API_URL: 'https://api.crm.localhost',
       APP_URL: 'https://crm.localhost',
       BASE_URL: 'https://api.crm.localhost',
+      NG_PUBLIC_STORAGE_PREFIX: 'crm',
       NSC__APP_URL: 'https://crm.localhost',
       NSC__BASE_URL: 'https://api.crm.localhost',
       NSC__MONGOOSE__URI: 'mongodb://127.0.0.1/crm-local',
@@ -85,7 +86,9 @@ describe('dev-env-bridge', () => {
       const content = readFileSync(file, 'utf8');
       expect(content).toContain('NUXT_PUBLIC_SITE_URL=https://crm.localhost');
       expect(content).toContain('NUXT_PUBLIC_API_URL=https://api.crm.localhost');
-      expect(content).toContain('NUXT_PUBLIC_STORAGE_PREFIX=crm');
+      expect(content).toContain('NG_PUBLIC_STORAGE_PREFIX=crm');
+      // Not forwarded even when present: nothing in the Nuxt stack reads it.
+      expect(content).not.toContain('NUXT_PUBLIC_STORAGE_PREFIX');
       expect(content).toContain('NSC__MONGOOSE__URI=mongodb://127.0.0.1/crm-local');
       expect(content).toContain('LT_DEV_ACTIVE=true');
       expect(content).toContain('LT_DEV_DB_NAME=crm-local');

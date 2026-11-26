@@ -519,9 +519,9 @@ lt dev up
 | `NUXT_API_URL` | Nuxt vite-proxy target for `/api`, `/iam`, … | `https://api.crm.localhost` |
 | `NUXT_PUBLIC_API_URL` | Nuxt `useRuntimeConfig().public.apiUrl` | `https://api.crm.localhost` |
 | `NUXT_PUBLIC_SITE_URL` | Nuxt `useRuntimeConfig().public.siteUrl` + Playwright | `https://crm.localhost` |
-| `NUXT_PUBLIC_STORAGE_PREFIX` | namespaces sessionStorage/localStorage | `crm` |
 | `NUXT_PUBLIC_API_PROXY` | always `false` — Caddy + cookie-domain make it obsolete | `false` |
-| `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_STORAGE_PREFIX`, `NG_PUBLIC_API_PROXY` | the same values for an Angular app (ng-base-starter reads `NG_*`); set for every app, whatever its framework | as their `NUXT_*` counterparts |
+| `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_API_PROXY` | the same values for an Angular app (ng-base-starter reads `NG_*`); set for every app, whatever its framework | as their `NUXT_*` counterparts |
+| `NG_PUBLIC_STORAGE_PREFIX` | namespaces localStorage of an Angular app (ng-base's `LtStorageService`). A Nuxt app gets no prefix: nothing in the Nuxt stack reads `NUXT_PUBLIC_STORAGE_PREFIX`, and browser storage is per origin anyway | `crm` |
 | `NUXT_SESSION_PASSWORD` | Nuxt/h3 `useSession` — only projects that added h3 sessions or `nuxt-auth-utils` read it; the Better-Auth default stack ignores it | `a1b2…` (32 hex chars) |
 | `NSC__MONGOOSE__URI` | nest-server Mongoose URI — not for an API on SQL alone (see below) | `mongodb://127.0.0.1/crm-local` |
 | `NSC__DATABASE__URL` | nest-server `database.url` (API only, projects on PostgreSQL / MySQL / MariaDB) | the project's URL, database replaced: `postgres://crm_app:…@127.0.0.1:5432/crm-2314` |
@@ -564,8 +564,8 @@ to 32 hex chars. `lt dev` only fills the gap — it never replaces a value the p
 
 The salt lives at `~/.lenneTech/dev-session-salt` (created once, mode 0600; override the path with
 `LT_DEV_SESSION_SALT_PATH`). It is what makes the value unguessable: the slug itself is public —
-the app ships it to every browser as `NUXT_PUBLIC_STORAGE_PREFIX`, and `lt dev tunnel` can put
-that app on a public URL — so an unsalted derivation would hand any visitor the key that seals
+it is the app's hostname, an Angular app ships it to every browser as `NG_PUBLIC_STORAGE_PREFIX`,
+and `lt dev tunnel` can put that app on a public URL — so an unsalted derivation would hand any visitor the key that seals
 the stack's session cookies. Keying on the slug also means the dev stack, the `lt dev test` stack
 and each `--shard` stack get **different** passwords, so one stack's cookies never validate
 against another's.
@@ -809,9 +809,9 @@ The test DB outlives the run: the CLI never drops it. That is why step 2 migrate
 |-----|--------|
 | `BASE_URL`, `APP_URL`, `NSC__BASE_URL`, `NSC__APP_URL` | Identity → `https://api.<slug>.localhost` / `https://<slug>.localhost` |
 | `NUXT_API_URL`, `NUXT_PUBLIC_API_URL`, `NUXT_PUBLIC_SITE_URL` | Same URLs for Nuxt |
-| `NUXT_PUBLIC_STORAGE_PREFIX` | Project slug |
 | `NUXT_PUBLIC_API_PROXY` | Always `false` under `lt dev` |
-| `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_STORAGE_PREFIX`, `NG_PUBLIC_API_PROXY` | The same values for an Angular app |
+| `NG_API_URL`, `NG_PUBLIC_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_API_PROXY` | The same values for an Angular app |
+| `NG_PUBLIC_STORAGE_PREFIX` | Project slug (Angular apps; no Nuxt counterpart) |
 | `NUXT_SESSION_PASSWORD` | The app process's h3 session password — lets a suite tell a stack that can log in from one that 500s on every login, and seal its own cookie to skip the login form |
 | `NSC__MONGOOSE__URI`, `DATABASE_URL` | Project-namespaced DB URI (when `dbName` known) |
 | `LT_DEV_ACTIVE`, `LT_DEV_DB_NAME` | Marker keys for consumers |
@@ -1360,7 +1360,7 @@ lt fullstack add-app [options]
 - `projects/app/` already exists → suggests `lt fullstack init` in a fresh directory
 - no workspace detected at the target path → asks the user to run `lt fullstack init` first
 
-**Side effects:** patches `projects/app/.env` with a project-specific `NUXT_PUBLIC_STORAGE_PREFIX`, optionally vendorizes `nuxt-extensions` into `app/core/`, hoists workspace-scoped `pnpm.overrides`, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set). It warns (`[workspace] …`) when two sources set the same pnpm key to different values, when hoisting widens the audit suppressions workspace-wide, or when it overwrites a value an earlier run hoisted from the other sub-project; the warnings do not change the exit code and are repeated at the end of the run.
+**Side effects:** patches `projects/app/.env` of an Angular app with a project-specific `NG_PUBLIC_STORAGE_PREFIX`, optionally vendorizes `nuxt-extensions` into `app/core/`, hoists workspace-scoped `pnpm.overrides`, runs `pnpm install` + `oxfmt` on the new sub-project (unless `--skip-install` is set). It warns (`[workspace] …`) when two sources set the same pnpm key to different values, when hoisting widens the audit suppressions workspace-wide, or when it overwrites a value an earlier run hoisted from the other sub-project; the warnings do not change the exit code and are repeated at the end of the run.
 
 **Configuration:** Reads `commands.fullstack.*` (same keys as `lt fullstack init`).
 

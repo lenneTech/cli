@@ -39,7 +39,7 @@ describe('marketplace-config', () => {
       name: 'lenne-tech-internal',
       private: true,
       provider: 'git',
-      source: 'git@gitlab.lenne.tech:intern/claude-code-internal.git',
+      source: 'git@gitlab.example.com:intern/claude-code-internal.git',
     };
     upsertConfiguredMarketplace(entry);
 
@@ -50,7 +50,7 @@ describe('marketplace-config', () => {
       name: 'lenne-tech-internal',
       private: true,
       provider: 'git',
-      source: 'git@gitlab.lenne.tech:intern/claude-code-internal.git',
+      source: 'git@gitlab.example.com:intern/claude-code-internal.git',
     });
   });
 

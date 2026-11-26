@@ -182,9 +182,11 @@ export class FrontendHelper {
       return;
     }
 
-    // Replace the storage prefix with a project-specific one: NUXT_PUBLIC_STORAGE_PREFIX in a
-    // Nuxt app, NG_PUBLIC_STORAGE_PREFIX in an Angular app (ng-base-starter).
-    content = content.replace(/^((?:NUXT|NG)_PUBLIC_STORAGE_PREFIX=).*$/gm, `$1${projectName}-local`);
+    // Replace the storage prefix of an Angular app (ng-base-starter) with a project-specific one;
+    // ng-base's LtStorageService reads it. A Nuxt app has none to patch: nothing in the Nuxt stack
+    // reads `NUXT_PUBLIC_STORAGE_PREFIX` (nuxt-base-starter 4.0.7 dropped it), so an older
+    // template's line is left as it is.
+    content = content.replace(/^(NG_PUBLIC_STORAGE_PREFIX=).*$/gm, `$1${projectName}-local`);
 
     filesystem.write(envPath, content);
   }

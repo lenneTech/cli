@@ -84,7 +84,6 @@ export function writeEnvBridge(projectRoot: string, devEnv: DevEnv, dbName?: str
     'NUXT_API_URL',
     'NUXT_PUBLIC_API_URL',
     'NUXT_PUBLIC_SITE_URL',
-    'NUXT_PUBLIC_STORAGE_PREFIX',
     'NUXT_PUBLIC_API_PROXY',
     // The same values for an Angular app (see dev-env.ts).
     'NG_API_URL',

@@ -71,7 +71,8 @@ import { detectFrontendKind } from '../../lib/frontend-kind';
  *
  * Env-vars injected (see lib/dev-env.ts):
  *   PORT, BASE_URL, APP_URL, NUXT_API_URL, NUXT_PUBLIC_API_URL,
- *   NUXT_PUBLIC_SITE_URL, NUXT_PUBLIC_STORAGE_PREFIX,
+ *   NUXT_PUBLIC_SITE_URL, NG_* (the same values for an Angular app, plus
+ *   NG_PUBLIC_STORAGE_PREFIX), NUXT_SESSION_PASSWORD,
  *   NSC__MONGOOSE__URI, NSC__BASE_URL, NSC__APP_URL, DATABASE_URL,
  *   NUXT_PUBLIC_API_PROXY=false (Caddy makes vite-proxy obsolete).
  */

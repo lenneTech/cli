@@ -10,7 +10,10 @@
  * - `BASE_URL`/`APP_URL` lock the API to its own App origin (CORS + BetterAuth)
  * - `NUXT_PUBLIC_*` lock the App to its own API (`NG_PUBLIC_*` / `NG_API_URL` carry the
  *   same values for an Angular app; both sets go to every app)
- * - `NUXT_PUBLIC_STORAGE_PREFIX` / `NG_PUBLIC_STORAGE_PREFIX` namespace localStorage/sessionStorage
+ * - `NG_PUBLIC_STORAGE_PREFIX` namespaces localStorage/sessionStorage of an Angular app (ng-base's
+ *   `LtStorageService` reads it). A Nuxt app gets no `NUXT_PUBLIC_STORAGE_PREFIX`: nothing in the
+ *   Nuxt stack reads it (nuxt-base-starter 4.0.7 dropped it), and browser storage is per origin,
+ *   which `lt dev` already makes unique per stack.
  * - `NSC__MONGOOSE__URI` / `DATABASE_URL` namespace the database per project
  * - `NSC__DATABASE__URL` / `NSC__DATABASE__OWNER_URL` (API only) give a project on
  *   PostgreSQL / MySQL / MariaDB its own database per stack (see `dev-sql.ts`)
@@ -167,7 +170,6 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         // both subdomains under HTTPS with shared cookie domain, so
         // same-origin trickery is no longer required.
         NUXT_PUBLIC_API_PROXY: 'false',
-        NUXT_PUBLIC_STORAGE_PREFIX: identity.slug,
         // The same values under the names an Angular app (ng-base-starter) reads. Set for
         // every app, whatever its framework: the SSR server of either one reads only its own
         // prefix, and choosing by framework here would make a stack depend on a detection
@@ -194,9 +196,10 @@ export function buildDevEnv(input: BuildDevEnvInput): DevEnv {
         // Keyed on the SLUG, so the dev stack, the `-test` stack and every `-test-N` shard
         // stack get DIFFERENT values (see `testStackNames`) — that is what stops one stack's
         // cookies from validating against another's. Salted per machine, because the slug is
-        // public: it is the app's own `NUXT_PUBLIC_STORAGE_PREFIX` and ships in every SSR
-        // payload, and `lt dev tunnel` can put that app on a public URL. An unsalted
-        // derivation would hand any visitor the key that seals its sessions.
+        // public: it is the hostname (`<slug>.localhost`), an Angular app ships it as
+        // `NG_PUBLIC_STORAGE_PREFIX` in every SSR payload, and `lt dev tunnel` can put the app
+        // on a public URL. An unsalted derivation would hand any visitor the key that seals
+        // its sessions.
         //
         // Inert for the standard lt stack — nuxt-base-starter and nuxt-extensions
         // authenticate via Better Auth, not h3 sessions. This exists for projects that added
@@ -270,7 +273,8 @@ function buildPostgresUrl(dbName: string): string {
  * while a different slug (or a different developer's machine) gets a different one.
  *
  * The machine salt is what makes it unguessable. Without it the only input is the slug, which
- * the app publishes itself via `NUXT_PUBLIC_STORAGE_PREFIX`, so anyone who loaded a page —
+ * is the app's own hostname (and an Angular app's `NG_PUBLIC_STORAGE_PREFIX`), so anyone who
+ * loaded a page —
  * including any visitor of a `lt dev tunnel` URL — could recompute the key and forge a sealed
  * session cookie. With it, an attacker would have to read the developer's home directory.
  */

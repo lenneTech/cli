@@ -86,7 +86,7 @@ cat > app-fixture/package.json <<'EOF'
 }
 EOF
 cat > app-fixture/.env.example <<'EOF'
-NUXT_PUBLIC_STORAGE_PREFIX=fixture-local
+NUXT_PUBLIC_SITE_URL=http://localhost:3001
 EOF
 
 # ── Scenario 1: add-api dry-run + real copy into workspace ────────────
@@ -177,10 +177,10 @@ else
   fail "projects/app/package.json missing"
 fi
 if [ -f "projects/app/.env" ]; then
-  if grep -q "NUXT_PUBLIC_STORAGE_PREFIX=" projects/app/.env; then
-    pass "projects/app/.env was patched with NUXT_PUBLIC_STORAGE_PREFIX"
+  if grep -q "NUXT_PUBLIC_SITE_URL=" projects/app/.env; then
+    pass "projects/app/.env was created from .env.example"
   else
-    fail "projects/app/.env did not get NUXT_PUBLIC_STORAGE_PREFIX patched"
+    fail "projects/app/.env does not carry the .env.example content"
   fi
 else
   fail "projects/app/.env missing (.env.example was not copied → patched)"

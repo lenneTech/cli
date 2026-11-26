@@ -277,7 +277,9 @@ const NewCommand: GluegunCommand = {
         );
         info(`  3. vendor projects/ng-base → projects/app/src/core/ + tsconfig paths (no import rewrite)`);
       }
-      info(`  N. patch projects/app/.env with the storage prefix and CLAUDE.md with the frontend blocks`);
+      info(
+        `  N. create projects/app/.env from .env.example${frontend === 'angular' ? ' (with a project-specific NG_PUBLIC_STORAGE_PREFIX)' : ''} and patch CLAUDE.md with the frontend blocks`,
+      );
       if (!skipInstall) info(`  M. pnpm install + format projects/app`);
       info('');
       return `fullstack add-app dry-run (${frontend} / ${frontendFrameworkMode})`;

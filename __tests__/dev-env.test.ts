@@ -49,7 +49,9 @@ describe('dev-env / buildDevEnv', () => {
     expect(env.app.env.PORT).toBe('4011');
     expect(env.app.env.NUXT_PUBLIC_API_URL).toBe('https://api.crm.localhost');
     expect(env.app.env.NUXT_PUBLIC_SITE_URL).toBe('https://crm.localhost');
-    expect(env.app.env.NUXT_PUBLIC_STORAGE_PREFIX).toBe('crm');
+    // Nothing in the Nuxt stack reads it (nuxt-base-starter 4.0.7 dropped it), and browser storage
+    // is per origin, which every stack has of its own. An Angular app keeps NG_PUBLIC_STORAGE_PREFIX.
+    expect(env.app.env).not.toHaveProperty('NUXT_PUBLIC_STORAGE_PREFIX');
   });
 
   test('an Angular app gets the same values under NG_* (both sets go to every app)', () => {
@@ -224,8 +226,9 @@ describe('dev-env / buildDevEnv', () => {
   });
 
   test('salts the derivation per machine, so the slug alone does not yield the password', () => {
-    // The slug is public: the app publishes it as `NUXT_PUBLIC_STORAGE_PREFIX` in every SSR
-    // payload, and `lt dev tunnel` can put that app on a public URL. If the slug were the only
+    // The slug is public: it is the app's hostname, an Angular app publishes it as
+    // `NG_PUBLIC_STORAGE_PREFIX` in every SSR payload, and `lt dev tunnel` can put that app on a
+    // public URL. If the slug were the only
     // input, any visitor could recompute the key that seals the stack's session cookies.
     const withFirstSalt = buildDevEnv({ apiInternalPort: 4010, appInternalPort: 4011, identity: fullIdentity }).app.env
       .NUXT_SESSION_PASSWORD;

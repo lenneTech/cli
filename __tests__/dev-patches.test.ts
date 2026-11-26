@@ -667,13 +667,14 @@ describe('dev-patches', () => {
         'NUXT_API_URL',
         'NUXT_PUBLIC_API_URL',
         'NUXT_PUBLIC_SITE_URL',
-        'NUXT_PUBLIC_STORAGE_PREFIX',
         'NUXT_SESSION_PASSWORD',
         'NSC__MONGOOSE__URI',
         'DATABASE_URL',
       ]) {
         expect(out).toContain(`\`${key}\``);
       }
+      // `lt dev up` no longer sets it (nothing in the Nuxt stack reads it), so the block must not name it.
+      expect(out).not.toContain('NUXT_PUBLIC_STORAGE_PREFIX');
     });
     test('points a script at the loopback env vars, never at a port number', () => {
       // The block used to carry `from a script: http://127.0.0.1:4031`. CLAUDE.md is committed,

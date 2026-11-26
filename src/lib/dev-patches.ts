@@ -254,18 +254,14 @@ export function patchClaudeMd(
   }
   if (dbName && (databases?.mongo ?? true)) lines.push(`- DB: \`mongodb://127.0.0.1/${dbName}\``);
   lines.push('');
-  // An Angular app reads the same values as `NG_*` (`dev-env.ts`). Only its block names them: a
-  // Nuxt project's block stays byte for byte what it was, for the reason given above.
+  // An Angular app reads the same values as `NG_*` (`dev-env.ts`). Only its block names them, so a
+  // Nuxt project's block does not change with the Angular support. It lost
+  // `NUXT_PUBLIC_STORAGE_PREFIX` in 1.60.0, when `lt dev` stopped setting it (nothing in the Nuxt
+  // stack reads it): the block names only what `lt dev up` sets.
   const appVars =
     frontend === 'angular'
       ? ['`NG_API_URL`', '`NG_PUBLIC_API_URL`', '`NG_PUBLIC_SITE_URL`', '`NG_PUBLIC_STORAGE_PREFIX`']
-      : [
-          '`NUXT_API_URL`',
-          '`NUXT_PUBLIC_API_URL`',
-          '`NUXT_PUBLIC_SITE_URL`',
-          '`NUXT_PUBLIC_STORAGE_PREFIX`',
-          '`NUXT_SESSION_PASSWORD`',
-        ];
+      : ['`NUXT_API_URL`', '`NUXT_PUBLIC_API_URL`', '`NUXT_PUBLIC_SITE_URL`', '`NUXT_SESSION_PASSWORD`'];
   const envVars = sqlProject
     ? [
         '`BASE_URL`',
