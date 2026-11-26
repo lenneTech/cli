@@ -10,14 +10,18 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import { envWithStubPnpm } from './support/stub-pnpm';
+
 describe('fullstack init without a git identity', () => {
   test('stops with the git config commands and leaves no directory behind', () => {
     const tmp = mkdtempSync(join(tmpdir(), 'lt-identity-'));
+    // Without pnpm on PATH init refuses earlier, for that reason (see support/stub-pnpm.ts).
+    const stubPnpm = envWithStubPnpm();
     try {
       // The test's own global config, no system config: never the developer's identity.
       const configFile = join(tmp, 'gitconfig');
       writeFileSync(configFile, '[user]\n\tuseConfigOnly = true\n');
-      const env = { ...process.env, GIT_CONFIG_GLOBAL: configFile, GIT_CONFIG_NOSYSTEM: '1' };
+      const env = { ...stubPnpm.env, GIT_CONFIG_GLOBAL: configFile, GIT_CONFIG_NOSYSTEM: '1' };
       for (const key of ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL']) {
         delete env[key];
       }
@@ -44,6 +48,7 @@ describe('fullstack init without a git identity', () => {
       expect(existsSync(join(tmp, 'shop'))).toBe(false);
     } finally {
       rmSync(tmp, { force: true, recursive: true });
+      stubPnpm.cleanup();
     }
   }, 180_000);
 });
