@@ -14,7 +14,10 @@ objects, runs several projects side by side behind HTTPS URLs (`lt dev`) and pre
 
 ```bash
 npm install -g @lenne.tech/cli
+npm install -g pnpm@11   # lt fullstack init and lt dev run on pnpm 11
 ```
+
+On Windows, one command sets up a machine from zero: see [Windows](./windows.md).
 
 ## Usage
 
@@ -41,6 +44,7 @@ lt completion install  # enable shell completions
 | [Command Reference](./commands.md) | Every command with its options and examples |
 | [lt.config](./lt.config.md) | The configuration file with defaults per project or team |
 | [Plugins](./plugins.md) | Extending lt with your own commands and toolbox extensions |
+| [Windows](./windows.md) | Setting up a Windows machine from zero, and what differs from macOS |
 
 Plugin and command helpers used inside the CLI come from
 [`@lenne.tech/cli-plugin-helper`](https://github.com/lenneTech/cli-plugin-helper), an internal package that has no

@@ -1221,6 +1221,12 @@ any more. The same contract holds for `lt fullstack add-api` / `add-app`, which
 `init` delegates to inside an existing workspace. A cancelled interactive prompt
 is not a failure and still exits `0`.
 
+**Before it starts.** `init` checks that git and pnpm are on PATH (pnpm is skipped with `--next`,
+which leaves the install to you), before the first prompt. A missing tool stops it with exit `1` and
+the command that installs it; `--dry-run` only reports it. The git identity for the initial commit
+is checked after the prompts and before the first clone (not in a dry run); `lt doctor` checks it
+up front. `--git-link <url>` on the command line wins over `lt.config` in every mode, `--noConfirm`
+without `--git true` included.
 
 Creates a new fullstack workspace with API and frontend.
 
@@ -1794,8 +1800,8 @@ lt doctor [options]
 
 Checks:
 - Node.js version
-- npm version
-- Git installation
+- The package manager of the current directory, and pnpm in any case (`lt fullstack init` and `lt dev` run on it). On Windows a pnpm other than 11 is a warning: pnpm 12 downloads the pinned version as a native binary, which Smart App Control can block. A pnpm that exists but fails to start is reported apart from a missing one.
+- Git installation (with the install command for your platform) and the git identity `lt fullstack init` needs for its initial commit
 - lt CLI version and updates
 - Project configuration
 - Dependencies installation

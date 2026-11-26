@@ -3,10 +3,14 @@ import { get } from 'https';
 import { join } from 'path';
 
 import { ExtendedGluegunToolbox } from '../interfaces/extended-gluegun-toolbox';
+import { spawnArgs } from '../lib/exec-args';
+import { GIT_IDENTITY_FIX, gitIdentityProblem } from '../lib/git-identity';
+import { gitInstallHint, packageManagerProbes, pnpmInstallHint, pnpmMajorIssue } from '../lib/toolchain-preflight';
 
 interface CheckResult {
   details?: string;
-  fix?: string;
+  /** One command per entry; several are printed one per line (PowerShell 5.1 has no `&&`). */
+  fix?: string | string[];
   name: string;
   status: 'error' | 'ok' | 'warning';
 }
@@ -120,20 +124,43 @@ const DoctorCommand: GluegunCommand = {
       });
     }
 
-    // Check package manager
-    const detectedPm = toolbox.pm.detect();
-    const npmSpinner = spin(`Checking package manager (${detectedPm})...`);
-    try {
-      const pmVersion = await system.run(`${detectedPm} --version`);
-      npmSpinner.succeed(`${detectedPm} ${pmVersion?.trim()}`);
-      checks.push({ name: `Package Manager (${detectedPm})`, status: 'ok' });
-    } catch {
-      npmSpinner.fail(`${detectedPm} not found`);
-      checks.push({
-        fix: `Install ${detectedPm}`,
-        name: `Package Manager (${detectedPm})`,
-        status: 'error',
-      });
+    // Check package manager. pnpm is always checked: lt fullstack init and lt dev run on pnpm,
+    // whatever manager the current directory uses (npm is needed anyway, it installed lt). Where
+    // each check runs: see packageManagerProbes.
+    for (const { cwd: probeCwd, manager } of packageManagerProbes(toolbox.pm.detect(), filesystem.cwd())) {
+      const pmSpinner = spin(`Checking package manager (${manager})...`);
+      try {
+        // Argument list, no shell: npm and pnpm are .cmd shims on Windows (see exec-args.ts).
+        const pmVersion = await spawnArgs(manager, ['--version'], { cwd: probeCwd });
+        const majorIssue = manager === 'pnpm' ? pnpmMajorIssue(pmVersion) : null;
+        if (majorIssue) {
+          pmSpinner.warn(`${manager} ${pmVersion.trim()}`);
+          checks.push({
+            details: majorIssue,
+            fix: pnpmInstallHint(),
+            name: `Package Manager (${manager})`,
+            status: 'warning',
+          });
+        } else {
+          pmSpinner.succeed(`${manager} ${pmVersion.trim()}`);
+          checks.push({ name: `Package Manager (${manager})`, status: 'ok' });
+        }
+      } catch (err) {
+        // "not found" only when it is missing. A pnpm that exists but fails to start (on Windows:
+        // the version it switches to was blocked by Smart App Control) gets its own first line.
+        const missing = (err as NodeJS.ErrnoException)?.code === 'ENOENT';
+        const reason = String((err as { stderr?: string })?.stderr ?? '')
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean);
+        pmSpinner.fail(missing ? `${manager} not found` : `${manager} failed to start`);
+        checks.push({
+          details: missing ? (manager === 'pnpm' ? 'lt fullstack init and lt dev need pnpm' : undefined) : reason,
+          fix: manager === 'pnpm' ? pnpmInstallHint() : `Install ${manager}`,
+          name: `Package Manager (${manager})`,
+          status: 'error',
+        });
+      }
     }
 
     // Check git
@@ -142,10 +169,22 @@ const DoctorCommand: GluegunCommand = {
       const gitVersion = await system.run('git --version');
       gitSpinner.succeed(gitVersion?.trim());
       checks.push({ name: 'Git', status: 'ok' });
+
+      // The question lt fullstack init asks before its first write (see git-identity.ts),
+      // for a project created in the current directory.
+      const identitySpinner = spin('Checking Git identity...');
+      const identityProblem = await gitIdentityProblem(filesystem.cwd());
+      if (identityProblem) {
+        identitySpinner.fail('Git identity not set');
+        checks.push({ details: identityProblem, fix: GIT_IDENTITY_FIX, name: 'Git identity', status: 'error' });
+      } else {
+        identitySpinner.succeed('Git identity set');
+        checks.push({ name: 'Git identity', status: 'ok' });
+      }
     } catch {
       gitSpinner.fail('Git not found');
       checks.push({
-        fix: 'Install Git from https://git-scm.com',
+        fix: gitInstallHint(),
         name: 'Git',
         status: 'error',
       });
@@ -164,7 +203,8 @@ const DoctorCommand: GluegunCommand = {
         checks.push({ name: 'lt CLI', status: 'ok' });
       } else {
         try {
-          const latestVersion = await system.run('npm view @lenne.tech/cli version 2>/dev/null');
+          // No shell: `2>/dev/null` is a path on Windows, and cmd.exe refused to run the command.
+          const latestVersion = await spawnArgs('npm', ['view', '@lenne.tech/cli', 'version']);
           if (latestVersion?.trim() && latestVersion.trim() !== currentVersion) {
             ltSpinner.warn(`lt CLI v${currentVersion} (v${latestVersion.trim()} available)`);
             checks.push({
@@ -271,9 +311,10 @@ const DoctorCommand: GluegunCommand = {
         if (check.details) {
           info(colors.dim(`    ${check.details}`));
         }
-        if (check.fix) {
-          info(colors.cyan(`    Fix: ${check.fix}`));
-        }
+        const fixLines = check.fix === undefined ? [] : ([] as string[]).concat(check.fix);
+        fixLines.forEach((line, index) => {
+          info(colors.cyan(`    ${index === 0 ? 'Fix:' : '    '} ${line}`));
+        });
       }
     }
 

@@ -14,7 +14,13 @@ import { filesystem, system } from 'gluegun';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
+import { envWithStubPnpm } from './support/stub-pnpm';
+
 const src: string = filesystem.path(__dirname, '..');
+
+// `lt fullstack init` refuses without pnpm before any of the paths under test (see stub-pnpm.ts).
+const stubPnpm = envWithStubPnpm();
+afterAll(() => stubPnpm.cleanup());
 
 // Scratch dirs are created OUTSIDE the cli repo (under the OS temp dir). The
 // CLI's workspace detection walks UP from the cwd, so a temp dir nested inside
@@ -50,7 +56,7 @@ function makeTempDir(prefix: string): string {
  */
 async function runCli(cmd: string, cwd: string): Promise<string> {
   try {
-    return await system.run(`node "${filesystem.path(src, 'bin', 'lt')}" ${cmd}`, { cwd });
+    return await system.run(`node "${filesystem.path(src, 'bin', 'lt')}" ${cmd}`, { cwd, env: stubPnpm.env });
   } catch (err) {
     const e = err as { stderr?: string; stdout?: string };
     return `${e.stdout ?? ''}\n${e.stderr ?? ''}`;

@@ -15,8 +15,20 @@ CLI in action:
 
 ## Installation
 
+Prerequisites: [Node.js](https://nodejs.org) LTS, [git](https://git-scm.com) with a configured identity
+(`git config --global user.name` / `user.email`), and [pnpm](https://pnpm.io) 11 for `lt fullstack init`
+and `lt dev`. `lt doctor` checks all of them.
+
 ```
 $ npm install -g @lenne.tech/cli
+$ npm install -g pnpm@11
+```
+
+**Windows** (native, PowerShell, no WSL): one command sets up a machine from zero, see
+[docs/windows.md](docs/windows.md) for what it does and for the manual steps.
+
+```powershell
+irm https://raw.githubusercontent.com/lenneTech/cli/main/scripts/windows/setup.ps1 | iex
 ```
 
 ## Usage

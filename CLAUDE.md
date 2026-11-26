@@ -2196,6 +2196,19 @@ command `require`s the crawler inside `run()`, after `crawlerSupportsNode`
 then costs `lt tools crawl` alone, with a clear message. **Rule:** a dependency that raises the Node
 floor goes behind a lazy `require` in the command that uses it.
 
+### Windows setup and the pnpm major travel together <!-- Added: 2026-11-25 -->
+`scripts/windows/setup.ps1` sets up a Windows machine from zero (`irm … | iex`, URL printed in
+`README.md` and `docs/windows.md`); `docs/windows.md` documents the same steps by hand. Change
+both together: `__tests__/windows-setup-script.test.ts` pins the shared facts (every winget id,
+`core.autocrlf input`, pnpm 11, the quoted `@lenne.tech/cli`) and the script's constraints (ASCII
+only, no `exit`, PowerShell 5.1 syntax; check the latter with pwsh's parser, the suite cannot).
+`PNPM_MAJOR` (`src/lib/toolchain-preflight.ts`) is the pnpm major lt-monorepo pins in
+`packageManager`, and the script installs the same one; raise all three together. pnpm 12 is a
+native binary that downloads the pinned version as another native binary, which Smart App Control
+blocked (DEV-3320, CodeIntegrity event 3033); pnpm 11 from npm runs in the signed `node.exe`.
+`lt fullstack init` and `lt doctor` name a missing pnpm before the work starts; the git identity
+check stays in `git-identity.ts`. Ported 2026-11-25 from the Windows workshop branch.
+
 ### Running lt CLI Commands (AI Agent Usage)
 When executing `lt` commands, prefer explicit parameters over interactive prompts where possible. The CLI will show a hint in non-interactive mode, but you can avoid it by providing the required flags:
 ```bash

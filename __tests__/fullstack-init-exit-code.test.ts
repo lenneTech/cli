@@ -34,6 +34,8 @@
  * surface, the frontend helper and the package manager, which is why the
  * neighbouring `fullstack-init-*` specs assert against the source too.
  */
+import { envWithStubPnpm } from './support/stub-pnpm';
+
 describe('Fullstack scaffolding exit codes', () => {
   // Lazy require to avoid colliding with the top-level `fs` / `path`
   // declarations in other test files (see the header comment in
@@ -141,12 +143,14 @@ describe('Fullstack scaffolding exit codes', () => {
     const os = require('os') as typeof import('os');
 
     const tmp = nodeFs.mkdtempSync(nodePath.join(os.tmpdir(), 'lt-exit-'));
+    // Without pnpm on PATH init refuses earlier, for that reason (see support/stub-pnpm.ts).
+    const stubPnpm = envWithStubPnpm();
     try {
       nodeFs.mkdirSync(nodePath.join(tmp, 'occupied'));
       const result = spawnSync(
         process.execPath,
         [nodePath.join(__dirname, '..', 'bin', 'lt'), 'fullstack', 'init', '--name', 'occupied', '--frontend', 'nuxt', '--noConfirm'],
-        { cwd: tmp, encoding: 'utf8', timeout: 120_000 },
+        { cwd: tmp, encoding: 'utf8', env: stubPnpm.env, timeout: 120_000 },
       );
 
       expect(result.status).toBe(1);
@@ -154,6 +158,7 @@ describe('Fullstack scaffolding exit codes', () => {
       expect(`${result.stdout}${result.stderr}`).toMatch(/already a folder named/i);
     } finally {
       nodeFs.rmSync(tmp, { force: true, recursive: true });
+      stubPnpm.cleanup();
     }
   }, 180_000);
 
