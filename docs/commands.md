@@ -1486,8 +1486,19 @@ checklist names the variables of the app's framework:
 
 | Frontend | Stage env vars |
 |----------|----------------|
-| Nuxt | `NUXT_PUBLIC_API_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_SITE_URL` |
-| Angular (ng-base-starter) | `NG_PUBLIC_API_URL`, `NG_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_APP_ENV` (`production`; dev stage `develop`; decides whether ng-base's bug reporting is active, unset counts as `production`). Optional server-only secrets for bug reports to Linear: `NG_LINEAR_API_KEY`, `NG_LINEAR_TEAM_NAME`, `NG_LINEAR_PROJECT_NAME` |
+| Nuxt | `NUXT_PUBLIC_API_URL`, `NUXT_API_URL`, `NUXT_PUBLIC_SITE_URL`, `NUXT_PUBLIC_APP_ENV` (`production`; dev stage `develop`) |
+| Angular (ng-base-starter) | `NG_PUBLIC_API_URL`, `NG_API_URL`, `NG_PUBLIC_SITE_URL`, `NG_PUBLIC_APP_ENV` (`production`; dev stage `develop`; also decides whether ng-base's bug reporting is active). Optional server-only secrets for bug reports to Linear: `NG_LINEAR_API_KEY`, `NG_LINEAR_TEAM_NAME`, `NG_LINEAR_PROJECT_NAME` |
+
+`*_PUBLIC_APP_ENV` also decides whether search engines may index the stage: unset or exactly
+`production` is indexable, every other value is noindex. ng-base-starter does that since 22.0.0, a
+Nuxt app only with nuxt-base-starter's `server/plugins/site-indexing.ts`. Without that plugin a Nuxt
+stage stays indexable whatever `NUXT_PUBLIC_APP_ENV` says (nuxt-site-config judges by its own site
+environment, `production` in every build), so the checklist names `NUXT_PUBLIC_SITE_INDEXABLE=false`
+for its non-production stages instead.
+
+The checklist also names the optional first admin, `NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL` and
+`NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD`: deployed environments refuse `POST /system-setup/init`,
+so an empty database gets its first admin only from these, created on the next API start.
 
 Earlier CLI versions rewrote an Angular app's `environment.{prod,develop,test}.ts`
 instead; the current ng-base-starter has no such files.

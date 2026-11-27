@@ -168,6 +168,10 @@ describe('deployment create in an Angular workspace', () => {
     expect(output).not.toContain('NUXT_PUBLIC_API_URL');
     expect(output).not.toContain('environment.');
     expect(output).toContain('NG_PUBLIC_APP_ENV=production   (dev stage: develop)');
+    // ng-base-starter keeps every stage outside production out of the index since 22.0.0.
+    expect(output).toContain("stage out of search engines' index.");
+    expect(output).not.toContain('predates the noindex rule');
+    expect(output).toContain('NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL, NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD');
     expect(output).toContain('NG_LINEAR_API_KEY, NG_LINEAR_TEAM_NAME, NG_LINEAR_PROJECT_NAME');
     // The Linear values are secrets: never printed as a value assignment.
     expect(output).not.toMatch(/NG_LINEAR_\w+=/);
@@ -184,5 +188,28 @@ describe('deployment create in an Angular workspace', () => {
     expect(output).toContain('NUXT_PUBLIC_API_URL=https://api.shop.example.com');
     expect(output).not.toContain('NG_');
     expect(output).not.toContain('LINEAR');
+    expect(output).toContain('NUXT_PUBLIC_APP_ENV=production   (dev stage: develop)');
+    expect(output).toContain('NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL, NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD');
+    // No site-indexing plugin: NUXT_PUBLIC_APP_ENV alone leaves a dev stage indexable.
+    expect(output).toContain('predates the noindex rule');
+    expect(output).toContain('NUXT_PUBLIC_SITE_INDEXABLE=false');
+    expect(output).not.toContain("stage out of search engines' index.");
+  });
+
+  test('a Nuxt app with the site-indexing plugin gets the noindex rule instead', async () => {
+    const ws = filesystem.path(TMP_ROOT, 'ws-deploy-nuxt-indexing');
+    seedWorkspaceWithApi(ws);
+    filesystem.write(filesystem.path(ws, 'package.json'), { name: 'shop', version: '0.0.0' });
+    filesystem.write(filesystem.path(ws, 'projects', 'app', 'nuxt.config.ts'), 'export default {};\n');
+    filesystem.write(filesystem.path(ws, 'projects', 'app', 'package.json'), { name: 'app' });
+    filesystem.write(
+      filesystem.path(ws, 'projects', 'app', 'server', 'plugins', 'site-indexing.ts'),
+      "export default defineNitroPlugin((nitroApp) => {\n  nitroApp.hooks.hook('site-config:init', ({ siteConfig }) => {\n    siteConfig.push({ _priority: 0, indexable: false });\n  });\n});\n",
+    );
+    const output = await runCli('deployment create Shop --domain shop.example.com --project shop --noConfirm', ws);
+    expect(output).toContain('NUXT_PUBLIC_APP_ENV=production   (dev stage: develop)');
+    expect(output).toContain("stage out of search engines' index.");
+    expect(output).not.toContain('predates the noindex rule');
+    expect(output).not.toContain('NG_');
   });
 });

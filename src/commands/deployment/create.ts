@@ -5,6 +5,7 @@ import { join } from 'path';
 import { ExtendedGluegunToolbox } from '../../interfaces/extended-gluegun-toolbox';
 import { apiConfiguresAi } from '../../lib/api-ai-config';
 import { detectFrontendKind } from '../../lib/frontend-kind';
+import { nuxtAppHidesNonProductionStages } from '../../lib/nuxt-site-indexing';
 import {
   isValidDomain,
   isValidProjectSlug,
@@ -323,13 +324,26 @@ const NewCommand: GluegunCommand = {
     info(`       ${prefix}_PUBLIC_API_URL=https://api.${domain}, ${prefix}_API_URL=https://api.${domain},`);
     info(`       ${prefix}_PUBLIC_SITE_URL=https://${domain}`);
     info(`       (dev stage: the same with dev.${domain} and api.dev.${domain})`);
+    // Read at request time by both frontends. ng-base's bug reporting (`@lenne.tech/ng-base/bug`)
+    // decides by it too; an unset value counts as production, i.e. reporting off (fail-closed).
+    info(`       ${prefix}_PUBLIC_APP_ENV=production   (dev stage: develop)`);
+    // ng-base-starter keeps every other stage out of the index since 22.0.0; a Nuxt app only with
+    // nuxt-base-starter's site-indexing plugin. Promise it only where the app has it.
+    if (isAngular || nuxtAppHidesNonProductionStages(appDir)) {
+      info('         (production: exactly `production`, or leave it unset. Any other value keeps the');
+      info("         stage out of search engines' index.)");
+    } else {
+      info('         (this app predates the noindex rule: a stage outside production also needs');
+      info('         NUXT_PUBLIC_SITE_INDEXABLE=false, or search engines index it)');
+    }
     if (isAngular) {
-      // ng-base's bug reporting (`@lenne.tech/ng-base/bug`) decides at runtime by this value; an
-      // unset value in a production build counts as production, i.e. reporting off (fail-closed).
-      info('       NG_PUBLIC_APP_ENV=production   (dev stage: develop)');
       info('     Optional secrets for bug reports to Linear (server only, masked, never public):');
       info('       NG_LINEAR_API_KEY, NG_LINEAR_TEAM_NAME, NG_LINEAR_PROJECT_NAME');
     }
+    // Deployed environments close POST /system-setup/init, so an empty database gets its first admin
+    // only from these (nest-server logs an error on every start until it has one).
+    info('     Optional, the first admin of an empty database (created on the next API start):');
+    info('       NSC__SYSTEM_SETUP__INITIAL_ADMIN__EMAIL, NSC__SYSTEM_SETUP__INITIAL_ADMIN__PASSWORD');
     info('  5. Commit `.turboops.json` — `turbo deploy` reads it from the repo root in CI.');
     info('');
     info('Then: push `dev` -> the dev stage, push `main` -> the production stage');
