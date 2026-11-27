@@ -2,14 +2,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
-import { nuxtAppHidesNonProductionStages, setsIndexableOnSiteConfigInit } from '../src/lib/nuxt-site-indexing';
+import {
+  declaresPublicAppEnv,
+  nuxtAppHidesNonProductionStages,
+  setsIndexableOnSiteConfigInit,
+} from '../src/lib/nuxt-site-indexing';
 
 /**
  * A deployed Nuxt dev stage with `NUXT_PUBLIC_APP_ENV=develop` answered `X-Robots-Tag: index, follow`
  * (smoke test, 2026-11-26): nuxt-site-config judges indexability by its own site environment, which is
  * `production` in every build. nuxt-base-starter's `server/plugins/site-indexing.ts` now pushes
  * `indexable: false` from `site-config:init`. `lt deployment create` promises the noindex rule only
- * for an app that has such a plugin, and names `NUXT_PUBLIC_SITE_INDEXABLE=false` for every other.
+ * for an app that has such a plugin and declares `runtimeConfig.public.appEnv`, which the plugin reads
+ * (Nitro applies `NUXT_PUBLIC_APP_ENV` only over a declared key), and names
+ * `NUXT_PUBLIC_SITE_INDEXABLE=false` for every other.
  */
 const STARTER_PLUGIN = `/**
  * Keep a deployment outside production out of search engines' index.
@@ -22,6 +28,39 @@ export default defineNitroPlugin((nitroApp) => {
   });
 });
 `;
+
+// The shape nuxt-base-starter's nuxt.config.ts has declared since 2.11.0.
+const STARTER_CONFIG = `const appEnv = process.env.NUXT_PUBLIC_APP_ENV || (process.env.NODE_ENV === 'development' ? 'local' : 'production');
+export default defineNuxtConfig({
+  runtimeConfig: {
+    public: {
+      // Any value other than \`production\` also makes the whole site noindex.
+      appEnv,
+      appVersion: '1.0.0',
+    },
+  },
+});
+`;
+
+describe('declaresPublicAppEnv', () => {
+  test("the starter's config counts, and so does an assigned value", () => {
+    expect(declaresPublicAppEnv(STARTER_CONFIG)).toBe(true);
+    const assigned = "export default { runtimeConfig: { public: { 'appEnv': process.env.APP_ENV } } };\n";
+    expect(declaresPublicAppEnv(assigned, 'nuxt.config.mjs')).toBe(true);
+  });
+
+  test('a public block without appEnv, or appEnv in the private runtimeConfig, does not', () => {
+    const noKey = "export default defineNuxtConfig({ runtimeConfig: { public: { apiUrl: '' } } });\n";
+    const privateKey = "export default defineNuxtConfig({ runtimeConfig: { appEnv: 'x', public: {} } });\n";
+    expect(declaresPublicAppEnv(noKey)).toBe(false);
+    expect(declaresPublicAppEnv(privateKey)).toBe(false);
+  });
+
+  test('a comment or a string that only mentions the key does not', () => {
+    const prose = "// runtimeConfig: { public: { appEnv } }\nexport const note = 'runtimeConfig.public.appEnv';\nexport default defineNuxtConfig({});\n";
+    expect(declaresPublicAppEnv(prose)).toBe(false);
+  });
+});
 
 describe('setsIndexableOnSiteConfigInit', () => {
   test("the starter's plugin counts", () => {
@@ -60,18 +99,30 @@ describe('nuxtAppHidesNonProductionStages', () => {
     writeFileSync(join(app, 'server', 'plugins', name), body);
   };
 
-  test('an app with the plugin under server/plugins', () => {
+  const config = (body: string) => writeFileSync(join(app, 'nuxt.config.ts'), body);
+
+  test('an app with the plugin under server/plugins and appEnv in its public runtime config', () => {
     plugin('site-indexing.ts', STARTER_PLUGIN);
+    config(STARTER_CONFIG);
     expect(nuxtAppHidesNonProductionStages(app)).toBe(true);
   });
 
+  test('the plugin without appEnv in the config does not count: it would read an empty value', () => {
+    plugin('site-indexing.ts', STARTER_PLUGIN);
+    expect(nuxtAppHidesNonProductionStages(app)).toBe(false);
+    config("export default defineNuxtConfig({ runtimeConfig: { public: { apiUrl: '' } } });\n");
+    expect(nuxtAppHidesNonProductionStages(app)).toBe(false);
+  });
+
   test('an app without server/plugins, or with other plugins only', () => {
+    config(STARTER_CONFIG);
     expect(nuxtAppHidesNonProductionStages(app)).toBe(false);
     plugin('security-headers.ts', "export default defineNitroPlugin((n) => { n.hooks.hook('render:response', () => {}); });\n");
     expect(nuxtAppHidesNonProductionStages(app)).toBe(false);
   });
 
   test('files that are no plugin source are not read', () => {
+    config(STARTER_CONFIG);
     plugin('README.md', STARTER_PLUGIN);
     expect(nuxtAppHidesNonProductionStages(app)).toBe(false);
   });

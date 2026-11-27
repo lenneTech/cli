@@ -200,7 +200,11 @@ describe('deployment create in an Angular workspace', () => {
     const ws = filesystem.path(TMP_ROOT, 'ws-deploy-nuxt-indexing');
     seedWorkspaceWithApi(ws);
     filesystem.write(filesystem.path(ws, 'package.json'), { name: 'shop', version: '0.0.0' });
-    filesystem.write(filesystem.path(ws, 'projects', 'app', 'nuxt.config.ts'), 'export default {};\n');
+    // The plugin reads runtimeConfig.public.appEnv, so the config has to declare it.
+    filesystem.write(
+      filesystem.path(ws, 'projects', 'app', 'nuxt.config.ts'),
+      'export default defineNuxtConfig({ runtimeConfig: { public: { appEnv: process.env.NUXT_PUBLIC_APP_ENV } } });\n',
+    );
     filesystem.write(filesystem.path(ws, 'projects', 'app', 'package.json'), { name: 'app' });
     filesystem.write(
       filesystem.path(ws, 'projects', 'app', 'server', 'plugins', 'site-indexing.ts'),
